@@ -45,6 +45,7 @@ import DatabaseConnectionView from './components/DatabaseConnectionView';
 import AdminPanelView from './components/AdminPanelView';
 import ProductionLedgerView from './components/ProductionLedgerView';
 import PlanOrderFollowupView from './components/PlanOrderFollowupView';
+import YarnAllocationView from './components/YarnAllocationView';
 import DashboardFilterToolbar, { FilterState } from './components/DashboardFilterToolbar';
 import { GasClient } from './lib/gasClient';
 import { FirestoreSyncService } from './lib/firestoreSync';
@@ -790,7 +791,7 @@ export default function App() {
                       )}
 
                       {/* Plan Order Followup Group */}
-                      {['Plan Order Followup', 'Buyer Plan vs Actual', 'Yarn Requirement', 'Delivery Schedule'].some(isTabAllowed) && (
+                      {['Plan Order Followup', 'Buyer Plan vs Actual', 'Yarn Allocation', 'Delivery Schedule'].some(isTabAllowed) && (
                         <div className="space-y-1 pt-1">
                           <div className="flex items-center gap-2 px-4 py-1.5 text-xs font-black uppercase text-indigo-400 tracking-wider">
                             <ClipboardList className="h-4 w-4 shrink-0" />
@@ -800,7 +801,7 @@ export default function App() {
                             {[
                               { name: 'Plan Order Followup', icon: ClipboardList, label: 'Order Plan & Status' },
                               { name: 'Buyer Plan vs Actual', icon: Target, label: 'Buyer Plan vs Actual' },
-                              { name: 'Yarn Requirement', icon: Layers, label: 'Yarn Requirement' },
+                              { name: 'Yarn Allocation', icon: Layers, label: 'Yarn Allocation' },
                               { name: 'Delivery Schedule', icon: CalendarCheck, label: 'Delivery Schedule' },
                             ].map((sub) => {
                               if (!isTabAllowed(sub.name)) return null;
@@ -1049,16 +1050,21 @@ export default function App() {
               </div>
             )}
 
-            {(currentPage === 'Plan Order Followup' || currentPage === 'Buyer Plan vs Actual' || currentPage === 'Yarn Requirement' || currentPage === 'Delivery Schedule') && (
+            {(currentPage === 'Plan Order Followup' || currentPage === 'Buyer Plan vs Actual' || currentPage === 'Delivery Schedule') && (
               <div className="animate-fade-in">
                 <PlanOrderFollowupView 
                   currentUser={currentUser}
                   initialSubTab={
                     currentPage === 'Buyer Plan vs Actual' ? 'buyer' :
-                    currentPage === 'Yarn Requirement' ? 'yarn' :
                     currentPage === 'Delivery Schedule' ? 'delivery' : 'summary'
                   } 
                 />
+              </div>
+            )}
+
+            {currentPage === 'Yarn Allocation' && (
+              <div className="animate-fade-in">
+                <YarnAllocationView />
               </div>
             )}
 

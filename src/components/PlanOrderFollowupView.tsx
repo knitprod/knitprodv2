@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { GasClient } from '../lib/gasClient';
 import { FirestoreSyncService } from '../lib/firestoreSync';
 import { UserRecord } from './UserManagementView';
@@ -236,8 +237,168 @@ const INITIAL_ORDERS: OrderPlan[] = [
   }
 ];
 
+export interface YarnAllocationRecord {
+  id: string;
+  actualRequisitionDate: string;
+  buyer: string;
+  orderNumber: string;
+  fabricsType: string;
+  fabricShade: string;
+  fabricGsm: number | string;
+  yarnRequired: string;
+  lotRef: string;
+  allocatedYarn: string;
+  lotNo: string;
+  spinnersName: string;
+  allocationStatus: string;
+  yarnStockStatus: string;
+  yarnDeliveryStatus: string;
+  proposedAllocationDate: string;
+  allocationDate: string;
+  allocationDateRange: string;
+  allocationNo: string;
+  yarnRqQty: number;
+  allocatedQty: number;
+  balance: number;
+  remarks: string;
+}
+
+export const INITIAL_YARN_ALLOCATIONS: YarnAllocationRecord[] = [
+  {
+    id: 'ya-1',
+    actualRequisitionDate: '28-Jun-25',
+    buyer: 'C&A',
+    orderNumber: '260796',
+    fabricsType: 'Fleece',
+    fabricShade: 'JS200049',
+    fabricGsm: 260,
+    yarnRequired: '24CC-PT',
+    lotRef: '',
+    allocatedYarn: '24OC NPOP OCS',
+    lotNo: 'GO8124A805',
+    spinnersName: 'Maral',
+    allocationStatus: 'Allocated',
+    yarnStockStatus: 'Stock Available',
+    yarnDeliveryStatus: 'Completed',
+    proposedAllocationDate: '',
+    allocationDate: '29-Jun-25',
+    allocationDateRange: '29-Jun-2025 To 08-Jul-2025',
+    allocationNo: 'A7288',
+    yarnRqQty: 463,
+    allocatedQty: 463,
+    balance: 0,
+    remarks: 'As per quality confirmation'
+  },
+  {
+    id: 'ya-2',
+    actualRequisitionDate: '28-Jun-25',
+    buyer: 'C&A',
+    orderNumber: '260796',
+    fabricsType: 'Fleece',
+    fabricShade: 'JS200049',
+    fabricGsm: 260,
+    yarnRequired: '30CC-Color-Melange-Traceable-JS200049',
+    lotRef: 'Do allocate from 260320',
+    allocatedYarn: '30CM-JS200049 100% BCI',
+    lotNo: 'ABM309695F',
+    spinnersName: 'Winsome',
+    allocationStatus: 'Allocated',
+    yarnStockStatus: 'Stock Available',
+    yarnDeliveryStatus: 'Completed',
+    proposedAllocationDate: '',
+    allocationDate: '2-Jul-25',
+    allocationDateRange: '01-Jul-2025 To 08-Jul-2025',
+    allocationNo: 'A7296',
+    yarnRqQty: 2110,
+    allocatedQty: 2087,
+    balance: 23,
+    remarks: 'ok'
+  },
+  {
+    id: 'ya-3',
+    actualRequisitionDate: '28-Jun-25',
+    buyer: 'C&A',
+    orderNumber: '260796',
+    fabricsType: 'Ottoman Rib',
+    fabricShade: 'JS200049',
+    fabricGsm: 250,
+    yarnRequired: '34CC-Color-Melange-Traceable-JS200049',
+    lotRef: 'Do allocate from 260320',
+    allocatedYarn: '34CM-JS200049 100% BCI',
+    lotNo: 'ABM342286F',
+    spinnersName: 'Winsome',
+    allocationStatus: 'Allocated',
+    yarnStockStatus: 'Stock Available',
+    yarnDeliveryStatus: 'Completed',
+    proposedAllocationDate: '',
+    allocationDate: '1-Jul-25',
+    allocationDateRange: '01-Jul-2025 To 08-Jul-2025',
+    allocationNo: 'A7293',
+    yarnRqQty: 347,
+    allocatedQty: 347,
+    balance: 0,
+    remarks: ''
+  },
+  {
+    id: 'ya-4',
+    actualRequisitionDate: '28-Jun-25',
+    buyer: 'C&A',
+    orderNumber: '260796',
+    fabricsType: 'Single Jersey',
+    fabricShade: 'JS200049',
+    fabricGsm: 160,
+    yarnRequired: '30CC-Color-Melange-Traceable-JS200049',
+    lotRef: 'Do allocate from 260320',
+    allocatedYarn: '30CM-JS200049 100% BCI',
+    lotNo: 'ABM309695F',
+    spinnersName: 'Winsome',
+    allocationStatus: 'Allocated',
+    yarnStockStatus: 'Stock Available',
+    yarnDeliveryStatus: 'Completed',
+    proposedAllocationDate: '',
+    allocationDate: '2-Jul-25',
+    allocationDateRange: '02-Jul-2025 To 08-Jul-2025',
+    allocationNo: 'A7296',
+    yarnRqQty: 122,
+    allocatedQty: 122,
+    balance: 0,
+    remarks: ''
+  },
+  {
+    id: 'ya-5',
+    actualRequisitionDate: '5-Jul-25',
+    buyer: 'C&A',
+    orderNumber: '260796',
+    fabricsType: 'Fleece',
+    fabricShade: 'JS200049',
+    fabricGsm: 260,
+    yarnRequired: '24CC-PT',
+    lotRef: '',
+    allocatedYarn: '24OC NPOP OCS',
+    lotNo: 'GO8124A805',
+    spinnersName: 'Maral',
+    allocationStatus: 'Allocated',
+    yarnStockStatus: 'Stock Available',
+    yarnDeliveryStatus: 'Completed',
+    proposedAllocationDate: '',
+    allocationDate: '8-Jul-25',
+    allocationDateRange: '08-Jul-2025 To 08-Jul-2025',
+    allocationNo: 'A7308',
+    yarnRqQty: -463,
+    allocatedQty: -135,
+    balance: -328,
+    remarks: 'ok'
+  }
+];
+
+function formatYarnQty(val: number): string {
+  if (val === 0) return '-';
+  if (val < 0) return `(${Math.abs(val).toLocaleString()})`;
+  return val.toLocaleString();
+}
+
 interface PlanOrderFollowupViewProps {
-  initialSubTab?: 'summary' | 'buyer' | 'yarn' | 'delivery';
+  initialSubTab?: 'summary' | 'buyer' | 'delivery';
   currentUser?: UserRecord | null;
 }
 
@@ -245,7 +406,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   const isAdmin = currentUser?.userType === 'Admin';
 
   const [orders, setOrders] = useState<OrderPlan[]>(INITIAL_ORDERS);
-  const [activeSubTab, setActiveSubTab] = useState<'summary' | 'buyer' | 'yarn' | 'delivery'>(initialSubTab);
+  const [activeSubTab, setActiveSubTab] = useState<'summary' | 'buyer' | 'delivery'>(initialSubTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [buyerFilter, setBuyerFilter] = useState('All');
   const [planMonthFilter, setPlanMonthFilter] = useState('All');
@@ -286,6 +447,111 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   const [editKnitEndOtd, setEditKnitEndOtd] = useState<'Passed' | 'Failed' | 'Pending'>('Pending');
   const [editKnitStartRemarks, setEditKnitStartRemarks] = useState('');
   const [editKnitEndRemarks, setEditKnitEndRemarks] = useState('');
+
+  // Yarn Allocation state & filters
+  const [yarnAllocations, setYarnAllocations] = useState<YarnAllocationRecord[]>(INITIAL_YARN_ALLOCATIONS);
+  const [yarnSearchQuery, setYarnSearchQuery] = useState('');
+  const [yarnBuyerFilter, setYarnBuyerFilter] = useState('All');
+  const [yarnFabricFilter, setYarnFabricFilter] = useState('All');
+  const [yarnSpinnerFilter, setYarnSpinnerFilter] = useState('All');
+  const [yarnStatusFilter, setYarnStatusFilter] = useState('All');
+
+  // Add/Edit Yarn Allocation Modal state
+  const [showAddYarnModal, setShowAddYarnModal] = useState(false);
+  const [showEditYarnModal, setShowEditYarnModal] = useState(false);
+  const [editingYarn, setEditingYarn] = useState<YarnAllocationRecord | null>(null);
+
+  // Form states for Yarn Allocation
+  const [yaRequisitionDate, setYaRequisitionDate] = useState('28-Jun-25');
+  const [yaBuyer, setYaBuyer] = useState('C&A');
+  const [yaOrderNumber, setYaOrderNumber] = useState('260796');
+  const [yaFabricsType, setYaFabricsType] = useState('Fleece');
+  const [yaFabricShade, setYaFabricShade] = useState('JS200049');
+  const [yaFabricGsm, setYaFabricGsm] = useState('260');
+  const [yaYarnRequired, setYaYarnRequired] = useState('24CC-PT');
+  const [yaLotRef, setYaLotRef] = useState('');
+  const [yaAllocatedYarn, setYaAllocatedYarn] = useState('24OC NPOP OCS');
+  const [yaLotNo, setYaLotNo] = useState('GO8124A805');
+  const [yaSpinnersName, setYaSpinnersName] = useState('Maral');
+  const [yaAllocationStatus, setYaAllocationStatus] = useState('Allocated');
+  const [yaYarnStockStatus, setYaYarnStockStatus] = useState('Stock Available');
+  const [yaYarnDeliveryStatus, setYaYarnDeliveryStatus] = useState('Completed');
+  const [yaProposedAllocationDate, setYaProposedAllocationDate] = useState('');
+  const [yaAllocationDate, setYaAllocationDate] = useState('29-Jun-25');
+  const [yaAllocationDateRange, setYaAllocationDateRange] = useState('29-Jun-2025 To 08-Jul-2025');
+  const [yaAllocationNo, setYaAllocationNo] = useState('A7288');
+  const [yaYarnRqQty, setYaYarnRqQty] = useState('463');
+  const [yaAllocatedQty, setYaAllocatedQty] = useState('463');
+  const [yaBalance, setYaBalance] = useState('0');
+  const [yaRemarks, setYaRemarks] = useState('');
+
+  const filteredYarnAllocations = useMemo(() => {
+    return yarnAllocations.filter(item => {
+      const q = yarnSearchQuery.toLowerCase();
+      const matchesSearch = 
+        !q ||
+        item.orderNumber.toLowerCase().includes(q) ||
+        item.buyer.toLowerCase().includes(q) ||
+        item.fabricsType.toLowerCase().includes(q) ||
+        item.yarnRequired.toLowerCase().includes(q) ||
+        item.allocatedYarn.toLowerCase().includes(q) ||
+        item.lotNo.toLowerCase().includes(q) ||
+        item.spinnersName.toLowerCase().includes(q) ||
+        item.allocationNo.toLowerCase().includes(q) ||
+        item.remarks.toLowerCase().includes(q);
+
+      const matchesBuyer = yarnBuyerFilter === 'All' || item.buyer === yarnBuyerFilter;
+      const matchesFabric = yarnFabricFilter === 'All' || item.fabricsType === yarnFabricFilter;
+      const matchesSpinner = yarnSpinnerFilter === 'All' || item.spinnersName === yarnSpinnerFilter;
+      const matchesStatus = yarnStatusFilter === 'All' || item.allocationStatus === yarnStatusFilter;
+
+      return matchesSearch && matchesBuyer && matchesFabric && matchesSpinner && matchesStatus;
+    });
+  }, [yarnAllocations, yarnSearchQuery, yarnBuyerFilter, yarnFabricFilter, yarnSpinnerFilter, yarnStatusFilter]);
+
+  const yarnTotals = useMemo(() => {
+    return filteredYarnAllocations.reduce((acc, curr) => ({
+      yarnRqQty: acc.yarnRqQty + (curr.yarnRqQty || 0),
+      allocatedQty: acc.allocatedQty + (curr.allocatedQty || 0),
+      balance: acc.balance + (curr.balance || 0),
+    }), { yarnRqQty: 0, allocatedQty: 0, balance: 0 });
+  }, [filteredYarnAllocations]);
+
+  const uniqueOrdersCount = useMemo(() => {
+    return new Set(filteredYarnAllocations.map(item => item.orderNumber?.trim()).filter(Boolean)).size;
+  }, [filteredYarnAllocations]);
+
+  const handleExportYarnExcel = () => {
+    const exportData = filteredYarnAllocations.map(item => ({
+      'Actual Yarn Requisition date': item.actualRequisitionDate,
+      'Buyer': item.buyer,
+      'Order Number': item.orderNumber,
+      'Fabrics Type': item.fabricsType,
+      'Fabric Shade': item.fabricShade,
+      'Fabric GSM': item.fabricGsm,
+      'Yarn Required': item.yarnRequired,
+      'Lot Ref': item.lotRef,
+      'Allocated Yarn': item.allocatedYarn,
+      'Lot #': item.lotNo,
+      "Spinner's Name": item.spinnersName,
+      'Allocation Status': item.allocationStatus,
+      'Yarn Stock Status': item.yarnStockStatus,
+      'Yarn Delivery Status': item.yarnDeliveryStatus,
+      'Proposed Allocation Date': item.proposedAllocationDate,
+      'Allocation Date': item.allocationDate,
+      'Allocation Sart Date to End Date': item.allocationDateRange,
+      'Allocation No': item.allocationNo,
+      'Yarn Rq Qty': item.yarnRqQty,
+      'Allocated Qty': item.allocatedQty,
+      'Balance': item.balance === 0 ? '-' : item.balance,
+      'Remarks': item.remarks
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Yarn Allocation');
+    XLSX.writeFile(workbook, `Yarn_Allocation_Summary_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
 
   // Subscribe to real-time order plans from Firestore & fallback to GAS if empty
   useEffect(() => {
@@ -627,18 +893,6 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         >
           <Target className="h-4 w-4" />
           <span>Buyer Summary</span>
-        </button>
-
-        <button
-          onClick={() => setActiveSubTab('yarn')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
-            activeSubTab === 'yarn'
-              ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <Layers className="h-4 w-4" />
-          <span>Yarn Allocation</span>
         </button>
 
         <button
@@ -1078,38 +1332,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         </div>
       )}
 
-      {/* SUB-TAB 3: YARN ALLOCATION */}
-      {activeSubTab === 'yarn' && (
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
-          <h3 className="text-sm font-bold text-slate-900 dark:text-white">Yarn Allocation & Requirement Matrix</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 dark:bg-slate-800/60 font-black uppercase text-slate-400 text-[10px] tracking-wider border-b border-slate-100 dark:border-slate-800">
-                <tr>
-                  <th className="px-4 py-3">EWO</th>
-                  <th className="px-4 py-3">Buyer & Color</th>
-                  <th className="px-4 py-3">Allocation Start / End</th>
-                  <th className="px-4 py-3 text-right">Allocated QTY (Kg)</th>
-                  <th className="px-4 py-3 text-right">Allocated Bal. (Kg)</th>
-                  <th className="px-4 py-3 text-right">GREY REQ. (Kg)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-semibold text-slate-700 dark:text-slate-300">
-                {orders.map(o => (
-                  <tr key={o.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                    <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">{o.ewo}</td>
-                    <td className="px-4 py-3 text-slate-500">{o.buyer} — <span className="text-blue-600">{o.color}</span></td>
-                    <td className="px-4 py-3 text-slate-500">{o.allocationStart || '-'} to {o.allocationEnd || '-'}</td>
-                    <td className="px-4 py-3 text-right font-bold text-emerald-600">{o.allocatedQty ? o.allocatedQty.toLocaleString() : '0'}</td>
-                    <td className="px-4 py-3 text-right font-bold text-amber-600">{o.allocatedBal}</td>
-                    <td className="px-4 py-3 text-right font-bold">{o.greyReq ? o.greyReq.toLocaleString() : '0'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+
 
       {/* SUB-TAB 4: DELIVERY TIMELINE */}
       {activeSubTab === 'delivery' && (
@@ -1596,6 +1819,347 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                 >
                   <Edit className="h-4 w-4" />
                   <span>Update Remarks</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ADD / EDIT YARN ALLOCATION MODAL */}
+      {(showAddYarnModal || showEditYarnModal) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="relative w-full max-w-4xl rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-2xl border border-slate-200 dark:border-slate-800 my-8">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="h-9 w-9 rounded-xl bg-blue-50 dark:bg-blue-950/50 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold">
+                  <Package className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    {showEditYarnModal ? 'Edit Yarn Allocation Record' : 'Add New Yarn Allocation'}
+                  </h3>
+                  <p className="text-xs text-slate-400 font-medium">Manage yarn requisition, lot specs, spinner and allocation quantities</p>
+                </div>
+              </div>
+              <button
+                onClick={() => { setShowAddYarnModal(false); setShowEditYarnModal(false); setEditingYarn(null); }}
+                className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const record: YarnAllocationRecord = {
+                  id: editingYarn ? editingYarn.id : `ya-${Date.now()}`,
+                  actualRequisitionDate: yaRequisitionDate,
+                  buyer: yaBuyer,
+                  orderNumber: yaOrderNumber,
+                  fabricsType: yaFabricsType,
+                  fabricShade: yaFabricShade,
+                  fabricGsm: yaFabricGsm,
+                  yarnRequired: yaYarnRequired,
+                  lotRef: yaLotRef,
+                  allocatedYarn: yaAllocatedYarn,
+                  lotNo: yaLotNo,
+                  spinnersName: yaSpinnersName,
+                  allocationStatus: yaAllocationStatus,
+                  yarnStockStatus: yaYarnStockStatus,
+                  yarnDeliveryStatus: yaYarnDeliveryStatus,
+                  proposedAllocationDate: yaProposedAllocationDate,
+                  allocationDate: yaAllocationDate,
+                  allocationDateRange: yaAllocationDateRange,
+                  allocationNo: yaAllocationNo,
+                  yarnRqQty: parseFloat(yaYarnRqQty) || 0,
+                  allocatedQty: parseFloat(yaAllocatedQty) || 0,
+                  balance: parseFloat(yaBalance) || 0,
+                  remarks: yaRemarks
+                };
+
+                if (editingYarn) {
+                  setYarnAllocations(prev => prev.map(a => a.id === editingYarn.id ? record : a));
+                } else {
+                  setYarnAllocations(prev => [record, ...prev]);
+                }
+
+                setShowAddYarnModal(false);
+                setShowEditYarnModal(false);
+                setEditingYarn(null);
+              }}
+              className="mt-4 space-y-4 max-h-[75vh] overflow-y-auto pr-1"
+            >
+              {/* Section 1: Order & Requisition Info */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-black uppercase tracking-wider text-blue-600 dark:text-blue-400">1. Requisition & Order Details</h4>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Requisition Date</label>
+                    <input
+                      type="text"
+                      value={yaRequisitionDate}
+                      onChange={(e) => setYaRequisitionDate(e.target.value)}
+                      placeholder="e.g. 28-Jun-25"
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Buyer</label>
+                    <input
+                      type="text"
+                      value={yaBuyer}
+                      onChange={(e) => setYaBuyer(e.target.value)}
+                      placeholder="e.g. C&A"
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Order Number</label>
+                    <input
+                      type="text"
+                      value={yaOrderNumber}
+                      onChange={(e) => setYaOrderNumber(e.target.value)}
+                      placeholder="e.g. 260796"
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Fabrics Type</label>
+                    <input
+                      type="text"
+                      value={yaFabricsType}
+                      onChange={(e) => setYaFabricsType(e.target.value)}
+                      placeholder="e.g. Fleece / Single Jersey"
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 2: Fabric Specs */}
+              <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <h4 className="text-xs font-black uppercase tracking-wider text-blue-600 dark:text-blue-400">2. Fabric Specifications & Yarn Required</h4>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Fabric Shade</label>
+                    <input
+                      type="text"
+                      value={yaFabricShade}
+                      onChange={(e) => setYaFabricShade(e.target.value)}
+                      placeholder="e.g. JS200049"
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Fabric GSM</label>
+                    <input
+                      type="text"
+                      value={yaFabricGsm}
+                      onChange={(e) => setYaFabricGsm(e.target.value)}
+                      placeholder="e.g. 260"
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Yarn Required</label>
+                    <input
+                      type="text"
+                      value={yaYarnRequired}
+                      onChange={(e) => setYaYarnRequired(e.target.value)}
+                      placeholder="e.g. 24CC-PT"
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Lot Ref</label>
+                    <input
+                      type="text"
+                      value={yaLotRef}
+                      onChange={(e) => setYaLotRef(e.target.value)}
+                      placeholder="e.g. Do allocate from 260320"
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 3: Yarn Allocation & Spinner Specs */}
+              <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <h4 className="text-xs font-black uppercase tracking-wider text-blue-600 dark:text-blue-400">3. Allocated Yarn & Lot Details</h4>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Allocated Yarn Description</label>
+                    <input
+                      type="text"
+                      value={yaAllocatedYarn}
+                      onChange={(e) => setYaAllocatedYarn(e.target.value)}
+                      placeholder="e.g. 24OC NPOP OCS"
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Lot #</label>
+                    <input
+                      type="text"
+                      value={yaLotNo}
+                      onChange={(e) => setYaLotNo(e.target.value)}
+                      placeholder="e.g. GO8124A805"
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Spinner's Name</label>
+                    <input
+                      type="text"
+                      value={yaSpinnersName}
+                      onChange={(e) => setYaSpinnersName(e.target.value)}
+                      placeholder="e.g. Maral / Winsome"
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Allocation Status</label>
+                    <select
+                      value={yaAllocationStatus}
+                      onChange={(e) => setYaAllocationStatus(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold"
+                    >
+                      <option value="Allocated">Allocated</option>
+                      <option value="Pending">Pending</option>
+                      <option value="Partial">Partial</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 4: Stock & Delivery Status */}
+              <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <h4 className="text-xs font-black uppercase tracking-wider text-blue-600 dark:text-blue-400">4. Dates, Allocation No & Stock Status</h4>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Allocation No</label>
+                    <input
+                      type="text"
+                      value={yaAllocationNo}
+                      onChange={(e) => setYaAllocationNo(e.target.value)}
+                      placeholder="e.g. A7288"
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Allocation Date</label>
+                    <input
+                      type="text"
+                      value={yaAllocationDate}
+                      onChange={(e) => setYaAllocationDate(e.target.value)}
+                      placeholder="e.g. 29-Jun-25"
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Start To End Date Range</label>
+                    <input
+                      type="text"
+                      value={yaAllocationDateRange}
+                      onChange={(e) => setYaAllocationDateRange(e.target.value)}
+                      placeholder="e.g. 29-Jun-2025 To 08-Jul-2025"
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Stock / Delivery Status</label>
+                    <input
+                      type="text"
+                      value={yaYarnStockStatus}
+                      onChange={(e) => setYaYarnStockStatus(e.target.value)}
+                      placeholder="Stock Available"
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 5: Quantities & Remarks */}
+              <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <h4 className="text-xs font-black uppercase tracking-wider text-blue-600 dark:text-blue-400">5. Quantities (Kg) & Remarks</h4>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Yarn Rq Qty (Kg)</label>
+                    <input
+                      type="number"
+                      value={yaYarnRqQty}
+                      onChange={(e) => {
+                        const rq = parseFloat(e.target.value) || 0;
+                        const al = parseFloat(yaAllocatedQty) || 0;
+                        setYaYarnRqQty(e.target.value);
+                        setYaBalance(String(rq - al));
+                      }}
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold font-mono"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Allocated Qty (Kg)</label>
+                    <input
+                      type="number"
+                      value={yaAllocatedQty}
+                      onChange={(e) => {
+                        const al = parseFloat(e.target.value) || 0;
+                        const rq = parseFloat(yaYarnRqQty) || 0;
+                        setYaAllocatedQty(e.target.value);
+                        setYaBalance(String(rq - al));
+                      }}
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold font-mono"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Balance (Kg)</label>
+                    <input
+                      type="number"
+                      value={yaBalance}
+                      onChange={(e) => setYaBalance(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold font-mono text-amber-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Remarks</label>
+                    <input
+                      type="text"
+                      value={yaRemarks}
+                      onChange={(e) => setYaRemarks(e.target.value)}
+                      placeholder="e.g. As per quality confirmation / ok"
+                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => { setShowAddYarnModal(false); setShowEditYarnModal(false); setEditingYarn(null); }}
+                  className="rounded-xl px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 text-xs font-bold shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Package className="h-4 w-4" />
+                  <span>{editingYarn ? 'Update Allocation' : 'Save Allocation'}</span>
                 </button>
               </div>
             </form>

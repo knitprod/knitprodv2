@@ -52,7 +52,7 @@ export default function Sidebar({
 
   // Auto expand group if active page is inside it
   const productionItems = ['Production Ledger', 'Floor Dashboard', 'Management Dashboard', 'Reports'];
-  const planOrderItems = ['Plan Order Followup', 'Buyer Plan vs Actual', 'Yarn Requirement', 'Delivery Schedule'];
+  const planOrderItems = ['Plan Order Followup', 'Buyer Plan vs Actual', 'Yarn Allocation', 'Delivery Schedule'];
   const adminPanelItems = ['Admin Panel', 'User Management', 'Database Connection', 'Settings'];
 
   useEffect(() => {
@@ -228,7 +228,7 @@ export default function Sidebar({
                   {[
                     { name: 'Plan Order Followup', icon: ClipboardList, label: 'Order Plan & Status' },
                     { name: 'Buyer Plan vs Actual', icon: Target, label: 'Buyer Plan vs Actual' },
-                    { name: 'Yarn Requirement', icon: Layers, label: 'Yarn Requirement' },
+                    { name: 'Yarn Allocation', icon: Layers, label: 'Yarn Allocation' },
                     { name: 'Delivery Schedule', icon: CalendarCheck, label: 'Delivery Schedule' },
                   ].map((sub) => {
                     if (!isTabAllowed(sub.name)) return null;

@@ -70,7 +70,7 @@ export const ALL_TABS = [
   'Reports',
   'Plan Order Followup',
   'Buyer Plan vs Actual',
-  'Yarn Requirement',
+  'Yarn Allocation',
   'Delivery Schedule',
   'User Management',
   'Database Connection',
@@ -86,7 +86,7 @@ export const getTabEmoji = (tabName: string): string => {
     case 'Reports': return '📑';
     case 'Plan Order Followup': return '🎯';
     case 'Buyer Plan vs Actual': return '🛍️';
-    case 'Yarn Requirement': return '🧶';
+    case 'Yarn Allocation': return '🧶';
     case 'Delivery Schedule': return '🚚';
     case 'User Management': return '👥';
     case 'Database Connection': return '⚡';
@@ -1877,7 +1877,7 @@ export default function UserManagementView() {
                             case 'Reports': return '📈';
                             case 'Plan Order Followup': return '📋';
                             case 'Buyer Plan vs Actual': return '🛍️';
-                            case 'Yarn Requirement': return '🧶';
+                            case 'Yarn Allocation': return '🧶';
                             case 'Delivery Schedule': return '🚚';
                             case 'User Management': return '👥';
                             case 'Database Connection': return '🗄️';

@@ -228,7 +228,7 @@ export class GasClient {
   private static async request<T>(action: string, method: 'GET' | 'POST', bodyData?: any): Promise<{ success: boolean; message?: string; data?: T }> {
     this.startSyncNotification();
     try {
-      const webAppUrl = this.getWebAppUrl() || this.DEFAULT_URL;
+      const webAppUrl = (this.getWebAppUrl() || this.DEFAULT_URL).trim();
       const activeUser = this.memoryActiveUser;
       const uid = activeUser?.uid || 'EKL001';
       const token = (activeUser as any)?.token || '';
@@ -238,7 +238,7 @@ export class GasClient {
         if (method === 'GET') {
           const queryParams = new URLSearchParams();
           queryParams.append('action', action);
-          queryParams.append('url', webAppUrl);
+          if (webAppUrl) queryParams.append('url', webAppUrl);
           if (bodyData) {
             Object.entries(bodyData).forEach(([k, v]) => {
               if (v !== undefined && v !== null) {
@@ -249,9 +249,9 @@ export class GasClient {
 
           const response = await fetch(`/api/gas-proxy?${queryParams.toString()}`);
           const ct = response.headers.get('content-type') || '';
-          if (response.ok && ct.includes('application/json')) {
+          if (ct.includes('application/json')) {
             const json = await response.json();
-            if (json && (json.success !== undefined || json.data !== undefined)) {
+            if (json && (json.success !== undefined || json.data !== undefined || json.message !== undefined)) {
               return json;
             }
           }
@@ -282,15 +282,23 @@ export class GasClient {
           });
 
           const ct = response.headers.get('content-type') || '';
-          if (response.ok && ct.includes('application/json')) {
+          if (ct.includes('application/json')) {
             const json = await response.json();
-            if (json && (json.success !== undefined || json.data !== undefined)) {
+            if (json && (json.success !== undefined || json.data !== undefined || json.message !== undefined)) {
               return json;
             }
           }
         }
       } catch (proxyError) {
         console.warn("Proxy call failed, attempting direct fetch fallback to Apps Script:", proxyError);
+      }
+
+      // Check if Web App URL is configured and valid before attempting direct browser fetch fallback
+      if (!webAppUrl || (!webAppUrl.startsWith('http://') && !webAppUrl.startsWith('https://'))) {
+        return {
+          success: false,
+          message: 'Google Apps Script Web App URL is not configured or invalid.'
+        };
       }
 
       // Direct Browser Fetch Fallback (for Vercel or pure client environments)
@@ -308,8 +316,13 @@ export class GasClient {
           }
 
           const response = await fetch(directUrl);
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          return await response.json();
+          const ct = response.headers.get('content-type') || '';
+          const text = await response.text();
+          try {
+            return JSON.parse(text);
+          } catch (e) {
+            throw new Error(`Apps Script endpoint returned non-JSON response (${response.status}). Ensure URL is correct.`);
+          }
         } else {
           let authUid = uid || 'EKL001';
           if (action === 'login' && bodyData?.uid) {
@@ -333,8 +346,12 @@ export class GasClient {
             })
           });
 
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          return await response.json();
+          const text = await response.text();
+          try {
+            return JSON.parse(text);
+          } catch (e) {
+            throw new Error(`Apps Script endpoint returned non-JSON response (${response.status}). Ensure URL is correct.`);
+          }
         }
       } catch (directError: any) {
         console.error("Direct fetch to Google Apps Script failed:", directError);
@@ -909,7 +926,7 @@ export class GasClient {
   // ORDER PLAN FOLLOWUP CRUD
   // ==========================================================
   static async fetchOrderPlans(): Promise<any[]> {
-    if (this.getDatabaseMode() === 'gas') {
+    if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
       try {
         const res = await this.request<any[]>('orders/list', 'GET');
         if (res.success && res.data && Array.isArray(res.data) && res.data.length > 0) {
@@ -943,6 +960,48 @@ export class GasClient {
         await this.request('orders/delete', 'POST', { id });
       } catch (e) {
         console.warn("GAS delete order plan notice:", e);
+      }
+    }
+  }
+
+  // ==========================================================
+  // YARN ALLOCATION CRUD
+  // ==========================================================
+  static async fetchYarnAllocations(): Promise<any[]> {
+    if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
+      try {
+        const res = await this.request<any[]>('yarn/list', 'GET');
+        if (res.success && res.data && Array.isArray(res.data) && res.data.length > 0) {
+          return res.data;
+        }
+      } catch (e) {
+        console.warn("GAS fetch yarn allocations notice:", e);
+      }
+    }
+    const db = await this.fetchServerDb();
+    if (db && db.yarnAllocations && Array.isArray(db.yarnAllocations)) {
+      return db.yarnAllocations;
+    }
+    return [];
+  }
+
+  static async saveYarnAllocations(yarnAllocations: any[]): Promise<void> {
+    if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
+      try {
+        await this.request('yarn/save', 'POST', { yarnAllocations });
+      } catch (e) {
+        console.warn("GAS save yarn allocations notice:", e);
+      }
+    }
+    await this.saveServerDb({ yarnAllocations });
+  }
+
+  static async deleteYarnAllocation(id: string): Promise<void> {
+    if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
+      try {
+        await this.request('yarn/delete', 'POST', { id });
+      } catch (e) {
+        console.warn("GAS delete yarn allocation notice:", e);
       }
     }
   }
