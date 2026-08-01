@@ -1,0 +1,128 @@
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+
+/* Global dark mode styling to automatically map light-theme utility classes */
+.dark {
+  color-scheme: dark;
+}
+
+/* Automatically map all dark text classes to light text classes in dark mode */
+.dark .text-gray-950,
+.dark .text-slate-950,
+.dark .text-zinc-950,
+.dark .text-neutral-950,
+.dark .text-gray-900,
+.dark .text-slate-900,
+.dark .text-zinc-900,
+.dark .text-neutral-900,
+.dark .text-gray-850,
+.dark .text-gray-800,
+.dark .text-slate-800,
+.dark .text-zinc-800,
+.dark .text-neutral-800,
+.dark h1,
+.dark h2,
+.dark h3,
+.dark h4,
+.dark h5,
+.dark h6 {
+  color: #f8fafc !important; /* slate-50 */
+}
+
+.dark .text-gray-700,
+.dark .text-slate-700,
+.dark .text-zinc-700,
+.dark .text-neutral-700,
+.dark .text-gray-600,
+.dark .text-slate-600,
+.dark .text-zinc-600,
+.dark .text-neutral-600 {
+  color: #cbd5e1 !important; /* slate-300 */
+}
+
+.dark .text-gray-500,
+.dark .text-slate-500,
+.dark .text-zinc-500,
+.dark .text-neutral-500 {
+  color: #94a3b8 !important; /* slate-400 */
+}
+
+.dark .text-gray-400,
+.dark .text-slate-400,
+.dark .text-zinc-400,
+.dark .text-neutral-400 {
+  color: #64748b !important; /* slate-500 */
+}
+
+/* Map light-themed card and content backgrounds to professional deep colors */
+.dark .bg-white {
+  background-color: #0b1329 !important; /* Elegant deep blue-slate card background */
+}
+
+.dark .bg-gray-50,
+.dark .bg-slate-50,
+.dark .bg-zinc-50,
+.dark .bg-neutral-50,
+.dark .bg-gray-100,
+.dark .bg-slate-100,
+.dark .bg-zinc-100 {
+  background-color: #070d19 !important; /* Dark slate background */
+}
+
+.dark .bg-gray-50\/50,
+.dark .bg-slate-50\/50,
+.dark .bg-gray-50\/40,
+.dark .bg-gray-50\/10 {
+  background-color: rgba(7, 13, 25, 0.6) !important;
+}
+
+/* Map borders */
+.dark .border-gray-100,
+.dark .border-slate-100,
+.dark .border-zinc-100,
+.dark .border-gray-200,
+.dark .border-slate-200,
+.dark .border-zinc-200,
+.dark .border-gray-50,
+.dark .border-slate-50 {
+  border-color: #1e293b !important; /* slate-800 */
+}
+
+.dark .divide-gray-50 > * + *,
+.dark .divide-gray-100 > * + *,
+.dark .divide-slate-100 > * + *,
+.dark .divide-slate-200 > * + * {
+  border-color: #1e293b !important;
+}
+
+/* Hover table rows */
+.dark tr:hover,
+.dark .hover\:bg-gray-50\/50:hover,
+.dark .hover\:bg-gray-50:hover,
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-800\/50:hover {
+  background-color: rgba(30, 41, 59, 0.4) !important;
+}
+
+/* Form Input & Select Controls in dark mode */
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: #070d19 !important;
+  border-color: #334155 !important; /* slate-700 */
+  color: #f8fafc !important;
+}
+
+.dark input:focus,
+.dark select:focus,
+.dark textarea:focus {
+  border-color: #3b82f6 !important; /* blue-500 */
+  outline: none;
+}
+
+.dark input::placeholder,
+.dark select::placeholder,
+.dark textarea::placeholder {
+  color: #475569 !important; /* slate-600 */
+}

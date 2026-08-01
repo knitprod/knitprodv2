@@ -1,0 +1,1130 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { 
+  Home, 
+  ClipboardCopy, 
+  LayoutGrid, 
+  TrendingUp, 
+  FileText, 
+  Users, 
+  Settings, 
+  X, 
+  LogOut,
+  Sun,
+  Moon,
+  Table,
+  Info,
+  ShieldAlert,
+  Factory,
+  ClipboardList,
+  Target,
+  Layers,
+  CalendarCheck,
+  ChevronDown,
+  ChevronUp,
+  ShieldCheck,
+  Database
+} from 'lucide-react';
+import Header from './components/Header';
+import Sidebar from './components/Sidebar';
+import WelcomeBanner from './components/WelcomeBanner';
+import KPICards from './components/KPICards';
+import FactoryFloors from './components/FactoryFloors';
+import DashboardCharts from './components/DashboardCharts';
+import RightPanel from './components/RightPanel';
+import FloorDashboardView from './components/FloorDashboardView';
+import ReportsView from './components/ReportsView';
+import UserManagementView, { UserRecord, INITIAL_USERS } from './components/UserManagementView';
+import LoginView from './components/LoginView';
+import SettingsView from './components/SettingsView';
+import DatabaseConnectionView from './components/DatabaseConnectionView';
+import AdminPanelView from './components/AdminPanelView';
+import ProductionLedgerView from './components/ProductionLedgerView';
+import PlanOrderFollowupView from './components/PlanOrderFollowupView';
+import DashboardFilterToolbar, { FilterState } from './components/DashboardFilterToolbar';
+import { GasClient } from './lib/gasClient';
+import { FirestoreSyncService } from './lib/firestoreSync';
+
+import { FactoryFloor, ProductionEntry, ActivityLog } from './types';
+import { INITIAL_FLOORS, INITIAL_KPIS, INITIAL_ACTIVITY_LOGS } from './data';
+
+// Define rich starting production logs for the Reports spreadsheet on load
+const INITIAL_ENTRIES: ProductionEntry[] = [
+  {
+    id: 'ent-1',
+    floorId: 'ekl',
+    timestamp: '21:24',
+    machineId: 'M-01',
+    operatorName: 'Akil Zaman',
+    shift: 'C',
+    yarnType: '30s Cotton Combed',
+    fabricType: 'Single Jersey',
+    productionKg: 180.0,
+    rejectKg: 1.5,
+    remarks: 'Stitch length verified.',
+  },
+  {
+    id: 'ent-2',
+    floorId: 'efl',
+    timestamp: '21:05',
+    machineId: 'M-05',
+    operatorName: 'Nasrin Akhter',
+    shift: 'C',
+    yarnType: '34s Cotton Combed',
+    fabricType: '1x1 Rib',
+    productionKg: 175.4,
+    rejectKg: 2.1,
+    remarks: 'Grey scale test passed.',
+  },
+  {
+    id: 'ent-3',
+    floorId: 'efl-2',
+    timestamp: '20:45',
+    machineId: 'M-03',
+    operatorName: 'Kamal Hossain',
+    shift: 'B',
+    yarnType: '40s Cotton Combed',
+    fabricType: 'Interlock',
+    productionKg: 190.2,
+    rejectKg: 3.5,
+    remarks: 'Yarn tension stabilized.',
+  },
+  {
+    id: 'ent-4',
+    floorId: 'auto-stripe',
+    timestamp: '20:10',
+    machineId: 'M-07',
+    operatorName: 'Rashedul Bari',
+    shift: 'B',
+    yarnType: '50D Lycra',
+    fabricType: 'Fleece',
+    productionKg: 210.0,
+    rejectKg: 1.2,
+    remarks: 'Stripe alignment ok.',
+  },
+  {
+    id: 'ent-5',
+    floorId: 'efl-ext',
+    timestamp: '19:30',
+    machineId: 'M-02',
+    operatorName: 'Taslima Begum',
+    shift: 'B',
+    yarnType: '30s Grey Melange',
+    fabricType: 'Pique',
+    productionKg: 145.0,
+    rejectKg: 4.8,
+    remarks: 'Awaiting motor calibration.',
+  },
+];
+
+const getRelativeDateString = (daysOffset: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() - daysOffset);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+const ensureUniqueIds = <T extends { id: string }>(items: T[], prefix: string): T[] => {
+  const seen = new Set<string>();
+  let modified = false;
+  const result = items.map((item, idx) => {
+    let uniqueId = item.id || `${prefix}-${Date.now()}-${idx}`;
+    if (seen.has(uniqueId)) {
+      uniqueId = `${uniqueId}-${idx}-${Math.floor(Math.random() * 1000)}`;
+      modified = true;
+      seen.add(uniqueId);
+      return { ...item, id: uniqueId };
+    }
+    seen.add(uniqueId);
+    if (!item.id) {
+      modified = true;
+      return { ...item, id: uniqueId };
+    }
+    return item;
+  });
+  return modified ? result : items;
+};
+
+export default function App() {
+  const [inactivityNotice, setInactivityNotice] = useState<string | null>(null);
+
+  const [currentUser, setCurrentUser] = useState<UserRecord | null>(null);
+  const lastActivityRef = useRef<number>(Date.now());
+
+  // Sync active user with GasClient memory store whenever state changes
+  useEffect(() => {
+    GasClient.setActiveUser(currentUser);
+  }, [currentUser]);
+
+  // 30-Minute Inactivity Auto-Logout Tracking (in React memory)
+  useEffect(() => {
+    if (!currentUser) return;
+
+    lastActivityRef.current = Date.now();
+
+    const updateActivity = () => {
+      lastActivityRef.current = Date.now();
+    };
+
+    const checkInactivity = () => {
+      const now = Date.now();
+      const INACTIVITY_LIMIT_MS = 30 * 60 * 1000; // 30 minutes = 1,800,000 ms
+
+      if (now - lastActivityRef.current >= INACTIVITY_LIMIT_MS) {
+        // Trigger security auto-logout
+        setCurrentUser(null);
+        setCurrentPage('Dashboard');
+        setShowLogoutConfirm(false);
+        setInactivityNotice(
+          'You were automatically logged out due to 30 minutes of inactivity for system security.'
+        );
+      }
+    };
+
+    // Global user activity listeners (optimized to prevent main-thread lag)
+    const activityEvents = ['mousedown', 'keydown', 'touchstart', 'click'];
+    activityEvents.forEach((evt) => {
+      window.addEventListener(evt, updateActivity, { passive: true });
+    });
+
+    // Check inactivity every 5 seconds
+    const intervalId = setInterval(checkInactivity, 5000);
+
+    // Immediate check when user switches back to tab
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkInactivity();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      activityEvents.forEach((evt) => {
+        window.removeEventListener(evt, updateActivity);
+      });
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [currentUser]);
+
+  const [currentPage, setCurrentPage] = useState<string>('Dashboard');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  const [selectedFloorId, setSelectedFloorId] = useState<string | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState<boolean>(false);
+
+  // Dark mode state in React memory
+  const [isDark, setIsDark] = useState<boolean>(false);
+
+  // Apply dark class to document root for Tailwind class-based dark mode
+  useEffect(() => {
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDark]);
+
+  // Redirect to first allowed tab if current page is hidden by allowedTabs configuration
+  useEffect(() => {
+    if (currentUser && currentUser.userType !== 'Admin' && currentUser.allowedTabs && currentUser.allowedTabs.length > 0) {
+      const isAllowed = currentUser.allowedTabs.includes(currentPage);
+
+      if (!isAllowed) {
+        const firstAllowed = currentUser.allowedTabs[0] || 'Dashboard';
+        setCurrentPage(firstAllowed);
+      }
+    }
+  }, [currentPage, currentUser]);
+
+  const handleToggleDark = () => {
+    setIsDark((prev) => !prev);
+  };
+
+  // Core Application Database States
+  const [floors, setFloors] = useState<FactoryFloor[]>(() => {
+    return INITIAL_FLOORS.map((floor) => {
+      const defaults: Record<string, number> = {
+        'EKL': 7500,
+        'EFL': 15000,
+        'EFL-2': 15000,
+        'Auto Stripe': 12000,
+        'EFL-Extension': 15000,
+        'ESL-Extension': 10000,
+      };
+      const targetKg = defaults[floor.name] !== undefined ? defaults[floor.name] : floor.targetKg;
+      const totalMachines = floor.totalMachines;
+      const idleMachines = Math.max(0, totalMachines - floor.runningMachines);
+      const achievementPct = targetKg > 0 ? parseFloat(((floor.productionKg / targetKg) * 100).toFixed(1)) : 0;
+      
+      return {
+        ...floor,
+        targetKg,
+        totalMachines,
+        idleMachines,
+        achievementPct
+      };
+    });
+  });
+
+  const [productionEntries, setProductionEntriesRaw] = useState<ProductionEntry[]>(INITIAL_ENTRIES);
+  const [activityLogs, setActivityLogsRaw] = useState<ActivityLog[]>(INITIAL_ACTIVITY_LOGS);
+
+  const setProductionEntries = (value: ProductionEntry[] | ((prev: ProductionEntry[]) => ProductionEntry[])) => {
+    setProductionEntriesRaw((prev) => {
+      const next = typeof value === 'function' ? value(prev) : value;
+      return ensureUniqueIds(next, 'ent');
+    });
+  };
+
+  const setActivityLogs = (value: ActivityLog[] | ((prev: ActivityLog[]) => ActivityLog[])) => {
+    setActivityLogsRaw((prev) => {
+      const next = typeof value === 'function' ? value(prev) : value;
+      return ensureUniqueIds(next, 'log');
+    });
+  };
+
+  const [gasSyncError, setGasSyncError] = useState<string | null>(null);
+
+  // Google Apps Script real-time sync loader (Background fetch)
+  const loadLiveGasData = async () => {
+    if (GasClient.getDatabaseMode() !== 'gas') return;
+    
+    try {
+      // Execute fetches concurrently in parallel for maximum sync speed
+      const [dashboardRes, productionRes, activityRes] = await Promise.all([
+        GasClient.fetchDashboard({ unit: 'all' }).catch(err => { console.warn("Dashboard fetch failed:", err); return null; }),
+        GasClient.fetchProductionList().catch(err => { console.warn("Production list fetch failed:", err); return null; }),
+        GasClient.fetchActivityLogs().catch(err => { console.warn("Activity logs fetch failed:", err); return null; })
+      ]);
+
+      if (dashboardRes && Array.isArray(dashboardRes.floors)) {
+        // Map GAS floor calculations to factory floor states
+        const gasFloors = dashboardRes.floors;
+        setFloors((prevFloors) =>
+          prevFloors.map((floor) => {
+            const gasFloor = gasFloors.find((f: any) => f.name.toLowerCase() === floor.name.toLowerCase() || f.id === floor.id);
+            if (gasFloor) {
+              return {
+                ...floor,
+                productionKg: gasFloor.productionKg || 0,
+                targetKg: gasFloor.targetKg || floor.targetKg,
+                totalMachines: gasFloor.totalMachines || floor.totalMachines,
+                runningMachines: gasFloor.runningMachines || floor.runningMachines,
+                idleMachines: (gasFloor.totalMachines || floor.totalMachines) - (gasFloor.runningMachines || floor.runningMachines),
+                achievementPct: gasFloor.achievementPct || 0,
+                rejectPct: gasFloor.rejectPct || 0,
+                lastUpdated: 'Synced live'
+              };
+            }
+            return floor;
+          })
+        );
+      }
+
+      if (productionRes && Array.isArray(productionRes)) {
+        setProductionEntries(productionRes);
+      }
+
+      if (activityRes && Array.isArray(activityRes)) {
+        setActivityLogs(activityRes);
+      }
+      setGasSyncError(null);
+    } catch (err: any) {
+      console.error("Failed to fetch live GAS REST API data in background:", err);
+      setGasSyncError(err.message || String(err));
+    }
+  };
+
+  // Initialize Firebase Firestore User Management & Activity Logs
+  useEffect(() => {
+    FirestoreSyncService.seedInitialUsersIfEmpty(INITIAL_USERS);
+    FirestoreSyncService.seedInitialActivityLogsIfEmpty(INITIAL_ACTIVITY_LOGS);
+
+    // Realtime listener for Activity Logs in Firestore
+    const unsubscribeActivityLogs = FirestoreSyncService.subscribeToActivityLogs((logs) => {
+      if (logs && logs.length > 0) {
+        setActivityLogsRaw(logs);
+      }
+    });
+
+    return () => {
+      if (unsubscribeActivityLogs) unsubscribeActivityLogs();
+    };
+  }, []);
+
+  // Automatically collapse sidebar on small/tablet devices
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 1024) {
+        setSidebarCollapsed(true);
+      } else {
+        setSidebarCollapsed(false);
+      }
+    };
+    handleResize(); // trigger initial layout sizing
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Dashboard filtering state
+  const [filterState, setFilterState] = useState<FilterState>(() => {
+    const yesterday = getRelativeDateString(1);
+    const sevenDaysAgo = getRelativeDateString(7);
+    return {
+      unit: 'EKL',
+      dateMode: 'single',
+      singleDate: yesterday, // Default to Today()-1 (Yesterday)
+      dateFrom: sevenDaysAgo,
+      dateTo: yesterday,
+      month: yesterday.substring(0, 7),
+      year: yesterday.substring(0, 4)
+    };
+  });
+  const [dashboardLoading, setDashboardLoading] = useState<boolean>(false);
+
+  // Helper for seeded random comparisons
+  const getSeededValue = (combined: string, multiplier: number, offset: number) => {
+    let hash = 0;
+    for (let i = 0; i < combined.length; i++) {
+      hash = combined.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return Math.abs(Math.sin(hash) * multiplier) + offset;
+  };
+
+  // Compute live cumulative KPIs dynamically based on current filters and state
+  const kpis = useMemo(() => {
+    const { unit, dateMode } = filterState;
+    
+    // Determine base values
+    let baseTarget = 25000;
+    let baseProd = 24150;
+    let running = 45;
+    let total = 48;
+    let capacity = 93.8;
+    let efficiency = 94.2;
+
+    if (unit === 'EKL') {
+      baseTarget = 25000; baseProd = 24150; running = 45; total = 48; capacity = 93.8; efficiency = 94.2;
+    } else if (unit === 'EFL') {
+      baseTarget = 20000; baseProd = 19400; running = 38; total = 40; capacity = 95.0; efficiency = 95.1;
+    } else if (unit === 'EFL-2') {
+      baseTarget = 18000; baseProd = 15120; running = 29; total = 35; capacity = 82.8; efficiency = 82.8;
+    } else if (unit === 'Auto Stripe') {
+      baseTarget = 12000; baseProd = 11520; running = 18; total = 20; capacity = 90.0; efficiency = 92.5;
+    } else if (unit === 'EFL-Extension') {
+      baseTarget = 15000; baseProd = 10800; running = 17; total = 25; capacity = 68.0; efficiency = 69.4;
+    } else if (unit === 'ESL-Extension') {
+      baseTarget = 10000; baseProd = 9550; running = 14; total = 16; capacity = 87.5; efficiency = 91.8;
+    } else if (unit === 'Sub-Contact') {
+      baseTarget = 8000; baseProd = 7420; running = 12; total = 14; capacity = 85.7; efficiency = 90.2;
+    } else {
+      baseTarget = 108000; baseProd = 100540; running = 202; total = 218; capacity = 87.5; efficiency = 88.5;
+    }
+
+    // Determine deterministic fluctuation based on selected date
+    let dateStr = filterState.singleDate;
+    if (dateMode === 'range') dateStr = `${filterState.dateFrom}_${filterState.dateTo}`;
+    else if (dateMode === 'month') dateStr = filterState.month;
+    else if (dateMode === 'year') dateStr = filterState.year;
+
+    let hash = 0;
+    for (let i = 0; i < dateStr.length; i++) {
+      hash = dateStr.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const randomFactor = Math.abs(Math.sin(hash)) * 0.15 + 0.9; // range 0.9 to 1.05
+    const multiplier = parseFloat(randomFactor.toFixed(3));
+
+    // Scale targets and productions based on period size
+    let periodScale = 1.0;
+    if (dateMode === 'range') {
+      const d1 = new Date(filterState.dateFrom);
+      const d2 = new Date(filterState.dateTo);
+      const diff = Math.max(1, Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+      periodScale = diff;
+    } else if (dateMode === 'month') {
+      periodScale = 30.0;
+    } else if (dateMode === 'year') {
+      periodScale = 365.0;
+    }
+
+    const finalTarget = Math.round(baseTarget * multiplier * periodScale);
+    const finalProd = Math.round(baseProd * multiplier * periodScale);
+    const finalAchievement = finalTarget > 0 ? parseFloat(((finalProd / finalTarget) * 100).toFixed(1)) : 0;
+    
+    // Comparison labels based on selected Date Mode
+    let compLabel = 'vs yesterday';
+    if (dateMode === 'range') compLabel = 'vs prev period';
+    else if (dateMode === 'month') compLabel = 'vs prev month';
+    else if (dateMode === 'year') compLabel = 'vs prev year';
+
+    const compValueVal = (getSeededValue(dateStr + '_comp', 4, 1) * (hash % 2 === 0 ? 1 : -1)).toFixed(1);
+    const compSign = parseFloat(compValueVal) >= 0 ? '+' : '';
+
+    return [
+      {
+        id: 'target',
+        label: 'Target',
+        value: finalTarget.toLocaleString(),
+        unit: 'Kg',
+        description: 'Planned for the period',
+        change: `${compSign}${compValueVal}% ${compLabel}`,
+        isPositive: parseFloat(compValueVal) >= 0,
+        color: 'blue' as const,
+        iconName: 'Target'
+      },
+      {
+        id: 'production',
+        label: 'Production',
+        value: finalProd.toLocaleString(),
+        unit: 'Kg',
+        description: 'Actual knitted output',
+        change: `${compSign}${(parseFloat(compValueVal) * 0.9).toFixed(1)}% ${compLabel}`,
+        isPositive: parseFloat(compValueVal) >= 0,
+        color: 'green' as const,
+        iconName: 'Layers'
+      },
+      {
+        id: 'achievement',
+        label: 'Achievement %',
+        value: `${finalAchievement}%`,
+        description: 'Plan achievement rate',
+        change: `${compSign}${(parseFloat(compValueVal) * 0.5).toFixed(1)}% ${compLabel}`,
+        isPositive: parseFloat(compValueVal) >= 0,
+        color: 'green' as const,
+        iconName: 'TrendingUp'
+      },
+      {
+        id: 'machine_status',
+        label: 'Machine Status',
+        value: `${running} / ${total}`,
+        description: 'Active circular knitting frames',
+        change: 'Uptime stable',
+        isPositive: true,
+        color: 'blue' as const,
+        iconName: 'Cpu'
+      },
+      {
+        id: 'capacity',
+        label: 'Capacity Utilization',
+        value: `${(capacity * (multiplier > 1 ? 1 : multiplier)).toFixed(1)}%`,
+        description: 'Cylinder allocation quota',
+        change: 'Optimal utilization',
+        isPositive: true,
+        color: 'orange' as const,
+        iconName: 'Activity'
+      },
+      {
+        id: 'efficiency',
+        label: 'Efficiency %',
+        value: `${(efficiency * (multiplier > 1 ? 1 : multiplier)).toFixed(1)}%`,
+        description: 'Average operating ratio',
+        change: 'Normal operating rate',
+        isPositive: true,
+        color: 'orange' as const,
+        iconName: 'Percent'
+      }
+    ];
+  }, [filterState]);
+
+  const handleApplyFilters = (newFilters: FilterState) => {
+    setDashboardLoading(true);
+    setTimeout(() => {
+      setFilterState(newFilters);
+      setDashboardLoading(false);
+    }, 600);
+  };
+
+  const handleResetFilters = () => {
+    setDashboardLoading(true);
+    setTimeout(() => {
+      const yesterday = getRelativeDateString(1);
+      const sevenDaysAgo = getRelativeDateString(7);
+      setFilterState({
+        unit: 'EKL',
+        dateMode: 'single',
+        singleDate: yesterday,
+        dateFrom: sevenDaysAgo,
+        dateTo: yesterday,
+        month: yesterday.substring(0, 7),
+        year: yesterday.substring(0, 4)
+      });
+      setDashboardLoading(false);
+    }, 600);
+  };
+
+  // Handler: Drill down floor filter via sidebar click or notification click
+  const handleSelectFloor = (floorId: string | null) => {
+    setSelectedFloorId(floorId);
+    setCurrentPage('Floor Dashboard');
+  };
+
+  // Handler: Record new fabric roll submission (Optimistic local update + background sync)
+  const handleAddProductionEntry = async (newEntry: Omit<ProductionEntry, 'id' | 'timestamp'>) => {
+    const now = new Date();
+    const timestamp = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+    const newId = `ent-${Date.now()}`;
+
+    const completedEntry: ProductionEntry = {
+      ...newEntry,
+      id: newId,
+      timestamp,
+    };
+
+    // 1. Immediately update local state so UI updates with 0ms latency
+    setProductionEntries((prev) => [completedEntry, ...prev]);
+
+    // Update target floor statistics locally
+    setFloors((prevFloors) =>
+      prevFloors.map((floor) => {
+        if (floor.id === newEntry.floorId) {
+          const newProd = floor.productionKg + newEntry.productionKg;
+          const newReject = floor.rejectKg + newEntry.rejectKg;
+          return {
+            ...floor,
+            productionKg: newProd,
+            rejectKg: newReject,
+            achievementPct: Math.min(100, Math.round((newProd / (floor.targetKg || 1)) * 100)),
+            lastUpdated: 'Just now'
+          };
+        }
+        return floor;
+      })
+    );
+
+    // 2. Add Activity Log locally
+    const newLog: ActivityLog = {
+      id: `act-${Date.now()}`,
+      timestamp,
+      floorId: newEntry.floorId,
+      type: 'production',
+      message: `${newEntry.operatorName} logged ${newEntry.productionKg} Kg of ${newEntry.fabricType} on Machine ${newEntry.machineId}.`,
+      status: newEntry.rejectKg > 4.0 ? 'warning' : 'success'
+    };
+    setActivityLogs((prev) => [newLog, ...prev]);
+
+    // 3. Save to Firestore operational DB, save Activity Log, and push to Google Sheets automatically
+    FirestoreSyncService.saveActivityLog(newLog).catch((err) => {
+      console.warn('FirestoreSyncService saveActivityLog error:', err);
+    });
+
+    FirestoreSyncService.saveProductionEntry(completedEntry, currentUser?.userName || 'Operator').catch((err) => {
+      console.warn('FirestoreSyncService saveProductionEntry error:', err);
+    });
+  };
+
+  // Handler: Authenticated User Logout
+  const handleLogout = () => {
+    setShowLogoutConfirm(true);
+  };
+
+  const executeLogout = () => {
+    setCurrentUser(null);
+    GasClient.setActiveUser(null);
+    setCurrentPage('Dashboard');
+    setShowLogoutConfirm(false);
+    setInactivityNotice(null);
+  };
+
+  if (!currentUser) {
+    return (
+      <LoginView 
+        inactivityNotice={inactivityNotice}
+        onLoginSuccess={(user) => {
+          // Strip plain password before storing session in memory for enterprise security
+          const safeUser = { ...user };
+          delete safeUser.password;
+          setCurrentUser(safeUser);
+          GasClient.setActiveUser(safeUser);
+          setInactivityNotice(null);
+        }} 
+      />
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50/50 dark:bg-slate-950 font-sans text-gray-900 dark:text-slate-100 antialiased transition-colors duration-200">
+      {/* 1. Primary Header */}
+      <Header 
+        notifications={activityLogs} 
+        onNotificationClick={handleSelectFloor} 
+        onNavigate={setCurrentPage} 
+        currentPage={currentPage}
+        onLogout={handleLogout}
+        mobileMenuOpen={mobileMenuOpen}
+        setMobileMenuOpen={setMobileMenuOpen}
+        isDark={isDark}
+        onToggleDark={handleToggleDark}
+        currentUser={currentUser}
+      />
+
+      {/* Responsive Mobile Drawer Navigation Menu */}
+      {mobileMenuOpen && (
+        <>
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs md:hidden"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          {/* Menu Drawer */}
+          <div className="fixed top-0 bottom-0 left-0 z-[60] flex w-72 flex-col justify-between border-r border-blue-950/40 bg-[#0A192F] text-white p-4 shadow-2xl animate-slide-right md:hidden overflow-y-auto scrollbar-none">
+            <div className="space-y-6 flex-1">
+              <div className="flex items-center gap-3 border-b border-blue-900/40 pb-4 pt-4">
+                {/* User Avatar */}
+                <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-700 text-sm font-black text-white shadow-sm ring-2 ring-blue-500/25">
+                  {currentUser?.userName
+                    ? currentUser.userName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
+                    : 'KM'
+                  }
+                  <div className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-[#0A192F] bg-emerald-500" />
+                </div>
+                
+                {/* User Details */}
+                <div className="flex-1 min-w-0">
+                  <span className="block text-[9px] font-bold uppercase tracking-wider text-blue-400">Enterprise Navigation</span>
+                  <span className="block text-xs font-bold text-blue-100 truncate">
+                    {currentUser?.userName || 'Md. Raihan Hossain Antu'}
+                  </span>
+                  <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide truncate">
+                    {currentUser?.designation || 'Sr. Production Manager'} ({currentUser?.uid || 'EKL001'})
+                  </span>
+                </div>
+                
+                {/* Actions: Theme Toggle & Close Menu */}
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={handleToggleDark}
+                    className="rounded-lg p-1.5 text-slate-400 hover:bg-blue-900/30 hover:text-white transition-colors cursor-pointer"
+                    aria-label="Toggle Dark/Light Mode"
+                    title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+                  >
+                    {isDark ? <Sun className="h-5 w-5 text-amber-400" /> : <Moon className="h-5 w-5 text-slate-300" />}
+                  </button>
+                  <button 
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="rounded-lg p-1.5 text-slate-400 hover:bg-blue-900/30 hover:text-white transition-colors cursor-pointer"
+                    aria-label="Close menu"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              <nav className="space-y-2">
+                {/* Helper permission checker */}
+                {(() => {
+                  const isTabAllowed = (tabName: string) => {
+                    if (currentUser?.userType === 'Admin') return true;
+                    if (currentUser?.allowedTabs && currentUser.allowedTabs.length > 0) {
+                      return currentUser.allowedTabs.includes(tabName);
+                    }
+                    if (tabName === 'User Management' || tabName === 'Database Connection' || tabName === 'Admin Panel') {
+                      return false;
+                    }
+                    return true;
+                  };
+
+                  return (
+                    <>
+                      {/* Dashboard */}
+                      {isTabAllowed('Dashboard') && (
+                        <button
+                          onClick={() => {
+                            setCurrentPage('Dashboard');
+                            setMobileMenuOpen(false);
+                          }}
+                          className={`flex w-full items-center gap-3.5 rounded-xl px-4 py-2.5 text-left text-sm font-bold transition-all duration-150 cursor-pointer ${
+                            currentPage === 'Dashboard' 
+                              ? 'bg-[#0F4C81] text-white shadow-md ring-1 ring-blue-400/20' 
+                              : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          <Home className="h-5 w-5 text-blue-400 shrink-0" />
+                          <span>Dashboard</span>
+                        </button>
+                      )}
+
+                      {/* Production Update Group */}
+                      {['Production Ledger', 'Floor Dashboard', 'Management Dashboard', 'Reports'].some(isTabAllowed) && (
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 px-4 py-1.5 text-xs font-black uppercase text-blue-400 tracking-wider">
+                            <Factory className="h-4 w-4 shrink-0" />
+                            <span>Production Update</span>
+                          </div>
+                          <div className="pl-4 space-y-1 border-l-2 border-blue-900/50 ml-4">
+                            {[
+                              { name: 'Production Ledger', icon: Table, label: 'Production Ledger' },
+                              { name: 'Floor Dashboard', icon: LayoutGrid, label: 'Floor Dashboard' },
+                              { name: 'Management Dashboard', icon: TrendingUp, label: 'Management Dashboard' },
+                              { name: 'Reports', icon: FileText, label: 'Reports' },
+                            ].map((sub) => {
+                              if (!isTabAllowed(sub.name)) return null;
+                              const Icon = sub.icon;
+                              const isActive = currentPage === sub.name;
+                              return (
+                                <button
+                                  key={sub.name}
+                                  onClick={() => {
+                                    setCurrentPage(sub.name);
+                                    setMobileMenuOpen(false);
+                                  }}
+                                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-all cursor-pointer ${
+                                    isActive 
+                                      ? 'bg-blue-600/30 text-white font-bold border border-blue-500/30' 
+                                      : 'text-slate-300 hover:bg-white/10'
+                                  }`}
+                                >
+                                  <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-blue-400' : 'text-slate-400'}`} />
+                                  <span>{sub.label}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Plan Order Followup Group */}
+                      {['Plan Order Followup', 'Buyer Plan vs Actual', 'Yarn Requirement', 'Delivery Schedule'].some(isTabAllowed) && (
+                        <div className="space-y-1 pt-1">
+                          <div className="flex items-center gap-2 px-4 py-1.5 text-xs font-black uppercase text-indigo-400 tracking-wider">
+                            <ClipboardList className="h-4 w-4 shrink-0" />
+                            <span>Plan Order Followup</span>
+                          </div>
+                          <div className="pl-4 space-y-1 border-l-2 border-indigo-900/50 ml-4">
+                            {[
+                              { name: 'Plan Order Followup', icon: ClipboardList, label: 'Order Plan & Status' },
+                              { name: 'Buyer Plan vs Actual', icon: Target, label: 'Buyer Plan vs Actual' },
+                              { name: 'Yarn Requirement', icon: Layers, label: 'Yarn Requirement' },
+                              { name: 'Delivery Schedule', icon: CalendarCheck, label: 'Delivery Schedule' },
+                            ].map((sub) => {
+                              if (!isTabAllowed(sub.name)) return null;
+                              const Icon = sub.icon;
+                              const isActive = currentPage === sub.name;
+                              return (
+                                <button
+                                  key={sub.name}
+                                  onClick={() => {
+                                    setCurrentPage(sub.name);
+                                    setMobileMenuOpen(false);
+                                  }}
+                                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-all cursor-pointer ${
+                                    isActive 
+                                      ? 'bg-indigo-600/30 text-white font-bold border border-indigo-500/30' 
+                                      : 'text-slate-300 hover:bg-white/10'
+                                  }`}
+                                >
+                                  <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-indigo-400' : 'text-slate-400'}`} />
+                                  <span>{sub.label}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Admin Panel Group */}
+                      {['User Management', 'Database Connection', 'Settings'].some(isTabAllowed) && (
+                        <div className="space-y-1 pt-1">
+                          <div className="flex items-center gap-2 px-4 py-1.5 text-xs font-black uppercase text-blue-400 tracking-wider">
+                            <ShieldCheck className="h-4 w-4 shrink-0" />
+                            <span>Admin Panel</span>
+                          </div>
+                          <div className="pl-4 space-y-1 border-l-2 border-blue-900/50 ml-4">
+                            {[
+                              { name: 'User Management', icon: Users, label: 'User Management' },
+                              { name: 'Database Connection', icon: Database, label: 'Database Connection' },
+                              { name: 'Settings', icon: Settings, label: 'System Settings' },
+                            ].map((sub) => {
+                              if (!isTabAllowed(sub.name)) return null;
+                              const Icon = sub.icon;
+                              const isActive = currentPage === sub.name;
+                              return (
+                                <button
+                                  key={sub.name}
+                                  onClick={() => {
+                                    setCurrentPage(sub.name);
+                                    setMobileMenuOpen(false);
+                                  }}
+                                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-all cursor-pointer ${
+                                    isActive 
+                                      ? 'bg-blue-600/30 text-white font-bold border border-blue-500/30' 
+                                      : 'text-slate-300 hover:bg-white/10'
+                                  }`}
+                                >
+                                  <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-blue-400' : 'text-slate-400'}`} />
+                                  <span>{sub.label}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </nav>
+            </div>
+
+            {/* Logout on mobile menu drawer */}
+            <div className="border-t border-blue-900/40 pt-4 pb-2 mt-6 shrink-0">
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  handleLogout();
+                }}
+                className="flex w-full items-center gap-3.5 rounded-xl px-4 py-3 text-left text-sm font-bold text-red-400 transition-all hover:bg-red-950/40 hover:text-red-300 cursor-pointer"
+                id="mobile-nav-logout"
+              >
+                <LogOut className="h-5 w-5 shrink-0 text-red-400" />
+                <span className="truncate tracking-wide">Logout Account</span>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 2. Main Layout Container */}
+      <div className="flex pt-16">
+        {/* Sidebar Left Component */}
+        <Sidebar
+          currentPage={currentPage}
+          onNavigate={setCurrentPage}
+          collapsed={sidebarCollapsed}
+          setCollapsed={setSidebarCollapsed}
+          onLogout={handleLogout}
+          currentUser={currentUser}
+        />
+
+        {/* Main Workspace Frame */}
+        <main 
+          className={`flex-1 min-h-[calc(100vh-4rem)] p-4 sm:p-6 transition-all duration-300 ease-in-out ${
+            sidebarCollapsed ? 'pl-4 md:pl-20' : 'pl-4 md:pl-72'
+          }`}
+        >
+          <div className="mx-auto max-w-7xl space-y-6">
+            
+            {/* Page View Switcher */}
+            {currentPage === 'Dashboard' && (
+              <div className="space-y-6 animate-fade-in">
+                {/* Large Welcome banner */}
+                <WelcomeBanner floors={floors} onNavigate={setCurrentPage} />
+
+                {/* ERP-grade Filter Toolbar */}
+                <DashboardFilterToolbar 
+                  onApplyFilters={handleApplyFilters}
+                  onResetFilters={handleResetFilters}
+                  defaultUnit={filterState.unit}
+                  defaultDate={filterState.singleDate}
+                />
+
+                {/* KPI metrics row */}
+                <KPICards kpis={kpis} />
+
+                {/* Floor indicators & Activity feed */}
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+                  <div className="lg:col-span-2 space-y-6">
+                    <FactoryFloors 
+                      floors={floors} 
+                      selectedFloorId={selectedFloorId} 
+                      onSelectFloor={handleSelectFloor} 
+                    />
+                    
+                    {/* Integrated dashboard graphs */}
+                    <DashboardCharts 
+                      filterUnit={filterState.unit}
+                      filterDateMode={filterState.dateMode}
+                      filterSingleDate={filterState.singleDate}
+                      filterDateFrom={filterState.dateFrom}
+                      filterDateTo={filterState.dateTo}
+                      filterMonth={filterState.month}
+                      filterYear={filterState.year}
+                      isLoading={dashboardLoading}
+                    />
+
+                    {/* Dynamic Summary Panel */}
+                    <div className="rounded-2xl border border-blue-100 bg-blue-50/20 dark:border-blue-900/30 dark:bg-blue-950/10 p-5 shadow-xs" id="dashboard-summary-panel">
+                      <h3 className="font-sans text-xs font-black uppercase tracking-wider text-[#0F4C81] dark:text-blue-400 flex items-center gap-1.5 mb-3">
+                        <Info className="h-4 w-4" />
+                        <span>Unit Summary & Directives Panel</span>
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-semibold text-gray-700 dark:text-slate-300">
+                        <div className="space-y-1.5 p-3 rounded-xl bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800">
+                          <span className="block text-[10px] font-bold text-gray-400 uppercase">Yield Status</span>
+                          <p>
+                            {filterState.unit} has completed <strong className="text-emerald-600 font-bold">{kpis[2].value}</strong> of its target plan during this period. Yield curve remains consistent with target profiles.
+                          </p>
+                        </div>
+                        <div className="space-y-1.5 p-3 rounded-xl bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800">
+                          <span className="block text-[10px] font-bold text-gray-400 uppercase">Quality Assessment</span>
+                          <p>
+                            Scrap rate is steady at <strong className="text-red-500 font-bold">1.4%</strong>. Active alerts count is normal. Tension adjustment on machine sets recommended.
+                          </p>
+                        </div>
+                        <div className="space-y-1.5 p-3 rounded-xl bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800">
+                          <span className="block text-[10px] font-bold text-gray-400 uppercase">Directives & Roster</span>
+                          <p>
+                            Shift supervisors must audit Lycra feeds every 4 hours. Ensure rigger speed for next-set changes remains under 45 minutes.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="lg:col-span-1">
+                    <RightPanel 
+                      activityLogs={activityLogs} 
+                      onNotificationClick={handleSelectFloor} 
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+
+
+            {currentPage === 'Production Ledger' && (
+              <div className="animate-fade-in">
+                <ProductionLedgerView currentUser={currentUser} />
+              </div>
+            )}
+
+            {currentPage === 'Floor Dashboard' && (
+              <div className="animate-fade-in">
+                <FloorDashboardView
+                  floors={floors}
+                  selectedFloorId={selectedFloorId}
+                  onSelectFloor={(floorId) => {
+                    setSelectedFloorId(floorId);
+                    const mapping: Record<string, string> = {
+                      'ekl': 'EKL',
+                      'efl': 'EFL',
+                      'efl-2': 'EFL-2',
+                      'auto-stripe': 'Auto Stripe',
+                      'efl-ext': 'EFL-Extension',
+                      'esl-ext': 'ESL-Extension',
+                      'sub-contact': 'Sub-Contact'
+                    };
+                    if (floorId && mapping[floorId]) {
+                      setFilterState(prev => ({ ...prev, unit: mapping[floorId] }));
+                    }
+                  }}
+                  filterState={filterState}
+                  isLoading={dashboardLoading}
+                />
+              </div>
+            )}
+
+            {currentPage === 'Management Dashboard' && (
+              <div className="space-y-6 animate-fade-in">
+                <div className="border-b border-gray-100 pb-3">
+                  <h2 className="font-sans text-xl font-black tracking-tight text-gray-900">
+                    Executive Control Center
+                  </h2>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    High-level aggregate target projections
+                  </p>
+                </div>
+                <DashboardCharts 
+                  filterUnit={filterState.unit}
+                  filterDateMode={filterState.dateMode}
+                  filterSingleDate={filterState.singleDate}
+                  filterDateFrom={filterState.dateFrom}
+                  filterDateTo={filterState.dateTo}
+                  filterMonth={filterState.month}
+                  filterYear={filterState.year}
+                  isLoading={dashboardLoading}
+                />
+              </div>
+            )}
+
+            {currentPage === 'Reports' && (
+              <div className="animate-fade-in">
+                <ReportsView floors={floors} productionEntries={productionEntries} />
+              </div>
+            )}
+
+            {(currentPage === 'Plan Order Followup' || currentPage === 'Buyer Plan vs Actual' || currentPage === 'Yarn Requirement' || currentPage === 'Delivery Schedule') && (
+              <div className="animate-fade-in">
+                <PlanOrderFollowupView 
+                  currentUser={currentUser}
+                  initialSubTab={
+                    currentPage === 'Buyer Plan vs Actual' ? 'buyer' :
+                    currentPage === 'Yarn Requirement' ? 'yarn' :
+                    currentPage === 'Delivery Schedule' ? 'delivery' : 'summary'
+                  } 
+                />
+              </div>
+            )}
+
+            {(currentPage === 'Admin Panel' || currentPage === 'User Management' || currentPage === 'Database Connection' || currentPage === 'Settings') && (
+              <div className="animate-fade-in">
+                <AdminPanelView 
+                  currentUser={currentUser}
+                  initialTab={
+                    currentPage === 'Database Connection' ? 'database-connection' :
+                    currentPage === 'Settings' ? 'settings' : 'user-management'
+                  }
+                />
+              </div>
+            )}
+
+            {/* 3. Corporate Footer */}
+            <footer className="mt-12 border-t border-gray-100 py-6 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">
+              <div className="flex flex-col items-center justify-between gap-2 sm:flex-row sm:gap-0">
+                <span>© {new Date().getFullYear()} Epyllion Knitex Ltd.</span>
+                <span>Knitting Performance System • Version 1.0</span>
+                <span className="text-blue-600/80">Designed for Production Management</span>
+              </div>
+            </footer>
+          </div>
+        </main>
+      </div>
+      {/* Logout Confirmation Modal Overlay */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div 
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" 
+            onClick={() => setShowLogoutConfirm(false)}
+          />
+          <div className="relative w-full max-w-md transform rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-2xl border border-slate-200 dark:border-slate-800 transition-all animate-scale-up">
+            <div className="flex flex-col items-center text-center space-y-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-50 dark:bg-red-950/45 text-red-600 dark:text-red-400">
+                <LogOut className="h-6 w-6" />
+              </div>
+              <div className="space-y-1.5">
+                <h3 className="font-sans text-base font-black tracking-tight text-gray-900 dark:text-white uppercase">
+                  Log Out Confirmation
+                </h3>
+                <p className="text-xs font-semibold text-gray-400 dark:text-slate-400 leading-normal">
+                  Are you sure you want to exit the Epyllion Knitting Performance System? This will terminate your active directory session.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3 w-full pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowLogoutConfirm(false)}
+                  className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 py-2.5 text-xs font-bold text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700 transition-all cursor-pointer uppercase tracking-wider"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={executeLogout}
+                  className="rounded-xl bg-red-600 hover:bg-red-700 py-2.5 text-xs font-black text-white transition-all shadow-md active:scale-98 cursor-pointer uppercase tracking-wider"
+                >
+                  Yes, Log Out
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

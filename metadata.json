@@ -1,0 +1,8 @@
+{
+  "name": "Remix Epyllion Knitex Ltd. Knitting Performance System",
+  "description": "A premium, enterprise-grade, ERP-style dashboard for monitoring knitting production performance across multiple factory floors.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

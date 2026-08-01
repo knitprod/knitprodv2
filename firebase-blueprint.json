@@ -1,0 +1,113 @@
+{
+  "entities": {
+    "production_entries": {
+      "title": "Production Entries",
+      "description": "Real-time production logs from factory floors",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "floorId": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "machineId": { "type": "string" },
+        "operatorName": { "type": "string" },
+        "shift": { "type": "string" },
+        "yarnType": { "type": "string" },
+        "fabricType": { "type": "string" },
+        "productionKg": { "type": "number" },
+        "rejectKg": { "type": "number" },
+        "holdKg": { "type": "number" },
+        "remarks": { "type": "string" },
+        "date": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "syncStatus": { "type": "string" },
+        "lastSyncTime": { "type": "string" },
+        "version": { "type": "number" }
+      },
+      "required": ["id", "floorId", "productionKg"]
+    },
+    "ledger_records": {
+      "title": "Production Ledger Records",
+      "description": "Daily summary ledger entries per floor",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "floor": { "type": "string" },
+        "target": { "type": "number" },
+        "totalProduction": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "syncStatus": { "type": "string" },
+        "lastSyncTime": { "type": "string" },
+        "version": { "type": "number" }
+      },
+      "required": ["id", "date", "floor"]
+    },
+    "users": {
+      "title": "System Users",
+      "description": "User directory and role permissions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "userName": { "type": "string" },
+        "userType": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "uid"]
+    },
+    "order_plans": {
+      "title": "Order Plan Followups",
+      "description": "Order plans and production follow-ups",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderNo": { "type": "string" },
+        "buyer": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    "settings": {
+      "title": "System Settings",
+      "description": "Global application configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "key": { "type": "string" },
+        "value": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    "activity_logs": {
+      "title": "Activity Logs",
+      "description": "System and user action logs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "required": ["id", "message"]
+    },
+    "sync_conflicts": {
+      "title": "Synchronization Conflict Logs",
+      "description": "Logged conflict records between Firestore and Google Sheets",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "recordId": { "type": "string" },
+        "collection": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "recordId"]
+    }
+  }
+}
