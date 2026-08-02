@@ -808,42 +808,48 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     if (!parsedData || parsedData.length === 0 || isSaving) return;
 
     setIsSaving(true);
-    setTimeout(() => {
-      setYarnAllocations(parsedData);
-      setCurrentPage(1);
+    setUploadError(null);
 
-      const nowStr = new Date().toLocaleString('en-US', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      });
-
-      const newUploadInfo: MasterUploadInfo = {
-        lastUploadedAt: nowStr,
-        fileName: uploadFile?.name || 'Master_Yarn_Allocation.xlsx',
-        totalRecords: parsedData.length,
-        status: 'Success'
-      };
-
-      setUploadInfo(newUploadInfo);
+    setTimeout(async () => {
       try {
-        localStorage.setItem('master_yarn_upload_info', JSON.stringify(newUploadInfo));
-      } catch (e) {}
+        // Save dataset to Google Sheets and backend DB with replace=true
+        await GasClient.saveYarnAllocations(parsedData, true);
 
-      setUploadSuccessBanner(`Successfully imported Master Yarn Allocation dataset (${parsedData.length} total aggregated records updated).`);
+        setYarnAllocations(parsedData);
+        setCurrentPage(1);
 
-      GasClient.saveYarnAllocations(parsedData).catch((err) => {
-        console.warn("Failed to save uploaded yarn allocations to Google Sheets:", err);
-      }).finally(() => {
-        setIsSaving(false);
+        const nowStr = new Date().toLocaleString('en-US', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        });
+
+        const newUploadInfo: MasterUploadInfo = {
+          lastUploadedAt: nowStr,
+          fileName: uploadFile?.name || 'Master_Yarn_Allocation.xlsx',
+          totalRecords: parsedData.length,
+          status: 'Success'
+        };
+
+        setUploadInfo(newUploadInfo);
+        try {
+          localStorage.setItem('master_yarn_upload_info', JSON.stringify(newUploadInfo));
+        } catch (e) {}
+
+        setUploadSuccessBanner(`Successfully imported and saved ${parsedData.length} yarn allocation records to Google Sheets.`);
         setShowUploadModal(false);
         setUploadFile(null);
         setParsedData(null);
         setUploadError(null);
-      });
+      } catch (err: any) {
+        console.error("Failed to save uploaded yarn allocations to Google Sheets:", err);
+        setUploadError(`Failed to save to Google Sheets: ${err.message || 'Server error. Please verify your Google Apps Script URL and permissions.'}`);
+      } finally {
+        setIsSaving(false);
+      }
     }, 50);
   };
 

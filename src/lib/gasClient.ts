@@ -1158,12 +1158,16 @@ export class GasClient {
     return [];
   }
 
-  static async saveOrderPlans(orderPlans: any[]): Promise<void> {
+  static async saveOrderPlans(orderPlans: any[], replace: boolean = false): Promise<void> {
     if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
       try {
-        await this.request('orders/save', 'POST', { orderPlans });
-      } catch (e) {
+        const res = await this.request<any>('orders/save', 'POST', { orderPlans, replace });
+        if (res && res.success === false) {
+          throw new Error(res.message || "Failed to save order plans to Google Sheets.");
+        }
+      } catch (e: any) {
         console.warn("GAS save orders notice:", e);
+        throw e;
       }
     }
     await this.saveServerDb({ orderPlans });
@@ -1200,12 +1204,16 @@ export class GasClient {
     return [];
   }
 
-  static async saveYarnAllocations(yarnAllocations: any[]): Promise<void> {
+  static async saveYarnAllocations(yarnAllocations: any[], replace: boolean = false): Promise<void> {
     if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
       try {
-        await this.request('yarn/save', 'POST', { yarnAllocations });
-      } catch (e) {
+        const res = await this.request<any>('yarn/save', 'POST', { yarnAllocations, replace });
+        if (res && res.success === false) {
+          throw new Error(res.message || "Failed to save yarn allocations to Google Sheets.");
+        }
+      } catch (e: any) {
         console.warn("GAS save yarn allocations notice:", e);
+        throw e;
       }
     }
     await this.saveServerDb({ yarnAllocations });

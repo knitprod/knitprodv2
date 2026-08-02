@@ -337,7 +337,6 @@ function handleSaveOrderPlans(payload) {
     return makeResponse({ success: false, message: "Invalid payload format. Expected orderPlans array." });
   }
 
-  let data = sheet.getDataRange().getValues();
   const defaultHeaders = [
     "id", "planMonth", "planType", "ewo", "buyer", "color", "knitStart", "knitEnd", 
     "target", "targetNextMonth", "allocationStart", "allocationEnd", "allocatedQty", 
@@ -345,6 +344,7 @@ function handleSaveOrderPlans(payload) {
     "avgProdDay", "expectedKnitEnd", "knitStartOtd", "knitEndOtd", "knitStartRemarks", "knitEndRemarks"
   ];
 
+  let data = sheet.getDataRange().getValues();
   if (!data || data.length === 0 || !data[0] || data[0].length === 0) {
     sheet.getRange(1, 1, 1, defaultHeaders.length).setValues([defaultHeaders]);
     data = [defaultHeaders];
@@ -352,19 +352,56 @@ function handleSaveOrderPlans(payload) {
 
   const rawHeaders = data[0];
   const normHeaders = rawHeaders.map(function(h) { return normalizeHeaderName(h); });
-  const idCol = normHeaders.indexOf("id");
 
+  const isReplace = payload.replace === true || payload.mode === "replace" || payload.overwrite === true;
+
+  if (isReplace) {
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
+    }
+
+    if (orders.length === 0) {
+      return makeResponse({ success: true, message: "Sheet cleared successfully.", count: 0 });
+    }
+
+    const matrix = orders.map(function(ord, idx) {
+      const ordId = (ord.id || ("ord-" + Date.now() + "-" + (idx + 1))).toString().trim();
+      return normHeaders.map(function(h, colIdx) {
+        if (h === "id") return ordId;
+        const origHeader = rawHeaders[colIdx];
+        let val = ord[h];
+        if (val === undefined || val === null) val = ord[origHeader];
+        if (val === undefined || val === null) return "";
+        if (typeof val === "object") return JSON.stringify(val);
+        return val;
+      });
+    });
+
+    sheet.getRange(2, 1, matrix.length, normHeaders.length).setValues(matrix);
+
+    return makeResponse({
+      success: true,
+      message: "Successfully replaced " + orders.length + " order plans in Google Sheets.",
+      count: orders.length
+    });
+  }
+
+  const idCol = normHeaders.indexOf("id");
   const existingMap = {};
   for (let i = 1; i < data.length; i++) {
     if (idCol >= 0 && data[i][idCol]) {
-      existingMap[data[i][idCol].toString().trim()] = i + 1; // 1-based row index
+      existingMap[data[i][idCol].toString().trim()] = i + 1;
     }
   }
 
-  orders.forEach(function(ord) {
-    const ordId = (ord.id || ("ord-" + Date.now() + "-" + Math.floor(Math.random() * 1000))).toString().trim();
-    const newRow = normHeaders.map(function(h, idx) {
-      const origHeader = rawHeaders[idx];
+  const newRowsToAppend = [];
+
+  orders.forEach(function(ord, idx) {
+    const ordId = (ord.id || ("ord-" + Date.now() + "-" + (idx + 1))).toString().trim();
+    const newRow = normHeaders.map(function(h, colIdx) {
+      if (h === "id") return ordId;
+      const origHeader = rawHeaders[colIdx];
       let val = ord[h];
       if (val === undefined || val === null) val = ord[origHeader];
       if (val === undefined || val === null) return "";
@@ -376,9 +413,14 @@ function handleSaveOrderPlans(payload) {
       const rowIndex = existingMap[ordId];
       sheet.getRange(rowIndex, 1, 1, normHeaders.length).setValues([newRow]);
     } else {
-      sheet.appendRow(newRow);
+      newRowsToAppend.push(newRow);
     }
   });
+
+  if (newRowsToAppend.length > 0) {
+    const startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 1, newRowsToAppend.length, normHeaders.length).setValues(newRowsToAppend);
+  }
 
   return makeResponse({
     success: true,
@@ -496,7 +538,6 @@ function handleSaveYarnAllocations(payload) {
     return makeResponse({ success: false, message: "Invalid payload format. Expected yarnAllocations array." });
   }
 
-  let data = sheet.getDataRange().getValues();
   const defaultHeaders = [
     "id", "actualRequisitionDate", "buyer", "orderNumber", "fabricsType", "fabricShade", 
     "fabricGsm", "yarnRequired", "lotRef", "allocatedYarn", "lotNo", "spinnersName", 
@@ -505,6 +546,7 @@ function handleSaveYarnAllocations(payload) {
     "balance", "remarks"
   ];
 
+  let data = sheet.getDataRange().getValues();
   if (!data || data.length === 0 || !data[0] || data[0].length === 0) {
     sheet.getRange(1, 1, 1, defaultHeaders.length).setValues([defaultHeaders]);
     data = [defaultHeaders];
@@ -512,19 +554,56 @@ function handleSaveYarnAllocations(payload) {
 
   const rawHeaders = data[0];
   const normHeaders = rawHeaders.map(function(h) { return normalizeHeaderName(h); });
-  const idCol = normHeaders.indexOf("id");
 
+  const isReplace = payload.replace === true || payload.mode === "replace" || payload.overwrite === true;
+
+  if (isReplace) {
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
+    }
+
+    if (items.length === 0) {
+      return makeResponse({ success: true, message: "Sheet cleared successfully.", count: 0 });
+    }
+
+    const matrix = items.map(function(yarnItem, idx) {
+      const itemId = (yarnItem.id || ("yarn-" + Date.now() + "-" + (idx + 1))).toString().trim();
+      return normHeaders.map(function(h, colIdx) {
+        if (h === "id") return itemId;
+        const origHeader = rawHeaders[colIdx];
+        let val = yarnItem[h];
+        if (val === undefined || val === null) val = yarnItem[origHeader];
+        if (val === undefined || val === null) return "";
+        if (typeof val === "object") return JSON.stringify(val);
+        return val;
+      });
+    });
+
+    sheet.getRange(2, 1, matrix.length, normHeaders.length).setValues(matrix);
+
+    return makeResponse({
+      success: true,
+      message: "Successfully replaced " + items.length + " yarn allocation records in Google Sheets.",
+      count: items.length
+    });
+  }
+
+  const idCol = normHeaders.indexOf("id");
   const existingMap = {};
   for (let i = 1; i < data.length; i++) {
     if (idCol >= 0 && data[i][idCol]) {
-      existingMap[data[i][idCol].toString().trim()] = i + 1; // 1-based row index
+      existingMap[data[i][idCol].toString().trim()] = i + 1;
     }
   }
 
-  items.forEach(function(yarnItem) {
-    const itemId = (yarnItem.id || ("yarn-" + Date.now() + "-" + Math.floor(Math.random() * 1000))).toString().trim();
-    const newRow = normHeaders.map(function(h, idx) {
-      const origHeader = rawHeaders[idx];
+  const newRowsToAppend = [];
+
+  items.forEach(function(yarnItem, idx) {
+    const itemId = (yarnItem.id || ("yarn-" + Date.now() + "-" + (idx + 1))).toString().trim();
+    const newRow = normHeaders.map(function(h, colIdx) {
+      if (h === "id") return itemId;
+      const origHeader = rawHeaders[colIdx];
       let val = yarnItem[h];
       if (val === undefined || val === null) val = yarnItem[origHeader];
       if (val === undefined || val === null) return "";
@@ -536,9 +615,14 @@ function handleSaveYarnAllocations(payload) {
       const rowIndex = existingMap[itemId];
       sheet.getRange(rowIndex, 1, 1, normHeaders.length).setValues([newRow]);
     } else {
-      sheet.appendRow(newRow);
+      newRowsToAppend.push(newRow);
     }
   });
+
+  if (newRowsToAppend.length > 0) {
+    const startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 1, newRowsToAppend.length, normHeaders.length).setValues(newRowsToAppend);
+  }
 
   return makeResponse({
     success: true,
