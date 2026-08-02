@@ -8,7 +8,8 @@ const PORT = 3000;
 const CONFIG_FILE = path.join(process.cwd(), 'app_config.json');
 const DB_FILE = path.join(process.cwd(), 'app_db.json');
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 // In-memory cache for ultra-fast response times
 let cachedConfigObj: { gasWebAppUrl: string; databaseMode: 'gas' | 'mock' } | null = null;
@@ -329,6 +330,24 @@ app.all('/api/gas-proxy', async (req, res) => {
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+// Custom error handler for Express middleware (e.g. body-parser limit errors)
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err && (err.type === 'entity.too.large' || err.status === 413)) {
+    return res.status(413).json({
+      success: false,
+      message: 'Uploaded dataset payload is too large. Limit expanded to 100MB.'
+    });
+  }
+  if (err) {
+    console.error('Express request error:', err);
+    return res.status(500).json({
+      success: false,
+      message: err.message || 'Internal server error during request processing.'
+    });
+  }
+  next();
 });
 
 async function startServer() {

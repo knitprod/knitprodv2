@@ -267,11 +267,24 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
 
             {/* Google Sheets & Apps Script Integration Config */}
             <div className="space-y-4 pt-2 border-t border-slate-100 dark:border-slate-800">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <label className="text-xs font-black uppercase tracking-wider text-gray-700 dark:text-slate-300">
                   2. Google Sheets Apps Script Web App URL
                 </label>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setGasWebAppUrl(GasClient.DEFAULT_URL);
+                      setTestSuccess(null);
+                      setTestResult(null);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200 transition-all cursor-pointer shadow-2xs"
+                    title="Reset to default system URL"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5 text-slate-500" />
+                    <span>Reset Default URL</span>
+                  </button>
                   <button 
                     type="button"
                     onClick={handleCopyScript}
@@ -280,7 +293,7 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
                     {copiedScript ? (
                       <>
                         <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                        <span className="text-emerald-600 dark:text-emerald-400 font-bold">Copied Apps Script!</span>
+                        <span className="text-emerald-600 dark:text-emerald-400 font-bold">Copied Code.gs!</span>
                       </>
                     ) : (
                       <>
@@ -348,6 +361,22 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
                     }`}>
                       {testResult}
                     </div>
+
+                    {!testSuccess && (
+                      <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-xs space-y-2.5 text-amber-900 dark:text-amber-200">
+                        <div className="font-black flex items-center gap-2">
+                          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                          <span>Google Apps Script Deployment Instructions (30 Seconds):</span>
+                        </div>
+                        <ol className="list-decimal list-inside space-y-1 text-[11px] font-medium leading-relaxed">
+                          <li>Click <strong>Copy Code.gs Script</strong> above to copy the backend code.</li>
+                          <li>Open your Google Sheet &gt; <strong>Extensions</strong> &gt; <strong>Apps Script</strong>.</li>
+                          <li>Paste the script, replace all existing code, and click <strong>Save</strong>.</li>
+                          <li>Click <strong>Deploy &gt; New deployment &gt; Select type &gt; Web app</strong>.</li>
+                          <li>Set <strong>Execute as: Me</strong> and <strong>Who has access: Anyone</strong>, click <strong>Deploy</strong>, and copy the new Web App URL into the box above!</li>
+                        </ol>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -155,12 +155,37 @@ const ensureUniqueIds = <T extends { id: string }>(items: T[], prefix: string): 
 export default function App() {
   const [inactivityNotice, setInactivityNotice] = useState<string | null>(null);
 
-  const [currentUser, setCurrentUser] = useState<UserRecord | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserRecord | null>(() => {
+    try {
+      const savedSession = sessionStorage.getItem('active_user_session');
+      if (savedSession) {
+        const parsed = JSON.parse(savedSession);
+        if (parsed && parsed.id && parsed.activeStatus === 'Active') {
+          delete parsed.password;
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to restore active session from sessionStorage:', e);
+    }
+    return null;
+  });
   const lastActivityRef = useRef<number>(Date.now());
 
-  // Sync active user with GasClient memory store whenever state changes
+  // Sync active user with GasClient and sessionStorage whenever state changes
   useEffect(() => {
     GasClient.setActiveUser(currentUser);
+    if (currentUser) {
+      try {
+        const safeUser = { ...currentUser };
+        delete safeUser.password;
+        sessionStorage.setItem('active_user_session', JSON.stringify(safeUser));
+      } catch (e) {}
+    } else {
+      try {
+        sessionStorage.removeItem('active_user_session');
+      } catch (e) {}
+    }
   }, [currentUser]);
 
   // 30-Minute Inactivity Auto-Logout Tracking (in React memory)
@@ -626,6 +651,9 @@ export default function App() {
   };
 
   const executeLogout = () => {
+    try {
+      sessionStorage.removeItem('active_user_session');
+    } catch (e) {}
     setCurrentUser(null);
     GasClient.setActiveUser(null);
     setCurrentPage('Dashboard');

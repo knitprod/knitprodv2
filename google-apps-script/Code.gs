@@ -155,7 +155,6 @@ function normalizeHeaderName(headerStr) {
   if (str === "yarnstockstatus" || str === "stockstatus") return "yarnStockStatus";
   if (str === "yarndeliverystatus" || str === "deliverystatus") return "yarnDeliveryStatus";
   if (str.indexOf("proposedalloc") >= 0) return "proposedAllocationDate";
-  if (str === "allocationdate") return "allocationDate";
   if (str.indexOf("allocationsart") >= 0 || str.indexOf("allocationstartdate") >= 0 || str.indexOf("allocationdaterange") >= 0) return "allocationDateRange";
   if (str === "allocationno" || str === "allocationnum" || str === "allocationnumber") return "allocationNo";
   if (str.indexOf("yarnrqqty") >= 0 || str.indexOf("yarnreqqty") >= 0 || str.indexOf("yarnrequiredqty") >= 0) return "yarnRqQty";
@@ -247,7 +246,7 @@ function initializeDatabase() {
       "id", "actualRequisitionDate", "buyer", "orderNumber", "fabricsType", "fabricShade", 
       "fabricGsm", "yarnRequired", "lotRef", "allocatedYarn", "lotNo", "spinnersName", 
       "allocationStatus", "yarnStockStatus", "yarnDeliveryStatus", "proposedAllocationDate", 
-      "allocationDate", "allocationDateRange", "allocationNo", "yarnRqQty", "allocatedQty", 
+      "allocationDateRange", "allocationNo", "yarnRqQty", "allocatedQty", 
       "balance", "remarks"
     ];
     yarnSheet.getRange(1, 1, 1, yarnHeaders.length).setValues([yarnHeaders]);
@@ -256,13 +255,13 @@ function initializeDatabase() {
       [
         "yarn-001", "05-Jul-26", "Vogue Sourcin", "270258", "Single Jersey", "Mid Blue",
         "180 GSM", "30/1 Combed Cotton", "LOT-9081", "30s Cotton Combed", "L-9081", "Spinner A",
-        "Allocated", "In Stock", "Delivered", "04-Jul-26", "05-Jul-26", "05-Jul-26 to 10-Jul-26",
+        "Allocated", "In Stock", "Delivered", "04-Jul-26", "05-Jul-26 to 10-Jul-26",
         "ALLOC-2026-01", 5000, 5000, 0, "Fully Allocated"
       ],
       [
         "yarn-002", "10-Jul-26", "Vogue Sourcin", "270418", "1x1 Rib", "Next Black",
         "220 GSM", "34/1 Carded Cotton", "LOT-7712", "34s Carded", "L-7712", "Spinner B",
-        "Partial", "Transit", "Pending", "08-Jul-26", "10-Jul-26", "10-Jul-26 to 18-Jul-26",
+        "Partial", "Transit", "Pending", "08-Jul-26", "10-Jul-26 to 18-Jul-26",
         "ALLOC-2026-02", 3500, 2500, 1000, "Awaiting Balance Delivery"
       ]
     ];
@@ -502,7 +501,7 @@ function handleSaveYarnAllocations(payload) {
     "id", "actualRequisitionDate", "buyer", "orderNumber", "fabricsType", "fabricShade", 
     "fabricGsm", "yarnRequired", "lotRef", "allocatedYarn", "lotNo", "spinnersName", 
     "allocationStatus", "yarnStockStatus", "yarnDeliveryStatus", "proposedAllocationDate", 
-    "allocationDate", "allocationDateRange", "allocationNo", "yarnRqQty", "allocatedQty", 
+    "allocationDateRange", "allocationNo", "yarnRqQty", "allocatedQty", 
     "balance", "remarks"
   ];
 

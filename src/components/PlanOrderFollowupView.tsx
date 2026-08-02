@@ -255,7 +255,6 @@ export interface YarnAllocationRecord {
   yarnStockStatus: string;
   yarnDeliveryStatus: string;
   proposedAllocationDate: string;
-  allocationDate: string;
   allocationDateRange: string;
   allocationNo: string;
   yarnRqQty: number;
@@ -282,7 +281,6 @@ export const INITIAL_YARN_ALLOCATIONS: YarnAllocationRecord[] = [
     yarnStockStatus: 'Stock Available',
     yarnDeliveryStatus: 'Completed',
     proposedAllocationDate: '',
-    allocationDate: '29-Jun-25',
     allocationDateRange: '29-Jun-2025 To 08-Jul-2025',
     allocationNo: 'A7288',
     yarnRqQty: 463,
@@ -307,7 +305,6 @@ export const INITIAL_YARN_ALLOCATIONS: YarnAllocationRecord[] = [
     yarnStockStatus: 'Stock Available',
     yarnDeliveryStatus: 'Completed',
     proposedAllocationDate: '',
-    allocationDate: '2-Jul-25',
     allocationDateRange: '01-Jul-2025 To 08-Jul-2025',
     allocationNo: 'A7296',
     yarnRqQty: 2110,
@@ -332,7 +329,6 @@ export const INITIAL_YARN_ALLOCATIONS: YarnAllocationRecord[] = [
     yarnStockStatus: 'Stock Available',
     yarnDeliveryStatus: 'Completed',
     proposedAllocationDate: '',
-    allocationDate: '1-Jul-25',
     allocationDateRange: '01-Jul-2025 To 08-Jul-2025',
     allocationNo: 'A7293',
     yarnRqQty: 347,
@@ -357,7 +353,6 @@ export const INITIAL_YARN_ALLOCATIONS: YarnAllocationRecord[] = [
     yarnStockStatus: 'Stock Available',
     yarnDeliveryStatus: 'Completed',
     proposedAllocationDate: '',
-    allocationDate: '2-Jul-25',
     allocationDateRange: '02-Jul-2025 To 08-Jul-2025',
     allocationNo: 'A7296',
     yarnRqQty: 122,
@@ -382,7 +377,6 @@ export const INITIAL_YARN_ALLOCATIONS: YarnAllocationRecord[] = [
     yarnStockStatus: 'Stock Available',
     yarnDeliveryStatus: 'Completed',
     proposedAllocationDate: '',
-    allocationDate: '8-Jul-25',
     allocationDateRange: '08-Jul-2025 To 08-Jul-2025',
     allocationNo: 'A7308',
     yarnRqQty: -463,
@@ -478,7 +472,6 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   const [yaYarnStockStatus, setYaYarnStockStatus] = useState('Stock Available');
   const [yaYarnDeliveryStatus, setYaYarnDeliveryStatus] = useState('Completed');
   const [yaProposedAllocationDate, setYaProposedAllocationDate] = useState('');
-  const [yaAllocationDate, setYaAllocationDate] = useState('29-Jun-25');
   const [yaAllocationDateRange, setYaAllocationDateRange] = useState('29-Jun-2025 To 08-Jul-2025');
   const [yaAllocationNo, setYaAllocationNo] = useState('A7288');
   const [yaYarnRqQty, setYaYarnRqQty] = useState('463');
@@ -539,7 +532,6 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       'Yarn Stock Status': item.yarnStockStatus,
       'Yarn Delivery Status': item.yarnDeliveryStatus,
       'Proposed Allocation Date': item.proposedAllocationDate,
-      'Allocation Date': item.allocationDate,
       'Allocation Sart Date to End Date': item.allocationDateRange,
       'Allocation No': item.allocationNo,
       'Yarn Rq Qty': item.yarnRqQty,
@@ -1871,7 +1863,6 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                   yarnStockStatus: yaYarnStockStatus,
                   yarnDeliveryStatus: yaYarnDeliveryStatus,
                   proposedAllocationDate: yaProposedAllocationDate,
-                  allocationDate: yaAllocationDate,
                   allocationDateRange: yaAllocationDateRange,
                   allocationNo: yaAllocationNo,
                   yarnRqQty: parseFloat(yaYarnRqQty) || 0,
@@ -2056,16 +2047,6 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                       placeholder="e.g. A7288"
                       className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold"
                       required
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Allocation Date</label>
-                    <input
-                      type="text"
-                      value={yaAllocationDate}
-                      onChange={(e) => setYaAllocationDate(e.target.value)}
-                      placeholder="e.g. 29-Jun-25"
-                      className="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold"
                     />
                   </div>
                   <div>

@@ -17,10 +17,20 @@ import {
   FileSpreadsheet,
   AlertCircle,
   CheckCircle,
-  FileText
+  FileText,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
 import { GasClient } from '../lib/gasClient';
+
+export interface MasterUploadInfo {
+  lastUploadedAt: string | null;
+  fileName: string | null;
+  totalRecords: number;
+  status: 'Success' | 'Failed' | 'No upload yet';
+  errorMessage?: string;
+}
 
 export interface YarnAllocationRecord {
   id: string;
@@ -39,7 +49,6 @@ export interface YarnAllocationRecord {
   yarnStockStatus: string;
   yarnDeliveryStatus: string;
   proposedAllocationDate: string;
-  allocationDate: string;
   allocationDateRange: string;
   allocationNo: string;
   yarnRqQty: number;
@@ -66,7 +75,6 @@ export const INITIAL_YARN_ALLOCATIONS: YarnAllocationRecord[] = [
     yarnStockStatus: 'Stock Available',
     yarnDeliveryStatus: 'Completed',
     proposedAllocationDate: '',
-    allocationDate: '29-Jun-25',
     allocationDateRange: '29-Jun-2025 To 08-Jul-2025',
     allocationNo: 'A7288',
     yarnRqQty: 463,
@@ -91,7 +99,6 @@ export const INITIAL_YARN_ALLOCATIONS: YarnAllocationRecord[] = [
     yarnStockStatus: 'Stock Available',
     yarnDeliveryStatus: 'Completed',
     proposedAllocationDate: '',
-    allocationDate: '8-Jul-25',
     allocationDateRange: '08-Jul-2025 To 08-Jul-2025',
     allocationNo: 'A7308',
     yarnRqQty: 0,
@@ -116,7 +123,6 @@ export const INITIAL_YARN_ALLOCATIONS: YarnAllocationRecord[] = [
     yarnStockStatus: 'Stock Available',
     yarnDeliveryStatus: 'Completed',
     proposedAllocationDate: '',
-    allocationDate: '29-Jun-25',
     allocationDateRange: '29-Jun-2025 To 08-Jul-2025',
     allocationNo: 'A7288',
     yarnRqQty: -463,
@@ -141,7 +147,6 @@ export const INITIAL_YARN_ALLOCATIONS: YarnAllocationRecord[] = [
     yarnStockStatus: 'Stock Available',
     yarnDeliveryStatus: 'Completed',
     proposedAllocationDate: '',
-    allocationDate: '29-Jun-25',
     allocationDateRange: '29-Jun-2025 To 08-Jul-2025',
     allocationNo: 'A7288',
     yarnRqQty: 463,
@@ -166,7 +171,6 @@ export const INITIAL_YARN_ALLOCATIONS: YarnAllocationRecord[] = [
     yarnStockStatus: 'Stock Available',
     yarnDeliveryStatus: 'Completed',
     proposedAllocationDate: '',
-    allocationDate: '8-Jul-25',
     allocationDateRange: '08-Jul-2025 To 08-Jul-2025',
     allocationNo: 'A7308',
     yarnRqQty: -463,
@@ -259,12 +263,76 @@ function parseExcelDate(val: any): string {
 function getColValue(row: Record<string, any>, possibleKeys: string[]): any {
   const keys = Object.keys(row);
   for (const pk of possibleKeys) {
-    const foundKey = keys.find(k => k.trim().toLowerCase() === pk.toLowerCase());
-    if (foundKey && row[foundKey] !== undefined && row[foundKey] !== null) {
+    const pkClean = pk.toLowerCase().trim();
+    // 1. Exact match
+    let foundKey = keys.find(k => k.trim().toLowerCase() === pkClean);
+    // 2. Starts with match
+    if (!foundKey) {
+      foundKey = keys.find(k => k.trim().toLowerCase().startsWith(pkClean));
+    }
+    // 3. Includes match
+    if (!foundKey && pkClean.length > 3) {
+      foundKey = keys.find(k => k.trim().toLowerCase().includes(pkClean));
+    }
+    if (foundKey && row[foundKey] !== undefined && row[foundKey] !== null && row[foundKey] !== '') {
       return row[foundKey];
     }
   }
   return '';
+}
+
+function parseToDate(val: any): Date | null {
+  if (!val && val !== 0) return null;
+  if (val instanceof Date && !isNaN(val.getTime())) return val;
+  if (typeof val === 'number') {
+    const dateObj = XLSX.SSF.parse_date_code(val);
+    if (dateObj && dateObj.y && dateObj.m && dateObj.d) {
+      return new Date(dateObj.y, dateObj.m - 1, dateObj.d);
+    }
+  }
+  const str = String(val).trim();
+  if (!str || str === '-' || str.toLowerCase() === 'pending') return null;
+
+  // Standard ISO or YYYY-MM-DD
+  const isoMatch = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (isoMatch) {
+    const yr = parseInt(isoMatch[1], 10);
+    const m = parseInt(isoMatch[2], 10) - 1;
+    const d = parseInt(isoMatch[3], 10);
+    const date = new Date(yr, m, d);
+    if (!isNaN(date.getTime())) return date;
+  }
+
+  // DD-MMM-YYYY or DD-MMM-YY or D-M-YYYY
+  const dmyMatch = str.match(/^(\d{1,2})[-/\s]([A-Za-z0-9]+)[-/\s](\d{2,4})$/);
+  if (dmyMatch) {
+    const dy = parseInt(dmyMatch[1], 10);
+    const mStr = dmyMatch[2].toLowerCase();
+    let yr = parseInt(dmyMatch[3], 10);
+    if (yr < 100) yr += 2000;
+    const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    let mIdx = months.findIndex(m => mStr.startsWith(m));
+    if (mIdx === -1) {
+      mIdx = parseInt(mStr, 10) - 1;
+    }
+    if (mIdx >= 0 && mIdx < 12) {
+      const date = new Date(yr, mIdx, dy);
+      if (!isNaN(date.getTime())) return date;
+    }
+  }
+
+  const standard = new Date(str);
+  if (!isNaN(standard.getTime())) return standard;
+
+  return null;
+}
+
+function formatDDMMMYYYY(d: Date): string {
+  const mNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const dy = String(d.getDate()).padStart(2, '0');
+  const mName = mNames[d.getMonth()];
+  const yr = d.getFullYear();
+  return `${dy}-${mName}-${yr}`;
 }
 
 interface YarnAllocationViewProps {
@@ -278,38 +346,110 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
   const [yarnFabricFilter, setYarnFabricFilter] = useState('All');
   const [yarnSpinnerFilter, setYarnSpinnerFilter] = useState('All');
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(100);
+
+  // Master upload metadata state
+  const [uploadInfo, setUploadInfo] = useState<MasterUploadInfo>(() => {
+    try {
+      const saved = localStorage.getItem('master_yarn_upload_info');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return {
+      lastUploadedAt: '01-Aug-2026, 10:30 AM',
+      fileName: 'Master_Yarn_Allocation.xlsx',
+      totalRecords: INITIAL_YARN_ALLOCATIONS.length,
+      status: 'Success',
+    };
+  });
+
   // Upload modal state
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [isParsing, setIsParsing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [parsedData, setParsedData] = useState<YarnAllocationRecord[] | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccessBanner, setUploadSuccessBanner] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [isLoadingSaved, setIsLoadingSaved] = useState(false);
+
+  // Load saved yarn allocations from server database on mount
+  useEffect(() => {
+    let isMounted = true;
+    setIsLoadingSaved(true);
+    GasClient.fetchYarnAllocations()
+      .then(data => {
+        if (isMounted && data && Array.isArray(data) && data.length > 0) {
+          setYarnAllocations(data);
+        }
+      })
+      .catch(err => {
+        console.warn("Failed to load saved yarn allocations:", err);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingSaved(false);
+      });
+
+    return () => { isMounted = false; };
+  }, []);
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [yarnSearchQuery, yarnBuyerFilter, yarnFabricFilter, yarnSpinnerFilter, pageSize]);
+
+  const uniqueBuyers = useMemo(() => {
+    return Array.from(new Set(yarnAllocations.map(a => a.buyer))).filter(Boolean).sort();
+  }, [yarnAllocations]);
+
+  const uniqueFabrics = useMemo(() => {
+    return Array.from(new Set(yarnAllocations.map(a => a.fabricsType))).filter(Boolean).sort();
+  }, [yarnAllocations]);
+
+  const uniqueSpinners = useMemo(() => {
+    return Array.from(new Set(yarnAllocations.map(a => a.spinnersName))).filter(Boolean).sort();
+  }, [yarnAllocations]);
+
   const filteredYarnAllocations = useMemo(() => {
+    const q = yarnSearchQuery.trim().toLowerCase();
+
     return yarnAllocations.filter(item => {
-      const q = yarnSearchQuery.toLowerCase();
-      const matchesSearch = 
-        !q ||
-        String(item.orderNumber || '').toLowerCase().includes(q) ||
-        String(item.buyer || '').toLowerCase().includes(q) ||
-        String(item.fabricsType || '').toLowerCase().includes(q) ||
-        String(item.yarnRequired || '').toLowerCase().includes(q) ||
-        String(item.allocatedYarn || '').toLowerCase().includes(q) ||
-        String(item.lotNo || '').toLowerCase().includes(q) ||
-        String(item.spinnersName || '').toLowerCase().includes(q) ||
-        String(item.allocationNo || '').toLowerCase().includes(q) ||
-        String(item.remarks || '').toLowerCase().includes(q);
-
       const matchesBuyer = yarnBuyerFilter === 'All' || item.buyer === yarnBuyerFilter;
-      const matchesFabric = yarnFabricFilter === 'All' || item.fabricsType === yarnFabricFilter;
-      const matchesSpinner = yarnSpinnerFilter === 'All' || item.spinnersName === yarnSpinnerFilter;
+      if (!matchesBuyer) return false;
 
-      return matchesSearch && matchesBuyer && matchesFabric && matchesSpinner;
+      const matchesFabric = yarnFabricFilter === 'All' || item.fabricsType === yarnFabricFilter;
+      if (!matchesFabric) return false;
+
+      const matchesSpinner = yarnSpinnerFilter === 'All' || item.spinnersName === yarnSpinnerFilter;
+      if (!matchesSpinner) return false;
+
+      if (!q) return true;
+
+      return (
+        (item.orderNumber && item.orderNumber.toLowerCase().includes(q)) ||
+        (item.buyer && item.buyer.toLowerCase().includes(q)) ||
+        (item.fabricsType && item.fabricsType.toLowerCase().includes(q)) ||
+        (item.yarnRequired && item.yarnRequired.toLowerCase().includes(q)) ||
+        (item.allocatedYarn && item.allocatedYarn.toLowerCase().includes(q)) ||
+        (item.lotNo && item.lotNo.toLowerCase().includes(q)) ||
+        (item.spinnersName && item.spinnersName.toLowerCase().includes(q)) ||
+        (item.allocationNo && item.allocationNo.toLowerCase().includes(q)) ||
+        (item.remarks && item.remarks.toLowerCase().includes(q))
+      );
     });
   }, [yarnAllocations, yarnSearchQuery, yarnBuyerFilter, yarnFabricFilter, yarnSpinnerFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredYarnAllocations.length / (pageSize === 0 ? 1 : pageSize)));
+
+  const paginatedYarnAllocations = useMemo(() => {
+    if (pageSize === 0) return filteredYarnAllocations;
+    const start = (currentPage - 1) * pageSize;
+    return filteredYarnAllocations.slice(start, start + pageSize);
+  }, [filteredYarnAllocations, currentPage, pageSize]);
 
   const yarnTotals = useMemo(() => {
     return filteredYarnAllocations.reduce((acc, curr) => ({
@@ -340,7 +480,6 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
       'Yarn Stock Status': item.yarnStockStatus,
       'Yarn Delivery Status': item.yarnDeliveryStatus,
       'Proposed Allocation Date': item.proposedAllocationDate,
-      'Allocation Date': item.allocationDate,
       'Allocation Sart Date to End Date': item.allocationDateRange,
       'Allocation No': item.allocationNo,
       'Yarn Rq Qty': item.yarnRqQty,
@@ -361,71 +500,287 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     setIsParsing(true);
     setParsedData(null);
 
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-        const firstSheetName = workbook.SheetNames[0];
-        if (!firstSheetName) {
-          setUploadError('No sheets found in the uploaded file.');
-          setIsParsing(false);
-          return;
-        }
-        const worksheet = workbook.Sheets[firstSheetName];
-        const jsonData = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet, { defval: '' });
+    const fileNameLower = file.name.toLowerCase();
+    if (!fileNameLower.endsWith('.xlsx') && !fileNameLower.endsWith('.xls')) {
+      const errMsg = 'Invalid file format. Please upload an Excel file (.xlsx or .xls).';
+      setUploadError(errMsg);
+      setIsParsing(false);
+      return;
+    }
 
-        if (jsonData.length === 0) {
-          setUploadError('The uploaded sheet is empty.');
-          setIsParsing(false);
-          return;
-        }
+    // Deferred execution to allow UI loading spinner render
+    setTimeout(() => {
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        try {
+          const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+          const firstSheetName = workbook.SheetNames[0];
+          if (!firstSheetName) {
+            const errMsg = 'No sheets found in the uploaded file.';
+            setUploadError(errMsg);
+            setIsParsing(false);
+            return;
+          }
+          const worksheet = workbook.Sheets[firstSheetName];
+          const rawMatrix = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, defval: '' });
 
-        const records: YarnAllocationRecord[] = jsonData.map((row, idx) => {
-          const rqQty = parseFloat(getColValue(row, ['Yarn Rq Qty', 'Yarn Req Qty', 'Required Qty', 'yarnRqQty'])) || 0;
-          const alcQty = parseFloat(getColValue(row, ['Allocated Qty', 'Allocated Quantity', 'allocatedQty'])) || 0;
-          let balVal = getColValue(row, ['Balance', 'balance']);
-          let bal = typeof balVal === 'number' ? balVal : parseFloat(balVal);
-          if (isNaN(bal)) {
-            bal = rqQty - alcQty;
+          if (!rawMatrix || rawMatrix.length === 0) {
+            const errMsg = 'The uploaded Excel sheet is empty.';
+            setUploadError(errMsg);
+            setIsParsing(false);
+            return;
           }
 
-          return {
-            id: `ya-up-${idx + 1}-${Date.now()}`,
-            actualRequisitionDate: parseExcelDate(getColValue(row, ['Actual Yarn Requisition date', 'Actual Requisition Date', 'Requisition Date', 'Req Date', 'actualRequisitionDate'])),
-            buyer: String(getColValue(row, ['Buyer', 'buyer']) || '').trim(),
-            orderNumber: String(getColValue(row, ['Order Number', 'Order No', 'Order #', 'orderNumber']) || '').trim(),
-            fabricsType: String(getColValue(row, ['Fabrics Type', 'Fabric Type', 'fabricsType']) || '').trim(),
-            fabricShade: String(getColValue(row, ['Fabric Shade', 'Shade', 'fabricShade']) || '').trim(),
-            fabricGsm: getColValue(row, ['Fabric GSM', 'GSM', 'fabricGsm']) || '',
-            yarnRequired: String(getColValue(row, ['Yarn Required', 'yarnRequired']) || '').trim(),
-            lotRef: String(getColValue(row, ['Lot Ref', 'lotRef']) || '').trim(),
-            allocatedYarn: String(getColValue(row, ['Allocated Yarn', 'allocatedYarn']) || '').trim(),
-            lotNo: String(getColValue(row, ['Lot #', 'Lot No', 'Lot Number', 'lotNo']) || '').trim(),
-            spinnersName: String(getColValue(row, ['Spinner\'s Name', 'Spinners Name', 'Spinner Name', 'Spinner', 'spinnersName']) || '').trim(),
-            allocationStatus: String(getColValue(row, ['Allocation Status', 'allocationStatus']) || 'Allocated').trim(),
-            yarnStockStatus: String(getColValue(row, ['Yarn Stock Status', 'yarnStockStatus']) || 'Stock Available').trim(),
-            yarnDeliveryStatus: String(getColValue(row, ['Yarn Delivery Status', 'yarnDeliveryStatus']) || 'Completed').trim(),
-            proposedAllocationDate: parseExcelDate(getColValue(row, ['Proposed Allocation Date', 'proposedAllocationDate'])),
-            allocationDate: parseExcelDate(getColValue(row, ['Allocation Date', 'allocationDate'])),
-            allocationDateRange: String(getColValue(row, ['Allocation Sart Date to End Date', 'Allocation Start Date to End Date', 'Allocation Date Range', 'allocationDateRange']) || '').trim(),
-            allocationNo: String(getColValue(row, ['Allocation No', 'Allocation #', 'allocationNo']) || '').trim(),
-            yarnRqQty: rqQty,
-            allocatedQty: alcQty,
-            balance: bal,
-            remarks: String(getColValue(row, ['Remarks', 'remarks']) || '').trim(),
-          };
-        });
+          // Find actual header row by scanning top 15 rows for matching header keywords
+          let headerRowIndex = 0;
+          let maxMatches = 0;
+          const headerKeywords = ['booking', 'yarn', 'buyer', 'alloc', 'shade', 'gsm', 'count', 'lot', 'spinner', 'req', 'qty', 'balance', 'date', 'type'];
 
-        setParsedData(records);
-        setIsParsing(false);
-      } catch (err) {
-        console.error('Error parsing Excel file:', err);
-        setUploadError('Failed to parse Excel file. Please ensure it is a valid .xlsx, .xls, or .csv file.');
-        setIsParsing(false);
-      }
-    };
-    reader.readAsArrayBuffer(file);
+          for (let r = 0; r < Math.min(15, rawMatrix.length); r++) {
+            const rowArr = rawMatrix[r];
+            if (!Array.isArray(rowArr)) continue;
+            let matches = 0;
+            for (const cell of rowArr) {
+              const cellStr = String(cell || '').toLowerCase();
+              if (headerKeywords.some(kw => cellStr.includes(kw))) {
+                matches++;
+              }
+            }
+            if (matches > maxMatches) {
+              maxMatches = matches;
+              headerRowIndex = r;
+            }
+          }
+
+          const headerRow = rawMatrix[headerRowIndex] || [];
+          const headers: string[] = headerRow.map((cell: any) => 
+            String(cell || '').replace(/[\r\n]+/g, ' ').replace(/\u00a0/g, ' ').trim()
+          );
+
+          // Fast O(1) header column lookup map
+          const findHeaderKey = (possibleKeys: string[]): string => {
+            for (const pk of possibleKeys) {
+              const pkClean = pk.toLowerCase().trim();
+              const match = headers.find(h => {
+                const hc = h.toLowerCase().trim();
+                return hc === pkClean || hc.startsWith(pkClean) || (pkClean.length > 3 && hc.includes(pkClean));
+              });
+              if (match) return match;
+            }
+            return '';
+          };
+
+          const colMap = {
+            orderNumber: findHeaderKey(['fabric booking no', 'fabric booking number', 'order number', 'order no', 'order #', 'booking no', 'booking']),
+            fabricsType: findHeaderKey(['fabrics type', 'fabric type', 'fabric']),
+            fabricShade: findHeaderKey(['fabric shade', 'shade', 'color']),
+            fabricGsm: findHeaderKey(['fabric gsm', 'gsm']),
+            yarnRequired: findHeaderKey(['yarn category', 'yarn required', 'as per fr', 'yarn cat', 'category']),
+            allocatedYarn: findHeaderKey(['yarn count physical', 'allocated yarn', 'count physical', 'physical count', 'yarn req', 'count']),
+            lotNo: findHeaderKey(['lot #', 'lot no', 'lot number', 'lot']),
+            spinnersName: findHeaderKey(["spinner's name", 'spinners name', 'spinner name', 'spinner']),
+            buyer: findHeaderKey(['buyer']),
+            lotRef: findHeaderKey(['lot reference', 'lot ref']),
+            allocationStatus: findHeaderKey(['allocation status']),
+            yarnStockStatus: findHeaderKey(['yarn stock status']),
+            yarnDeliveryStatus: findHeaderKey(['yarn delivery status']),
+            proposedAllocationDate: findHeaderKey(['proposed allocation date']),
+            actualRequisitionDate: findHeaderKey(['actual yarn requisition date', 'actual requisition date', 'requisition date', 'req date']),
+            allocationNo: findHeaderKey(['allocation no', 'allocation #', 'allocation number']),
+            remarks: findHeaderKey(['remarks', 'comment']),
+            yarnRqQty: findHeaderKey(['yarn requisition qty', 'yarn rq qty', 'yarn req qty', 'required qty']),
+            allocatedQty: findHeaderKey(['allocated qty', 'allocated quantity']),
+            balance: findHeaderKey(['balance qty', 'balance']),
+            allocationDate: findHeaderKey(['allocation date', 'alloc date', 'allocation d', 'alloc d', 'date']),
+            existingRange: findHeaderKey(['allocation sart date to end date', 'allocation start date to end date', 'allocation date range']),
+          };
+
+          // Validate required source columns
+          const missingCols: string[] = [];
+          if (!colMap.orderNumber) missingCols.push('Fabric Booking No');
+          if (!colMap.yarnRequired) missingCols.push('Yarn Category');
+          if (!colMap.allocatedYarn) missingCols.push('Yarn Count Physical');
+          if (!colMap.allocationDate) missingCols.push('Allocation Date');
+
+          if (missingCols.length > 0) {
+            const errMsg = `Import Cancelled: Missing required column(s) in uploaded file: ${missingCols.join(', ')}. Please upload a valid Master Yarn Allocation file containing all required source columns.`;
+            setUploadError(errMsg);
+            setIsParsing(false);
+
+            const nowStr = new Date().toLocaleString('en-US', {
+              day: '2-digit',
+              month: 'short',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true
+            });
+            const failMeta: MasterUploadInfo = {
+              lastUploadedAt: nowStr,
+              fileName: file.name,
+              totalRecords: 0,
+              status: 'Failed',
+              errorMessage: errMsg,
+            };
+            setUploadInfo(failMeta);
+            try {
+              localStorage.setItem('master_yarn_upload_info', JSON.stringify(failMeta));
+            } catch (e) {}
+
+            return;
+          }
+
+          // Map and group rows cleanly without quadratic searches
+          const groupsMap = new Map<string, {
+            orderNumber: string;
+            fabricsType: string;
+            fabricShade: string;
+            fabricGsm: string | number;
+            yarnRequired: string;
+            lotRef: string;
+            allocatedYarn: string;
+            lotNo: string;
+            spinnersName: string;
+            buyer: string;
+            allocationStatus: string;
+            yarnStockStatus: string;
+            yarnDeliveryStatus: string;
+            proposedAllocationDate: string;
+            actualRequisitionDate: string;
+            allocationNo: string;
+            remarks: string;
+            totalRqQty: number;
+            totalAlcQty: number;
+            totalBal: number;
+            allocationDates: Date[];
+            existingDateRanges: string[];
+          }>();
+
+          for (let r = headerRowIndex + 1; r < rawMatrix.length; r++) {
+            const rowArr = rawMatrix[r];
+            if (!Array.isArray(rowArr) || rowArr.every(c => c === '' || c === null || c === undefined)) continue;
+
+            const rowObj: Record<string, any> = {};
+            for (let c = 0; c < headers.length; c++) {
+              if (headers[c]) {
+                rowObj[headers[c]] = rowArr[c] !== undefined ? rowArr[c] : '';
+              }
+            }
+
+            const orderNumber = String(colMap.orderNumber ? rowObj[colMap.orderNumber] : '').trim();
+            const fabricsType = String(colMap.fabricsType ? rowObj[colMap.fabricsType] : '').trim();
+            const fabricShade = String(colMap.fabricShade ? rowObj[colMap.fabricShade] : '').trim();
+            const fabricGsm = colMap.fabricGsm ? rowObj[colMap.fabricGsm] : '';
+            const yarnRequired = String(colMap.yarnRequired ? rowObj[colMap.yarnRequired] : '').trim();
+            const allocatedYarn = String(colMap.allocatedYarn ? rowObj[colMap.allocatedYarn] : '').trim();
+            const lotNo = String(colMap.lotNo ? rowObj[colMap.lotNo] : '').trim();
+            const spinnersName = String(colMap.spinnersName ? rowObj[colMap.spinnersName] : '').trim();
+
+            const groupKey = `${orderNumber.toLowerCase()}|${fabricsType.toLowerCase()}|${fabricShade.toLowerCase()}|${String(fabricGsm).toLowerCase()}|${allocatedYarn.toLowerCase()}|${lotNo.toLowerCase()}|${spinnersName.toLowerCase()}`;
+
+            const rqQty = parseFloat(colMap.yarnRqQty ? rowObj[colMap.yarnRqQty] : 0) || 0;
+            const alcQty = parseFloat(colMap.allocatedQty ? rowObj[colMap.allocatedQty] : 0) || 0;
+            let balVal = colMap.balance ? rowObj[colMap.balance] : '';
+            let bal = typeof balVal === 'number' ? balVal : parseFloat(balVal);
+            if (isNaN(bal)) bal = rqQty - alcQty;
+
+            const allocDateRaw = colMap.allocationDate ? rowObj[colMap.allocationDate] : '';
+            const parsedDate = parseToDate(allocDateRaw);
+
+            const existingRange = String(colMap.existingRange ? rowObj[colMap.existingRange] : '').trim();
+
+            if (!groupsMap.has(groupKey)) {
+              groupsMap.set(groupKey, {
+                orderNumber,
+                fabricsType,
+                fabricShade,
+                fabricGsm,
+                yarnRequired,
+                lotRef: String(colMap.lotRef ? rowObj[colMap.lotRef] : '').trim(),
+                allocatedYarn,
+                lotNo,
+                spinnersName,
+                buyer: String(colMap.buyer ? rowObj[colMap.buyer] : '').trim(),
+                allocationStatus: String(colMap.allocationStatus ? rowObj[colMap.allocationStatus] : 'Allocated').trim(),
+                yarnStockStatus: String(colMap.yarnStockStatus ? rowObj[colMap.yarnStockStatus] : 'Stock Available').trim(),
+                yarnDeliveryStatus: String(colMap.yarnDeliveryStatus ? rowObj[colMap.yarnDeliveryStatus] : 'Completed').trim(),
+                proposedAllocationDate: parseExcelDate(colMap.proposedAllocationDate ? rowObj[colMap.proposedAllocationDate] : ''),
+                actualRequisitionDate: parseExcelDate(colMap.actualRequisitionDate ? rowObj[colMap.actualRequisitionDate] : ''),
+                allocationNo: String(colMap.allocationNo ? rowObj[colMap.allocationNo] : '').trim(),
+                remarks: String(colMap.remarks ? rowObj[colMap.remarks] : '').trim(),
+                totalRqQty: 0,
+                totalAlcQty: 0,
+                totalBal: 0,
+                allocationDates: [],
+                existingDateRanges: [],
+              });
+            }
+
+            const grp = groupsMap.get(groupKey)!;
+            grp.totalRqQty += rqQty;
+            grp.totalAlcQty += alcQty;
+            grp.totalBal += bal;
+
+            if (parsedDate) {
+              grp.allocationDates.push(parsedDate);
+            }
+            if (existingRange) {
+              grp.existingDateRanges.push(existingRange);
+            }
+          }
+
+          const records: YarnAllocationRecord[] = Array.from(groupsMap.values()).map((grp, idx) => {
+            let dateRangeStr = '';
+            if (grp.allocationDates.length > 0) {
+              const timestamps = grp.allocationDates.map(d => d.getTime());
+              const minDate = new Date(Math.min(...timestamps));
+              const maxDate = new Date(Math.max(...timestamps));
+              const minFormatted = formatDDMMMYYYY(minDate);
+              const maxFormatted = formatDDMMMYYYY(maxDate);
+              dateRangeStr = `${minFormatted} to ${maxFormatted}`;
+            } else if (grp.existingDateRanges.length > 0) {
+              dateRangeStr = grp.existingDateRanges[0];
+            } else {
+              dateRangeStr = '-';
+            }
+
+            return {
+              id: `ya-master-${idx + 1}-${Date.now()}`,
+              actualRequisitionDate: grp.actualRequisitionDate,
+              buyer: grp.buyer,
+              orderNumber: grp.orderNumber,
+              fabricsType: grp.fabricsType,
+              fabricShade: grp.fabricShade,
+              fabricGsm: grp.fabricGsm,
+              yarnRequired: grp.yarnRequired,
+              lotRef: grp.lotRef,
+              allocatedYarn: grp.allocatedYarn,
+              lotNo: grp.lotNo,
+              spinnersName: grp.spinnersName,
+              allocationStatus: grp.allocationStatus,
+              yarnStockStatus: grp.yarnStockStatus,
+              yarnDeliveryStatus: grp.yarnDeliveryStatus,
+              proposedAllocationDate: grp.proposedAllocationDate,
+              allocationDateRange: dateRangeStr,
+              allocationNo: grp.allocationNo,
+              yarnRqQty: grp.totalRqQty,
+              allocatedQty: grp.totalAlcQty,
+              balance: grp.totalBal,
+              remarks: grp.remarks,
+            };
+          });
+
+          setParsedData(records);
+          setIsParsing(false);
+        } catch (err) {
+          console.error('Error parsing Excel file:', err);
+          setUploadError('Failed to parse Excel file. Please ensure it is a valid .xlsx or .xls file.');
+          setIsParsing(false);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }, 50);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -450,19 +805,46 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
   }, []);
 
   const handleConfirmUpload = () => {
-    if (!parsedData || parsedData.length === 0) return;
-    setYarnAllocations(parsedData);
-    GasClient.saveYarnAllocations(parsedData).catch((err) => {
-      console.warn("Failed to save uploaded yarn allocations to Google Sheets:", err);
-    });
-    setShowUploadModal(false);
-    setUploadSuccessBanner(`Successfully replaced Yarn Allocation data with ${parsedData.length} records from ${uploadFile?.name || 'uploaded file'}.`);
-    setUploadFile(null);
-    setParsedData(null);
-    setUploadError(null);
+    if (!parsedData || parsedData.length === 0 || isSaving) return;
+
+    setIsSaving(true);
     setTimeout(() => {
-      setUploadSuccessBanner(null);
-    }, 6000);
+      setYarnAllocations(parsedData);
+      setCurrentPage(1);
+
+      const nowStr = new Date().toLocaleString('en-US', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+
+      const newUploadInfo: MasterUploadInfo = {
+        lastUploadedAt: nowStr,
+        fileName: uploadFile?.name || 'Master_Yarn_Allocation.xlsx',
+        totalRecords: parsedData.length,
+        status: 'Success'
+      };
+
+      setUploadInfo(newUploadInfo);
+      try {
+        localStorage.setItem('master_yarn_upload_info', JSON.stringify(newUploadInfo));
+      } catch (e) {}
+
+      setUploadSuccessBanner(`Successfully imported Master Yarn Allocation dataset (${parsedData.length} total aggregated records updated).`);
+
+      GasClient.saveYarnAllocations(parsedData).catch((err) => {
+        console.warn("Failed to save uploaded yarn allocations to Google Sheets:", err);
+      }).finally(() => {
+        setIsSaving(false);
+        setShowUploadModal(false);
+        setUploadFile(null);
+        setParsedData(null);
+        setUploadError(null);
+      });
+    }, 50);
   };
 
   return (
@@ -504,8 +886,53 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
             className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 transition-all cursor-pointer shadow-md active:scale-98"
           >
             <UploadCloud className="h-4 w-4" />
-            <span>Upload Allocation File</span>
+            <span>Upload Master Yarn Allocation File</span>
           </button>
+        </div>
+      </div>
+
+      {/* MASTER UPLOAD INFORMATION STATUS BAR */}
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`h-10 w-10 rounded-xl flex items-center justify-center font-bold shrink-0 ${
+              uploadInfo.status === 'Success'
+                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200/80 dark:border-emerald-800'
+                : uploadInfo.status === 'Failed'
+                ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border border-rose-200/80 dark:border-rose-800'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+            }`}>
+              <UploadCloud className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
+                  Master Allocation Data Source
+                </span>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                  uploadInfo.status === 'Success'
+                    ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                    : uploadInfo.status === 'Failed'
+                    ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                }`}>
+                  Status: {uploadInfo.status}
+                </span>
+              </div>
+              <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span><span className="text-slate-400 font-medium">File:</span> {uploadInfo.fileName || 'None'}</span>
+                <span className="text-slate-300 dark:text-slate-700">•</span>
+                <span><span className="text-slate-400 font-medium">Last Uploaded:</span> {uploadInfo.lastUploadedAt || 'N/A'}</span>
+                <span className="text-slate-300 dark:text-slate-700">•</span>
+                <span><span className="text-slate-400 font-medium">Total Records:</span> <span className="font-extrabold text-blue-600 dark:text-blue-400">{uploadInfo.totalRecords}</span></span>
+              </div>
+            </div>
+          </div>
+          {uploadInfo.status === 'Failed' && uploadInfo.errorMessage && (
+            <div className="text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 p-2.5 rounded-xl border border-rose-200 dark:border-rose-800 max-w-md">
+              {uploadInfo.errorMessage}
+            </div>
+          )}
         </div>
       </div>
 
@@ -589,7 +1016,7 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
               className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
             >
               <option value="All">All Buyers</option>
-              {Array.from(new Set(yarnAllocations.map(a => a.buyer))).filter(Boolean).map(b => (
+              {uniqueBuyers.map(b => (
                 <option key={b} value={b}>{b}</option>
               ))}
             </select>
@@ -600,7 +1027,7 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
               className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
             >
               <option value="All">All Fabrics</option>
-              {Array.from(new Set(yarnAllocations.map(a => a.fabricsType))).filter(Boolean).map(f => (
+              {uniqueFabrics.map(f => (
                 <option key={f} value={f}>{f}</option>
               ))}
             </select>
@@ -611,7 +1038,7 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
               className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
             >
               <option value="All">All Spinners</option>
-              {Array.from(new Set(yarnAllocations.map(a => a.spinnersName))).filter(Boolean).map(s => (
+              {uniqueSpinners.map(s => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
@@ -640,7 +1067,6 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
                 <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Yarn Stock Status</th>
                 <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Yarn Delivery Status</th>
                 <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Proposed Allocation Date</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Allocation Date</th>
                 <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap min-w-[160px] text-center">Allocation Sart Date to End Date</th>
                 <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Allocation No</th>
                 <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-right bg-blue-50/50 dark:bg-blue-950/30">Yarn Rq Qty</th>
@@ -652,12 +1078,12 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 font-semibold text-slate-800 dark:text-slate-200">
               {filteredYarnAllocations.length === 0 ? (
                 <tr>
-                  <td colSpan={22} className="py-12 text-center text-slate-400 font-medium">
+                  <td colSpan={21} className="py-12 text-center text-slate-400 font-medium">
                     No Yarn Allocation records found matching your filters.
                   </td>
                 </tr>
               ) : (
-                filteredYarnAllocations.map((row) => (
+                paginatedYarnAllocations.map((row) => (
                   <tr key={row.id} className="hover:bg-blue-50/30 dark:hover:bg-slate-800/50 transition-colors">
                     <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-bold text-slate-900 dark:text-white">
                       {formatDisplayDate(row.actualRequisitionDate)}
@@ -710,9 +1136,6 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
                     <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center text-slate-500">
                       {formatDisplayDate(row.proposedAllocationDate)}
                     </td>
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center font-bold">
-                      {formatDisplayDate(row.allocationDate)}
-                    </td>
                     <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center text-[11px] font-semibold text-slate-600 dark:text-slate-300">
                       {formatDisplayDate(row.allocationDateRange)}
                     </td>
@@ -761,6 +1184,54 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
             )}
           </table>
         </div>
+
+        {/* PAGINATION CONTROLS */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300">
+          <div className="flex items-center gap-3">
+            <span>
+              Showing <strong className="font-bold text-slate-900 dark:text-white">{filteredYarnAllocations.length > 0 ? (currentPage - 1) * (pageSize || filteredYarnAllocations.length) + 1 : 0}</strong> to <strong className="font-bold text-slate-900 dark:text-white">{pageSize === 0 ? filteredYarnAllocations.length : Math.min(currentPage * pageSize, filteredYarnAllocations.length)}</strong> of <strong className="font-bold text-slate-900 dark:text-white">{filteredYarnAllocations.length}</strong> records
+            </span>
+            <div className="flex items-center gap-1.5 ml-2">
+              <span className="text-[11px]">Rows per page:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 px-2 py-1 text-xs font-semibold focus:outline-none cursor-pointer"
+              >
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={250}>250</option>
+                <option value={500}>500</option>
+                <option value={0}>All</option>
+              </select>
+            </div>
+          </div>
+
+          {pageSize > 0 && totalPages > 1 && (
+            <div className="flex items-center gap-1.5">
+              <button
+                disabled={currentPage <= 1}
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                title="Previous Page"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span className="px-2 font-bold text-slate-800 dark:text-slate-200">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                title="Next Page"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* UPLOAD YARN ALLOCATION FILE MODAL */}
@@ -774,10 +1245,10 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
                 </div>
                 <div>
                   <h3 className="text-base font-black text-slate-900 dark:text-white">
-                    Upload Yarn Allocation File
+                    Upload Master Yarn Allocation File
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                    Upload an Excel (.xlsx, .xls) or CSV file to replace existing allocation data
+                    Upload Master Excel file (.xlsx, .xls) to replace existing allocation dataset
                   </p>
                 </div>
               </div>
@@ -799,7 +1270,7 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
               <div className="flex items-start gap-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 p-3.5">
                 <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                 <p className="text-xs text-amber-800 dark:text-amber-300 font-medium">
-                  <strong>Note:</strong> Submitting a new file will completely <strong>replace</strong> all existing Yarn Allocation records with the records from the uploaded file.
+                  <strong>Master Data Overwrite:</strong> Submitting a new file will completely <strong>replace (overwrite)</strong> the previous imported dataset. No duplicate records will be kept.
                 </p>
               </div>
 
@@ -824,7 +1295,7 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".xlsx,.xls,.csv"
+                  accept=".xlsx,.xls"
                   onChange={handleFileUpload}
                   className="hidden"
                 />
@@ -836,7 +1307,7 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
                     Click to browse or drag & drop file
                   </span>
                   <span className="text-[11px] text-slate-400 block mt-0.5">
-                    Supports Excel (.xlsx, .xls) and CSV (.csv) files
+                    Supports Excel files (.xlsx, .xls) only
                   </span>
                 </div>
               </div>
@@ -905,16 +1376,25 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
 
                 <button
                   type="button"
-                  disabled={!parsedData || parsedData.length === 0 || isParsing}
+                  disabled={!parsedData || parsedData.length === 0 || isParsing || isSaving}
                   onClick={handleConfirmUpload}
                   className={`rounded-xl px-5 py-2 text-xs font-bold shadow-md transition-all flex items-center gap-1.5 cursor-pointer ${
-                    parsedData && parsedData.length > 0 && !isParsing
+                    parsedData && parsedData.length > 0 && !isParsing && !isSaving
                       ? 'bg-blue-600 hover:bg-blue-700 text-white active:scale-98'
                       : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
                   }`}
                 >
-                  <UploadCloud className="h-4 w-4" />
-                  <span>Submit & Replace Data</span>
+                  {isSaving ? (
+                    <>
+                      <div className="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                      <span>Saving Data...</span>
+                    </>
+                  ) : (
+                    <>
+                      <UploadCloud className="h-4 w-4" />
+                      <span>Submit & Replace Data</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>

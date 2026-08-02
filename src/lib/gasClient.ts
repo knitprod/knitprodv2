@@ -36,10 +36,31 @@ export class GasClient {
     }
   }
 
+  static DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbzfsNc4kKa3jcyeC646qmVWhaCyvJKWMlGwvcRRJeDLqaTS61bIIteWEYvVb_Gk_Q/exec';
+
+  private static getInitialUrl(): string {
+    try {
+      const stored = localStorage.getItem('gas_web_app_url');
+      if (stored && stored.trim()) return stored.trim();
+    } catch (e) {}
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GAS_WEB_APP_URL) {
+      return import.meta.env.VITE_GAS_WEB_APP_URL.trim();
+    }
+    return GasClient.DEFAULT_URL;
+  }
+
+  private static getInitialMode(): 'mock' | 'gas' {
+    try {
+      const stored = localStorage.getItem('database_mode');
+      if (stored === 'mock' || stored === 'gas') return stored;
+    } catch (e) {}
+    return 'gas';
+  }
+
   private static configCache: { gasWebAppUrl: string; databaseMode: 'mock' | 'gas' } | null = null;
   private static configFetchPromise: Promise<{ gasWebAppUrl: string; databaseMode: 'mock' | 'gas' }> | null = null;
-  private static memoryDbMode: 'mock' | 'gas' = 'gas';
-  private static memoryWebAppUrl: string = '';
+  private static memoryDbMode: 'mock' | 'gas' = GasClient.getInitialMode();
+  private static memoryWebAppUrl: string = GasClient.getInitialUrl();
   private static memoryActiveUser: UserRecord | null = null;
 
   static setActiveUser(user: UserRecord | null) {
@@ -73,7 +94,11 @@ export class GasClient {
           }
         }
       } catch (err) {
-        console.warn("Could not fetch server configuration:", err);
+        console.warn("Could not fetch server configuration, using local/default configuration:", err);
+      }
+
+      if (!this.getWebAppUrl()) {
+        this.setWebAppUrl(GasClient.DEFAULT_URL);
       }
 
       const res = {
@@ -108,8 +133,6 @@ export class GasClient {
     }
   }
 
-  static DEFAULT_URL = '';
-
   /**
    * Retrieves the current database mode ('mock' or 'gas')
    */
@@ -122,20 +145,27 @@ export class GasClient {
    */
   static setDatabaseMode(mode: 'mock' | 'gas') {
     this.memoryDbMode = mode;
+    try {
+      localStorage.setItem('database_mode', mode);
+    } catch (e) {}
   }
 
   /**
    * Retrieves the configured Google Apps Script Web App URL
    */
   static getWebAppUrl(): string {
-    return this.memoryWebAppUrl;
+    return this.memoryWebAppUrl || GasClient.DEFAULT_URL;
   }
 
   /**
    * Sets the Google Apps Script Web App URL
    */
   static setWebAppUrl(url: string) {
-    this.memoryWebAppUrl = url.trim();
+    const trimmed = url.trim();
+    this.memoryWebAppUrl = trimmed;
+    try {
+      localStorage.setItem('gas_web_app_url', trimmed);
+    } catch (e) {}
   }
 
   /**
@@ -203,11 +233,23 @@ export class GasClient {
     try {
       const separator = cleanUrl.includes('?') ? '&' : '?';
       const directUrl = `${cleanUrl}${separator}action=health`;
-      const res = await fetch(directUrl);
-      if (!res.ok) {
-        return { success: false, message: `HTTP status ${res.status}. Ensure URL ends in /exec and Web App is deployed.` };
+      const res = await fetch(directUrl, { redirect: 'follow' });
+      const text = await res.text();
+      let json: any = null;
+      try {
+        json = JSON.parse(text);
+      } catch (e) {
+        if (text.includes('file you have requested does not exist') || text.includes('Page not found') || res.status === 404) {
+          return {
+            success: false,
+            message: 'Google Apps Script deployment URL not found (404). Please deploy the Google Apps Script in your Google Sheet (Extensions > Apps Script > Deploy > New Deployment > Web app > Access: Anyone) and paste the new URL.'
+          };
+        }
+        return {
+          success: false,
+          message: `Endpoint returned non-JSON response (${res.status}). Ensure Web App access is set to "Anyone".`
+        };
       }
-      const json = await res.json();
       if (json && json.success) {
         return { success: true, message: json.message || 'Connected successfully', version: json.version };
       } else {
@@ -973,18 +1015,33 @@ export class GasClient {
   private static normalizeYarnObject(raw: any, index: number): any {
     if (!raw || typeof raw !== 'object') return null;
 
+    const rawKeyMap = new Map<string, any>();
+    for (const key of Object.keys(raw)) {
+      const val = raw[key];
+      if (val !== undefined && val !== null) {
+        rawKeyMap.set(key, val);
+        const lowerKey = key.toLowerCase();
+        if (!rawKeyMap.has(lowerKey)) rawKeyMap.set(lowerKey, val);
+        const strippedKey = lowerKey.replace(/[^a-z0-9]/g, '');
+        if (!rawKeyMap.has(strippedKey)) rawKeyMap.set(strippedKey, val);
+      }
+    }
+
     const getVal = (...keys: string[]) => {
       for (const k of keys) {
-        if (raw[k] !== undefined && raw[k] !== null && raw[k] !== '') {
-          return raw[k];
+        if (rawKeyMap.has(k)) {
+          const v = rawKeyMap.get(k);
+          if (v !== undefined && v !== null && v !== '') return v;
         }
-        const strippedTarget = k.toLowerCase().replace(/[^a-z0-9]/g, '');
-        for (const rawKey of Object.keys(raw)) {
-          if (rawKey.toLowerCase().replace(/[^a-z0-9]/g, '') === strippedTarget) {
-            if (raw[rawKey] !== undefined && raw[rawKey] !== null && raw[rawKey] !== '') {
-              return raw[rawKey];
-            }
-          }
+        const lower = k.toLowerCase();
+        if (rawKeyMap.has(lower)) {
+          const v = rawKeyMap.get(lower);
+          if (v !== undefined && v !== null && v !== '') return v;
+        }
+        const stripped = lower.replace(/[^a-z0-9]/g, '');
+        if (rawKeyMap.has(stripped)) {
+          const v = rawKeyMap.get(stripped);
+          if (v !== undefined && v !== null && v !== '') return v;
         }
       }
       return '';
@@ -1007,7 +1064,6 @@ export class GasClient {
       yarnStockStatus: String(getVal('yarnStockStatus', 'Yarn Stock Status', 'Stock Status') || 'Stock Available').trim(),
       yarnDeliveryStatus: String(getVal('yarnDeliveryStatus', 'Yarn Delivery Status', 'Delivery Status') || 'Completed').trim(),
       proposedAllocationDate: GasClient.formatDateValue(getVal('proposedAllocationDate', 'Proposed Allocation Date')),
-      allocationDate: GasClient.formatDateValue(getVal('allocationDate', 'Allocation Date')),
       allocationDateRange: GasClient.formatDateValue(getVal('allocationDateRange', 'Allocation Sart Date to End Date', 'Allocation Start Date to End Date', 'Allocation Date Range')),
       allocationNo: String(getVal('allocationNo', 'Allocation No', 'Allocation #', 'Allocation Number') || '').trim(),
       yarnRqQty: Number(getVal('yarnRqQty', 'Yarn Rq Qty', 'Yarn Req Qty', 'Yarn Required Qty')) || 0,
@@ -1020,18 +1076,33 @@ export class GasClient {
   private static normalizeOrderPlanObject(raw: any, index: number): any {
     if (!raw || typeof raw !== 'object') return null;
 
+    const rawKeyMap = new Map<string, any>();
+    for (const key of Object.keys(raw)) {
+      const val = raw[key];
+      if (val !== undefined && val !== null) {
+        rawKeyMap.set(key, val);
+        const lowerKey = key.toLowerCase();
+        if (!rawKeyMap.has(lowerKey)) rawKeyMap.set(lowerKey, val);
+        const strippedKey = lowerKey.replace(/[^a-z0-9]/g, '');
+        if (!rawKeyMap.has(strippedKey)) rawKeyMap.set(strippedKey, val);
+      }
+    }
+
     const getVal = (...keys: string[]) => {
       for (const k of keys) {
-        if (raw[k] !== undefined && raw[k] !== null && raw[k] !== '') {
-          return raw[k];
+        if (rawKeyMap.has(k)) {
+          const v = rawKeyMap.get(k);
+          if (v !== undefined && v !== null && v !== '') return v;
         }
-        const strippedTarget = k.toLowerCase().replace(/[^a-z0-9]/g, '');
-        for (const rawKey of Object.keys(raw)) {
-          if (rawKey.toLowerCase().replace(/[^a-z0-9]/g, '') === strippedTarget) {
-            if (raw[rawKey] !== undefined && raw[rawKey] !== null && raw[rawKey] !== '') {
-              return raw[rawKey];
-            }
-          }
+        const lower = k.toLowerCase();
+        if (rawKeyMap.has(lower)) {
+          const v = rawKeyMap.get(lower);
+          if (v !== undefined && v !== null && v !== '') return v;
+        }
+        const stripped = lower.replace(/[^a-z0-9]/g, '');
+        if (rawKeyMap.has(stripped)) {
+          const v = rawKeyMap.get(stripped);
+          if (v !== undefined && v !== null && v !== '') return v;
         }
       }
       return '';
