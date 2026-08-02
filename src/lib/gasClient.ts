@@ -62,6 +62,8 @@ export class GasClient {
   private static memoryDbMode: 'mock' | 'gas' = GasClient.getInitialMode();
   private static memoryWebAppUrl: string = GasClient.getInitialUrl();
   private static memoryActiveUser: UserRecord | null = null;
+  private static cachedOrderPlans: any[] | null = null;
+  private static cachedYarnAllocations: any[] | null = null;
 
   static setActiveUser(user: UserRecord | null) {
     this.memoryActiveUser = user;
@@ -1146,25 +1148,44 @@ export class GasClient {
   // ==========================================================
   // ORDER PLAN FOLLOWUP CRUD
   // ==========================================================
-  static async fetchOrderPlans(): Promise<any[]> {
+  static async fetchOrderPlans(forceRefresh: boolean = false): Promise<any[]> {
+    if (!forceRefresh && this.cachedOrderPlans && this.cachedOrderPlans.length > 0) {
+      return this.cachedOrderPlans;
+    }
+
+    let result: any[] = [];
     if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
       try {
         const res = await this.request<any[]>('orders/list', 'GET');
         if (res.success && res.data && Array.isArray(res.data) && res.data.length > 0) {
-          return res.data.map((item: any, idx: number) => this.normalizeOrderPlanObject(item, idx));
+          result = res.data.map((item: any, idx: number) => this.normalizeOrderPlanObject(item, idx));
         }
       } catch (e) {
         console.warn("GAS fetch orders notice:", e);
       }
     }
-    const db = await this.fetchServerDb();
-    if (db && db.orderPlans && Array.isArray(db.orderPlans)) {
-      return db.orderPlans.map((item: any, idx: number) => this.normalizeOrderPlanObject(item, idx));
+    if (!result.length) {
+      const db = await this.fetchServerDb();
+      if (db && db.orderPlans && Array.isArray(db.orderPlans)) {
+        result = db.orderPlans.map((item: any, idx: number) => this.normalizeOrderPlanObject(item, idx));
+      }
     }
-    return [];
+
+    if (result.length > 0) {
+      this.cachedOrderPlans = result;
+    }
+    return result;
   }
 
   static async saveOrderPlans(orderPlans: any[], replace: boolean = false): Promise<void> {
+    if (replace || !this.cachedOrderPlans) {
+      this.cachedOrderPlans = orderPlans;
+    } else {
+      const existingMap = new Map((this.cachedOrderPlans || []).map((o: any) => [o.id, o]));
+      orderPlans.forEach((o: any) => existingMap.set(o.id, o));
+      this.cachedOrderPlans = Array.from(existingMap.values());
+    }
+
     await this.saveServerDb({ orderPlans });
 
     if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
@@ -1193,6 +1214,9 @@ export class GasClient {
   }
 
   static async deleteOrderPlan(id: string): Promise<void> {
+    if (this.cachedOrderPlans) {
+      this.cachedOrderPlans = this.cachedOrderPlans.filter((o: any) => o.id !== id);
+    }
     if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
       try {
         await this.request('orders/delete', 'POST', { id });
@@ -1205,25 +1229,44 @@ export class GasClient {
   // ==========================================================
   // YARN ALLOCATION CRUD
   // ==========================================================
-  static async fetchYarnAllocations(): Promise<any[]> {
+  static async fetchYarnAllocations(forceRefresh: boolean = false): Promise<any[]> {
+    if (!forceRefresh && this.cachedYarnAllocations && this.cachedYarnAllocations.length > 0) {
+      return this.cachedYarnAllocations;
+    }
+
+    let result: any[] = [];
     if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
       try {
         const res = await this.request<any[]>('yarn/list', 'GET');
         if (res.success && res.data && Array.isArray(res.data) && res.data.length > 0) {
-          return res.data.map((item: any, idx: number) => this.normalizeYarnObject(item, idx));
+          result = res.data.map((item: any, idx: number) => this.normalizeYarnObject(item, idx));
         }
       } catch (e) {
         console.warn("GAS fetch yarn allocations notice:", e);
       }
     }
-    const db = await this.fetchServerDb();
-    if (db && db.yarnAllocations && Array.isArray(db.yarnAllocations)) {
-      return db.yarnAllocations.map((item: any, idx: number) => this.normalizeYarnObject(item, idx));
+    if (!result.length) {
+      const db = await this.fetchServerDb();
+      if (db && db.yarnAllocations && Array.isArray(db.yarnAllocations)) {
+        result = db.yarnAllocations.map((item: any, idx: number) => this.normalizeYarnObject(item, idx));
+      }
     }
-    return [];
+
+    if (result.length > 0) {
+      this.cachedYarnAllocations = result;
+    }
+    return result;
   }
 
   static async saveYarnAllocations(yarnAllocations: any[], replace: boolean = false): Promise<void> {
+    if (replace || !this.cachedYarnAllocations) {
+      this.cachedYarnAllocations = yarnAllocations;
+    } else {
+      const existingMap = new Map((this.cachedYarnAllocations || []).map((y: any) => [y.id, y]));
+      yarnAllocations.forEach((y: any) => existingMap.set(y.id, y));
+      this.cachedYarnAllocations = Array.from(existingMap.values());
+    }
+
     await this.saveServerDb({ yarnAllocations });
 
     if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
@@ -1252,6 +1295,9 @@ export class GasClient {
   }
 
   static async deleteYarnAllocation(id: string): Promise<void> {
+    if (this.cachedYarnAllocations) {
+      this.cachedYarnAllocations = this.cachedYarnAllocations.filter((y: any) => y.id !== id);
+    }
     if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
       try {
         await this.request('yarn/delete', 'POST', { id });

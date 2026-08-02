@@ -30,7 +30,12 @@ import {
   Trash2,
   Edit,
   Info,
-  AlertCircle
+  AlertCircle,
+  RefreshCw,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight
 } from 'lucide-react';
 
 export interface OrderPlan {
@@ -546,61 +551,38 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     XLSX.writeFile(workbook, `Yarn_Allocation_Summary_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
-  // Subscribe to real-time order plans from Firestore & fallback to GAS if empty
-  useEffect(() => {
-    const unsubscribe = FirestoreSyncService.subscribeToOrderPlans((remoteOrders) => {
-      if (remoteOrders && remoteOrders.length > 0) {
-        const mapped = remoteOrders.map((r, idx) => ({
-          id: r.id || `ord-${idx}`,
-          planMonth: r.planMonth || (r as any).month || 'July',
-          planType: r.planType || 'Confirm',
-          ewo: r.ewo || (r as any).orderNo || `270${100 + idx}`,
-          buyer: r.buyer || 'Vogue Sourcin',
-          color: r.color || (r as any).styleNo || 'Default Color',
-          knitStart: r.knitStart || (r as any).startDate || '01-Jul-26',
-          knitEnd: r.knitEnd || (r as any).deliveryDate || '15-Jul-26',
-          target: typeof r.target === 'number' ? r.target : (parseFloat((r as any).plannedKg) || 1000),
-          targetNextMonth: r.targetNextMonth || 0,
-          allocationStart: r.allocationStart || '',
-          allocationEnd: r.allocationEnd || '',
-          allocatedQty: typeof r.allocatedQty === 'number' ? r.allocatedQty : (parseFloat((r as any).plannedKg) || 1000),
-          allocatedBal: r.allocatedBal || 0,
-          greyReq: typeof r.greyReq === 'number' ? r.greyReq : (parseFloat((r as any).plannedKg) || 1000),
-          knitPro: typeof r.knitPro === 'number' ? r.knitPro : (parseFloat((r as any).producedKg) || 0),
-          knitBal: typeof r.knitBal === 'number' ? r.knitBal : Math.max(0, (parseFloat((r as any).plannedKg) || 1000) - (parseFloat((r as any).producedKg) || 0)),
-          aKnitStart: r.aKnitStart || '',
-          lastProductionDate: r.lastProductionDate || '',
-          avgProdDay: r.avgProdDay || 0,
-          expectedKnitEnd: r.expectedKnitEnd || '',
-          knitStartOtd: (r.knitStartOtd as any) || ((r as any).status === 'Completed' ? 'Passed' : (r as any).status === 'Delayed' ? 'Failed' : 'Pending'),
-          knitEndOtd: (r.knitEndOtd as any) || ((r as any).status === 'Completed' ? 'Passed' : (r as any).status === 'Delayed' ? 'Failed' : 'Pending'),
-          knitStartRemarks: r.knitStartRemarks || '',
-          knitEndRemarks: r.knitEndRemarks || ''
-        }));
-        setOrders(mapped);
-      } else {
-        // Seed initial orders to Firestore & Google Sheets if empty
-        INITIAL_ORDERS.forEach(order => {
-          FirestoreSyncService.saveOrderPlan(order).catch(() => {});
-        });
-      }
-    });
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
-    // Also attempt fallback fetch from Google Sheets if Firestore has not populated yet
-    GasClient.fetchOrderPlans().then(sheetsOrders => {
+  const loadOrders = async (forceRefresh: boolean = false) => {
+    setIsSyncing(true);
+    try {
+      const sheetsOrders = await GasClient.fetchOrderPlans(forceRefresh);
       if (sheetsOrders && sheetsOrders.length > 0) {
-        sheetsOrders.forEach(o => {
-          FirestoreSyncService.saveOrderPlan(o).catch(() => {});
-        });
+        setOrders(sheetsOrders);
+      } else {
+        setOrders(prev => prev.length > 0 ? prev : INITIAL_ORDERS);
       }
-    }).catch(err => {
+    } catch (err) {
       console.warn("Could not load order plans from server/GAS:", err);
-    });
+      setOrders(prev => prev.length > 0 ? prev : INITIAL_ORDERS);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
+  // Load cached order plans on mount (instant response from memory if already fetched)
+  useEffect(() => {
+    loadOrders(false);
   }, []);
+
+  // Pagination state (default 100 per page for fast performance)
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [itemsPerPage, setItemsPerPage] = useState<number>(100);
+
+  // Reset to page 1 whenever filters or page size change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, buyerFilter, planMonthFilter, otdFilter, itemsPerPage]);
 
   // Filtered orders
   const filteredOrders = useMemo(() => {
@@ -627,6 +609,16 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       return matchesSearch && matchesBuyer && matchesMonth && matchesOtd;
     });
   }, [orders, searchQuery, buyerFilter, planMonthFilter, otdFilter]);
+
+  const totalPages = useMemo(() => {
+    return itemsPerPage > 0 ? Math.ceil(filteredOrders.length / itemsPerPage) || 1 : 1;
+  }, [filteredOrders.length, itemsPerPage]);
+
+  const paginatedOrders = useMemo(() => {
+    if (itemsPerPage <= 0) return filteredOrders;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredOrders.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredOrders, currentPage, itemsPerPage]);
 
   // Unique lists for filters
   const buyersList = useMemo(() => {
@@ -688,6 +680,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     const updated = [newEntry, ...orders];
     setOrders(updated);
     FirestoreSyncService.saveOrderPlan(newEntry).catch(err => console.warn('Order plan save warning:', err));
+    GasClient.saveOrderPlans([newEntry]).catch(err => console.warn('GAS order plan save warning:', err));
     setShowAddModal(false);
     setFormEwo('');
     setFormColor('');
@@ -730,6 +723,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     const updatedList = orders.map(o => o.id === editingOrder.id ? updatedOrder : o);
     setOrders(updatedList);
     FirestoreSyncService.saveOrderPlan(updatedOrder).catch(err => console.warn('Order plan edit save warning:', err));
+    GasClient.saveOrderPlans([updatedOrder]).catch(err => console.warn('GAS order plan edit save warning:', err));
     setShowEditModal(false);
     setEditingOrder(null);
   };
@@ -740,6 +734,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       setOrders(updated);
       try {
         await FirestoreSyncService.deleteOrderPlan(id);
+        GasClient.deleteOrderPlan(id).catch(err => console.warn('GAS order plan delete warning:', err));
       } catch (err) {
         console.warn("Error deleting order plan:", err);
       }
@@ -802,6 +797,16 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         </div>
 
         <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => loadOrders(true)}
+            disabled={isSyncing}
+            className="flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-3.5 py-2 text-xs font-bold transition-all cursor-pointer shadow-xs disabled:opacity-60"
+            title="Force refresh data from Google Sheet"
+          >
+            <RefreshCw className={`h-4 w-4 text-blue-600 dark:text-blue-400 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{isSyncing ? 'Syncing...' : 'Sync Data'}</span>
+          </button>
+
           <button
             onClick={exportToCsv}
             className="flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-3.5 py-2 text-xs font-bold transition-all cursor-pointer shadow-xs"
@@ -1026,14 +1031,14 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-800 dark:text-slate-200 font-medium">
-                  {filteredOrders.length === 0 ? (
+                  {paginatedOrders.length === 0 ? (
                     <tr>
                       <td colSpan={27} className="px-4 py-12 text-center text-slate-400 font-medium">
                         No order plans match the selected filter criteria.
                       </td>
                     </tr>
                   ) : (
-                    filteredOrders.map(ord => {
+                    paginatedOrders.map(ord => {
                       const startVar = calculateDateVariance(ord.knitStart, ord.aKnitStart);
                       const endVar = calculateDateVariance(ord.knitEnd, ord.lastProductionDate);
 
@@ -1276,6 +1281,75 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* PAGINATION CONTROL BAR */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs text-xs font-semibold text-slate-700 dark:text-slate-300">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-slate-500 dark:text-slate-400">
+                Showing <strong className="text-slate-900 dark:text-white">{filteredOrders.length === 0 ? 0 : (currentPage - 1) * (itemsPerPage || filteredOrders.length) + 1}</strong> to <strong className="text-slate-900 dark:text-white">{itemsPerPage <= 0 ? filteredOrders.length : Math.min(currentPage * itemsPerPage, filteredOrders.length)}</strong> of <strong className="text-slate-900 dark:text-white">{filteredOrders.length}</strong> orders
+              </span>
+              <div className="flex items-center gap-1.5 ml-2">
+                <span className="text-slate-500 text-[11px]">Rows per page:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                  className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer"
+                >
+                  <option value={50}>50</option>
+                  <option value={100}>100 (Default)</option>
+                  <option value={200}>200</option>
+                  <option value={500}>500</option>
+                  <option value={0}>All Data</option>
+                </select>
+              </div>
+            </div>
+
+            {itemsPerPage > 0 && totalPages > 1 && (
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage <= 1}
+                  className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+                  title="First Page"
+                >
+                  <ChevronsLeft className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage <= 1}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  <span>Prev</span>
+                </button>
+
+                <div className="flex items-center gap-1 px-2">
+                  <span className="text-slate-500 font-medium">Page</span>
+                  <span className="font-bold text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700">
+                    {currentPage}
+                  </span>
+                  <span className="text-slate-500 font-medium">of {totalPages}</span>
+                </div>
+
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage >= totalPages}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+                >
+                  <span>Next</span>
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage >= totalPages}
+                  className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+                  title="Last Page"
+                >
+                  <ChevronsRight className="h-4 w-4" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
