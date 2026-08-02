@@ -119,15 +119,15 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
     }
   };
 
-  const handleSaveConnection = (e: React.FormEvent) => {
+  const handleSaveConnection = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Save database mode & URL configurations centrally
-    GasClient.saveServerConfig(gasWebAppUrl, databaseMode);
+    // Save database mode & URL configurations centrally to server & sync backend source code
+    await GasClient.saveServerConfig(gasWebAppUrl, databaseMode);
 
     setIsSaved(true);
     if (onSuccessNotice) {
-      onSuccessNotice("Database connection settings saved successfully.");
+      onSuccessNotice("Database connection settings saved & backend source code updated successfully.");
     }
     setTimeout(() => {
       setIsSaved(false);

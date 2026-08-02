@@ -36,7 +36,7 @@ export class GasClient {
     }
   }
 
-  static DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbzfsNc4kKa3jcyeC646qmVWhaCyvJKWMlGwvcRRJeDLqaTS61bIIteWEYvVb_Gk_Q/exec';
+  static DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbz6M8NmfDjG9GKdmkFMHggR6MGQwRU6Q42-hpd_gxEfbTQsjRL86mI_NavdqJB8Blzl/exec';
 
   private static getInitialUrl(): string {
     try {
@@ -116,14 +116,23 @@ export class GasClient {
   }
 
   /**
-   * Persists database settings centrally on the server so all devices stay connected automatically.
+   * Clears in-memory config cache so new requests load updated URL immediately.
+   */
+  static clearConfigCache() {
+    this.configCache = null;
+  }
+
+  /**
+   * Persists database settings centrally on the server and in Firestore so all devices stay connected automatically.
    */
   static async saveServerConfig(url: string, mode: 'mock' | 'gas'): Promise<void> {
     const trimmedUrl = url.trim();
+    GasClient.DEFAULT_URL = trimmedUrl;
     this.setWebAppUrl(trimmedUrl);
     this.setDatabaseMode(mode);
     this.configCache = { gasWebAppUrl: trimmedUrl, databaseMode: mode };
 
+    // 1. Save to Express server config
     try {
       await fetch('/api/config', {
         method: 'POST',
@@ -132,6 +141,13 @@ export class GasClient {
       });
     } catch (err) {
       console.error("Failed to save central server config:", err);
+    }
+
+    // 2. Save to Firestore so all active devices receive real-time sync
+    try {
+      await FirestoreSyncService.saveAppConfigToFirestore(trimmedUrl, mode);
+    } catch (err) {
+      console.warn("Failed to sync app config to Firestore:", err);
     }
   }
 

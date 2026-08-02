@@ -379,7 +379,7 @@ export default function App() {
     });
   }, []);
 
-  // Initialize Firebase Firestore User Management & Activity Logs
+  // Initialize Firebase Firestore User Management, Activity Logs, and Real-time App Config Sync
   useEffect(() => {
     FirestoreSyncService.seedInitialUsersIfEmpty(INITIAL_USERS);
     FirestoreSyncService.seedInitialActivityLogsIfEmpty(INITIAL_ACTIVITY_LOGS);
@@ -391,8 +391,31 @@ export default function App() {
       }
     });
 
+    // Realtime listener for App Config (GAS Web App URL) across ALL connected devices
+    const unsubscribeAppConfig = FirestoreSyncService.subscribeToAppConfig((config) => {
+      let updated = false;
+      if (config.gasWebAppUrl && config.gasWebAppUrl.trim()) {
+        const newUrl = config.gasWebAppUrl.trim();
+        if (GasClient.getWebAppUrl() !== newUrl) {
+          GasClient.setWebAppUrl(newUrl);
+          GasClient.clearConfigCache();
+          updated = true;
+        }
+      }
+      if (config.databaseMode) {
+        if (GasClient.getDatabaseMode() !== config.databaseMode) {
+          GasClient.setDatabaseMode(config.databaseMode);
+          updated = true;
+        }
+      }
+      if (updated && GasClient.getDatabaseMode() === 'gas') {
+        loadLiveGasData();
+      }
+    });
+
     return () => {
       if (unsubscribeActivityLogs) unsubscribeActivityLogs();
+      if (unsubscribeAppConfig) unsubscribeAppConfig();
     };
   }, []);
 

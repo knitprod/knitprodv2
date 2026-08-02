@@ -401,4 +401,46 @@ export class FirestoreSyncService {
       console.warn('deleteLedgerRecord firestore notice:', e);
     }
   }
+
+  /**
+   * Subscribe to global App Configuration changes in Firestore (GAS Web App URL & DB mode)
+   * This enables instantaneous real-time synchronization across ALL connected devices.
+   */
+  static subscribeToAppConfig(callback: (config: { gasWebAppUrl?: string; databaseMode?: 'gas' | 'mock' }) => void) {
+    try {
+      const docRef = doc(db, COLLECTIONS.SETTINGS, 'app_config');
+      return onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data && (data.gasWebAppUrl || data.databaseMode)) {
+            callback({
+              gasWebAppUrl: data.gasWebAppUrl,
+              databaseMode: data.databaseMode,
+            });
+          }
+        }
+      }, (err) => {
+        console.warn('App config Firestore listener notice:', err);
+      });
+    } catch (e) {
+      console.warn('Failed to subscribe to app_config in Firestore:', e);
+      return () => {};
+    }
+  }
+
+  /**
+   * Persists global App Configuration to Firestore so every device updates in real time.
+   */
+  static async saveAppConfigToFirestore(gasWebAppUrl: string, databaseMode: 'gas' | 'mock'): Promise<void> {
+    try {
+      const docRef = doc(db, COLLECTIONS.SETTINGS, 'app_config');
+      await setDoc(docRef, {
+        gasWebAppUrl: gasWebAppUrl.trim(),
+        databaseMode,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (e) {
+      console.warn('Failed to save app_config to Firestore:', e);
+    }
+  }
 }

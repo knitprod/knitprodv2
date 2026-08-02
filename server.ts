@@ -17,7 +17,7 @@ let cachedDbObj: any = null;
 const gasProxyCache = new Map<string, { timestamp: number; data: any }>();
 const CACHE_TTL_MS = 15000; // 15-second cache for GET requests
 
-const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzfsNc4kKa3jcyeC646qmVWhaCyvJKWMlGwvcRRJeDLqaTS61bIIteWEYvVb_Gk_Q/exec';
+const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbz6M8NmfDjG9GKdmkFMHggR6MGQwRU6Q42-hpd_gxEfbTQsjRL86mI_NavdqJB8Blzl/exec';
 
 // Helper to load persistent server configuration with in-memory caching
 function loadConfig() {
@@ -61,11 +61,51 @@ function saveConfig(newConfig: Partial<{ gasWebAppUrl: string; databaseMode: 'ga
     ...newConfig,
   };
   cachedConfigObj = updated;
+
+  // Invalidate proxy cache on URL change
+  gasProxyCache.clear();
+
   try {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(updated, null, 2), 'utf-8');
   } catch (e) {
     console.error('Error writing app_config.json file:', e);
   }
+
+  // Synchronize source code files (server.ts & gasClient.ts) so backend code uses exact same URL
+  if (newConfig.gasWebAppUrl && typeof newConfig.gasWebAppUrl === 'string' && newConfig.gasWebAppUrl.trim()) {
+    const newUrl = newConfig.gasWebAppUrl.trim();
+
+    // 1. Update server.ts default URL
+    const serverPath = path.join(process.cwd(), 'server.ts');
+    if (fs.existsSync(serverPath)) {
+      try {
+        let content = fs.readFileSync(serverPath, 'utf-8');
+        const regex = /const DEFAULT_GAS_URL = 'https:\/\/script\.google\.com\/macros\/s\/[^']+\/exec';/g;
+        if (regex.test(content)) {
+          content = content.replace(regex, `const DEFAULT_GAS_URL = '${newUrl}';`);
+          fs.writeFileSync(serverPath, content, 'utf-8');
+        }
+      } catch (e) {
+        console.error('Error updating server.ts default URL:', e);
+      }
+    }
+
+    // 2. Update src/lib/gasClient.ts default URL
+    const gasClientPath = path.join(process.cwd(), 'src/lib/gasClient.ts');
+    if (fs.existsSync(gasClientPath)) {
+      try {
+        let content = fs.readFileSync(gasClientPath, 'utf-8');
+        const regex = /static DEFAULT_URL = 'https:\/\/script\.google\.com\/macros\/s\/[^']+\/exec';/g;
+        if (regex.test(content)) {
+          content = content.replace(regex, `static DEFAULT_URL = '${newUrl}';`);
+          fs.writeFileSync(gasClientPath, content, 'utf-8');
+        }
+      } catch (e) {
+        console.error('Error updating gasClient.ts default URL:', e);
+      }
+    }
+  }
+
   return updated;
 }
 
@@ -181,11 +221,11 @@ app.all('/api/gas-proxy', async (req, res) => {
   try {
     let targetUrl = config.gasWebAppUrl;
     
-    // Allow URL override from body or query if provided
-    if (req.method === 'GET' && req.query.url) {
-      targetUrl = String(req.query.url);
-    } else if (req.method === 'POST' && req.body && req.body.url) {
-      targetUrl = String(req.body.url);
+    // Allow URL override ONLY if server config is empty OR if this is an explicit health test
+    const reqAction = (req.method === 'GET' ? req.query.action : req.body?.action);
+    const clientUrl = (req.method === 'GET' ? String(req.query.url) : req.body?.url);
+    if ((!targetUrl || !targetUrl.trim() || reqAction === 'health') && clientUrl && typeof clientUrl === 'string' && clientUrl.trim()) {
+      targetUrl = clientUrl.trim();
     }
 
     if (!targetUrl || !targetUrl.trim()) {
