@@ -74,15 +74,17 @@ function saveConfig(newConfig: Partial<{ gasWebAppUrl: string; databaseMode: 'ga
   // Synchronize source code files (server.ts & gasClient.ts) so backend code uses exact same URL
   if (newConfig.gasWebAppUrl && typeof newConfig.gasWebAppUrl === 'string' && newConfig.gasWebAppUrl.trim()) {
     const newUrl = newConfig.gasWebAppUrl.trim();
+    process.env.GAS_WEB_APP_URL = newUrl;
+    process.env.VITE_GAS_WEB_APP_URL = newUrl;
 
     // 1. Update server.ts default URL
     const serverPath = path.join(process.cwd(), 'server.ts');
     if (fs.existsSync(serverPath)) {
       try {
         let content = fs.readFileSync(serverPath, 'utf-8');
-        const regex = /const DEFAULT_GAS_URL = 'https:\/\/script\.google\.com\/macros\/s\/[^']+\/exec';/g;
-        if (regex.test(content)) {
-          content = content.replace(regex, `const DEFAULT_GAS_URL = '${newUrl}';`);
+        const serverRegex = /(const DEFAULT_GAS_URL\s*=\s*)(['"])([\s\S]*?)\2;/g;
+        if (serverRegex.test(content)) {
+          content = content.replace(serverRegex, `const DEFAULT_GAS_URL = '${newUrl}';`);
           fs.writeFileSync(serverPath, content, 'utf-8');
         }
       } catch (e) {
@@ -95,13 +97,29 @@ function saveConfig(newConfig: Partial<{ gasWebAppUrl: string; databaseMode: 'ga
     if (fs.existsSync(gasClientPath)) {
       try {
         let content = fs.readFileSync(gasClientPath, 'utf-8');
-        const regex = /static DEFAULT_URL = 'https:\/\/script\.google\.com\/macros\/s\/[^']+\/exec';/g;
-        if (regex.test(content)) {
-          content = content.replace(regex, `static DEFAULT_URL = '${newUrl}';`);
+        const clientRegex = /(static DEFAULT_URL\s*=\s*)(['"])([\s\S]*?)\2;/g;
+        if (clientRegex.test(content)) {
+          content = content.replace(clientRegex, `static DEFAULT_URL = '${newUrl}';`);
           fs.writeFileSync(gasClientPath, content, 'utf-8');
         }
       } catch (e) {
         console.error('Error updating gasClient.ts default URL:', e);
+      }
+    }
+
+    // 3. Update .env if present
+    const envPath = path.join(process.cwd(), '.env');
+    if (fs.existsSync(envPath)) {
+      try {
+        let envContent = fs.readFileSync(envPath, 'utf-8');
+        if (envContent.includes('GAS_WEB_APP_URL=')) {
+          envContent = envContent.replace(/GAS_WEB_APP_URL=.*/g, `GAS_WEB_APP_URL="${newUrl}"`);
+        } else {
+          envContent += `\nGAS_WEB_APP_URL="${newUrl}"\n`;
+        }
+        fs.writeFileSync(envPath, envContent, 'utf-8');
+      } catch (e) {
+        console.error('Error updating .env file:', e);
       }
     }
   }

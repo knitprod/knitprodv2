@@ -148,10 +148,17 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs font-bold shadow-2xs">
-            <WifiOff className="h-3.5 w-3.5 text-slate-500" />
-            Database Disconnected (Offline Local Mode)
-          </span>
+          {databaseMode === 'gas' && gasWebAppUrl.trim() ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 text-xs font-bold shadow-2xs">
+              <Wifi className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+              Database Connected (Google Sheets Live API)
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 text-xs font-bold shadow-2xs">
+              <WifiOff className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+              Offline Local Mode (Mock Data)
+            </span>
+          )}
           <button
             onClick={() => {
               setDatabaseMode('mock');
