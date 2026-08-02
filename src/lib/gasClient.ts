@@ -922,6 +922,150 @@ export class GasClient {
     return true;
   }
 
+  private static formatDateValue(val: any): string {
+    if (!val && val !== 0) return '';
+    const str = String(val).trim();
+    if (!str || str === '-' || str === 'Pending') return str;
+
+    const fullMonths = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+
+    if (/\s+to\s+/i.test(str)) {
+      return str.split(/\s+to\s+/i).map(p => GasClient.formatDateValue(p)).join(' To ');
+    }
+
+    const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) {
+      const yr = isoMatch[1];
+      const mIdx = parseInt(isoMatch[2], 10) - 1;
+      const dy = isoMatch[3].padStart(2, '0');
+      if (mIdx >= 0 && mIdx < 12) {
+        return `${dy}-${fullMonths[mIdx]}-${yr}`;
+      }
+    }
+
+    const dmyMatch = str.match(/^(\d{1,2})[-/\s]([A-Za-z]+)[-/\s](\d{2,4})$/);
+    if (dmyMatch) {
+      const dy = dmyMatch[1].padStart(2, '0');
+      const mStr = dmyMatch[2].toLowerCase();
+      let yr = dmyMatch[3];
+      if (yr.length === 2) yr = `20${yr}`;
+      const mIdx = fullMonths.findIndex(m => m.toLowerCase().startsWith(mStr.slice(0, 3)));
+      if (mIdx !== -1) {
+        return `${dy}-${fullMonths[mIdx]}-${yr}`;
+      }
+    }
+
+    const dObj = new Date(str);
+    if (!isNaN(dObj.getTime())) {
+      const dy = String(dObj.getDate()).padStart(2, '0');
+      const mName = fullMonths[dObj.getMonth()];
+      const yr = dObj.getFullYear();
+      return `${dy}-${mName}-${yr}`;
+    }
+
+    return str;
+  }
+
+  // Helper function to normalize any raw object keys (e.g. "Order Number", "Order No") to standardized camelCase properties
+  private static normalizeYarnObject(raw: any, index: number): any {
+    if (!raw || typeof raw !== 'object') return null;
+
+    const getVal = (...keys: string[]) => {
+      for (const k of keys) {
+        if (raw[k] !== undefined && raw[k] !== null && raw[k] !== '') {
+          return raw[k];
+        }
+        const strippedTarget = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+        for (const rawKey of Object.keys(raw)) {
+          if (rawKey.toLowerCase().replace(/[^a-z0-9]/g, '') === strippedTarget) {
+            if (raw[rawKey] !== undefined && raw[rawKey] !== null && raw[rawKey] !== '') {
+              return raw[rawKey];
+            }
+          }
+        }
+      }
+      return '';
+    };
+
+    return {
+      id: String(getVal('id', 'ID') || `yarn-${index + 1}`).trim(),
+      actualRequisitionDate: GasClient.formatDateValue(getVal('actualRequisitionDate', 'Actual Requisition Date', 'Requisition Date')),
+      buyer: String(getVal('buyer', 'Buyer') || '').trim(),
+      orderNumber: String(getVal('orderNumber', 'Order Number', 'Order No', 'Order #', 'EWO') || '').trim(),
+      fabricsType: String(getVal('fabricsType', 'Fabrics Type', 'Fabric Type', 'Fabric') || '').trim(),
+      fabricShade: String(getVal('fabricShade', 'Fabric Shade', 'Shade', 'Color') || '').trim(),
+      fabricGsm: getVal('fabricGsm', 'Fabric Gsm', 'GSM', 'Gsm') || '',
+      yarnRequired: String(getVal('yarnRequired', 'Yarn Required', 'Yarn Requirement') || '').trim(),
+      lotRef: String(getVal('lotRef', 'Lot Ref', 'Lot Reference') || '').trim(),
+      allocatedYarn: String(getVal('allocatedYarn', 'Allocated Yarn') || '').trim(),
+      lotNo: String(getVal('lotNo', 'Lot #', 'Lot No', 'Lot Number', 'Lot') || '').trim(),
+      spinnersName: String(getVal('spinnersName', "Spinner's Name", 'Spinners Name', 'Spinner Name', 'Spinner') || '').trim(),
+      allocationStatus: String(getVal('allocationStatus', 'Allocation Status', 'Status') || 'Allocated').trim(),
+      yarnStockStatus: String(getVal('yarnStockStatus', 'Yarn Stock Status', 'Stock Status') || 'Stock Available').trim(),
+      yarnDeliveryStatus: String(getVal('yarnDeliveryStatus', 'Yarn Delivery Status', 'Delivery Status') || 'Completed').trim(),
+      proposedAllocationDate: GasClient.formatDateValue(getVal('proposedAllocationDate', 'Proposed Allocation Date')),
+      allocationDate: GasClient.formatDateValue(getVal('allocationDate', 'Allocation Date')),
+      allocationDateRange: GasClient.formatDateValue(getVal('allocationDateRange', 'Allocation Sart Date to End Date', 'Allocation Start Date to End Date', 'Allocation Date Range')),
+      allocationNo: String(getVal('allocationNo', 'Allocation No', 'Allocation #', 'Allocation Number') || '').trim(),
+      yarnRqQty: Number(getVal('yarnRqQty', 'Yarn Rq Qty', 'Yarn Req Qty', 'Yarn Required Qty')) || 0,
+      allocatedQty: Number(getVal('allocatedQty', 'Allocated Qty', 'Allocated Quantity')) || 0,
+      balance: Number(getVal('balance', 'Balance', 'Balance Qty')) || 0,
+      remarks: String(getVal('remarks', 'Remarks', 'Comment') || '').trim()
+    };
+  }
+
+  private static normalizeOrderPlanObject(raw: any, index: number): any {
+    if (!raw || typeof raw !== 'object') return null;
+
+    const getVal = (...keys: string[]) => {
+      for (const k of keys) {
+        if (raw[k] !== undefined && raw[k] !== null && raw[k] !== '') {
+          return raw[k];
+        }
+        const strippedTarget = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+        for (const rawKey of Object.keys(raw)) {
+          if (rawKey.toLowerCase().replace(/[^a-z0-9]/g, '') === strippedTarget) {
+            if (raw[rawKey] !== undefined && raw[rawKey] !== null && raw[rawKey] !== '') {
+              return raw[rawKey];
+            }
+          }
+        }
+      }
+      return '';
+    };
+
+    return {
+      id: String(getVal('id', 'ID') || `ord-${index + 1}`).trim(),
+      planMonth: String(getVal('planMonth', 'Plan Month', 'Month') || '').trim(),
+      planType: String(getVal('planType', 'Plan Type', 'Type') || 'Confirm').trim(),
+      ewo: String(getVal('ewo', 'EWO', 'EWO #', 'Order Number') || '').trim(),
+      buyer: String(getVal('buyer', 'Buyer') || '').trim(),
+      color: String(getVal('color', 'Color', 'Shade') || '').trim(),
+      knitStart: GasClient.formatDateValue(getVal('knitStart', 'Knit Start', 'Knit Start Date')),
+      knitEnd: GasClient.formatDateValue(getVal('knitEnd', 'Knit End', 'Knit End Date')),
+      target: Number(getVal('target', 'Target', 'Target Qty')) || 0,
+      targetNextMonth: Number(getVal('targetNextMonth', 'Target Next Month')) || 0,
+      allocationStart: GasClient.formatDateValue(getVal('allocationStart', 'Allocation Start')),
+      allocationEnd: GasClient.formatDateValue(getVal('allocationEnd', 'Allocation End')),
+      allocatedQty: Number(getVal('allocatedQty', 'Allocated Qty')) || 0,
+      allocatedBal: Number(getVal('allocatedBal', 'Allocated Bal', 'Allocated Balance')) || 0,
+      greyReq: Number(getVal('greyReq', 'Grey Req', 'Grey Requirement')) || 0,
+      knitPro: Number(getVal('knitPro', 'Knit Pro', 'Knit Production')) || 0,
+      knitBal: Number(getVal('knitBal', 'Knit Bal', 'Knit Balance')) || 0,
+      aKnitStart: GasClient.formatDateValue(getVal('aKnitStart', 'Actual Knit Start', 'A.Knit Start')),
+      lastProductionDate: GasClient.formatDateValue(getVal('lastProductionDate', 'Last Production Date')),
+      avgProdDay: Number(getVal('avgProdDay', 'Avg Prod Day', 'Avg Production / Day')) || 0,
+      expectedKnitEnd: GasClient.formatDateValue(getVal('expectedKnitEnd', 'Expected Knit End')),
+      knitStartOtd: String(getVal('knitStartOtd', 'Knit Start OTD') || '').trim(),
+      knitEndOtd: String(getVal('knitEndOtd', 'Knit End OTD') || '').trim(),
+      knitStartRemarks: String(getVal('knitStartRemarks', 'Knit Start Remarks') || '').trim(),
+      knitEndRemarks: String(getVal('knitEndRemarks', 'Knit End Remarks') || '').trim()
+    };
+  }
+
   // ==========================================================
   // ORDER PLAN FOLLOWUP CRUD
   // ==========================================================
@@ -930,7 +1074,7 @@ export class GasClient {
       try {
         const res = await this.request<any[]>('orders/list', 'GET');
         if (res.success && res.data && Array.isArray(res.data) && res.data.length > 0) {
-          return res.data;
+          return res.data.map((item: any, idx: number) => this.normalizeOrderPlanObject(item, idx));
         }
       } catch (e) {
         console.warn("GAS fetch orders notice:", e);
@@ -938,7 +1082,7 @@ export class GasClient {
     }
     const db = await this.fetchServerDb();
     if (db && db.orderPlans && Array.isArray(db.orderPlans)) {
-      return db.orderPlans;
+      return db.orderPlans.map((item: any, idx: number) => this.normalizeOrderPlanObject(item, idx));
     }
     return [];
   }
@@ -972,7 +1116,7 @@ export class GasClient {
       try {
         const res = await this.request<any[]>('yarn/list', 'GET');
         if (res.success && res.data && Array.isArray(res.data) && res.data.length > 0) {
-          return res.data;
+          return res.data.map((item: any, idx: number) => this.normalizeYarnObject(item, idx));
         }
       } catch (e) {
         console.warn("GAS fetch yarn allocations notice:", e);
@@ -980,7 +1124,7 @@ export class GasClient {
     }
     const db = await this.fetchServerDb();
     if (db && db.yarnAllocations && Array.isArray(db.yarnAllocations)) {
-      return db.yarnAllocations;
+      return db.yarnAllocations.map((item: any, idx: number) => this.normalizeYarnObject(item, idx));
     }
     return [];
   }

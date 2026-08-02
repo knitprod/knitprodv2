@@ -182,25 +182,78 @@ function formatYarnQty(val: number): string {
   return val.toLocaleString();
 }
 
+export function formatDisplayDate(val: any): string {
+  if (!val && val !== 0) return '-';
+  const str = String(val).trim();
+  if (!str || str === '-' || str === 'Pending') return str || '-';
+
+  const fullMonths = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  if (/\s+to\s+/i.test(str)) {
+    const parts = str.split(/\s+to\s+/i);
+    return parts.map(p => formatDisplayDate(p)).join(' To ');
+  }
+
+  // 1) Match ISO format YYYY-MM-DD... (e.g. 2026-07-04T18:00:00.000Z or 2026-07-04)
+  const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    const yr = isoMatch[1];
+    const mIdx = parseInt(isoMatch[2], 10) - 1;
+    const dy = isoMatch[3].padStart(2, '0');
+    if (mIdx >= 0 && mIdx < 12) {
+      return `${dy}-${fullMonths[mIdx]}-${yr}`;
+    }
+  }
+
+  // 2) Match DD-MMM-YY or DD-Month-YYYY (e.g. 28-Jun-25, 4-July-2026, 04-Jul-2026)
+  const dmyMatch = str.match(/^(\d{1,2})[-/\s]([A-Za-z]+)[-/\s](\d{2,4})$/);
+  if (dmyMatch) {
+    const dy = dmyMatch[1].padStart(2, '0');
+    const mStr = dmyMatch[2].toLowerCase();
+    let yr = dmyMatch[3];
+    if (yr.length === 2) {
+      yr = `20${yr}`;
+    }
+    const mIdx = fullMonths.findIndex(m => m.toLowerCase().startsWith(mStr.slice(0, 3)));
+    if (mIdx !== -1) {
+      return `${dy}-${fullMonths[mIdx]}-${yr}`;
+    }
+  }
+
+  // 3) Try JS Date parsing
+  const dObj = new Date(str);
+  if (!isNaN(dObj.getTime())) {
+    const dy = String(dObj.getDate()).padStart(2, '0');
+    const mName = fullMonths[dObj.getMonth()];
+    const yr = dObj.getFullYear();
+    return `${dy}-${mName}-${yr}`;
+  }
+
+  return str;
+}
+
 function parseExcelDate(val: any): string {
   if (!val && val !== 0) return '';
   if (typeof val === 'number') {
     const dateObj = XLSX.SSF.parse_date_code(val);
     if (dateObj) {
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const mStr = months[dateObj.m - 1] || 'Jan';
-      const yr = String(dateObj.y).slice(-2);
-      return `${dateObj.d}-${mStr}-${yr}`;
+      const fullMonths = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+      const mStr = fullMonths[dateObj.m - 1] || 'January';
+      const yr = String(dateObj.y).length === 2 ? `20${dateObj.y}` : String(dateObj.y);
+      const dy = String(dateObj.d).padStart(2, '0');
+      return `${dy}-${mStr}-${yr}`;
     }
   }
   if (val instanceof Date) {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const d = val.getDate();
-    const mStr = months[val.getMonth()] || 'Jan';
-    const yr = String(val.getFullYear()).slice(-2);
-    return `${d}-${mStr}-${yr}`;
+    return formatDisplayDate(val.toISOString());
   }
-  return String(val).trim();
+  return formatDisplayDate(String(val).trim());
 }
 
 function getColValue(row: Record<string, any>, possibleKeys: string[]): any {
@@ -240,15 +293,15 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
       const q = yarnSearchQuery.toLowerCase();
       const matchesSearch = 
         !q ||
-        item.orderNumber.toLowerCase().includes(q) ||
-        item.buyer.toLowerCase().includes(q) ||
-        item.fabricsType.toLowerCase().includes(q) ||
-        item.yarnRequired.toLowerCase().includes(q) ||
-        item.allocatedYarn.toLowerCase().includes(q) ||
-        item.lotNo.toLowerCase().includes(q) ||
-        item.spinnersName.toLowerCase().includes(q) ||
-        item.allocationNo.toLowerCase().includes(q) ||
-        item.remarks.toLowerCase().includes(q);
+        String(item.orderNumber || '').toLowerCase().includes(q) ||
+        String(item.buyer || '').toLowerCase().includes(q) ||
+        String(item.fabricsType || '').toLowerCase().includes(q) ||
+        String(item.yarnRequired || '').toLowerCase().includes(q) ||
+        String(item.allocatedYarn || '').toLowerCase().includes(q) ||
+        String(item.lotNo || '').toLowerCase().includes(q) ||
+        String(item.spinnersName || '').toLowerCase().includes(q) ||
+        String(item.allocationNo || '').toLowerCase().includes(q) ||
+        String(item.remarks || '').toLowerCase().includes(q);
 
       const matchesBuyer = yarnBuyerFilter === 'All' || item.buyer === yarnBuyerFilter;
       const matchesFabric = yarnFabricFilter === 'All' || item.fabricsType === yarnFabricFilter;
@@ -260,14 +313,14 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
 
   const yarnTotals = useMemo(() => {
     return filteredYarnAllocations.reduce((acc, curr) => ({
-      yarnRqQty: acc.yarnRqQty + (curr.yarnRqQty || 0),
-      allocatedQty: acc.allocatedQty + (curr.allocatedQty || 0),
-      balance: acc.balance + (curr.balance || 0),
+      yarnRqQty: acc.yarnRqQty + (Number(curr.yarnRqQty) || 0),
+      allocatedQty: acc.allocatedQty + (Number(curr.allocatedQty) || 0),
+      balance: acc.balance + (Number(curr.balance) || 0),
     }), { yarnRqQty: 0, allocatedQty: 0, balance: 0 });
   }, [filteredYarnAllocations]);
 
   const uniqueOrdersCount = useMemo(() => {
-    return new Set(filteredYarnAllocations.map(item => item.orderNumber?.trim()).filter(Boolean)).size;
+    return new Set(filteredYarnAllocations.map(item => String(item.orderNumber || '').trim()).filter(Boolean)).size;
   }, [filteredYarnAllocations]);
 
   const handleExportYarnExcel = () => {
@@ -607,7 +660,7 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
                 filteredYarnAllocations.map((row) => (
                   <tr key={row.id} className="hover:bg-blue-50/30 dark:hover:bg-slate-800/50 transition-colors">
                     <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-bold text-slate-900 dark:text-white">
-                      {row.actualRequisitionDate || '-'}
+                      {formatDisplayDate(row.actualRequisitionDate)}
                     </td>
                     <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-black text-slate-900 dark:text-white">
                       {row.buyer || '-'}
@@ -655,13 +708,13 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
                       </span>
                     </td>
                     <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center text-slate-500">
-                      {row.proposedAllocationDate || '-'}
+                      {formatDisplayDate(row.proposedAllocationDate)}
                     </td>
                     <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center font-bold">
-                      {row.allocationDate || '-'}
+                      {formatDisplayDate(row.allocationDate)}
                     </td>
                     <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                      {row.allocationDateRange || '-'}
+                      {formatDisplayDate(row.allocationDateRange)}
                     </td>
                     <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center font-mono font-bold text-blue-600 dark:text-blue-400">
                       {row.allocationNo || '-'}

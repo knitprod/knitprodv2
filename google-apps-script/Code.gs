@@ -13,7 +13,7 @@
 // ==========================================================
 // CONFIGURATION & GLOBAL CONSTANTS
 // ==========================================================
-const VERSION = "2.0.0-OrderYarn";
+const VERSION = "2.1.0-OrderYarnNormalized";
 
 // ==========================================================
 // WEB APP ROUTING HOOKS (GET & POST)
@@ -128,6 +128,68 @@ function makeResponse(data) {
 }
 
 // ==========================================================
+// COLUMN HEADER NORMALIZATION HELPER
+// ==========================================================
+
+function normalizeHeaderName(headerStr) {
+  if (!headerStr) return "";
+  var raw = headerStr.toString().trim();
+  var str = raw.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  // ID
+  if (str === "id") return "id";
+
+  // Yarn field mappings
+  if (str.indexOf("actualreq") >= 0 || str.indexOf("requisitiondate") >= 0) return "actualRequisitionDate";
+  if (str === "buyer" || str === "buyername") return "buyer";
+  if (str === "ordernumber" || str === "orderno" || str === "order" || str === "ewo" || str === "ordernum") return "orderNumber";
+  if (str === "fabricstype" || str === "fabricstypes" || str === "fabricstype" || str === "fabricstype" || str === "fabrictype" || str === "fabric") return "fabricsType";
+  if (str === "fabricshade" || str === "shade") return "fabricShade";
+  if (str === "fabricgsm" || str === "gsm") return "fabricGsm";
+  if (str.indexOf("yarnreq") >= 0 || str === "yarnrequired") return "yarnRequired";
+  if (str === "lotref" || str === "lotreference") return "lotRef";
+  if (str === "allocatedyarn") return "allocatedYarn";
+  if (str === "lotno" || str === "lot" || str === "lotnum" || str === "lotnumber") return "lotNo";
+  if (str.indexOf("spinner") >= 0) return "spinnersName";
+  if (str === "allocationstatus" || str === "status") return "allocationStatus";
+  if (str === "yarnstockstatus" || str === "stockstatus") return "yarnStockStatus";
+  if (str === "yarndeliverystatus" || str === "deliverystatus") return "yarnDeliveryStatus";
+  if (str.indexOf("proposedalloc") >= 0) return "proposedAllocationDate";
+  if (str === "allocationdate") return "allocationDate";
+  if (str.indexOf("allocationsart") >= 0 || str.indexOf("allocationstartdate") >= 0 || str.indexOf("allocationdaterange") >= 0) return "allocationDateRange";
+  if (str === "allocationno" || str === "allocationnum" || str === "allocationnumber") return "allocationNo";
+  if (str.indexOf("yarnrqqty") >= 0 || str.indexOf("yarnreqqty") >= 0 || str.indexOf("yarnrequiredqty") >= 0) return "yarnRqQty";
+  if (str === "allocatedqty" || str === "allocatedquantity") return "allocatedQty";
+  if (str === "balance" || str === "balanceqty") return "balance";
+  if (str === "remarks" || str === "comment" || str === "comments") return "remarks";
+
+  // Order Plan field mappings
+  if (str === "planmonth" || str === "month") return "planMonth";
+  if (str === "plantype" || str === "type") return "planType";
+  if (str === "color") return "color";
+  if (str === "knitstart" || str === "knitstartdate") return "knitStart";
+  if (str === "knitend" || str === "knitenddate") return "knitEnd";
+  if (str === "target" || str === "targetqty") return "target";
+  if (str === "targetnextmonth") return "targetNextMonth";
+  if (str === "allocationstart") return "allocationStart";
+  if (str === "allocationend") return "allocationEnd";
+  if (str === "allocatedbal" || str === "allocatedbalance") return "allocatedBal";
+  if (str === "greyreq" || str === "greyrequirement") return "greyReq";
+  if (str === "knitpro" || str === "knitproduction") return "knitPro";
+  if (str === "knitbal" || str === "knitbalance") return "knitBal";
+  if (str === "aknitstart" || str === "actualknitstart") return "aKnitStart";
+  if (str === "lastproductiondate") return "lastProductionDate";
+  if (str === "avgprodday" || str === "avgproductionday") return "avgProdDay";
+  if (str === "expectedknitend") return "expectedKnitEnd";
+  if (str === "knitstartotd") return "knitStartOtd";
+  if (str === "knitendotd") return "knitEndOtd";
+  if (str === "knitstartremarks") return "knitStartRemarks";
+  if (str === "knitendremarks") return "knitEndRemarks";
+
+  return raw;
+}
+
+// ==========================================================
 // DATABASE SETUP & AUTO-BOOTSTRAP MODULE
 // ==========================================================
 
@@ -234,18 +296,20 @@ function handleGetOrderPlans(e) {
     return makeResponse({ success: true, data: [] });
   }
 
-  const headers = data[0];
+  const rawHeaders = data[0];
+  const normalizedHeaders = rawHeaders.map(function(h) { return normalizeHeaderName(h); });
   const orderPlans = [];
 
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
     const item = {};
-    for (let j = 0; j < headers.length; j++) {
+    for (let j = 0; j < normalizedHeaders.length; j++) {
       let val = row[j];
       if (val instanceof Date) {
         val = val.toISOString().split('T')[0];
       }
-      item[headers[j]] = val;
+      const propKey = normalizedHeaders[j] || ("col_" + j);
+      item[propKey] = val;
     }
     if (item.id || item.ewo) {
       orderPlans.push(item);
@@ -287,8 +351,9 @@ function handleSaveOrderPlans(payload) {
     data = [defaultHeaders];
   }
 
-  const headers = data[0];
-  const idCol = headers.indexOf("id");
+  const rawHeaders = data[0];
+  const normHeaders = rawHeaders.map(function(h) { return normalizeHeaderName(h); });
+  const idCol = normHeaders.indexOf("id");
 
   const existingMap = {};
   for (let i = 1; i < data.length; i++) {
@@ -299,8 +364,10 @@ function handleSaveOrderPlans(payload) {
 
   orders.forEach(function(ord) {
     const ordId = (ord.id || ("ord-" + Date.now() + "-" + Math.floor(Math.random() * 1000))).toString().trim();
-    const newRow = headers.map(function(h) {
+    const newRow = normHeaders.map(function(h, idx) {
+      const origHeader = rawHeaders[idx];
       let val = ord[h];
+      if (val === undefined || val === null) val = ord[origHeader];
       if (val === undefined || val === null) return "";
       if (typeof val === "object") return JSON.stringify(val);
       return val;
@@ -308,7 +375,7 @@ function handleSaveOrderPlans(payload) {
 
     if (existingMap[ordId]) {
       const rowIndex = existingMap[ordId];
-      sheet.getRange(rowIndex, 1, 1, headers.length).setValues([newRow]);
+      sheet.getRange(rowIndex, 1, 1, normHeaders.length).setValues([newRow]);
     } else {
       sheet.appendRow(newRow);
     }
@@ -340,9 +407,10 @@ function handleDeleteOrderPlan(payload) {
     return makeResponse({ success: false, message: "No order plans found in sheet." });
   }
 
-  const headers = data[0];
-  const idCol = headers.indexOf("id");
-  const ewoCol = headers.indexOf("ewo");
+  const rawHeaders = data[0];
+  const normHeaders = rawHeaders.map(function(h) { return normalizeHeaderName(h); });
+  const idCol = normHeaders.indexOf("id");
+  const ewoCol = normHeaders.indexOf("ewo");
   const targetId = id.toString().trim().toLowerCase();
 
   for (let i = 1; i < data.length; i++) {
@@ -387,20 +455,22 @@ function handleGetYarnAllocations(e) {
     return makeResponse({ success: true, data: [] });
   }
 
-  const headers = data[0];
+  const rawHeaders = data[0];
+  const normalizedHeaders = rawHeaders.map(function(h) { return normalizeHeaderName(h); });
   const yarnAllocations = [];
 
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
     const item = {};
-    for (let j = 0; j < headers.length; j++) {
+    for (let j = 0; j < normalizedHeaders.length; j++) {
       let val = row[j];
       if (val instanceof Date) {
         val = val.toISOString().split('T')[0];
       }
-      item[headers[j]] = val;
+      const propKey = normalizedHeaders[j] || ("col_" + j);
+      item[propKey] = val;
     }
-    if (item.id || item.orderNumber || item.allocationNo) {
+    if (item.id || item.orderNumber || item.allocationNo || item.buyer) {
       yarnAllocations.push(item);
     }
   }
@@ -441,8 +511,9 @@ function handleSaveYarnAllocations(payload) {
     data = [defaultHeaders];
   }
 
-  const headers = data[0];
-  const idCol = headers.indexOf("id");
+  const rawHeaders = data[0];
+  const normHeaders = rawHeaders.map(function(h) { return normalizeHeaderName(h); });
+  const idCol = normHeaders.indexOf("id");
 
   const existingMap = {};
   for (let i = 1; i < data.length; i++) {
@@ -453,8 +524,10 @@ function handleSaveYarnAllocations(payload) {
 
   items.forEach(function(yarnItem) {
     const itemId = (yarnItem.id || ("yarn-" + Date.now() + "-" + Math.floor(Math.random() * 1000))).toString().trim();
-    const newRow = headers.map(function(h) {
+    const newRow = normHeaders.map(function(h, idx) {
+      const origHeader = rawHeaders[idx];
       let val = yarnItem[h];
+      if (val === undefined || val === null) val = yarnItem[origHeader];
       if (val === undefined || val === null) return "";
       if (typeof val === "object") return JSON.stringify(val);
       return val;
@@ -462,7 +535,7 @@ function handleSaveYarnAllocations(payload) {
 
     if (existingMap[itemId]) {
       const rowIndex = existingMap[itemId];
-      sheet.getRange(rowIndex, 1, 1, headers.length).setValues([newRow]);
+      sheet.getRange(rowIndex, 1, 1, normHeaders.length).setValues([newRow]);
     } else {
       sheet.appendRow(newRow);
     }
@@ -494,8 +567,9 @@ function handleDeleteYarnAllocation(payload) {
     return makeResponse({ success: false, message: "No yarn allocations found in sheet." });
   }
 
-  const headers = data[0];
-  const idCol = headers.indexOf("id");
+  const rawHeaders = data[0];
+  const normHeaders = rawHeaders.map(function(h) { return normalizeHeaderName(h); });
+  const idCol = normHeaders.indexOf("id");
   const targetId = id.toString().trim().toLowerCase();
 
   for (let i = 1; i < data.length; i++) {

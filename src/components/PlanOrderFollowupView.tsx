@@ -8,6 +8,7 @@ import * as XLSX from 'xlsx';
 import { GasClient } from '../lib/gasClient';
 import { FirestoreSyncService } from '../lib/firestoreSync';
 import { UserRecord } from './UserManagementView';
+import { formatDisplayDate } from './YarnAllocationView';
 import { 
   ClipboardList, 
   Target, 
@@ -490,15 +491,15 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       const q = yarnSearchQuery.toLowerCase();
       const matchesSearch = 
         !q ||
-        item.orderNumber.toLowerCase().includes(q) ||
-        item.buyer.toLowerCase().includes(q) ||
-        item.fabricsType.toLowerCase().includes(q) ||
-        item.yarnRequired.toLowerCase().includes(q) ||
-        item.allocatedYarn.toLowerCase().includes(q) ||
-        item.lotNo.toLowerCase().includes(q) ||
-        item.spinnersName.toLowerCase().includes(q) ||
-        item.allocationNo.toLowerCase().includes(q) ||
-        item.remarks.toLowerCase().includes(q);
+        String(item.orderNumber || '').toLowerCase().includes(q) ||
+        String(item.buyer || '').toLowerCase().includes(q) ||
+        String(item.fabricsType || '').toLowerCase().includes(q) ||
+        String(item.yarnRequired || '').toLowerCase().includes(q) ||
+        String(item.allocatedYarn || '').toLowerCase().includes(q) ||
+        String(item.lotNo || '').toLowerCase().includes(q) ||
+        String(item.spinnersName || '').toLowerCase().includes(q) ||
+        String(item.allocationNo || '').toLowerCase().includes(q) ||
+        String(item.remarks || '').toLowerCase().includes(q);
 
       const matchesBuyer = yarnBuyerFilter === 'All' || item.buyer === yarnBuyerFilter;
       const matchesFabric = yarnFabricFilter === 'All' || item.fabricsType === yarnFabricFilter;
@@ -511,14 +512,14 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
 
   const yarnTotals = useMemo(() => {
     return filteredYarnAllocations.reduce((acc, curr) => ({
-      yarnRqQty: acc.yarnRqQty + (curr.yarnRqQty || 0),
-      allocatedQty: acc.allocatedQty + (curr.allocatedQty || 0),
-      balance: acc.balance + (curr.balance || 0),
+      yarnRqQty: acc.yarnRqQty + (Number(curr.yarnRqQty) || 0),
+      allocatedQty: acc.allocatedQty + (Number(curr.allocatedQty) || 0),
+      balance: acc.balance + (Number(curr.balance) || 0),
     }), { yarnRqQty: 0, allocatedQty: 0, balance: 0 });
   }, [filteredYarnAllocations]);
 
   const uniqueOrdersCount = useMemo(() => {
-    return new Set(filteredYarnAllocations.map(item => item.orderNumber?.trim()).filter(Boolean)).size;
+    return new Set(filteredYarnAllocations.map(item => String(item.orderNumber || '').trim()).filter(Boolean)).size;
   }, [filteredYarnAllocations]);
 
   const handleExportYarnExcel = () => {
@@ -1073,14 +1074,14 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                               {ord.color}
                             </span>
                           </td>
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-300 font-semibold">{ord.knitStart}</td>
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-300 font-semibold">{ord.knitEnd}</td>
+                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-300 font-semibold">{formatDisplayDate(ord.knitStart)}</td>
+                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-300 font-semibold">{formatDisplayDate(ord.knitEnd)}</td>
                           <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right font-extrabold text-slate-900 dark:text-white">
                             {ord.target.toLocaleString()}
                           </td>
                           <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right text-slate-500">{ord.targetNextMonth}</td>
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-400">{ord.allocationStart || '-'}</td>
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-400">{ord.allocationEnd || '-'}</td>
+                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-400">{formatDisplayDate(ord.allocationStart)}</td>
+                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-400">{formatDisplayDate(ord.allocationEnd)}</td>
                           <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right font-semibold text-slate-700 dark:text-slate-300">
                             {ord.allocatedQty ? ord.allocatedQty.toLocaleString() : '-'}
                           </td>
@@ -1099,7 +1100,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                             </span>
                           </td>
                           <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-700 dark:text-slate-300 font-medium">
-                            {ord.aKnitStart || '-'}
+                            {formatDisplayDate(ord.aKnitStart)}
                           </td>
                           
                           {/* Knit Start VS A. Knit Start Column */}
@@ -1126,7 +1127,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                           </td>
 
                           <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-700 dark:text-slate-300 font-medium">
-                            {ord.lastProductionDate || '-'}
+                            {formatDisplayDate(ord.lastProductionDate)}
                           </td>
 
                           {/* Knit End VS A. Knit End Column */}
@@ -1156,7 +1157,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                             {ord.avgProdDay || '-'}
                           </td>
                           <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-400">
-                            {ord.expectedKnitEnd || '-'}
+                            {formatDisplayDate(ord.expectedKnitEnd)}
                           </td>
 
                           {/* KNIT START OTD COLUMN - FULL GREEN / RED CELL COLOR */}
