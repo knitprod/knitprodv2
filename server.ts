@@ -17,13 +17,15 @@ let cachedDbObj: any = null;
 const gasProxyCache = new Map<string, { timestamp: number; data: any }>();
 const CACHE_TTL_MS = 15000; // 15-second cache for GET requests
 
+const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzfsNc4kKa3jcyeC646qmVWhaCyvJKWMlGwvcRRJeDLqaTS61bIIteWEYvVb_Gk_Q/exec';
+
 // Helper to load persistent server configuration with in-memory caching
 function loadConfig() {
   if (cachedConfigObj) return cachedConfigObj;
 
   let config: { gasWebAppUrl: string; databaseMode: 'gas' | 'mock' } = {
-    gasWebAppUrl: process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL || '',
-    databaseMode: (process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL) ? 'gas' : 'mock',
+    gasWebAppUrl: process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL || DEFAULT_GAS_URL,
+    databaseMode: 'gas',
   };
 
   if (fs.existsSync(CONFIG_FILE)) {
@@ -42,6 +44,11 @@ function loadConfig() {
       console.error('Error reading app_config.json file:', e);
     }
   }
+
+  if (!config.gasWebAppUrl || !config.gasWebAppUrl.trim()) {
+    config.gasWebAppUrl = DEFAULT_GAS_URL;
+  }
+
   cachedConfigObj = config;
   return config;
 }

@@ -368,6 +368,17 @@ export default function App() {
     }
   };
 
+  // Fetch central server database configuration (GAS URL & DB mode) on app startup
+  useEffect(() => {
+    GasClient.fetchServerConfig().then((config) => {
+      if (config && config.databaseMode === 'gas') {
+        loadLiveGasData();
+      }
+    }).catch((err) => {
+      console.warn("Central config fetch notice:", err);
+    });
+  }, []);
+
   // Initialize Firebase Firestore User Management & Activity Logs
   useEffect(() => {
     FirestoreSyncService.seedInitialUsersIfEmpty(INITIAL_USERS);
