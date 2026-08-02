@@ -281,7 +281,7 @@ app.all('/api/gas-proxy', async (req, res) => {
           },
           body: JSON.stringify(postBody),
           redirect: 'follow',
-          signal: AbortSignal.timeout(25000) // 25-second timeout for POST mutations
+          signal: AbortSignal.timeout(90000) // 90-second timeout for batch mutations
         });
 
         if (!response.ok) {

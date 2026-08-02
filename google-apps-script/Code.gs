@@ -332,7 +332,7 @@ function handleSaveOrderPlans(payload) {
     sheet = ss.insertSheet("Order Plan & Status");
   }
 
-  const orders = payload.orderPlans || payload.data || (Array.isArray(payload) ? payload : [payload]);
+  const orders = payload.orderPlans || (payload.data && payload.data.orderPlans) || (Array.isArray(payload.data) ? payload.data : null) || (Array.isArray(payload) ? payload : [payload]);
   if (!Array.isArray(orders)) {
     return makeResponse({ success: false, message: "Invalid payload format. Expected orderPlans array." });
   }
@@ -353,7 +353,7 @@ function handleSaveOrderPlans(payload) {
   const rawHeaders = data[0];
   const normHeaders = rawHeaders.map(function(h) { return normalizeHeaderName(h); });
 
-  const isReplace = payload.replace === true || payload.mode === "replace" || payload.overwrite === true;
+  const isReplace = payload.replace === true || payload.mode === "replace" || payload.overwrite === true || (payload.data && (payload.data.replace === true || payload.data.mode === "replace" || payload.data.overwrite === true));
 
   if (isReplace) {
     const lastRow = sheet.getLastRow();
@@ -533,7 +533,7 @@ function handleSaveYarnAllocations(payload) {
     sheet = ss.insertSheet("Yarn Allocation");
   }
 
-  const items = payload.yarnAllocations || payload.data || (Array.isArray(payload) ? payload : [payload]);
+  const items = payload.yarnAllocations || (payload.data && payload.data.yarnAllocations) || (Array.isArray(payload.data) ? payload.data : null) || (Array.isArray(payload) ? payload : [payload]);
   if (!Array.isArray(items)) {
     return makeResponse({ success: false, message: "Invalid payload format. Expected yarnAllocations array." });
   }
@@ -555,7 +555,7 @@ function handleSaveYarnAllocations(payload) {
   const rawHeaders = data[0];
   const normHeaders = rawHeaders.map(function(h) { return normalizeHeaderName(h); });
 
-  const isReplace = payload.replace === true || payload.mode === "replace" || payload.overwrite === true;
+  const isReplace = payload.replace === true || payload.mode === "replace" || payload.overwrite === true || (payload.data && (payload.data.replace === true || payload.data.mode === "replace" || payload.data.overwrite === true));
 
   if (isReplace) {
     const lastRow = sheet.getLastRow();

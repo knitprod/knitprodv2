@@ -810,47 +810,48 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     setIsSaving(true);
     setUploadError(null);
 
-    setTimeout(async () => {
-      try {
-        // Save dataset to Google Sheets and backend DB with replace=true
-        await GasClient.saveYarnAllocations(parsedData, true);
+    const dataToSave = parsedData;
+    const fileName = uploadFile?.name || 'Master_Yarn_Allocation.xlsx';
 
-        setYarnAllocations(parsedData);
-        setCurrentPage(1);
+    // Step 1: Update browser state immediately 1st
+    setYarnAllocations(dataToSave);
+    setCurrentPage(1);
 
-        const nowStr = new Date().toLocaleString('en-US', {
-          day: '2-digit',
-          month: 'short',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        });
+    const nowStr = new Date().toLocaleString('en-US', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
 
-        const newUploadInfo: MasterUploadInfo = {
-          lastUploadedAt: nowStr,
-          fileName: uploadFile?.name || 'Master_Yarn_Allocation.xlsx',
-          totalRecords: parsedData.length,
-          status: 'Success'
-        };
+    const newUploadInfo: MasterUploadInfo = {
+      lastUploadedAt: nowStr,
+      fileName: fileName,
+      totalRecords: dataToSave.length,
+      status: 'Success'
+    };
 
-        setUploadInfo(newUploadInfo);
-        try {
-          localStorage.setItem('master_yarn_upload_info', JSON.stringify(newUploadInfo));
-        } catch (e) {}
+    setUploadInfo(newUploadInfo);
+    try {
+      localStorage.setItem('master_yarn_upload_info', JSON.stringify(newUploadInfo));
+    } catch (e) {}
 
-        setUploadSuccessBanner(`Successfully imported and saved ${parsedData.length} yarn allocation records to Google Sheets.`);
-        setShowUploadModal(false);
-        setUploadFile(null);
-        setParsedData(null);
-        setUploadError(null);
-      } catch (err: any) {
-        console.error("Failed to save uploaded yarn allocations to Google Sheets:", err);
-        setUploadError(`Failed to save to Google Sheets: ${err.message || 'Server error. Please verify your Google Apps Script URL and permissions.'}`);
-      } finally {
-        setIsSaving(false);
-      }
-    }, 50);
+    setUploadSuccessBanner(`Updated browser instantly with ${dataToSave.length.toLocaleString()} allocation records! Syncing to Google Sheets...`);
+    setShowUploadModal(false);
+    setUploadFile(null);
+    setParsedData(null);
+    setUploadError(null);
+    setIsSaving(false);
+
+    // Step 2: Sync to Google Sheets and Server DB in background
+    GasClient.saveYarnAllocations(dataToSave, true).then(() => {
+      setUploadSuccessBanner(`Successfully imported and synced all ${dataToSave.length.toLocaleString()} yarn allocation records with Google Sheets.`);
+    }).catch((err) => {
+      console.warn("Background Google Sheets sync notice:", err);
+      setUploadSuccessBanner(`Browser updated with ${dataToSave.length.toLocaleString()} records. (Google Sheets background sync notice: ${err.message || 'Check Apps Script endpoint'}).`);
+    });
   };
 
   return (

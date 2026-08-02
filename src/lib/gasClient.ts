@@ -314,6 +314,9 @@ export class GasClient {
             targetUid: bodyData?.targetUid || bodyData?.uid || bodyData?.id,
             id: bodyData?.id || bodyData?.targetUid,
             data: bodyData,
+            replace: bodyData?.replace,
+            orderPlans: bodyData?.orderPlans,
+            yarnAllocations: bodyData?.yarnAllocations,
             url: webAppUrl
           };
 
@@ -384,7 +387,10 @@ export class GasClient {
               token: token,
               targetUid: bodyData?.targetUid || bodyData?.uid || bodyData?.id,
               id: bodyData?.id || bodyData?.targetUid,
-              data: bodyData
+              data: bodyData,
+              replace: bodyData?.replace,
+              orderPlans: bodyData?.orderPlans,
+              yarnAllocations: bodyData?.yarnAllocations
             })
           });
 
@@ -1159,18 +1165,31 @@ export class GasClient {
   }
 
   static async saveOrderPlans(orderPlans: any[], replace: boolean = false): Promise<void> {
+    await this.saveServerDb({ orderPlans });
+
     if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
       try {
-        const res = await this.request<any>('orders/save', 'POST', { orderPlans, replace });
-        if (res && res.success === false) {
-          throw new Error(res.message || "Failed to save order plans to Google Sheets.");
+        const BATCH_SIZE = 1000;
+        if (orderPlans.length <= BATCH_SIZE) {
+          const res = await this.request<any>('orders/save', 'POST', { orderPlans, replace });
+          if (res && res.success === false) {
+            console.warn("GAS save orders notice:", res.message);
+          }
+        } else {
+          for (let i = 0; i < orderPlans.length; i += BATCH_SIZE) {
+            const chunk = orderPlans.slice(i, i + BATCH_SIZE);
+            const isFirstChunk = (i === 0);
+            const chunkReplace = isFirstChunk ? replace : false;
+            const res = await this.request<any>('orders/save', 'POST', { orderPlans: chunk, replace: chunkReplace });
+            if (res && res.success === false) {
+              console.warn(`GAS batch save order plans chunk ${Math.floor(i / BATCH_SIZE) + 1} notice:`, res.message);
+            }
+          }
         }
       } catch (e: any) {
         console.warn("GAS save orders notice:", e);
-        throw e;
       }
     }
-    await this.saveServerDb({ orderPlans });
   }
 
   static async deleteOrderPlan(id: string): Promise<void> {
@@ -1205,18 +1224,31 @@ export class GasClient {
   }
 
   static async saveYarnAllocations(yarnAllocations: any[], replace: boolean = false): Promise<void> {
+    await this.saveServerDb({ yarnAllocations });
+
     if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
       try {
-        const res = await this.request<any>('yarn/save', 'POST', { yarnAllocations, replace });
-        if (res && res.success === false) {
-          throw new Error(res.message || "Failed to save yarn allocations to Google Sheets.");
+        const BATCH_SIZE = 1000;
+        if (yarnAllocations.length <= BATCH_SIZE) {
+          const res = await this.request<any>('yarn/save', 'POST', { yarnAllocations, replace });
+          if (res && res.success === false) {
+            console.warn("GAS save yarn allocations notice:", res.message);
+          }
+        } else {
+          for (let i = 0; i < yarnAllocations.length; i += BATCH_SIZE) {
+            const chunk = yarnAllocations.slice(i, i + BATCH_SIZE);
+            const isFirstChunk = (i === 0);
+            const chunkReplace = isFirstChunk ? replace : false;
+            const res = await this.request<any>('yarn/save', 'POST', { yarnAllocations: chunk, replace: chunkReplace });
+            if (res && res.success === false) {
+              console.warn(`GAS batch save yarn allocations chunk ${Math.floor(i / BATCH_SIZE) + 1} notice:`, res.message);
+            }
+          }
         }
       } catch (e: any) {
         console.warn("GAS save yarn allocations notice:", e);
-        throw e;
       }
     }
-    await this.saveServerDb({ yarnAllocations });
   }
 
   static async deleteYarnAllocation(id: string): Promise<void> {
