@@ -9,11 +9,13 @@ import { GasClient } from '../lib/gasClient';
 import { FirestoreSyncService } from '../lib/firestoreSync';
 import { UserRecord } from './UserManagementView';
 import { formatDisplayDate } from './YarnAllocationView';
+import SearchableSelect from './SearchableSelect';
 import { 
   ClipboardList, 
   Target, 
   Layers, 
   CalendarCheck, 
+  Calendar,
   Search, 
   Filter, 
   Plus, 
@@ -411,6 +413,8 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   const [buyerFilter, setBuyerFilter] = useState('All');
   const [planMonthFilter, setPlanMonthFilter] = useState('All');
   const [otdFilter, setOtdFilter] = useState('All');
+  const [knitStartSelect, setKnitStartSelect] = useState('All');
+  const [knitEndSelect, setKnitEndSelect] = useState('All');
   const [showAddModal, setShowAddModal] = useState(false);
 
   // Form state for creating new row
@@ -585,7 +589,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   // Reset to page 1 whenever filters or page size change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, buyerFilter, planMonthFilter, otdFilter, itemsPerPage]);
+  }, [searchQuery, buyerFilter, planMonthFilter, otdFilter, knitStartSelect, knitEndSelect, itemsPerPage]);
 
   // Filtered orders
   const filteredOrders = useMemo(() => {
@@ -597,7 +601,9 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         ord.buyer.toLowerCase().includes(q) ||
         ord.color.toLowerCase().includes(q) ||
         ord.planMonth.toLowerCase().includes(q) ||
-        ord.planType.toLowerCase().includes(q);
+        ord.planType.toLowerCase().includes(q) ||
+        (ord.knitStart && ord.knitStart.toLowerCase().includes(q)) ||
+        (ord.knitEnd && ord.knitEnd.toLowerCase().includes(q));
       
       const matchesBuyer = buyerFilter === 'All' || ord.buyer === buyerFilter;
       const matchesMonth = planMonthFilter === 'All' || ord.planMonth === planMonthFilter;
@@ -609,9 +615,12 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         (otdFilter === 'Failed' && (ord.knitStartOtd === 'Failed' || ord.knitEndOtd === 'Failed')) ||
         (otdFilter === 'Pending' && (ord.knitStartOtd === 'Pending' || ord.knitEndOtd === 'Pending'));
 
-      return matchesSearch && matchesBuyer && matchesMonth && matchesOtd;
+      const matchesKnitStartSel = knitStartSelect === 'All' || ord.knitStart === knitStartSelect;
+      const matchesKnitEndSel = knitEndSelect === 'All' || ord.knitEnd === knitEndSelect;
+
+      return matchesSearch && matchesBuyer && matchesMonth && matchesOtd && matchesKnitStartSel && matchesKnitEndSel;
     });
-  }, [orders, searchQuery, buyerFilter, planMonthFilter, otdFilter]);
+  }, [orders, searchQuery, buyerFilter, planMonthFilter, otdFilter, knitStartSelect, knitEndSelect]);
 
   const totalPages = useMemo(() => {
     return itemsPerPage > 0 ? Math.ceil(filteredOrders.length / itemsPerPage) || 1 : 1;
@@ -625,14 +634,39 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
 
   // Unique lists for filters
   const buyersList = useMemo(() => {
-    const set = new Set(orders.map(o => o.buyer));
+    const set = new Set(orders.map(o => o.buyer).filter(Boolean));
     return Array.from(set);
   }, [orders]);
 
   const monthsList = useMemo(() => {
-    const set = new Set(orders.map(o => o.planMonth));
+    const set = new Set(orders.map(o => o.planMonth).filter(Boolean));
     return Array.from(set);
   }, [orders]);
+
+  const knitStartsList = useMemo(() => {
+    const set = new Set(orders.map(o => o.knitStart).filter(Boolean));
+    return Array.from(set).sort();
+  }, [orders]);
+
+  const knitEndsList = useMemo(() => {
+    const set = new Set(orders.map(o => o.knitEnd).filter(Boolean));
+    return Array.from(set).sort();
+  }, [orders]);
+
+  const knitStartOptions = useMemo(() => {
+    return knitStartsList.map(ks => ({ label: `Knit Start: ${ks}`, value: ks }));
+  }, [knitStartsList]);
+
+  const knitEndOptions = useMemo(() => {
+    return knitEndsList.map(ke => ({ label: `Knit End: ${ke}`, value: ke }));
+  }, [knitEndsList]);
+
+  const otdOptions = useMemo(() => [
+    { label: 'Both Passed (Passed Orders Only)', value: 'BothPassed' },
+    { label: 'Any Passed', value: 'Passed' },
+    { label: 'Failed Orders', value: 'Failed' },
+    { label: 'Pending Orders', value: 'Pending' },
+  ], []);
 
   // KPIs
   const totalTarget = orders.reduce((sum, o) => sum + (o.target || 0), 0);
@@ -911,65 +945,55 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={planMonthFilter}
-                onChange={(e) => setPlanMonthFilter(e.target.value)}
-                className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-300"
-              >
-                <option value="All">All Months</option>
-                {monthsList.map(m => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-
-              <select
+              <SearchableSelect
                 value={buyerFilter}
-                onChange={(e) => setBuyerFilter(e.target.value)}
-                className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-300"
-              >
-                <option value="All">All Buyers</option>
-                {buyersList.map(b => (
-                  <option key={b} value={b}>{b}</option>
-                ))}
-              </select>
+                onChange={setBuyerFilter}
+                options={buyersList}
+                allLabel="All Buyers"
+                placeholder="Search Buyers..."
+              />
 
-              <select
+              <SearchableSelect
+                value={knitStartSelect}
+                onChange={setKnitStartSelect}
+                options={knitStartOptions}
+                allLabel="All Knit Start Dates"
+                placeholder="Search Knit Start..."
+              />
+
+              <SearchableSelect
+                value={knitEndSelect}
+                onChange={setKnitEndSelect}
+                options={knitEndOptions}
+                allLabel="All Knit End Dates"
+                placeholder="Search Knit End..."
+              />
+
+              <SearchableSelect
                 value={otdFilter}
-                onChange={(e) => setOtdFilter(e.target.value)}
-                className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-300"
-              >
-                <option value="All">All OTD Status</option>
-                <option value="BothPassed">Both Passed (Passed Orders Only)</option>
-                <option value="Passed">Any Passed</option>
-                <option value="Failed">Failed Orders</option>
-                <option value="Pending">Pending Orders</option>
-              </select>
+                onChange={setOtdFilter}
+                options={otdOptions}
+                allLabel="All OTD Status"
+                placeholder="Search OTD Status..."
+              />
 
-              <button
-                type="button"
-                onClick={() => setOtdFilter(otdFilter === 'Failed' ? 'All' : 'Failed')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  otdFilter === 'Failed'
-                    ? 'bg-rose-600 text-white shadow-sm ring-2 ring-rose-400'
-                    : 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 hover:bg-rose-100'
-                }`}
-              >
-                <AlertCircle className="h-3.5 w-3.5" />
-                <span>Failed Orders</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setOtdFilter(otdFilter === 'BothPassed' ? 'All' : 'BothPassed')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  otdFilter === 'BothPassed'
-                    ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400'
-                    : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100'
-                }`}
-              >
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                <span>Passed Orders</span>
-              </button>
+              {(searchQuery !== '' || buyerFilter !== 'All' || knitStartSelect !== 'All' || knitEndSelect !== 'All' || otdFilter !== 'All') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setBuyerFilter('All');
+                    setKnitStartSelect('All');
+                    setKnitEndSelect('All');
+                    setOtdFilter('All');
+                  }}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="Clear all active filters"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  <span>Clear All Filters</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -984,8 +1008,30 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                     <th className="lg:sticky top-0 lg:left-[230px] z-40 bg-slate-100 dark:bg-slate-800 min-w-[110px] w-[110px] px-3.5 py-3.5 whitespace-nowrap text-center">EWO</th>
                     <th className="lg:sticky top-0 lg:left-[340px] z-40 bg-slate-100 dark:bg-slate-800 min-w-[160px] w-[160px] px-3.5 py-3.5 whitespace-nowrap">Buyer</th>
                     <th className="lg:sticky top-0 lg:left-[500px] z-40 bg-slate-100 dark:bg-slate-800 min-w-[140px] w-[140px] px-3.5 py-3.5 whitespace-nowrap lg:border-r-2 border-slate-300 dark:border-slate-700 lg:shadow-[4px_0_10px_-2px_rgba(0,0,0,0.12)]">Color</th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap">Knit Start</th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap">Knit End</th>
+                    <th className={`px-3.5 py-3.5 whitespace-nowrap transition-colors ${
+                      knitStartSelect !== 'All'
+                        ? 'bg-blue-200/80 dark:bg-blue-900/60 text-blue-900 dark:text-blue-100 font-black'
+                        : ''
+                    }`}>
+                      <div className="flex items-center gap-1.5">
+                        <span>Knit Start</span>
+                        {knitStartSelect !== 'All' && (
+                          <span className="h-2 w-2 rounded-full bg-blue-600 animate-pulse" title="Knit Start Filter Active" />
+                        )}
+                      </div>
+                    </th>
+                    <th className={`px-3.5 py-3.5 whitespace-nowrap transition-colors ${
+                      knitEndSelect !== 'All'
+                        ? 'bg-indigo-200/80 dark:bg-indigo-900/60 text-indigo-900 dark:text-indigo-100 font-black'
+                        : ''
+                    }`}>
+                      <div className="flex items-center gap-1.5">
+                        <span>Knit End</span>
+                        {knitEndSelect !== 'All' && (
+                          <span className="h-2 w-2 rounded-full bg-indigo-600 animate-pulse" title="Knit End Filter Active" />
+                        )}
+                      </div>
+                    </th>
                     <th className="px-3.5 py-3.5 whitespace-nowrap text-right">Target (Kg)</th>
                     <th className="px-3.5 py-3.5 whitespace-nowrap text-right">Target Next Month</th>
                     <th className="px-3.5 py-3.5 whitespace-nowrap">Allocation Start</th>
