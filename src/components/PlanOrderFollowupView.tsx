@@ -977,13 +977,13 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
           <div className="overflow-hidden rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
             <div className="overflow-x-auto scrollbar-thin">
               <table className="w-full text-left text-xs border-collapse min-w-[2500px]">
-                <thead>
-                  <tr className="bg-slate-50/90 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200/80 dark:border-slate-800">
-                    <th className="lg:sticky lg:left-0 z-30 bg-slate-100 dark:bg-slate-800 min-w-[120px] w-[120px] px-3.5 py-3.5 whitespace-nowrap">Plan Month</th>
-                    <th className="lg:sticky lg:left-[120px] z-30 bg-slate-100 dark:bg-slate-800 min-w-[110px] w-[110px] px-3.5 py-3.5 whitespace-nowrap">Plan Type</th>
-                    <th className="lg:sticky lg:left-[230px] z-30 bg-slate-100 dark:bg-slate-800 min-w-[110px] w-[110px] px-3.5 py-3.5 whitespace-nowrap text-center">EWO</th>
-                    <th className="lg:sticky lg:left-[340px] z-30 bg-slate-100 dark:bg-slate-800 min-w-[160px] w-[160px] px-3.5 py-3.5 whitespace-nowrap">Buyer</th>
-                    <th className="lg:sticky lg:left-[500px] z-30 bg-slate-100 dark:bg-slate-800 min-w-[140px] w-[140px] px-3.5 py-3.5 whitespace-nowrap lg:border-r-2 border-slate-300 dark:border-slate-700 lg:shadow-[4px_0_10px_-2px_rgba(0,0,0,0.12)]">Color</th>
+                <thead className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-800">
+                  <tr className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200/80 dark:border-slate-800">
+                    <th className="lg:sticky top-0 lg:left-0 z-40 bg-slate-100 dark:bg-slate-800 min-w-[120px] w-[120px] px-3.5 py-3.5 whitespace-nowrap">Plan Month</th>
+                    <th className="lg:sticky top-0 lg:left-[120px] z-40 bg-slate-100 dark:bg-slate-800 min-w-[110px] w-[110px] px-3.5 py-3.5 whitespace-nowrap">Plan Type</th>
+                    <th className="lg:sticky top-0 lg:left-[230px] z-40 bg-slate-100 dark:bg-slate-800 min-w-[110px] w-[110px] px-3.5 py-3.5 whitespace-nowrap text-center">EWO</th>
+                    <th className="lg:sticky top-0 lg:left-[340px] z-40 bg-slate-100 dark:bg-slate-800 min-w-[160px] w-[160px] px-3.5 py-3.5 whitespace-nowrap">Buyer</th>
+                    <th className="lg:sticky top-0 lg:left-[500px] z-40 bg-slate-100 dark:bg-slate-800 min-w-[140px] w-[140px] px-3.5 py-3.5 whitespace-nowrap lg:border-r-2 border-slate-300 dark:border-slate-700 lg:shadow-[4px_0_10px_-2px_rgba(0,0,0,0.12)]">Color</th>
                     <th className="px-3.5 py-3.5 whitespace-nowrap">Knit Start</th>
                     <th className="px-3.5 py-3.5 whitespace-nowrap">Knit End</th>
                     <th className="px-3.5 py-3.5 whitespace-nowrap text-right">Target (Kg)</th>
@@ -1031,13 +1031,13 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                       const endVar = calculateDateVariance(ord.knitEnd, ord.lastProductionDate);
 
                       return (
-                        <tr key={ord.id} className="group hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors">
-                          <td className="lg:sticky lg:left-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 min-w-[120px] w-[120px] px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap">
+                        <tr key={ord.id} className="group hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors">
+                          <td className="lg:sticky lg:left-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-100 dark:group-hover:bg-slate-800 min-w-[120px] w-[120px] px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap">
                             <span className="px-2.5 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-[11px] inline-block">
                               {ord.planMonth}
                             </span>
                           </td>
-                          <td className="lg:sticky lg:left-[120px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 min-w-[110px] w-[110px] px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap">
+                          <td className="lg:sticky lg:left-[120px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-100 dark:group-hover:bg-slate-800 min-w-[110px] w-[110px] px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap">
                             <span className={`px-2.5 py-0.5 rounded-full font-bold text-[11px] ${
                               ord.planType === 'Confirm' 
                                 ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/50' 
@@ -1046,15 +1046,15 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                               {ord.planType}
                             </span>
                           </td>
-                          <td className="lg:sticky lg:left-[230px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 min-w-[110px] w-[110px] px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-center">
+                          <td className="lg:sticky lg:left-[230px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-100 dark:group-hover:bg-slate-800 min-w-[110px] w-[110px] px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-center">
                             <span className="font-mono font-bold text-xs bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-2.5 py-1 rounded-lg border border-slate-200/60 dark:border-slate-700/60 inline-block shadow-2xs">
                               {ord.ewo}
                             </span>
                           </td>
-                          <td className="lg:sticky lg:left-[340px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 min-w-[160px] w-[160px] px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap font-semibold text-slate-900 dark:text-white">
+                          <td className="lg:sticky lg:left-[340px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-100 dark:group-hover:bg-slate-800 min-w-[160px] w-[160px] px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap font-semibold text-slate-900 dark:text-white">
                             {ord.buyer}
                           </td>
-                          <td className="lg:sticky lg:left-[500px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/90 min-w-[140px] w-[140px] px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap lg:border-r-2 border-slate-300 dark:border-slate-700 lg:shadow-[4px_0_10px_-2px_rgba(0,0,0,0.12)]">
+                          <td className="lg:sticky lg:left-[500px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-100 dark:group-hover:bg-slate-800 min-w-[140px] w-[140px] px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap lg:border-r-2 border-slate-300 dark:border-slate-700 lg:shadow-[4px_0_10px_-2px_rgba(0,0,0,0.12)]">
                             <span className="font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 border border-blue-100 dark:border-blue-900/50 px-2.5 py-1 rounded-lg text-xs inline-block">
                               {ord.color}
                             </span>
