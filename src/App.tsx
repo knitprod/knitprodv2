@@ -712,7 +712,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50/50 dark:bg-slate-950 font-sans text-gray-900 dark:text-slate-100 antialiased transition-colors duration-200">
+    <div className="min-h-screen bg-gray-50/50 dark:bg-slate-950 font-sans text-gray-900 dark:text-slate-100 antialiased transition-colors duration-200 w-full max-w-full overflow-x-hidden">
       {/* 1. Primary Header */}
       <Header 
         notifications={activityLogs} 
@@ -953,7 +953,7 @@ export default function App() {
       )}
 
       {/* 2. Main Layout Container */}
-      <div className="flex pt-16">
+      <div className="flex pt-16 w-full max-w-full overflow-x-hidden">
         {/* Sidebar Left Component */}
         <Sidebar
           currentPage={currentPage}
@@ -966,11 +966,11 @@ export default function App() {
 
         {/* Main Workspace Frame */}
         <main 
-          className={`flex-1 min-h-[calc(100vh-4rem)] p-4 sm:p-6 transition-all duration-300 ease-in-out ${
+          className={`flex-1 min-w-0 max-w-full min-h-[calc(100vh-4rem)] p-4 sm:p-6 transition-all duration-300 ease-in-out ${
             sidebarCollapsed ? 'pl-4 md:pl-20' : 'pl-4 md:pl-72'
           }`}
         >
-          <div className="mx-auto max-w-7xl space-y-6">
+          <div className="mx-auto max-w-7xl space-y-6 w-full min-w-0">
             
             {/* Page View Switcher */}
             {currentPage === 'Dashboard' && (

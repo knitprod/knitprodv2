@@ -966,7 +966,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 w-full min-w-0 max-w-full">
       {/* 1. Header Section */}
       <div className="flex flex-col gap-1 border-b border-gray-100 dark:border-slate-800 pb-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
