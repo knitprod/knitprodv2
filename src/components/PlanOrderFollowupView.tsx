@@ -570,9 +570,12 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     }
   };
 
-  // Load cached order plans on mount (instant response from memory if already fetched)
+  // Load cached order plans on mount and listen for manual sync events
   useEffect(() => {
     loadOrders(false);
+    const handleSync = () => loadOrders(true);
+    window.addEventListener('gas_data_synced', handleSync);
+    return () => window.removeEventListener('gas_data_synced', handleSync);
   }, []);
 
   // Pagination state (default 100 per page for fast performance)
@@ -679,7 +682,6 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
 
     const updated = [newEntry, ...orders];
     setOrders(updated);
-    FirestoreSyncService.saveOrderPlan(newEntry).catch(err => console.warn('Order plan save warning:', err));
     GasClient.saveOrderPlans([newEntry]).catch(err => console.warn('GAS order plan save warning:', err));
     setShowAddModal(false);
     setFormEwo('');
@@ -722,7 +724,6 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
 
     const updatedList = orders.map(o => o.id === editingOrder.id ? updatedOrder : o);
     setOrders(updatedList);
-    FirestoreSyncService.saveOrderPlan(updatedOrder).catch(err => console.warn('Order plan edit save warning:', err));
     GasClient.saveOrderPlans([updatedOrder]).catch(err => console.warn('GAS order plan edit save warning:', err));
     setShowEditModal(false);
     setEditingOrder(null);
@@ -733,16 +734,15 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       const updated = orders.filter(o => o.id !== id);
       setOrders(updated);
       try {
-        await FirestoreSyncService.deleteOrderPlan(id);
-        GasClient.deleteOrderPlan(id).catch(err => console.warn('GAS order plan delete warning:', err));
+        await GasClient.deleteOrderPlan(id);
       } catch (err) {
         console.warn("Error deleting order plan:", err);
       }
     }
   };
 
-  // Export to CSV
-  const exportToCsv = () => {
+  // Export to Excel (.xlsx)
+  const exportToExcel = () => {
     const headers = [
       "Plan Month","Plan Type","EWO","Buyer","Color","Knit Start","Knit End",
       "Target","Target Next Month","Allocation Start","Allocation End","Allocated QTY",
@@ -766,16 +766,10 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       ];
     });
 
-    const csvContent = "data:text/csv;charset=utf-8," + 
-      [headers.join(","), ...rows.map(e => e.map(val => `"${val}"`).join(","))].join("\n");
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `Order_Plan_Status_${new Date().toISOString().slice(0,10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Order Plan Status");
+    XLSX.writeFile(workbook, `Order_Plan_Status_${new Date().toISOString().slice(0,10)}.xlsx`);
   };
 
   return (
@@ -808,18 +802,12 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
           </button>
 
           <button
-            onClick={exportToCsv}
+            onClick={exportToExcel}
             className="flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-3.5 py-2 text-xs font-bold transition-all cursor-pointer shadow-xs"
+            id="export-excel-btn"
           >
             <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-            <span>Export CSV</span>
-          </button>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-2 text-xs font-bold shadow-md hover:shadow-lg transition-all cursor-pointer"
-          >
-            <Plus className="h-4 w-4" />
-            <span>New Order Plan</span>
+            <span>Export Excel</span>
           </button>
         </div>
       </div>

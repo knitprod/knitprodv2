@@ -215,10 +215,10 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     });
   };
 
-  const loadGasLedger = async () => {
+  const loadGasLedger = async (forceRefresh: boolean = false) => {
     try {
       setLedgerGasError(null);
-      const records = await GasClient.fetchLedgerList();
+      const records = await GasClient.fetchLedgerList(forceRefresh);
       if (records && Array.isArray(records) && records.length > 0) {
         setLedger(records);
       }
@@ -246,7 +246,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     return () => unsubscribe();
   }, []);
 
-  // 2. Load mode configuration & fetch GAS records
+  // 2. Load mode configuration & fetch GAS records & listen for sync events
   React.useEffect(() => {
     const initAndLoad = async () => {
       const config = await GasClient.fetchServerConfig();
@@ -255,7 +255,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
       if (activeMode === 'gas' && activeUrl) {
         setIsGasMode(true);
-        loadGasLedger();
+        loadGasLedger(false);
       } else {
         // Fallback: sync with central server DB
         const db = await GasClient.fetchServerDb();
@@ -265,6 +265,10 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       }
     };
     initAndLoad();
+
+    const handleSync = () => loadGasLedger(true);
+    window.addEventListener('gas_data_synced', handleSync);
+    return () => window.removeEventListener('gas_data_synced', handleSync);
   }, []);
 
   // 3. Debounced server DB backup to prevent mobile main-thread lag

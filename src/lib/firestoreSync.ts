@@ -75,6 +75,7 @@ const COLLECTIONS = {
   LEDGER_RECORDS: 'ledger_records',
   USERS: 'users',
   ORDER_PLANS: 'order_plans',
+  YARN_ALLOCATIONS: 'yarn_allocations',
   SETTINGS: 'settings',
   ACTIVITY_LOGS: 'activity_logs',
   SYNC_CONFLICTS: 'sync_conflicts',
@@ -309,37 +310,59 @@ export class FirestoreSyncService {
   }
 
   /**
-   * TWO-WAY RECONCILIATION: Pull Google Sheets manual edits & seed/sync with Firestore
-   */
-  /**
-   * PUSH-ONLY SYNC: Read all data in Firestore and push to Google Sheets.
-   * Direct pipeline: WEB ➔ Firestore ➔ Google Sheets
-   * (Does NOT pull or overwrite Firestore from Google Sheets)
-   */
-  static async pushAllFirestoreToSheets(): Promise<{
-    pushedCount: number;
-    message: string;
-  }> {
-    return {
-      pushedCount: 0,
-      message: 'Database connection is disabled. System is operating in offline standalone local mode.'
-    };
-  }
-
-  /**
-   * Alias for backwards compatibility — routes strictly to pushAllFirestoreToSheets
+   * TWO-WAY GATEWAY RECONCILIATION: Pull Google Sheets manual edits & sync into Firestore & Web
    */
   static async reconcileSheetsAndFirestore(): Promise<{
     syncedCount: number;
     conflictsCount: number;
     message: string;
   }> {
-    const res = await this.pushAllFirestoreToSheets();
-    return {
-      syncedCount: res.pushedCount,
-      conflictsCount: 0,
-      message: res.message
-    };
+    try {
+      if (GasClient.getDatabaseMode() !== 'gas') {
+        return { syncedCount: 0, conflictsCount: 0, message: 'System is operating in offline standalone local mode.' };
+      }
+
+      let totalSynced = 0;
+
+      // 1. Pull Production Entries from Google Sheets & write to Firestore
+      try {
+        const prodEntries = await GasClient.fetchProductionList({}, true);
+        if (prodEntries && prodEntries.length > 0) {
+          for (const entry of prodEntries) {
+            await this.saveProductionEntry(entry);
+            totalSynced++;
+          }
+        }
+      } catch (e) {
+        console.warn('Reconcile production entries notice:', e);
+      }
+
+      // 2. Pull Ledger Records from Google Sheets & write to Firestore
+      try {
+        const ledgerRecords = await GasClient.fetchLedgerList(true);
+        if (ledgerRecords && ledgerRecords.length > 0) {
+          for (const rec of ledgerRecords) {
+            await this.saveLedgerRecord(rec);
+            totalSynced++;
+          }
+        }
+      } catch (e) {
+        console.warn('Reconcile ledger records notice:', e);
+      }
+
+      return {
+        syncedCount: totalSynced,
+        conflictsCount: 0,
+        message: `Successfully pulled & synchronized ${totalSynced} production & ledger records from Google Sheet.`
+      };
+    } catch (err: any) {
+      console.error('reconcileSheetsAndFirestore error:', err);
+      return {
+        syncedCount: 0,
+        conflictsCount: 1,
+        message: err.message || 'Synchronization encountered an error.'
+      };
+    }
   }
 
   /**

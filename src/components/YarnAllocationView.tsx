@@ -790,18 +790,25 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     }
   };
 
-  // Load yarn allocations from Google Sheets / GasClient on mount
+  // Load yarn allocations from Google Sheets / GasClient on mount & sync event
   useEffect(() => {
-    GasClient.fetchYarnAllocations().then((remoteData) => {
-      if (remoteData && remoteData.length > 0) {
-        setYarnAllocations(remoteData as YarnAllocationRecord[]);
-      } else {
-        // Save initial seed yarn allocations to Google Sheets / GasClient
-        GasClient.saveYarnAllocations(INITIAL_YARN_ALLOCATIONS).catch(() => {});
-      }
-    }).catch((err) => {
-      console.warn("Could not load yarn allocations from Google Sheets:", err);
-    });
+    const fetchAllocations = (force: boolean = false) => {
+      GasClient.fetchYarnAllocations(force).then((remoteData) => {
+        if (remoteData && remoteData.length > 0) {
+          setYarnAllocations(remoteData as YarnAllocationRecord[]);
+        } else if (!force) {
+          // Save initial seed yarn allocations to Google Sheets / GasClient
+          GasClient.saveYarnAllocations(INITIAL_YARN_ALLOCATIONS).catch(() => {});
+        }
+      }).catch((err) => {
+        console.warn("Could not load yarn allocations from Google Sheets:", err);
+      });
+    };
+
+    fetchAllocations(false);
+    const handleSync = () => fetchAllocations(true);
+    window.addEventListener('gas_data_synced', handleSync);
+    return () => window.removeEventListener('gas_data_synced', handleSync);
   }, []);
 
   const handleConfirmUpload = () => {

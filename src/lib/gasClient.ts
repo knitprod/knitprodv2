@@ -36,6 +36,14 @@ export class GasClient {
     }
   }
 
+  static setSyncing(isSyncing: boolean) {
+    if (isSyncing) {
+      this.startSyncNotification();
+    } else {
+      this.stopSyncNotification();
+    }
+  }
+
   static DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbz6M8NmfDjG9GKdmkFMHggR6MGQwRU6Q42-hpd_gxEfbTQsjRL86mI_NavdqJB8Blzl/exec';
 
   private static getInitialUrl(): string {
@@ -507,12 +515,17 @@ export class GasClient {
   // ==========================================================
   // DASHBOARD DATA
   // ==========================================================
-  static async fetchDashboard(filters: { unit?: string; date?: string; startDate?: string; endDate?: string }): Promise<{ summary: any; floors: FactoryFloor[] }> {
+  static async fetchDashboard(filters: { unit?: string; date?: string; startDate?: string; endDate?: string }, forceRefresh: boolean = false): Promise<{ summary: any; floors: FactoryFloor[] }> {
     if (this.getDatabaseMode() === 'mock') {
       throw new Error("Using Local Storage Mode.");
     }
 
-    const res = await this.request<any>('dashboard/factory', 'GET', filters);
+    const queryParams: any = { ...(filters || {}) };
+    if (forceRefresh) {
+      queryParams.refresh = 'true';
+    }
+
+    const res = await this.request<any>('dashboard/factory', 'GET', queryParams);
     if (!res.success || !res.data) {
       throw new Error(res.message || "Failed to retrieve factory KPIs.");
     }
@@ -523,12 +536,17 @@ export class GasClient {
   // ==========================================================
   // PRODUCTION CRUD
   // ==========================================================
-  static async fetchProductionList(filters?: any): Promise<ProductionEntry[]> {
+  static async fetchProductionList(filters?: any, forceRefresh: boolean = false): Promise<ProductionEntry[]> {
     if (this.getDatabaseMode() === 'mock') {
       throw new Error("Using Local Storage Mode.");
     }
 
-    const res = await this.request<ProductionEntry[]>('production/list', 'GET', filters);
+    const queryParams: any = { ...(filters || {}) };
+    if (forceRefresh) {
+      queryParams.refresh = 'true';
+    }
+
+    const res = await this.request<ProductionEntry[]>('production/list', 'GET', queryParams);
     if (!res.success || !res.data) {
       throw new Error(res.message || "Failed to load production list.");
     }
@@ -588,12 +606,17 @@ export class GasClient {
   // ==========================================================
   // PRODUCTION LEDGER CRUD
   // ==========================================================
-  static async fetchLedgerList(): Promise<LedgerRecord[]> {
+  static async fetchLedgerList(forceRefresh: boolean = false): Promise<LedgerRecord[]> {
     if (this.getDatabaseMode() === 'mock') {
       throw new Error("Using Local Storage Mode.");
     }
 
-    const res = await this.request<LedgerRecord[]>('ledger/list', 'GET');
+    const queryParams: any = {};
+    if (forceRefresh) {
+      queryParams.refresh = 'true';
+    }
+
+    const res = await this.request<LedgerRecord[]>('ledger/list', 'GET', queryParams);
     if (!res.success || !res.data) {
       throw new Error(res.message || "Failed to load ledger records.");
     }
@@ -1109,7 +1132,9 @@ export class GasClient {
     let result: any[] = [];
     if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
       try {
-        const res = await this.request<any[]>('orders/list', 'GET');
+        const queryParams: any = {};
+        if (forceRefresh) queryParams.refresh = 'true';
+        const res = await this.request<any[]>('orders/list', 'GET', queryParams);
         if (res.success && res.data && Array.isArray(res.data) && res.data.length > 0) {
           result = res.data.map((item: any, idx: number) => this.normalizeOrderPlanObject(item, idx));
         }
@@ -1190,7 +1215,9 @@ export class GasClient {
     let result: any[] = [];
     if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
       try {
-        const res = await this.request<any[]>('yarn/list', 'GET');
+        const queryParams: any = {};
+        if (forceRefresh) queryParams.refresh = 'true';
+        const res = await this.request<any[]>('yarn/list', 'GET', queryParams);
         if (res.success && res.data && Array.isArray(res.data) && res.data.length > 0) {
           result = res.data.map((item: any, idx: number) => this.normalizeYarnObject(item, idx));
         }
@@ -1289,12 +1316,15 @@ export class GasClient {
     return true;
   }
 
-  static async fetchActivityLogs(limit: number = 30): Promise<ActivityLog[]> {
+  static async fetchActivityLogs(limit: number = 30, forceRefresh: boolean = false): Promise<ActivityLog[]> {
     if (this.getDatabaseMode() === 'mock') {
       throw new Error("Using Local Storage Mode.");
     }
 
-    const res = await this.request<any[]>('activity', 'GET', { limit });
+    const queryParams: any = { limit };
+    if (forceRefresh) queryParams.refresh = 'true';
+
+    const res = await this.request<any[]>('activity', 'GET', queryParams);
     if (!res.success || !res.data) {
       throw new Error(res.message || "Failed to retrieve activity log.");
     }

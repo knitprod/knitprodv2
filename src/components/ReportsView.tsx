@@ -4,6 +4,7 @@
  */
 
 import React, { useState } from 'react';
+import * as XLSX from 'xlsx';
 import { FileDown, Printer, Filter, Calendar, Table, Check, Layers, SlidersHorizontal, ArrowUpRight } from 'lucide-react';
 import { FactoryFloor, ProductionEntry } from '../types';
 import { FABRIC_TYPES } from '../data';
@@ -39,10 +40,32 @@ export default function ReportsView({ floors, productionEntries }: ReportsViewPr
   const handleExport = () => {
     setIsExporting(true);
     setTimeout(() => {
-      setIsExporting(false);
-      setShowToast(true);
-      setTimeout(() => setShowToast(false), 4000);
-    }, 1500);
+      try {
+        const headers = ["ID", "Floor ID", "Machine ID", "Operator Name", "Fabric Type", "Shift", "Production (Kg)", "Reject (Kg)", "Timestamp"];
+        const rows = filteredEntries.map(e => [
+          e.id,
+          e.floorId || 'Unit 1',
+          e.machineId,
+          e.operatorName,
+          e.fabricType,
+          e.shift,
+          e.productionKg,
+          e.rejectKg,
+          e.timestamp
+        ]);
+
+        const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Production Report");
+        XLSX.writeFile(workbook, `Epyllion_Knitex_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+      } catch (err) {
+        console.error("Export report error:", err);
+      } finally {
+        setIsExporting(false);
+        setShowToast(true);
+        setTimeout(() => setShowToast(false), 4000);
+      }
+    }, 800);
   };
 
   const handlePrint = () => {
@@ -81,11 +104,11 @@ export default function ReportsView({ floors, productionEntries }: ReportsViewPr
           <button
             onClick={handleExport}
             disabled={isPrinting || isExporting}
-            className="inline-flex items-center gap-2 rounded-xl bg-blue-900 px-4 py-2 text-xs font-bold text-white transition-all hover:bg-blue-950 disabled:opacity-50 shadow-sm"
+            className="inline-flex items-center gap-2 rounded-xl bg-blue-900 px-4 py-2 text-xs font-bold text-white transition-all hover:bg-blue-950 disabled:opacity-50 shadow-sm cursor-pointer"
             id="export-report-btn"
           >
             <FileDown className="h-4 w-4" />
-            <span>{isExporting ? 'Packaging CSV...' : 'Export CSV'}</span>
+            <span>{isExporting ? 'Packaging Excel...' : 'Export Excel'}</span>
           </button>
         </div>
       </div>
@@ -93,7 +116,7 @@ export default function ReportsView({ floors, productionEntries }: ReportsViewPr
       {showToast && (
         <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm font-bold text-blue-800 shadow-xs flex items-center gap-2.5 animate-fade-in">
           <Check className="h-4 w-4 text-blue-600" />
-          <span>Epyllion_Knitex_Report_${new Date().toISOString().split('T')[0]}.csv exported successfully to downloads.</span>
+          <span>Epyllion_Knitex_Report_{new Date().toISOString().split('T')[0]}.xlsx exported successfully to downloads.</span>
         </div>
       )}
 

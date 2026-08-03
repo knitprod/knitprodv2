@@ -47,6 +47,7 @@ interface HeaderProps {
   isDark: boolean;
   onToggleDark: () => void;
   currentUser?: UserRecord | null;
+  onManualSync?: () => Promise<void> | void;
 }
 
 export default function Header({ 
@@ -59,7 +60,8 @@ export default function Header({
   setMobileMenuOpen,
   isDark,
   onToggleDark,
-  currentUser
+  currentUser,
+  onManualSync
 }: HeaderProps) {
   const [time, setTime] = useState<string>(() => new Date().toLocaleTimeString('en-US', { hour12: true }));
   const [date, setDate] = useState<string>(() => new Date().toLocaleDateString('en-US', {
@@ -207,8 +209,22 @@ export default function Header({
         </div>
       </div>
 
-      {/* Right side: Live Date/Time, Theme Toggle, Alerts, Settings, User Profile */}
+      {/* Right side: Live Date/Time, Manual Sync, Theme Toggle, Alerts, Settings, User Profile */}
       <div className="flex items-center gap-1.5 sm:gap-3 md:gap-5 shrink-0">
+        {/* Manual Google Sheet Sync Button */}
+        {onManualSync && (
+          <button
+            onClick={onManualSync}
+            disabled={isSyncing}
+            className="flex items-center gap-1.5 rounded-lg border border-blue-200 dark:border-blue-800/80 bg-blue-50/80 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 px-2.5 py-1.5 text-xs font-bold text-blue-700 dark:text-blue-300 transition-all cursor-pointer disabled:opacity-50 shadow-xs active:scale-95"
+            title="Bring & Sync live data from Google Sheet"
+            id="header-manual-sync-btn"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 text-blue-600 dark:text-blue-400 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : 'Sync Sheet'}</span>
+          </button>
+        )}
+
         {/* Live Date Indicator (Tablet & Up) */}
         <div className="hidden items-center gap-2 rounded-lg bg-gray-50 dark:bg-slate-800 px-3 py-1.5 text-xs text-gray-500 dark:text-slate-400 xl:flex">
           <Calendar className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />

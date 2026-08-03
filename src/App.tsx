@@ -317,17 +317,18 @@ export default function App() {
   };
 
   const [gasSyncError, setGasSyncError] = useState<string | null>(null);
+  const [syncBannerMessage, setSyncBannerMessage] = useState<string | null>(null);
 
   // Google Apps Script real-time sync loader (Background fetch)
-  const loadLiveGasData = async () => {
+  const loadLiveGasData = async (forceRefresh: boolean = false) => {
     if (GasClient.getDatabaseMode() !== 'gas') return;
     
     try {
       // Execute fetches concurrently in parallel for maximum sync speed
       const [dashboardRes, productionRes, activityRes] = await Promise.all([
-        GasClient.fetchDashboard({ unit: 'all' }).catch(err => { console.warn("Dashboard fetch failed:", err); return null; }),
-        GasClient.fetchProductionList().catch(err => { console.warn("Production list fetch failed:", err); return null; }),
-        GasClient.fetchActivityLogs().catch(err => { console.warn("Activity logs fetch failed:", err); return null; })
+        GasClient.fetchDashboard({ unit: 'all' }, forceRefresh).catch(err => { console.warn("Dashboard fetch failed:", err); return null; }),
+        GasClient.fetchProductionList({}, forceRefresh).catch(err => { console.warn("Production list fetch failed:", err); return null; }),
+        GasClient.fetchActivityLogs(30, forceRefresh).catch(err => { console.warn("Activity logs fetch failed:", err); return null; })
       ]);
 
       if (dashboardRes && Array.isArray(dashboardRes.floors)) {
@@ -365,6 +366,28 @@ export default function App() {
     } catch (err: any) {
       console.error("Failed to fetch live GAS REST API data in background:", err);
       setGasSyncError(err.message || String(err));
+      throw err;
+    }
+  };
+
+  const handleManualSync = async () => {
+    GasClient.setSyncing(true);
+    try {
+      // 1. Pull live data from Google Sheet & update local React states
+      await loadLiveGasData(true);
+      // 2. Perform full two-way gateway sync between Google Sheet & Firestore
+      const recon = await FirestoreSyncService.reconcileSheetsAndFirestore();
+      // 3. Dispatch global sync event so mounted views re-fetch live sheets data
+      window.dispatchEvent(new Event('gas_data_synced'));
+
+      setSyncBannerMessage(recon.message || "Successfully pulled & synchronized live data from Google Sheet!");
+      setTimeout(() => setSyncBannerMessage(null), 4500);
+    } catch (err: any) {
+      console.error("Manual sync error:", err);
+      setSyncBannerMessage("Sync notice: " + (err.message || "Failed to fetch from Google Sheet"));
+      setTimeout(() => setSyncBannerMessage(null), 5000);
+    } finally {
+      GasClient.setSyncing(false);
     }
   };
 
@@ -725,7 +748,19 @@ export default function App() {
         isDark={isDark}
         onToggleDark={handleToggleDark}
         currentUser={currentUser}
+        onManualSync={handleManualSync}
       />
+
+      {/* Sync Status Banner Notification */}
+      {syncBannerMessage && (
+        <div className="fixed top-18 right-6 z-50 rounded-xl border border-blue-200 dark:border-blue-800 bg-white dark:bg-slate-900 px-4 py-3 text-xs font-bold text-blue-800 dark:text-blue-300 shadow-xl flex items-center gap-3 animate-fade-in">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-600"></span>
+          </span>
+          <span>{syncBannerMessage}</span>
+        </div>
+      )}
 
       {/* Responsive Mobile Drawer Navigation Menu */}
       {mobileMenuOpen && (
