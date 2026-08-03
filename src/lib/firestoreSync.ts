@@ -403,6 +403,28 @@ export class FirestoreSyncService {
   }
 
   /**
+   * Fetch global App Configuration directly from Firestore (doc: settings/app_config)
+   */
+  static async fetchAppConfigFromFirestore(): Promise<{ gasWebAppUrl?: string; databaseMode?: 'gas' | 'mock' } | null> {
+    try {
+      const docRef = doc(db, COLLECTIONS.SETTINGS, 'app_config');
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data) {
+          return {
+            gasWebAppUrl: data.gasWebAppUrl,
+            databaseMode: data.databaseMode
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch app_config from Firestore:', e);
+    }
+    return null;
+  }
+
+  /**
    * Subscribe to global App Configuration changes in Firestore (GAS Web App URL & DB mode)
    * This enables instantaneous real-time synchronization across ALL connected devices.
    */

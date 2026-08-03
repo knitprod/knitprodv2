@@ -30,7 +30,7 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
   const [conflicts, setConflicts] = useState<SyncConflictLog[]>([]);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => new Date().toISOString());
 
-  // Sync with central server configuration on load & subscribe to sync conflicts
+  // Sync with central server configuration on load, subscribe to real-time app config, & subscribe to sync conflicts
   useEffect(() => {
     GasClient.fetchServerConfig().then((config) => {
       if (config.gasWebAppUrl) {
@@ -41,13 +41,24 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
       }
     });
 
+    // Realtime listener for cross-device & multi-tab app config updates
+    const unsubscribeAppConfig = FirestoreSyncService.subscribeToAppConfig((config) => {
+      if (config.gasWebAppUrl && config.gasWebAppUrl.trim()) {
+        setGasWebAppUrl(config.gasWebAppUrl.trim());
+      }
+      if (config.databaseMode) {
+        setDatabaseMode(config.databaseMode);
+      }
+    });
+
     // Subscribe to conflict logs in Firestore
-    const unsubscribe = FirestoreSyncService.subscribeToConflicts((conflictList) => {
+    const unsubscribeConflicts = FirestoreSyncService.subscribeToConflicts((conflictList) => {
       setConflicts(conflictList);
     });
 
     return () => {
-      if (unsubscribe) unsubscribe();
+      if (unsubscribeAppConfig) unsubscribeAppConfig();
+      if (unsubscribeConflicts) unsubscribeConflicts();
     };
   }, []);
 

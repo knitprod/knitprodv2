@@ -74,38 +74,59 @@ export class GasClient {
   }
 
   /**
-   * Fetches the central database configuration from the full-stack server
-   * and synchronizes it with local device storage.
+   * Fetches the central database configuration from Firestore (cross-device primary),
+   * Express server, and local storage, ensuring zero configuration loss on page refresh.
    */
   static async fetchServerConfig(): Promise<{ gasWebAppUrl: string; databaseMode: 'mock' | 'gas' }> {
     if (this.configCache) return this.configCache;
     if (this.configFetchPromise) return this.configFetchPromise;
 
     this.configFetchPromise = (async () => {
+      // 1. Start with local storage or memory
+      let resolvedUrl = this.getWebAppUrl();
+      let resolvedMode = this.getDatabaseMode();
+
+      // 2. Fetch from Firestore (cross-device central truth across Vercel & devices)
       try {
-        const res = await fetch('/api/config', { signal: AbortSignal.timeout(5000) });
-        if (res.ok) {
-          const json = await res.json();
-          if (json && json.success && json.config) {
-            const { gasWebAppUrl, databaseMode } = json.config;
-            
-            if (gasWebAppUrl && gasWebAppUrl.trim()) {
-              this.setWebAppUrl(gasWebAppUrl.trim());
-              this.setDatabaseMode(databaseMode || 'gas');
-            }
-          }
+        const firestoreConfig = await FirestoreSyncService.fetchAppConfigFromFirestore();
+        if (firestoreConfig?.gasWebAppUrl && firestoreConfig.gasWebAppUrl.trim()) {
+          resolvedUrl = firestoreConfig.gasWebAppUrl.trim();
+        }
+        if (firestoreConfig?.databaseMode) {
+          resolvedMode = firestoreConfig.databaseMode;
         }
       } catch (err) {
-        console.warn("Could not fetch server configuration, using local/default configuration:", err);
+        console.warn("Could not fetch Firestore app config:", err);
       }
 
-      if (!this.getWebAppUrl()) {
-        this.setWebAppUrl(GasClient.DEFAULT_URL);
+      // 3. Fallback to Express server config if resolvedUrl is still empty
+      if (!resolvedUrl) {
+        try {
+          const res = await fetch('/api/config', { signal: AbortSignal.timeout(3000) });
+          if (res.ok) {
+            const json = await res.json();
+            if (json && json.success && json.config && json.config.gasWebAppUrl && json.config.gasWebAppUrl.trim()) {
+              resolvedUrl = json.config.gasWebAppUrl.trim();
+              if (json.config.databaseMode) {
+                resolvedMode = json.config.databaseMode;
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("Could not fetch server configuration, using local/default configuration:", err);
+        }
       }
+
+      if (!resolvedUrl) {
+        resolvedUrl = GasClient.DEFAULT_URL;
+      }
+
+      this.setWebAppUrl(resolvedUrl);
+      this.setDatabaseMode(resolvedMode);
 
       const res = {
-        gasWebAppUrl: this.getWebAppUrl(),
-        databaseMode: this.getDatabaseMode(),
+        gasWebAppUrl: resolvedUrl,
+        databaseMode: resolvedMode,
       };
       this.configCache = res;
       this.configFetchPromise = null;
