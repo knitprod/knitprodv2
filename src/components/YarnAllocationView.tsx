@@ -1066,11 +1066,11 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
           <table className="w-full text-left text-xs border-collapse min-w-[2100px]">
             <thead className="sticky top-0 z-10 bg-slate-100/95 dark:bg-slate-800/95 backdrop-blur-xs font-extrabold uppercase text-slate-600 dark:text-slate-300 text-[10px] tracking-tight border-b-2 border-slate-200 dark:border-slate-700">
               <tr>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Actual Yarn Requisition date</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Buyer</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Order Number</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Fabrics Type</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Fabric Shade</th>
+                <th className="lg:sticky top-0 lg:left-0 z-30 bg-slate-100 dark:bg-slate-800 min-w-[160px] w-[160px] px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Actual Yarn Requisition date</th>
+                <th className="lg:sticky top-0 lg:left-[160px] z-30 bg-slate-100 dark:bg-slate-800 min-w-[120px] w-[120px] px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Buyer</th>
+                <th className="lg:sticky top-0 lg:left-[280px] z-30 bg-slate-100 dark:bg-slate-800 min-w-[130px] w-[130px] px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Order Number</th>
+                <th className="lg:sticky top-0 lg:left-[410px] z-30 bg-slate-100 dark:bg-slate-800 min-w-[140px] w-[140px] px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Fabrics Type</th>
+                <th className="lg:sticky top-0 lg:left-[550px] z-30 bg-slate-100 dark:bg-slate-800 min-w-[130px] w-[130px] px-3.5 py-3 border-r border-slate-200 lg:border-r-2 border-slate-300 dark:border-slate-700 lg:shadow-[4px_0_10px_-2px_rgba(0,0,0,0.12)] whitespace-nowrap">Fabric Shade</th>
                 <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Fabric GSM</th>
                 <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap min-w-[180px]">Yarn Required</th>
                 <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap min-w-[160px]">Lot Ref</th>
@@ -1098,20 +1098,20 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
                 </tr>
               ) : (
                 paginatedYarnAllocations.map((row) => (
-                  <tr key={row.id} className="hover:bg-blue-50/30 dark:hover:bg-slate-800/50 transition-colors">
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-bold text-slate-900 dark:text-white">
+                  <tr key={row.id} className="group hover:bg-blue-50/30 dark:hover:bg-slate-800/50 transition-colors">
+                    <td className="lg:sticky lg:left-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-blue-50/40 dark:group-hover:bg-slate-800 min-w-[160px] w-[160px] px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-bold text-slate-900 dark:text-white">
                       {formatDisplayDate(row.actualRequisitionDate)}
                     </td>
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-black text-slate-900 dark:text-white">
+                    <td className="lg:sticky lg:left-[160px] z-20 bg-white dark:bg-slate-900 group-hover:bg-blue-50/40 dark:group-hover:bg-slate-800 min-w-[120px] w-[120px] px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-black text-slate-900 dark:text-white">
                       {row.buyer || '-'}
                     </td>
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-mono font-bold text-blue-600 dark:text-blue-400">
+                    <td className="lg:sticky lg:left-[280px] z-20 bg-white dark:bg-slate-900 group-hover:bg-blue-50/40 dark:group-hover:bg-slate-800 min-w-[130px] w-[130px] px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-mono font-bold text-blue-600 dark:text-blue-400">
                       {row.orderNumber || '-'}
                     </td>
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-bold">
+                    <td className="lg:sticky lg:left-[410px] z-20 bg-white dark:bg-slate-900 group-hover:bg-blue-50/40 dark:group-hover:bg-slate-800 min-w-[140px] w-[140px] px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-bold">
                       {row.fabricsType || '-'}
                     </td>
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-slate-600 dark:text-slate-300">
+                    <td className="lg:sticky lg:left-[550px] z-20 bg-white dark:bg-slate-900 group-hover:bg-blue-50/40 dark:group-hover:bg-slate-800 min-w-[130px] w-[130px] px-3.5 py-3 border-r border-slate-100 lg:border-r-2 border-slate-300 dark:border-slate-700 lg:shadow-[4px_0_10px_-2px_rgba(0,0,0,0.12)] whitespace-nowrap text-slate-600 dark:text-slate-300">
                       {row.fabricShade || '-'}
                     </td>
                     <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center font-bold">
