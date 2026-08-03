@@ -574,12 +574,24 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     }
   };
 
-  // Load cached order plans on mount and listen for manual sync events
+  // Load cached order plans on mount and listen for real-time Firestore sync & manual events
   useEffect(() => {
     loadOrders(false);
+
+    // Real-time Firestore listener for order plan updates across devices
+    const unsubscribe = FirestoreSyncService.subscribeToSettings((settings) => {
+      if (settings && (settings.last_order_plan_updated || settings.master_order_upload_info)) {
+        loadOrders(true);
+      }
+    });
+
     const handleSync = () => loadOrders(true);
     window.addEventListener('gas_data_synced', handleSync);
-    return () => window.removeEventListener('gas_data_synced', handleSync);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('gas_data_synced', handleSync);
+    };
   }, []);
 
   // Pagination state (default 100 per page for fast performance)

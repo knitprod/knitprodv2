@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
 import { GasClient } from '../lib/gasClient';
+import { FirestoreSyncService } from '../lib/firestoreSync';
 
 export interface MasterUploadInfo {
   lastUploadedAt: string | null;
@@ -627,6 +628,8 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
             try {
               localStorage.setItem('master_yarn_upload_info', JSON.stringify(failMeta));
             } catch (e) {}
+            FirestoreSyncService.saveSettings({ master_yarn_upload_info: failMeta }).catch(() => {});
+            GasClient.saveServerDb({ master_yarn_upload_info: failMeta }).catch(() => {});
 
             return;
           }
@@ -796,6 +799,10 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
       GasClient.fetchYarnAllocations(force).then((remoteData) => {
         if (remoteData && remoteData.length > 0) {
           setYarnAllocations(remoteData as YarnAllocationRecord[]);
+          setUploadInfo(prev => ({
+            ...prev,
+            totalRecords: remoteData.length
+          }));
         } else if (!force) {
           // Save initial seed yarn allocations to Google Sheets / GasClient
           GasClient.saveYarnAllocations(INITIAL_YARN_ALLOCATIONS).catch(() => {});
@@ -806,9 +813,54 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     };
 
     fetchAllocations(false);
+
+    // Fetch latest master upload metadata from Server DB
+    GasClient.fetchServerDb().then((db) => {
+      if (db && db.master_yarn_upload_info) {
+        setUploadInfo(db.master_yarn_upload_info);
+        try {
+          localStorage.setItem('master_yarn_upload_info', JSON.stringify(db.master_yarn_upload_info));
+        } catch (e) {}
+      }
+    }).catch(() => {});
+
+    // Fetch latest master upload metadata from Firestore on mount
+    FirestoreSyncService.fetchSettings().then((settings) => {
+      if (settings && settings.master_yarn_upload_info) {
+        setUploadInfo(settings.master_yarn_upload_info);
+        try {
+          localStorage.setItem('master_yarn_upload_info', JSON.stringify(settings.master_yarn_upload_info));
+        } catch (e) {}
+      }
+    }).catch(err => console.warn('Could not fetch initial master_yarn_upload_info from Firestore:', err));
+
+    // 2. Real-time subscription to Firestore settings for instant cross-device updates
+    const unsubscribeFirestore = FirestoreSyncService.subscribeToSettings((settings) => {
+      if (settings && settings.master_yarn_upload_info) {
+        const remoteMeta = settings.master_yarn_upload_info as MasterUploadInfo;
+        setUploadInfo(prev => {
+          if (
+            prev.lastUploadedAt !== remoteMeta.lastUploadedAt ||
+            prev.totalRecords !== remoteMeta.totalRecords ||
+            prev.fileName !== remoteMeta.fileName ||
+            prev.status !== remoteMeta.status
+          ) {
+            // Automatically re-fetch updated dataset for other devices when master file is uploaded on any device
+            fetchAllocations(true);
+            return remoteMeta;
+          }
+          return prev;
+        });
+      }
+    });
+
     const handleSync = () => fetchAllocations(true);
     window.addEventListener('gas_data_synced', handleSync);
-    return () => window.removeEventListener('gas_data_synced', handleSync);
+
+    return () => {
+      unsubscribeFirestore();
+      window.removeEventListener('gas_data_synced', handleSync);
+    };
   }, []);
 
   const handleConfirmUpload = () => {
@@ -844,6 +896,13 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     try {
       localStorage.setItem('master_yarn_upload_info', JSON.stringify(newUploadInfo));
     } catch (e) {}
+
+    // Broadcast update to Firestore & Server DB for real-time cross-device sync
+    FirestoreSyncService.saveSettings({
+      master_yarn_upload_info: newUploadInfo,
+      last_yarn_allocation_updated: new Date().toISOString()
+    }).catch(err => console.warn("Firestore master_yarn_upload_info notice:", err));
+    GasClient.saveServerDb({ master_yarn_upload_info: newUploadInfo }).catch(err => console.warn("Server DB master_yarn_upload_info notice:", err));
 
     setUploadSuccessBanner(`Updated browser instantly with ${dataToSave.length.toLocaleString()} allocation records! Syncing to Google Sheets...`);
     setShowUploadModal(false);

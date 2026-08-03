@@ -1247,7 +1247,16 @@ export class GasClient {
       this.cachedYarnAllocations = Array.from(existingMap.values());
     }
 
-    await this.saveServerDb({ yarnAllocations });
+    let uploadInfoMeta = null;
+    try {
+      const saved = localStorage.getItem('master_yarn_upload_info');
+      if (saved) uploadInfoMeta = JSON.parse(saved);
+    } catch (e) {}
+
+    await this.saveServerDb({ 
+      yarnAllocations,
+      ...(uploadInfoMeta ? { master_yarn_upload_info: uploadInfoMeta } : {})
+    });
 
     if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
       try {
