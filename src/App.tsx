@@ -188,6 +188,38 @@ export default function App() {
     }
   }, [currentUser]);
 
+  // Real-time synchronization of active user profile from Firestore
+  useEffect(() => {
+    if (!currentUser?.uid && !currentUser?.id) return;
+
+    const unsubscribe = FirestoreSyncService.subscribeToUsers((serverUsers) => {
+      if (serverUsers && Array.isArray(serverUsers)) {
+        const matching = serverUsers.find(
+          (u) => (u.uid && currentUser?.uid && u.uid.toUpperCase() === currentUser.uid.toUpperCase()) || u.id === currentUser?.id
+        );
+        if (matching) {
+          const updatedUser = { ...matching };
+          delete updatedUser.password;
+          setCurrentUser((prev) => {
+            if (!prev) return updatedUser;
+            const prevBuyers = JSON.stringify(prev.assignedBuyers || []);
+            const nextBuyers = JSON.stringify(updatedUser.assignedBuyers || []);
+            const prevTabs = JSON.stringify(prev.allowedTabs || []);
+            const nextTabs = JSON.stringify(updatedUser.allowedTabs || []);
+            if (prevBuyers !== nextBuyers || prevTabs !== nextTabs || prev.userName !== updatedUser.userName) {
+              return updatedUser;
+            }
+            return prev;
+          });
+        }
+      }
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [currentUser?.uid, currentUser?.id]);
+
   // 30-Minute Inactivity Auto-Logout Tracking (in React memory)
   useEffect(() => {
     if (!currentUser) return;
@@ -1161,7 +1193,7 @@ export default function App() {
 
             {currentPage === 'Yarn Allocation' && (
               <div className="animate-fade-in">
-                <YarnAllocationView />
+                <YarnAllocationView currentUser={currentUser} />
               </div>
             )}
 

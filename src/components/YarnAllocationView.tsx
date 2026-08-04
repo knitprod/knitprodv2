@@ -18,6 +18,7 @@ import {
   AlertCircle,
   CheckCircle,
   FileText,
+  Shield,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
@@ -398,14 +399,28 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     return () => { isMounted = false; };
   }, []);
 
+  // User-based Buyer Access Restriction
+  const userAssignedBuyers = useMemo(() => {
+    if (currentUser && currentUser.assignedBuyers && Array.isArray(currentUser.assignedBuyers) && currentUser.assignedBuyers.length > 0) {
+      return currentUser.assignedBuyers;
+    }
+    return null;
+  }, [currentUser]);
+
   // Reset pagination when filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [yarnSearchQuery, yarnBuyerFilter, yarnFabricFilter, yarnSpinnerFilter, pageSize]);
 
   const uniqueBuyers = useMemo(() => {
-    return Array.from(new Set(yarnAllocations.map(a => a.buyer))).filter(Boolean).sort();
-  }, [yarnAllocations]);
+    const set = new Set(
+      yarnAllocations
+        .filter(a => !userAssignedBuyers || userAssignedBuyers.includes(a.buyer))
+        .map(a => a.buyer)
+        .filter(Boolean)
+    );
+    return Array.from(set).sort();
+  }, [yarnAllocations, userAssignedBuyers]);
 
   const uniqueFabrics = useMemo(() => {
     return Array.from(new Set(yarnAllocations.map(a => a.fabricsType))).filter(Boolean).sort();
@@ -419,6 +434,11 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     const q = yarnSearchQuery.trim().toLowerCase();
 
     return yarnAllocations.filter(item => {
+      // User-based Buyer Access Restriction
+      if (userAssignedBuyers && !userAssignedBuyers.includes(item.buyer)) {
+        return false;
+      }
+
       const matchesBuyer = yarnBuyerFilter === 'All' || item.buyer === yarnBuyerFilter;
       if (!matchesBuyer) return false;
 
@@ -442,7 +462,7 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
         (item.remarks && item.remarks.toLowerCase().includes(q))
       );
     });
-  }, [yarnAllocations, yarnSearchQuery, yarnBuyerFilter, yarnFabricFilter, yarnSpinnerFilter]);
+  }, [yarnAllocations, yarnSearchQuery, yarnBuyerFilter, yarnFabricFilter, yarnSpinnerFilter, userAssignedBuyers]);
 
   const totalPages = Math.max(1, Math.ceil(filteredYarnAllocations.length / (pageSize === 0 ? 1 : pageSize)));
 
@@ -963,6 +983,28 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
           </button>
         </div>
       </div>
+
+      {/* Restricted Assigned Buyers Banner */}
+      {userAssignedBuyers && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-3.5 rounded-2xl bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-950/40 dark:to-blue-950/40 border border-indigo-200/80 dark:border-indigo-800/80 text-xs shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-600 text-white shrink-0 shadow-xs">
+              <Shield className="h-4 w-4" />
+            </div>
+            <div>
+              <div className="font-extrabold text-indigo-900 dark:text-indigo-200">
+                Data Restricted for {currentUser?.userName || 'Logged in User'} ({currentUser?.userType || 'User'})
+              </div>
+              <div className="text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+                Showing Yarn Allocations exclusively for your assigned buyers: <span className="font-black text-indigo-900 dark:text-indigo-100">{userAssignedBuyers.join(', ')}</span>
+              </div>
+            </div>
+          </div>
+          <span className="px-2.5 py-1 text-[10px] font-black tracking-wider uppercase rounded-lg bg-indigo-600 text-white shrink-0 self-start sm:self-auto">
+            {userAssignedBuyers.length} Assigned Buyer{userAssignedBuyers.length > 1 ? 's' : ''}
+          </span>
+        </div>
+      )}
 
       {/* MASTER UPLOAD INFORMATION STATUS BAR */}
       <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs">

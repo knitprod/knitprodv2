@@ -375,9 +375,11 @@ export default function UserManagementView() {
 
   useEffect(() => {
     const handleBuyersUpdate = (e: Event) => {
-      const customEv = e as CustomEvent<string[]>;
-      if (customEv.detail) {
+      const customEv = e as CustomEvent<any>;
+      if (customEv.detail && Array.isArray(customEv.detail)) {
         setBuyersList(customEv.detail);
+      } else if (customEv.detail && Array.isArray(customEv.detail.buyers)) {
+        setBuyersList(customEv.detail.buyers);
       } else {
         setBuyersList(getBuyers());
       }

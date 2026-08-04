@@ -4,10 +4,10 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, Image, Cpu, CheckCircle, ShoppingBag, Plus, X, RotateCcw, Search, RefreshCw, Edit, Trash2, Building2, Layers } from 'lucide-react';
+import { Settings, Save, Image, Cpu, CheckCircle, ShoppingBag, Plus, X, RotateCcw, Search, RefreshCw, Edit, Trash2, Building2, Layers, Check } from 'lucide-react';
 import { GasClient } from '../lib/gasClient';
 import { FirestoreSyncService } from '../lib/firestoreSync';
-import { getBuyers, saveBuyers, addBuyer as addNewBuyerToStore, removeBuyer as removeBuyerFromStore, resetBuyersToDefault } from '../lib/buyerStore';
+import { getBuyers, saveBuyers, addBuyer as addNewBuyerToStore, removeBuyer as removeBuyerFromStore, renameBuyerInStore, resetBuyersToDefault } from '../lib/buyerStore';
 import { ActivityLog } from '../types';
 
 export interface UnitThresholdConfig {
@@ -58,6 +58,10 @@ export default function SettingsView() {
   const [newBuyerInput, setNewBuyerInput] = useState('');
   const [buyerSearchFilter, setBuyerSearchFilter] = useState('');
   const [buyerError, setBuyerError] = useState<string | null>(null);
+
+  // Buyer Edit state
+  const [editingBuyerName, setEditingBuyerName] = useState<string | null>(null);
+  const [editingBuyerInput, setEditingBuyerInput] = useState<string>('');
 
   const [isSaved, setIsSaved] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -262,6 +266,33 @@ export default function SettingsView() {
     }
   };
 
+  // Automatically update Assigned Buyers in all User Accounts when a buyer is renamed or deleted
+  const syncUserAssignedBuyersOnRename = async (oldName: string, newName: string | null) => {
+    try {
+      const serverUsers = await FirestoreSyncService.fetchUsers();
+      if (!serverUsers || !Array.isArray(serverUsers)) return;
+
+      for (const usr of serverUsers) {
+        if (usr.assignedBuyers && Array.isArray(usr.assignedBuyers) && usr.assignedBuyers.includes(oldName)) {
+          let nextAssigned: string[];
+          if (newName) {
+            nextAssigned = usr.assignedBuyers.map((b: string) => b === oldName ? newName : b);
+          } else {
+            nextAssigned = usr.assignedBuyers.filter((b: string) => b !== oldName);
+          }
+          const updatedUser = {
+            ...usr,
+            assignedBuyers: nextAssigned,
+            lastUpdated: new Date().toISOString().slice(0, 10) + ' ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+          };
+          await FirestoreSyncService.saveUser(updatedUser);
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to sync updated buyer name to user accounts in Firestore:", err);
+    }
+  };
+
   const handleAddBuyer = () => {
     const trimmed = newBuyerInput.trim();
     if (!trimmed) return;
@@ -276,9 +307,40 @@ export default function SettingsView() {
     setBuyerError(null);
   };
 
-  const handleRemoveBuyer = (buyerName: string) => {
+  const handleStartEditBuyer = (buyerName: string) => {
+    setEditingBuyerName(buyerName);
+    setEditingBuyerInput(buyerName);
+    setBuyerError(null);
+  };
+
+  const handleSaveEditBuyer = async () => {
+    if (!editingBuyerName) return;
+    const trimmedNew = editingBuyerInput.trim();
+    if (!trimmedNew) {
+      setBuyerError("Buyer name cannot be empty.");
+      return;
+    }
+    if (trimmedNew.toLowerCase() !== editingBuyerName.toLowerCase() && 
+        buyersList.some(b => b.toLowerCase() === trimmedNew.toLowerCase())) {
+      setBuyerError(`Buyer "${trimmedNew}" already exists in directory.`);
+      return;
+    }
+
+    if (trimmedNew !== editingBuyerName) {
+      const updated = renameBuyerInStore(editingBuyerName, trimmedNew);
+      setBuyersList(updated);
+      await syncUserAssignedBuyersOnRename(editingBuyerName, trimmedNew);
+    }
+
+    setEditingBuyerName(null);
+    setEditingBuyerInput('');
+    setBuyerError(null);
+  };
+
+  const handleRemoveBuyer = async (buyerName: string) => {
     const updated = removeBuyerFromStore(buyerName);
     setBuyersList(updated);
+    await syncUserAssignedBuyersOnRename(buyerName, null);
   };
 
   const handleResetBuyers = () => {
@@ -613,25 +675,77 @@ export default function SettingsView() {
               </div>
 
               {/* Buyers Chips List */}
-              <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
+              <div className="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
                 {buyersList
                   .filter(b => b.toLowerCase().includes(buyerSearchFilter.toLowerCase()))
-                  .map(buyer => (
-                    <span
-                      key={buyer}
-                      className="inline-flex items-center gap-1.5 text-[11px] font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 pl-2.5 pr-1.5 py-1 rounded-lg shadow-2xs group hover:border-emerald-500 transition-colors"
-                    >
-                      <span>{buyer}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveBuyer(buyer)}
-                        title={`Remove ${buyer}`}
-                        className="text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-full p-0.5 transition-colors cursor-pointer"
+                  .map(buyer => {
+                    const isEditingThis = editingBuyerName === buyer;
+                    if (isEditingThis) {
+                      return (
+                        <div
+                          key={buyer}
+                          className="inline-flex items-center gap-1 text-[11px] font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border-2 border-emerald-500 p-1 rounded-lg shadow-md"
+                        >
+                          <input
+                            type="text"
+                            value={editingBuyerInput}
+                            onChange={(e) => setEditingBuyerInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleSaveEditBuyer();
+                              } else if (e.key === 'Escape') {
+                                setEditingBuyerName(null);
+                              }
+                            }}
+                            autoFocus
+                            className="px-1.5 py-0.5 text-xs font-bold text-slate-900 dark:text-white bg-emerald-50/50 dark:bg-emerald-950/30 rounded focus:outline-hidden border border-emerald-300"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleSaveEditBuyer}
+                            title="Save Buyer Name"
+                            className="p-1 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900 rounded cursor-pointer"
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingBuyerName(null)}
+                            title="Cancel"
+                            className="p-1 text-slate-400 hover:text-slate-600 rounded cursor-pointer"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <span
+                        key={buyer}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 pl-2.5 pr-1 py-1 rounded-lg shadow-2xs group hover:border-emerald-500 transition-colors"
                       >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </span>
-                  ))}
+                        <span>{buyer}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleStartEditBuyer(buyer)}
+                          title={`Rename ${buyer}`}
+                          className="text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-full p-0.5 transition-colors cursor-pointer ml-1"
+                        >
+                          <Edit className="h-3 w-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveBuyer(buyer)}
+                          title={`Remove ${buyer}`}
+                          className="text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-full p-0.5 transition-colors cursor-pointer"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    );
+                  })}
                 {buyersList.filter(b => b.toLowerCase().includes(buyerSearchFilter.toLowerCase())).length === 0 && (
                   <span className="text-xs font-semibold text-slate-400 py-2">
                     No buyers matching "{buyerSearchFilter}" found.

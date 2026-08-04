@@ -66,6 +66,15 @@ export function removeBuyer(buyerToRemove: string): string[] {
   return updated;
 }
 
+export function renameBuyerInStore(oldName: string, newName: string): string[] {
+  const trimmed = newName.trim();
+  if (!trimmed || !oldName) return getBuyers();
+  const current = getBuyers();
+  const updated = current.map(b => b === oldName ? trimmed : b);
+  saveBuyers(updated);
+  return updated;
+}
+
 export function resetBuyersToDefault(): string[] {
   saveBuyers([...DEFAULT_BUYERS]);
   return [...DEFAULT_BUYERS];
