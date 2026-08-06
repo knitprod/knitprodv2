@@ -984,28 +984,6 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
         </div>
       </div>
 
-      {/* Restricted Assigned Buyers Banner */}
-      {userAssignedBuyers && (
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-3.5 rounded-2xl bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-950/40 dark:to-blue-950/40 border border-indigo-200/80 dark:border-indigo-800/80 text-xs shadow-2xs">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-600 text-white shrink-0 shadow-xs">
-              <Shield className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="font-extrabold text-indigo-900 dark:text-indigo-200">
-                Data Restricted for {currentUser?.userName || 'Logged in User'} ({currentUser?.userType || 'User'})
-              </div>
-              <div className="text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
-                Showing Yarn Allocations exclusively for your assigned buyers: <span className="font-black text-indigo-900 dark:text-indigo-100">{userAssignedBuyers.join(', ')}</span>
-              </div>
-            </div>
-          </div>
-          <span className="px-2.5 py-1 text-[10px] font-black tracking-wider uppercase rounded-lg bg-indigo-600 text-white shrink-0 self-start sm:self-auto">
-            {userAssignedBuyers.length} Assigned Buyer{userAssignedBuyers.length > 1 ? 's' : ''}
-          </span>
-        </div>
-      )}
-
       {/* MASTER UPLOAD INFORMATION STATUS BAR */}
       <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

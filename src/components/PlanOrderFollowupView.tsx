@@ -877,28 +877,6 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         </div>
       </div>
 
-      {/* Restricted Assigned Buyers Banner */}
-      {userAssignedBuyers && (
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-3.5 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 border border-blue-200/80 dark:border-blue-800/80 text-xs shadow-2xs">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-600 text-white shrink-0 shadow-xs">
-              <Shield className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="font-extrabold text-blue-900 dark:text-blue-200">
-                Data Restricted for {currentUser?.userName || 'Logged in User'} ({currentUser?.userType || 'User'})
-              </div>
-              <div className="text-[11px] font-medium text-blue-700 dark:text-blue-300">
-                Showing Order Plans exclusively for your assigned buyers: <span className="font-black text-blue-900 dark:text-blue-100">{userAssignedBuyers.join(', ')}</span>
-              </div>
-            </div>
-          </div>
-          <span className="px-2.5 py-1 text-[10px] font-black tracking-wider uppercase rounded-lg bg-blue-600 text-white shrink-0 self-start sm:self-auto">
-            {userAssignedBuyers.length} Assigned Buyer{userAssignedBuyers.length > 1 ? 's' : ''}
-          </span>
-        </div>
-      )}
-
       {/* KPI Summary Strip */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 shadow-xs">
