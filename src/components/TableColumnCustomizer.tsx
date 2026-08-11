@@ -237,7 +237,7 @@ export function FreezePanesButton({
   freezeCount,
   onToggleFreeze,
   onSetFreezeCount,
-  maxFreezeCount = 6,
+  maxFreezeCount = 10,
 }: {
   isFrozen: boolean;
   freezeCount: number;
@@ -296,7 +296,7 @@ export function FreezePanesButton({
       </div>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-52 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2.5 shadow-xl z-50 animate-fade-in space-y-1">
+        <div className="absolute right-0 mt-2 w-64 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2.5 shadow-xl z-50 animate-fade-in space-y-1">
           <div className="px-2 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
             <span className="flex items-center gap-1">
               <Snowflake className="h-3 w-3 text-blue-500" /> Freeze Options
@@ -319,8 +319,8 @@ export function FreezePanesButton({
 
           <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
             <span className="block px-2 py-1 text-[10px] font-bold text-slate-400">Freeze Column Count:</span>
-            <div className="grid grid-cols-4 gap-1 px-1">
-              {[1, 2, 3, 4, 5, 6].slice(0, maxFreezeCount).map((count) => (
+            <div className="grid grid-cols-5 gap-1 px-1">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].slice(0, maxFreezeCount).map((count) => (
                 <button
                   key={count}
                   onClick={() => {
@@ -435,16 +435,16 @@ export function ColumnCustomizerDropdown({
                 </button>
               </div>
               {isFrozen && onSetFreezeCount && (
-                <div className="flex items-center gap-1 text-[10px]">
-                  <span className="text-slate-500 font-medium">Frozen cols:</span>
-                  {[1, 2, 3, 4, 5].map((num) => (
+                <div className="flex flex-wrap items-center gap-1 text-[10px]">
+                  <span className="text-slate-500 font-medium w-full sm:w-auto">Frozen cols:</span>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
                     <button
                       key={num}
                       onClick={() => onSetFreezeCount(num)}
                       className={`h-5 w-5 rounded font-black text-[10px] transition-all cursor-pointer ${
                         freezeCount === num
                           ? 'bg-blue-600 text-white'
-                          : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600'
+                          : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
                       }`}
                     >
                       {num}

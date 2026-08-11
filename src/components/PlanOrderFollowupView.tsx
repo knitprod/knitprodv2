@@ -1119,7 +1119,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                       <ResizableTh width={getColWidth('color')} onWidthChange={(w) => setColumnWidth('color', w)} isSticky={isColFrozen('color')} stickyLeft={getStickyLeft('color')} isLastFrozen={'color' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap">Color</ResizableTh>
                     )}
                     {isColVisible('knitStart') && (
-                      <ResizableTh width={getColWidth('knitStart')} onWidthChange={(w) => setColumnWidth('knitStart', w)} className={`px-3.5 py-3.5 whitespace-nowrap transition-colors ${
+                      <ResizableTh width={getColWidth('knitStart')} onWidthChange={(w) => setColumnWidth('knitStart', w)} isSticky={isColFrozen('knitStart')} stickyLeft={getStickyLeft('knitStart')} isLastFrozen={'knitStart' === lastFrozenColId} className={`px-3.5 py-3.5 whitespace-nowrap transition-colors ${
                         knitStartSelect !== 'All'
                           ? 'bg-blue-200/80 dark:bg-blue-900/60 text-blue-900 dark:text-blue-100 font-black'
                           : ''
@@ -1133,7 +1133,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                       </ResizableTh>
                     )}
                     {isColVisible('knitEnd') && (
-                      <ResizableTh width={getColWidth('knitEnd')} onWidthChange={(w) => setColumnWidth('knitEnd', w)} className={`px-3.5 py-3.5 whitespace-nowrap transition-colors ${
+                      <ResizableTh width={getColWidth('knitEnd')} onWidthChange={(w) => setColumnWidth('knitEnd', w)} isSticky={isColFrozen('knitEnd')} stickyLeft={getStickyLeft('knitEnd')} isLastFrozen={'knitEnd' === lastFrozenColId} className={`px-3.5 py-3.5 whitespace-nowrap transition-colors ${
                         knitEndSelect !== 'All'
                           ? 'bg-indigo-200/80 dark:bg-indigo-900/60 text-indigo-900 dark:text-indigo-100 font-black'
                           : ''
@@ -1147,37 +1147,37 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                       </ResizableTh>
                     )}
                     {isColVisible('target') && (
-                      <ResizableTh width={getColWidth('target')} onWidthChange={(w) => setColumnWidth('target', w)} className="px-3.5 py-3.5 whitespace-nowrap text-right">Target (Kg)</ResizableTh>
+                      <ResizableTh width={getColWidth('target')} onWidthChange={(w) => setColumnWidth('target', w)} isSticky={isColFrozen('target')} stickyLeft={getStickyLeft('target')} isLastFrozen={'target' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap text-right">Target (Kg)</ResizableTh>
                     )}
                     {isColVisible('targetNextMonth') && (
-                      <ResizableTh width={getColWidth('targetNextMonth')} onWidthChange={(w) => setColumnWidth('targetNextMonth', w)} className="px-3.5 py-3.5 whitespace-nowrap text-right">Target Next Month</ResizableTh>
+                      <ResizableTh width={getColWidth('targetNextMonth')} onWidthChange={(w) => setColumnWidth('targetNextMonth', w)} isSticky={isColFrozen('targetNextMonth')} stickyLeft={getStickyLeft('targetNextMonth')} isLastFrozen={'targetNextMonth' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap text-right">Target Next Month</ResizableTh>
                     )}
                     {isColVisible('allocationStart') && (
-                      <ResizableTh width={getColWidth('allocationStart')} onWidthChange={(w) => setColumnWidth('allocationStart', w)} className="px-3.5 py-3.5 whitespace-nowrap">Allocation Start</ResizableTh>
+                      <ResizableTh width={getColWidth('allocationStart')} onWidthChange={(w) => setColumnWidth('allocationStart', w)} isSticky={isColFrozen('allocationStart')} stickyLeft={getStickyLeft('allocationStart')} isLastFrozen={'allocationStart' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap">Allocation Start</ResizableTh>
                     )}
                     {isColVisible('allocationEnd') && (
-                      <ResizableTh width={getColWidth('allocationEnd')} onWidthChange={(w) => setColumnWidth('allocationEnd', w)} className="px-3.5 py-3.5 whitespace-nowrap">Allocation End</ResizableTh>
+                      <ResizableTh width={getColWidth('allocationEnd')} onWidthChange={(w) => setColumnWidth('allocationEnd', w)} isSticky={isColFrozen('allocationEnd')} stickyLeft={getStickyLeft('allocationEnd')} isLastFrozen={'allocationEnd' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap">Allocation End</ResizableTh>
                     )}
                     {isColVisible('allocatedQty') && (
-                      <ResizableTh width={getColWidth('allocatedQty')} onWidthChange={(w) => setColumnWidth('allocatedQty', w)} className="px-3.5 py-3.5 whitespace-nowrap text-right">Allocated QTY</ResizableTh>
+                      <ResizableTh width={getColWidth('allocatedQty')} onWidthChange={(w) => setColumnWidth('allocatedQty', w)} isSticky={isColFrozen('allocatedQty')} stickyLeft={getStickyLeft('allocatedQty')} isLastFrozen={'allocatedQty' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap text-right">Allocated QTY</ResizableTh>
                     )}
                     {isColVisible('allocatedBal') && (
-                      <ResizableTh width={getColWidth('allocatedBal')} onWidthChange={(w) => setColumnWidth('allocatedBal', w)} className="px-3.5 py-3.5 whitespace-nowrap text-right">Allocated Bal.</ResizableTh>
+                      <ResizableTh width={getColWidth('allocatedBal')} onWidthChange={(w) => setColumnWidth('allocatedBal', w)} isSticky={isColFrozen('allocatedBal')} stickyLeft={getStickyLeft('allocatedBal')} isLastFrozen={'allocatedBal' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap text-right">Allocated Bal.</ResizableTh>
                     )}
                     {isColVisible('greyReq') && (
-                      <ResizableTh width={getColWidth('greyReq')} onWidthChange={(w) => setColumnWidth('greyReq', w)} className="px-3.5 py-3.5 whitespace-nowrap text-right">GREY REQ.</ResizableTh>
+                      <ResizableTh width={getColWidth('greyReq')} onWidthChange={(w) => setColumnWidth('greyReq', w)} isSticky={isColFrozen('greyReq')} stickyLeft={getStickyLeft('greyReq')} isLastFrozen={'greyReq' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap text-right">GREY REQ.</ResizableTh>
                     )}
                     {isColVisible('knitPro') && (
-                      <ResizableTh width={getColWidth('knitPro')} onWidthChange={(w) => setColumnWidth('knitPro', w)} className="px-3.5 py-3.5 whitespace-nowrap text-right">KNIT PRO.</ResizableTh>
+                      <ResizableTh width={getColWidth('knitPro')} onWidthChange={(w) => setColumnWidth('knitPro', w)} isSticky={isColFrozen('knitPro')} stickyLeft={getStickyLeft('knitPro')} isLastFrozen={'knitPro' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap text-right">KNIT PRO.</ResizableTh>
                     )}
                     {isColVisible('knitBal') && (
-                      <ResizableTh width={getColWidth('knitBal')} onWidthChange={(w) => setColumnWidth('knitBal', w)} className="px-3.5 py-3.5 whitespace-nowrap text-right">KNIT BAL.</ResizableTh>
+                      <ResizableTh width={getColWidth('knitBal')} onWidthChange={(w) => setColumnWidth('knitBal', w)} isSticky={isColFrozen('knitBal')} stickyLeft={getStickyLeft('knitBal')} isLastFrozen={'knitBal' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap text-right">KNIT BAL.</ResizableTh>
                     )}
                     {isColVisible('aKnitStart') && (
-                      <ResizableTh width={getColWidth('aKnitStart')} onWidthChange={(w) => setColumnWidth('aKnitStart', w)} className="px-3.5 py-3.5 whitespace-nowrap">A.Knit Start</ResizableTh>
+                      <ResizableTh width={getColWidth('aKnitStart')} onWidthChange={(w) => setColumnWidth('aKnitStart', w)} isSticky={isColFrozen('aKnitStart')} stickyLeft={getStickyLeft('aKnitStart')} isLastFrozen={'aKnitStart' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap">A.Knit Start</ResizableTh>
                     )}
                     {isColVisible('startVariance') && (
-                      <ResizableTh width={getColWidth('startVariance')} onWidthChange={(w) => setColumnWidth('startVariance', w)} className="px-3.5 py-3.5 whitespace-nowrap text-center bg-blue-50/50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-300">
+                      <ResizableTh width={getColWidth('startVariance')} onWidthChange={(w) => setColumnWidth('startVariance', w)} isSticky={isColFrozen('startVariance')} stickyLeft={getStickyLeft('startVariance')} isLastFrozen={'startVariance' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap text-center bg-blue-50/50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-300">
                         <div className="flex flex-col items-center">
                           <span>Knit Start VS A. Knit Start</span>
                           <span className="text-[9px] font-normal normal-case text-blue-500 dark:text-blue-400">(Knit Start - A. Knit Start)</span>
@@ -1185,10 +1185,10 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                       </ResizableTh>
                     )}
                     {isColVisible('lastProductionDate') && (
-                      <ResizableTh width={getColWidth('lastProductionDate')} onWidthChange={(w) => setColumnWidth('lastProductionDate', w)} className="px-3.5 py-3.5 whitespace-nowrap">A. Knit End/Last Production Date</ResizableTh>
+                      <ResizableTh width={getColWidth('lastProductionDate')} onWidthChange={(w) => setColumnWidth('lastProductionDate', w)} isSticky={isColFrozen('lastProductionDate')} stickyLeft={getStickyLeft('lastProductionDate')} isLastFrozen={'lastProductionDate' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap">A. Knit End/Last Production Date</ResizableTh>
                     )}
                     {isColVisible('endVariance') && (
-                      <ResizableTh width={getColWidth('endVariance')} onWidthChange={(w) => setColumnWidth('endVariance', w)} className="px-3.5 py-3.5 whitespace-nowrap text-center bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-300">
+                      <ResizableTh width={getColWidth('endVariance')} onWidthChange={(w) => setColumnWidth('endVariance', w)} isSticky={isColFrozen('endVariance')} stickyLeft={getStickyLeft('endVariance')} isLastFrozen={'endVariance' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap text-center bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-300">
                         <div className="flex flex-col items-center">
                           <span>Knit End VS A. Knit End</span>
                           <span className="text-[9px] font-normal normal-case text-indigo-500 dark:text-indigo-400">(Knit End - A. Knit End)</span>
@@ -1196,25 +1196,25 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                       </ResizableTh>
                     )}
                     {isColVisible('avgProdDay') && (
-                      <ResizableTh width={getColWidth('avgProdDay')} onWidthChange={(w) => setColumnWidth('avgProdDay', w)} className="px-3.5 py-3.5 whitespace-nowrap text-right">Avg Prod/Day</ResizableTh>
+                      <ResizableTh width={getColWidth('avgProdDay')} onWidthChange={(w) => setColumnWidth('avgProdDay', w)} isSticky={isColFrozen('avgProdDay')} stickyLeft={getStickyLeft('avgProdDay')} isLastFrozen={'avgProdDay' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap text-right">Avg Prod/Day</ResizableTh>
                     )}
                     {isColVisible('expectedKnitEnd') && (
-                      <ResizableTh width={getColWidth('expectedKnitEnd')} onWidthChange={(w) => setColumnWidth('expectedKnitEnd', w)} className="px-3.5 py-3.5 whitespace-nowrap">Expected Knit End</ResizableTh>
+                      <ResizableTh width={getColWidth('expectedKnitEnd')} onWidthChange={(w) => setColumnWidth('expectedKnitEnd', w)} isSticky={isColFrozen('expectedKnitEnd')} stickyLeft={getStickyLeft('expectedKnitEnd')} isLastFrozen={'expectedKnitEnd' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap">Expected Knit End</ResizableTh>
                     )}
                     {isColVisible('knitStartOTD') && (
-                      <ResizableTh width={getColWidth('knitStartOTD')} onWidthChange={(w) => setColumnWidth('knitStartOTD', w)} className="px-3.5 py-3.5 whitespace-nowrap text-center bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-x border-slate-200/60 dark:border-slate-700/60 font-bold">Knit Start OTD</ResizableTh>
+                      <ResizableTh width={getColWidth('knitStartOTD')} onWidthChange={(w) => setColumnWidth('knitStartOTD', w)} isSticky={isColFrozen('knitStartOTD')} stickyLeft={getStickyLeft('knitStartOTD')} isLastFrozen={'knitStartOTD' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap text-center bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-x border-slate-200/60 dark:border-slate-700/60 font-bold">Knit Start OTD</ResizableTh>
                     )}
                     {isColVisible('knitEndOTD') && (
-                      <ResizableTh width={getColWidth('knitEndOTD')} onWidthChange={(w) => setColumnWidth('knitEndOTD', w)} className="px-3.5 py-3.5 whitespace-nowrap text-center bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-x border-slate-200/60 dark:border-slate-700/60 font-bold">Knit End OTD</ResizableTh>
+                      <ResizableTh width={getColWidth('knitEndOTD')} onWidthChange={(w) => setColumnWidth('knitEndOTD', w)} isSticky={isColFrozen('knitEndOTD')} stickyLeft={getStickyLeft('knitEndOTD')} isLastFrozen={'knitEndOTD' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap text-center bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-x border-slate-200/60 dark:border-slate-700/60 font-bold">Knit End OTD</ResizableTh>
                     )}
                     {isColVisible('knitStartRemarks') && (
-                      <ResizableTh width={getColWidth('knitStartRemarks')} onWidthChange={(w) => setColumnWidth('knitStartRemarks', w)} className="px-3.5 py-3.5 whitespace-nowrap">Knit Start Remarks</ResizableTh>
+                      <ResizableTh width={getColWidth('knitStartRemarks')} onWidthChange={(w) => setColumnWidth('knitStartRemarks', w)} isSticky={isColFrozen('knitStartRemarks')} stickyLeft={getStickyLeft('knitStartRemarks')} isLastFrozen={'knitStartRemarks' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap">Knit Start Remarks</ResizableTh>
                     )}
                     {isColVisible('knitEndRemarks') && (
-                      <ResizableTh width={getColWidth('knitEndRemarks')} onWidthChange={(w) => setColumnWidth('knitEndRemarks', w)} className="px-3.5 py-3.5 whitespace-nowrap">Knit End Remarks</ResizableTh>
+                      <ResizableTh width={getColWidth('knitEndRemarks')} onWidthChange={(w) => setColumnWidth('knitEndRemarks', w)} isSticky={isColFrozen('knitEndRemarks')} stickyLeft={getStickyLeft('knitEndRemarks')} isLastFrozen={'knitEndRemarks' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap">Knit End Remarks</ResizableTh>
                     )}
                     {isColVisible('action') && (
-                      <ResizableTh width={getColWidth('action')} onWidthChange={(w) => setColumnWidth('action', w)} className="px-3.5 py-3.5 whitespace-nowrap text-center">Action</ResizableTh>
+                      <ResizableTh width={getColWidth('action')} onWidthChange={(w) => setColumnWidth('action', w)} isSticky={isColFrozen('action')} stickyLeft={getStickyLeft('action')} isLastFrozen={'action' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap text-center">Action</ResizableTh>
                     )}
                   </tr>
                 </thead>
@@ -1258,71 +1258,71 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                             </td>
                           )}
                           {isColVisible('buyer') && (
-                            <td style={{ width: `${getColWidth('buyer')}px`, minWidth: `${getColWidth('buyer')}px`, maxWidth: `${getColWidth('buyer')}px`, ...getStickyStyle('buyer') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap font-semibold text-slate-900 dark:text-white ${getStickyClass('buyer')}`}>
+                            <td style={{ width: `${getColWidth('buyer')}px`, minWidth: `${getColWidth('buyer')}px`, maxWidth: `${getColWidth('buyer')}px`, ...getStickyStyle('buyer') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 break-words font-semibold text-slate-900 dark:text-white overflow-hidden ${getStickyClass('buyer')}`}>
                               {ord.buyer}
                             </td>
                           )}
                           {isColVisible('color') && (
-                            <td style={{ width: `${getColWidth('color')}px`, minWidth: `${getColWidth('color')}px`, maxWidth: `${getColWidth('color')}px`, ...getStickyStyle('color') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap ${getStickyClass('color')}`}>
-                              <span className="font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 border border-blue-100 dark:border-blue-900/50 px-2.5 py-1 rounded-lg text-xs inline-block">
+                            <td style={{ width: `${getColWidth('color')}px`, minWidth: `${getColWidth('color')}px`, maxWidth: `${getColWidth('color')}px`, ...getStickyStyle('color') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 overflow-hidden ${getStickyClass('color')}`}>
+                              <span className="font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 border border-blue-100 dark:border-blue-900/50 px-2.5 py-1 rounded-lg text-xs block w-full max-w-full break-words whitespace-normal">
                                 {ord.color}
                               </span>
                             </td>
                           )}
                           {isColVisible('knitStart') && (
-                            <td style={{ width: `${getColWidth('knitStart')}px`, minWidth: `${getColWidth('knitStart')}px`, maxWidth: `${getColWidth('knitStart')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-300 font-semibold">{formatDisplayDate(ord.knitStart)}</td>
+                            <td style={{ width: `${getColWidth('knitStart')}px`, minWidth: `${getColWidth('knitStart')}px`, maxWidth: `${getColWidth('knitStart')}px`, ...getStickyStyle('knitStart') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-300 font-semibold ${getStickyClass('knitStart')}`}>{formatDisplayDate(ord.knitStart)}</td>
                           )}
                           {isColVisible('knitEnd') && (
-                            <td style={{ width: `${getColWidth('knitEnd')}px`, minWidth: `${getColWidth('knitEnd')}px`, maxWidth: `${getColWidth('knitEnd')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-300 font-semibold">{formatDisplayDate(ord.knitEnd)}</td>
+                            <td style={{ width: `${getColWidth('knitEnd')}px`, minWidth: `${getColWidth('knitEnd')}px`, maxWidth: `${getColWidth('knitEnd')}px`, ...getStickyStyle('knitEnd') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-300 font-semibold ${getStickyClass('knitEnd')}`}>{formatDisplayDate(ord.knitEnd)}</td>
                           )}
                           {isColVisible('target') && (
-                            <td style={{ width: `${getColWidth('target')}px`, minWidth: `${getColWidth('target')}px`, maxWidth: `${getColWidth('target')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right font-extrabold text-slate-900 dark:text-white">
+                            <td style={{ width: `${getColWidth('target')}px`, minWidth: `${getColWidth('target')}px`, maxWidth: `${getColWidth('target')}px`, ...getStickyStyle('target') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right font-extrabold text-slate-900 dark:text-white ${getStickyClass('target')}`}>
                               {ord.target.toLocaleString()}
                             </td>
                           )}
                           {isColVisible('targetNextMonth') && (
-                            <td style={{ width: `${getColWidth('targetNextMonth')}px`, minWidth: `${getColWidth('targetNextMonth')}px`, maxWidth: `${getColWidth('targetNextMonth')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right text-slate-500">{ord.targetNextMonth}</td>
+                            <td style={{ width: `${getColWidth('targetNextMonth')}px`, minWidth: `${getColWidth('targetNextMonth')}px`, maxWidth: `${getColWidth('targetNextMonth')}px`, ...getStickyStyle('targetNextMonth') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right text-slate-500 ${getStickyClass('targetNextMonth')}`}>{ord.targetNextMonth}</td>
                           )}
                           {isColVisible('allocationStart') && (
-                            <td style={{ width: `${getColWidth('allocationStart')}px`, minWidth: `${getColWidth('allocationStart')}px`, maxWidth: `${getColWidth('allocationStart')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-400">{formatDisplayDate(ord.allocationStart)}</td>
+                            <td style={{ width: `${getColWidth('allocationStart')}px`, minWidth: `${getColWidth('allocationStart')}px`, maxWidth: `${getColWidth('allocationStart')}px`, ...getStickyStyle('allocationStart') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-400 ${getStickyClass('allocationStart')}`}>{formatDisplayDate(ord.allocationStart)}</td>
                           )}
                           {isColVisible('allocationEnd') && (
-                            <td style={{ width: `${getColWidth('allocationEnd')}px`, minWidth: `${getColWidth('allocationEnd')}px`, maxWidth: `${getColWidth('allocationEnd')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-400">{formatDisplayDate(ord.allocationEnd)}</td>
+                            <td style={{ width: `${getColWidth('allocationEnd')}px`, minWidth: `${getColWidth('allocationEnd')}px`, maxWidth: `${getColWidth('allocationEnd')}px`, ...getStickyStyle('allocationEnd') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-400 ${getStickyClass('allocationEnd')}`}>{formatDisplayDate(ord.allocationEnd)}</td>
                           )}
                           {isColVisible('allocatedQty') && (
-                            <td style={{ width: `${getColWidth('allocatedQty')}px`, minWidth: `${getColWidth('allocatedQty')}px`, maxWidth: `${getColWidth('allocatedQty')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right font-semibold text-slate-700 dark:text-slate-300">
+                            <td style={{ width: `${getColWidth('allocatedQty')}px`, minWidth: `${getColWidth('allocatedQty')}px`, maxWidth: `${getColWidth('allocatedQty')}px`, ...getStickyStyle('allocatedQty') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right font-semibold text-slate-700 dark:text-slate-300 ${getStickyClass('allocatedQty')}`}>
                               {ord.allocatedQty ? ord.allocatedQty.toLocaleString() : '-'}
                             </td>
                           )}
                           {isColVisible('allocatedBal') && (
-                            <td style={{ width: `${getColWidth('allocatedBal')}px`, minWidth: `${getColWidth('allocatedBal')}px`, maxWidth: `${getColWidth('allocatedBal')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right text-slate-500">{ord.allocatedBal}</td>
+                            <td style={{ width: `${getColWidth('allocatedBal')}px`, minWidth: `${getColWidth('allocatedBal')}px`, maxWidth: `${getColWidth('allocatedBal')}px`, ...getStickyStyle('allocatedBal') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right text-slate-500 ${getStickyClass('allocatedBal')}`}>{ord.allocatedBal}</td>
                           )}
                           {isColVisible('greyReq') && (
-                            <td style={{ width: `${getColWidth('greyReq')}px`, minWidth: `${getColWidth('greyReq')}px`, maxWidth: `${getColWidth('greyReq')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right font-extrabold text-slate-900 dark:text-slate-100">
+                            <td style={{ width: `${getColWidth('greyReq')}px`, minWidth: `${getColWidth('greyReq')}px`, maxWidth: `${getColWidth('greyReq')}px`, ...getStickyStyle('greyReq') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right font-extrabold text-slate-900 dark:text-slate-100 ${getStickyClass('greyReq')}`}>
                               {ord.greyReq ? ord.greyReq.toLocaleString() : '-'}
                             </td>
                           )}
                           {isColVisible('knitPro') && (
-                            <td style={{ width: `${getColWidth('knitPro')}px`, minWidth: `${getColWidth('knitPro')}px`, maxWidth: `${getColWidth('knitPro')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right">
+                            <td style={{ width: `${getColWidth('knitPro')}px`, minWidth: `${getColWidth('knitPro')}px`, maxWidth: `${getColWidth('knitPro')}px`, ...getStickyStyle('knitPro') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right ${getStickyClass('knitPro')}`}>
                               <span className="font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-100 dark:border-emerald-900/50 px-2.5 py-1 rounded-lg inline-block">
                                 {ord.knitPro ? ord.knitPro.toLocaleString() : '0'}
                               </span>
                             </td>
                           )}
                           {isColVisible('knitBal') && (
-                            <td style={{ width: `${getColWidth('knitBal')}px`, minWidth: `${getColWidth('knitBal')}px`, maxWidth: `${getColWidth('knitBal')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right">
+                            <td style={{ width: `${getColWidth('knitBal')}px`, minWidth: `${getColWidth('knitBal')}px`, maxWidth: `${getColWidth('knitBal')}px`, ...getStickyStyle('knitBal') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right ${getStickyClass('knitBal')}`}>
                               <span className="font-extrabold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 border border-amber-100 dark:border-amber-900/50 px-2.5 py-1 rounded-lg inline-block">
                                 {ord.knitBal ? ord.knitBal.toLocaleString() : '-'}
                               </span>
                             </td>
                           )}
                           {isColVisible('aKnitStart') && (
-                            <td style={{ width: `${getColWidth('aKnitStart')}px`, minWidth: `${getColWidth('aKnitStart')}px`, maxWidth: `${getColWidth('aKnitStart')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-700 dark:text-slate-300 font-medium">
+                            <td style={{ width: `${getColWidth('aKnitStart')}px`, minWidth: `${getColWidth('aKnitStart')}px`, maxWidth: `${getColWidth('aKnitStart')}px`, ...getStickyStyle('aKnitStart') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-700 dark:text-slate-300 font-medium ${getStickyClass('aKnitStart')}`}>
                               {formatDisplayDate(ord.aKnitStart)}
                             </td>
                           )}
                           {isColVisible('startVariance') && (
-                            <td style={{ width: `${getColWidth('startVariance')}px`, minWidth: `${getColWidth('startVariance')}px`, maxWidth: `${getColWidth('startVariance')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-center bg-blue-50/20 dark:bg-blue-950/10">
+                            <td style={{ width: `${getColWidth('startVariance')}px`, minWidth: `${getColWidth('startVariance')}px`, maxWidth: `${getColWidth('startVariance')}px`, ...getStickyStyle('startVariance') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-center bg-blue-50/20 dark:bg-blue-950/10 ${getStickyClass('startVariance')}`}>
                               {startVar.status === 'early' && (
                                 <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 px-2.5 py-0.5 text-[11px] font-extrabold shadow-2xs">
                                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
@@ -1345,12 +1345,12 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                             </td>
                           )}
                           {isColVisible('lastProductionDate') && (
-                            <td style={{ width: `${getColWidth('lastProductionDate')}px`, minWidth: `${getColWidth('lastProductionDate')}px`, maxWidth: `${getColWidth('lastProductionDate')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-700 dark:text-slate-300 font-medium">
+                            <td style={{ width: `${getColWidth('lastProductionDate')}px`, minWidth: `${getColWidth('lastProductionDate')}px`, maxWidth: `${getColWidth('lastProductionDate')}px`, ...getStickyStyle('lastProductionDate') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-700 dark:text-slate-300 font-medium ${getStickyClass('lastProductionDate')}`}>
                               {formatDisplayDate(ord.lastProductionDate)}
                             </td>
                           )}
                           {isColVisible('endVariance') && (
-                            <td style={{ width: `${getColWidth('endVariance')}px`, minWidth: `${getColWidth('endVariance')}px`, maxWidth: `${getColWidth('endVariance')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-center bg-indigo-50/20 dark:bg-indigo-950/10">
+                            <td style={{ width: `${getColWidth('endVariance')}px`, minWidth: `${getColWidth('endVariance')}px`, maxWidth: `${getColWidth('endVariance')}px`, ...getStickyStyle('endVariance') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-center bg-indigo-50/20 dark:bg-indigo-950/10 ${getStickyClass('endVariance')}`}>
                               {endVar.status === 'early' && (
                                 <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 px-2.5 py-0.5 text-[11px] font-extrabold shadow-2xs">
                                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
@@ -1373,17 +1373,17 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                             </td>
                           )}
                           {isColVisible('avgProdDay') && (
-                            <td style={{ width: `${getColWidth('avgProdDay')}px`, minWidth: `${getColWidth('avgProdDay')}px`, maxWidth: `${getColWidth('avgProdDay')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right font-semibold text-slate-700 dark:text-slate-300">
+                            <td style={{ width: `${getColWidth('avgProdDay')}px`, minWidth: `${getColWidth('avgProdDay')}px`, maxWidth: `${getColWidth('avgProdDay')}px`, ...getStickyStyle('avgProdDay') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right font-semibold text-slate-700 dark:text-slate-300 ${getStickyClass('avgProdDay')}`}>
                               {ord.avgProdDay || '-'}
                             </td>
                           )}
                           {isColVisible('expectedKnitEnd') && (
-                            <td style={{ width: `${getColWidth('expectedKnitEnd')}px`, minWidth: `${getColWidth('expectedKnitEnd')}px`, maxWidth: `${getColWidth('expectedKnitEnd')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-400">
+                            <td style={{ width: `${getColWidth('expectedKnitEnd')}px`, minWidth: `${getColWidth('expectedKnitEnd')}px`, maxWidth: `${getColWidth('expectedKnitEnd')}px`, ...getStickyStyle('expectedKnitEnd') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-400 ${getStickyClass('expectedKnitEnd')}`}>
                               {formatDisplayDate(ord.expectedKnitEnd)}
                             </td>
                           )}
                           {isColVisible('knitStartOTD') && (
-                            <td style={{ width: `${getColWidth('knitStartOTD')}px`, minWidth: `${getColWidth('knitStartOTD')}px`, maxWidth: `${getColWidth('knitStartOTD')}px` }} className={`px-3.5 py-3 border-b whitespace-nowrap text-center transition-colors ${
+                            <td style={{ width: `${getColWidth('knitStartOTD')}px`, minWidth: `${getColWidth('knitStartOTD')}px`, maxWidth: `${getColWidth('knitStartOTD')}px`, ...getStickyStyle('knitStartOTD') }} className={`px-3.5 py-3 border-b whitespace-nowrap text-center transition-colors ${getStickyClass('knitStartOTD')} ${
                               ord.knitStartOtd === 'Passed'
                                 ? 'bg-emerald-500/20 dark:bg-emerald-950/80 text-emerald-950 dark:text-emerald-100 border-emerald-300 dark:border-emerald-800/80'
                                 : ord.knitStartOtd === 'Failed'
@@ -1410,7 +1410,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                             </td>
                           )}
                           {isColVisible('knitEndOTD') && (
-                            <td style={{ width: `${getColWidth('knitEndOTD')}px`, minWidth: `${getColWidth('knitEndOTD')}px`, maxWidth: `${getColWidth('knitEndOTD')}px` }} className={`px-3.5 py-3 border-b whitespace-nowrap text-center transition-colors ${
+                            <td style={{ width: `${getColWidth('knitEndOTD')}px`, minWidth: `${getColWidth('knitEndOTD')}px`, maxWidth: `${getColWidth('knitEndOTD')}px`, ...getStickyStyle('knitEndOTD') }} className={`px-3.5 py-3 border-b whitespace-nowrap text-center transition-colors ${getStickyClass('knitEndOTD')} ${
                               ord.knitEndOtd === 'Passed'
                                 ? 'bg-emerald-500/20 dark:bg-emerald-950/80 text-emerald-950 dark:text-emerald-100 border-emerald-300 dark:border-emerald-800/80'
                                 : ord.knitEndOtd === 'Failed'
@@ -1437,9 +1437,9 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                             </td>
                           )}
                           {isColVisible('knitStartRemarks') && (
-                            <td style={{ width: `${getColWidth('knitStartRemarks')}px`, minWidth: `${getColWidth('knitStartRemarks')}px`, maxWidth: `${getColWidth('knitStartRemarks')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap">
+                            <td style={{ width: `${getColWidth('knitStartRemarks')}px`, minWidth: `${getColWidth('knitStartRemarks')}px`, maxWidth: `${getColWidth('knitStartRemarks')}px`, ...getStickyStyle('knitStartRemarks') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 overflow-hidden ${getStickyClass('knitStartRemarks')}`}>
                               {ord.knitStartRemarks ? (
-                                <span className={`px-2.5 py-1 rounded-md text-xs font-semibold inline-block max-w-[220px] truncate ${
+                                <span className={`px-2.5 py-1 rounded-md text-xs font-semibold block w-full max-w-full break-words whitespace-normal ${
                                   ord.knitStartOtd === 'Failed'
                                     ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-900 dark:text-rose-200 border border-rose-300 dark:border-rose-800/60'
                                     : ord.knitStartOtd === 'Passed'
@@ -1449,7 +1449,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                                   {ord.knitStartRemarks}
                                 </span>
                               ) : ord.knitStartOtd === 'Failed' ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 px-2.5 py-1 rounded-md border border-rose-300 dark:border-rose-800/60">
+                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 px-2.5 py-1 rounded-md border border-rose-300 dark:border-rose-800/60 max-w-full break-words whitespace-normal">
                                   ⚠️ Remarks Needed
                                 </span>
                               ) : (
@@ -1458,9 +1458,9 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                             </td>
                           )}
                           {isColVisible('knitEndRemarks') && (
-                            <td style={{ width: `${getColWidth('knitEndRemarks')}px`, minWidth: `${getColWidth('knitEndRemarks')}px`, maxWidth: `${getColWidth('knitEndRemarks')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap">
+                            <td style={{ width: `${getColWidth('knitEndRemarks')}px`, minWidth: `${getColWidth('knitEndRemarks')}px`, maxWidth: `${getColWidth('knitEndRemarks')}px`, ...getStickyStyle('knitEndRemarks') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 overflow-hidden ${getStickyClass('knitEndRemarks')}`}>
                               {ord.knitEndRemarks ? (
-                                <span className={`px-2.5 py-1 rounded-md text-xs font-semibold inline-block max-w-[220px] truncate ${
+                                <span className={`px-2.5 py-1 rounded-md text-xs font-semibold block w-full max-w-full break-words whitespace-normal ${
                                   ord.knitEndOtd === 'Failed'
                                     ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-900 dark:text-rose-200 border border-rose-300 dark:border-rose-800/60'
                                     : ord.knitEndOtd === 'Passed'
@@ -1470,7 +1470,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                                   {ord.knitEndRemarks}
                                 </span>
                               ) : ord.knitEndOtd === 'Failed' ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 px-2.5 py-1 rounded-md border border-rose-300 dark:border-rose-800/60">
+                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 px-2.5 py-1 rounded-md border border-rose-300 dark:border-rose-800/60 max-w-full break-words whitespace-normal">
                                   ⚠️ Remarks Needed
                                 </span>
                               ) : (
