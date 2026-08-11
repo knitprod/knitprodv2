@@ -10,6 +10,7 @@ import { FirestoreSyncService } from '../lib/firestoreSync';
 import { UserRecord } from './UserManagementView';
 import { formatDisplayDate } from './YarnAllocationView';
 import SearchableSelect from './SearchableSelect';
+import { useTableColumns, ColumnCustomizerDropdown, FreezePanesButton, ResizableTh, ColumnDef } from './TableColumnCustomizer';
 import { 
   ClipboardList, 
   Target, 
@@ -405,8 +406,56 @@ interface PlanOrderFollowupViewProps {
   currentUser?: UserRecord | null;
 }
 
+const PLAN_ORDER_COLUMNS: ColumnDef[] = [
+  { id: 'planMonth', label: 'Plan Month', defaultWidth: 120 },
+  { id: 'planType', label: 'Plan Type', defaultWidth: 110 },
+  { id: 'ewo', label: 'EWO', defaultWidth: 110 },
+  { id: 'buyer', label: 'Buyer', defaultWidth: 160 },
+  { id: 'color', label: 'Color', defaultWidth: 140 },
+  { id: 'knitStart', label: 'Knit Start', defaultWidth: 120 },
+  { id: 'knitEnd', label: 'Knit End', defaultWidth: 120 },
+  { id: 'target', label: 'Target (Kg)', defaultWidth: 110 },
+  { id: 'targetNextMonth', label: 'Target Next Month', defaultWidth: 130 },
+  { id: 'allocationStart', label: 'Allocation Start', defaultWidth: 120 },
+  { id: 'allocationEnd', label: 'Allocation End', defaultWidth: 120 },
+  { id: 'allocatedQty', label: 'Allocated QTY', defaultWidth: 110 },
+  { id: 'allocatedBal', label: 'Allocated Bal.', defaultWidth: 110 },
+  { id: 'greyReq', label: 'GREY REQ.', defaultWidth: 110 },
+  { id: 'knitPro', label: 'KNIT PRO.', defaultWidth: 110 },
+  { id: 'knitBal', label: 'KNIT BAL.', defaultWidth: 110 },
+  { id: 'aKnitStart', label: 'A.Knit Start', defaultWidth: 120 },
+  { id: 'startVariance', label: 'Knit Start VS A. Knit Start', defaultWidth: 180 },
+  { id: 'lastProductionDate', label: 'A. Knit End/Last Prod Date', defaultWidth: 160 },
+  { id: 'endVariance', label: 'Knit End VS A. Knit End', defaultWidth: 180 },
+  { id: 'avgProdDay', label: 'Avg Prod/Day', defaultWidth: 110 },
+  { id: 'expectedKnitEnd', label: 'Expected Knit End', defaultWidth: 130 },
+  { id: 'knitStartOTD', label: 'Knit Start OTD', defaultWidth: 120 },
+  { id: 'knitEndOTD', label: 'Knit End OTD', defaultWidth: 120 },
+  { id: 'knitStartRemarks', label: 'Knit Start Remarks', defaultWidth: 150 },
+  { id: 'knitEndRemarks', label: 'Knit End Remarks', defaultWidth: 150 },
+  { id: 'action', label: 'Action', defaultWidth: 90, alwaysVisible: true },
+];
+
 export default function PlanOrderFollowupView({ initialSubTab = 'summary', currentUser }: PlanOrderFollowupViewProps) {
   const isAdmin = currentUser?.userType === 'Admin';
+
+  const {
+    hiddenColumns,
+    toggleColumn,
+    resetColumns,
+    setColumnWidth,
+    isColVisible,
+    getColWidth,
+    isFrozen,
+    freezeCount,
+    toggleFreeze,
+    setFreezeCount,
+    getStickyStyle,
+    getStickyClass,
+    isColFrozen,
+    getStickyLeft,
+    lastFrozenColId,
+  } = useTableColumns('plan_order_followup', currentUser?.uid || 'guest', PLAN_ORDER_COLUMNS, 5);
 
   const [orders, setOrders] = useState<OrderPlan[]>(INITIAL_ORDERS);
   const [activeSubTab, setActiveSubTab] = useState<'summary' | 'buyer' | 'delivery'>(initialSubTab);
@@ -1008,6 +1057,26 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                 placeholder="Search OTD Status..."
               />
 
+              <FreezePanesButton
+                isFrozen={isFrozen}
+                freezeCount={freezeCount}
+                onToggleFreeze={toggleFreeze}
+                onSetFreezeCount={setFreezeCount}
+                maxFreezeCount={5}
+              />
+
+              <ColumnCustomizerDropdown
+                tableId="plan_order_followup"
+                columns={PLAN_ORDER_COLUMNS}
+                hiddenColumns={hiddenColumns}
+                onToggleColumn={toggleColumn}
+                onResetColumns={resetColumns}
+                isFrozen={isFrozen}
+                freezeCount={freezeCount}
+                onToggleFreeze={toggleFreeze}
+                onSetFreezeCount={setFreezeCount}
+              />
+
               {(searchQuery !== '' || buyerFilter !== 'All' || knitStartSelect !== 'All' || knitEndSelect !== 'All' || otdFilter !== 'All') && (
                 <button
                   type="button"
@@ -1034,65 +1103,119 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
               <table className="w-full text-left text-xs border-collapse min-w-[2500px]">
                 <thead className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-800">
                   <tr className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200/80 dark:border-slate-800">
-                    <th className="lg:sticky top-0 lg:left-0 z-40 bg-slate-100 dark:bg-slate-800 min-w-[120px] w-[120px] px-3.5 py-3.5 whitespace-nowrap">Plan Month</th>
-                    <th className="lg:sticky top-0 lg:left-[120px] z-40 bg-slate-100 dark:bg-slate-800 min-w-[110px] w-[110px] px-3.5 py-3.5 whitespace-nowrap">Plan Type</th>
-                    <th className="lg:sticky top-0 lg:left-[230px] z-40 bg-slate-100 dark:bg-slate-800 min-w-[110px] w-[110px] px-3.5 py-3.5 whitespace-nowrap text-center">EWO</th>
-                    <th className="lg:sticky top-0 lg:left-[340px] z-40 bg-slate-100 dark:bg-slate-800 min-w-[160px] w-[160px] px-3.5 py-3.5 whitespace-nowrap">Buyer</th>
-                    <th className="lg:sticky top-0 lg:left-[500px] z-40 bg-slate-100 dark:bg-slate-800 min-w-[140px] w-[140px] px-3.5 py-3.5 whitespace-nowrap lg:border-r-2 border-slate-300 dark:border-slate-700 lg:shadow-[4px_0_10px_-2px_rgba(0,0,0,0.12)]">Color</th>
-                    <th className={`px-3.5 py-3.5 whitespace-nowrap transition-colors ${
-                      knitStartSelect !== 'All'
-                        ? 'bg-blue-200/80 dark:bg-blue-900/60 text-blue-900 dark:text-blue-100 font-black'
-                        : ''
-                    }`}>
-                      <div className="flex items-center gap-1.5">
-                        <span>Knit Start</span>
-                        {knitStartSelect !== 'All' && (
-                          <span className="h-2 w-2 rounded-full bg-blue-600 animate-pulse" title="Knit Start Filter Active" />
-                        )}
-                      </div>
-                    </th>
-                    <th className={`px-3.5 py-3.5 whitespace-nowrap transition-colors ${
-                      knitEndSelect !== 'All'
-                        ? 'bg-indigo-200/80 dark:bg-indigo-900/60 text-indigo-900 dark:text-indigo-100 font-black'
-                        : ''
-                    }`}>
-                      <div className="flex items-center gap-1.5">
-                        <span>Knit End</span>
-                        {knitEndSelect !== 'All' && (
-                          <span className="h-2 w-2 rounded-full bg-indigo-600 animate-pulse" title="Knit End Filter Active" />
-                        )}
-                      </div>
-                    </th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap text-right">Target (Kg)</th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap text-right">Target Next Month</th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap">Allocation Start</th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap">Allocation End</th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap text-right">Allocated QTY</th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap text-right">Allocated Bal.</th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap text-right">GREY REQ.</th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap text-right">KNIT PRO.</th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap text-right">KNIT BAL.</th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap">A.Knit Start</th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap text-center bg-blue-50/50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-300">
-                      <div className="flex flex-col items-center">
-                        <span>Knit Start VS A. Knit Start</span>
-                        <span className="text-[9px] font-normal normal-case text-blue-500 dark:text-blue-400">(Knit Start - A. Knit Start)</span>
-                      </div>
-                    </th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap">A. Knit End/Last Production Date</th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap text-center bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-300">
-                      <div className="flex flex-col items-center">
-                        <span>Knit End VS A. Knit End</span>
-                        <span className="text-[9px] font-normal normal-case text-indigo-500 dark:text-indigo-400">(Knit End - A. Knit End)</span>
-                      </div>
-                    </th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap text-right">Avg Prod/Day</th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap">Expected Knit End</th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap text-center bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-x border-slate-200/60 dark:border-slate-700/60 font-bold">Knit Start OTD</th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap text-center bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-x border-slate-200/60 dark:border-slate-700/60 font-bold">Knit End OTD</th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap">Knit Start Remarks</th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap">Knit End Remarks</th>
-                    <th className="px-3.5 py-3.5 whitespace-nowrap text-center">Action</th>
+                    {isColVisible('planMonth') && (
+                      <ResizableTh width={getColWidth('planMonth')} onWidthChange={(w) => setColumnWidth('planMonth', w)} isSticky={isColFrozen('planMonth')} stickyLeft={getStickyLeft('planMonth')} isLastFrozen={'planMonth' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap">Plan Month</ResizableTh>
+                    )}
+                    {isColVisible('planType') && (
+                      <ResizableTh width={getColWidth('planType')} onWidthChange={(w) => setColumnWidth('planType', w)} isSticky={isColFrozen('planType')} stickyLeft={getStickyLeft('planType')} isLastFrozen={'planType' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap">Plan Type</ResizableTh>
+                    )}
+                    {isColVisible('ewo') && (
+                      <ResizableTh width={getColWidth('ewo')} onWidthChange={(w) => setColumnWidth('ewo', w)} isSticky={isColFrozen('ewo')} stickyLeft={getStickyLeft('ewo')} isLastFrozen={'ewo' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap text-center">EWO</ResizableTh>
+                    )}
+                    {isColVisible('buyer') && (
+                      <ResizableTh width={getColWidth('buyer')} onWidthChange={(w) => setColumnWidth('buyer', w)} isSticky={isColFrozen('buyer')} stickyLeft={getStickyLeft('buyer')} isLastFrozen={'buyer' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap">Buyer</ResizableTh>
+                    )}
+                    {isColVisible('color') && (
+                      <ResizableTh width={getColWidth('color')} onWidthChange={(w) => setColumnWidth('color', w)} isSticky={isColFrozen('color')} stickyLeft={getStickyLeft('color')} isLastFrozen={'color' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap">Color</ResizableTh>
+                    )}
+                    {isColVisible('knitStart') && (
+                      <ResizableTh width={getColWidth('knitStart')} onWidthChange={(w) => setColumnWidth('knitStart', w)} className={`px-3.5 py-3.5 whitespace-nowrap transition-colors ${
+                        knitStartSelect !== 'All'
+                          ? 'bg-blue-200/80 dark:bg-blue-900/60 text-blue-900 dark:text-blue-100 font-black'
+                          : ''
+                      }`}>
+                        <div className="flex items-center gap-1.5">
+                          <span>Knit Start</span>
+                          {knitStartSelect !== 'All' && (
+                            <span className="h-2 w-2 rounded-full bg-blue-600 animate-pulse" title="Knit Start Filter Active" />
+                          )}
+                        </div>
+                      </ResizableTh>
+                    )}
+                    {isColVisible('knitEnd') && (
+                      <ResizableTh width={getColWidth('knitEnd')} onWidthChange={(w) => setColumnWidth('knitEnd', w)} className={`px-3.5 py-3.5 whitespace-nowrap transition-colors ${
+                        knitEndSelect !== 'All'
+                          ? 'bg-indigo-200/80 dark:bg-indigo-900/60 text-indigo-900 dark:text-indigo-100 font-black'
+                          : ''
+                      }`}>
+                        <div className="flex items-center gap-1.5">
+                          <span>Knit End</span>
+                          {knitEndSelect !== 'All' && (
+                            <span className="h-2 w-2 rounded-full bg-indigo-600 animate-pulse" title="Knit End Filter Active" />
+                          )}
+                        </div>
+                      </ResizableTh>
+                    )}
+                    {isColVisible('target') && (
+                      <ResizableTh width={getColWidth('target')} onWidthChange={(w) => setColumnWidth('target', w)} className="px-3.5 py-3.5 whitespace-nowrap text-right">Target (Kg)</ResizableTh>
+                    )}
+                    {isColVisible('targetNextMonth') && (
+                      <ResizableTh width={getColWidth('targetNextMonth')} onWidthChange={(w) => setColumnWidth('targetNextMonth', w)} className="px-3.5 py-3.5 whitespace-nowrap text-right">Target Next Month</ResizableTh>
+                    )}
+                    {isColVisible('allocationStart') && (
+                      <ResizableTh width={getColWidth('allocationStart')} onWidthChange={(w) => setColumnWidth('allocationStart', w)} className="px-3.5 py-3.5 whitespace-nowrap">Allocation Start</ResizableTh>
+                    )}
+                    {isColVisible('allocationEnd') && (
+                      <ResizableTh width={getColWidth('allocationEnd')} onWidthChange={(w) => setColumnWidth('allocationEnd', w)} className="px-3.5 py-3.5 whitespace-nowrap">Allocation End</ResizableTh>
+                    )}
+                    {isColVisible('allocatedQty') && (
+                      <ResizableTh width={getColWidth('allocatedQty')} onWidthChange={(w) => setColumnWidth('allocatedQty', w)} className="px-3.5 py-3.5 whitespace-nowrap text-right">Allocated QTY</ResizableTh>
+                    )}
+                    {isColVisible('allocatedBal') && (
+                      <ResizableTh width={getColWidth('allocatedBal')} onWidthChange={(w) => setColumnWidth('allocatedBal', w)} className="px-3.5 py-3.5 whitespace-nowrap text-right">Allocated Bal.</ResizableTh>
+                    )}
+                    {isColVisible('greyReq') && (
+                      <ResizableTh width={getColWidth('greyReq')} onWidthChange={(w) => setColumnWidth('greyReq', w)} className="px-3.5 py-3.5 whitespace-nowrap text-right">GREY REQ.</ResizableTh>
+                    )}
+                    {isColVisible('knitPro') && (
+                      <ResizableTh width={getColWidth('knitPro')} onWidthChange={(w) => setColumnWidth('knitPro', w)} className="px-3.5 py-3.5 whitespace-nowrap text-right">KNIT PRO.</ResizableTh>
+                    )}
+                    {isColVisible('knitBal') && (
+                      <ResizableTh width={getColWidth('knitBal')} onWidthChange={(w) => setColumnWidth('knitBal', w)} className="px-3.5 py-3.5 whitespace-nowrap text-right">KNIT BAL.</ResizableTh>
+                    )}
+                    {isColVisible('aKnitStart') && (
+                      <ResizableTh width={getColWidth('aKnitStart')} onWidthChange={(w) => setColumnWidth('aKnitStart', w)} className="px-3.5 py-3.5 whitespace-nowrap">A.Knit Start</ResizableTh>
+                    )}
+                    {isColVisible('startVariance') && (
+                      <ResizableTh width={getColWidth('startVariance')} onWidthChange={(w) => setColumnWidth('startVariance', w)} className="px-3.5 py-3.5 whitespace-nowrap text-center bg-blue-50/50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-300">
+                        <div className="flex flex-col items-center">
+                          <span>Knit Start VS A. Knit Start</span>
+                          <span className="text-[9px] font-normal normal-case text-blue-500 dark:text-blue-400">(Knit Start - A. Knit Start)</span>
+                        </div>
+                      </ResizableTh>
+                    )}
+                    {isColVisible('lastProductionDate') && (
+                      <ResizableTh width={getColWidth('lastProductionDate')} onWidthChange={(w) => setColumnWidth('lastProductionDate', w)} className="px-3.5 py-3.5 whitespace-nowrap">A. Knit End/Last Production Date</ResizableTh>
+                    )}
+                    {isColVisible('endVariance') && (
+                      <ResizableTh width={getColWidth('endVariance')} onWidthChange={(w) => setColumnWidth('endVariance', w)} className="px-3.5 py-3.5 whitespace-nowrap text-center bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-300">
+                        <div className="flex flex-col items-center">
+                          <span>Knit End VS A. Knit End</span>
+                          <span className="text-[9px] font-normal normal-case text-indigo-500 dark:text-indigo-400">(Knit End - A. Knit End)</span>
+                        </div>
+                      </ResizableTh>
+                    )}
+                    {isColVisible('avgProdDay') && (
+                      <ResizableTh width={getColWidth('avgProdDay')} onWidthChange={(w) => setColumnWidth('avgProdDay', w)} className="px-3.5 py-3.5 whitespace-nowrap text-right">Avg Prod/Day</ResizableTh>
+                    )}
+                    {isColVisible('expectedKnitEnd') && (
+                      <ResizableTh width={getColWidth('expectedKnitEnd')} onWidthChange={(w) => setColumnWidth('expectedKnitEnd', w)} className="px-3.5 py-3.5 whitespace-nowrap">Expected Knit End</ResizableTh>
+                    )}
+                    {isColVisible('knitStartOTD') && (
+                      <ResizableTh width={getColWidth('knitStartOTD')} onWidthChange={(w) => setColumnWidth('knitStartOTD', w)} className="px-3.5 py-3.5 whitespace-nowrap text-center bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-x border-slate-200/60 dark:border-slate-700/60 font-bold">Knit Start OTD</ResizableTh>
+                    )}
+                    {isColVisible('knitEndOTD') && (
+                      <ResizableTh width={getColWidth('knitEndOTD')} onWidthChange={(w) => setColumnWidth('knitEndOTD', w)} className="px-3.5 py-3.5 whitespace-nowrap text-center bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-x border-slate-200/60 dark:border-slate-700/60 font-bold">Knit End OTD</ResizableTh>
+                    )}
+                    {isColVisible('knitStartRemarks') && (
+                      <ResizableTh width={getColWidth('knitStartRemarks')} onWidthChange={(w) => setColumnWidth('knitStartRemarks', w)} className="px-3.5 py-3.5 whitespace-nowrap">Knit Start Remarks</ResizableTh>
+                    )}
+                    {isColVisible('knitEndRemarks') && (
+                      <ResizableTh width={getColWidth('knitEndRemarks')} onWidthChange={(w) => setColumnWidth('knitEndRemarks', w)} className="px-3.5 py-3.5 whitespace-nowrap">Knit End Remarks</ResizableTh>
+                    )}
+                    {isColVisible('action') && (
+                      <ResizableTh width={getColWidth('action')} onWidthChange={(w) => setColumnWidth('action', w)} className="px-3.5 py-3.5 whitespace-nowrap text-center">Action</ResizableTh>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-800 dark:text-slate-200 font-medium">
@@ -1109,215 +1232,254 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
 
                       return (
                         <tr key={ord.id} className="group hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors">
-                          <td className="lg:sticky lg:left-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-100 dark:group-hover:bg-slate-800 min-w-[120px] w-[120px] px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap">
-                            <span className="px-2.5 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-[11px] inline-block">
-                              {ord.planMonth}
-                            </span>
-                          </td>
-                          <td className="lg:sticky lg:left-[120px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-100 dark:group-hover:bg-slate-800 min-w-[110px] w-[110px] px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap">
-                            <span className={`px-2.5 py-0.5 rounded-full font-bold text-[11px] ${
-                              ord.planType === 'Confirm' 
-                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/50' 
-                                : 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200/50'
+                          {isColVisible('planMonth') && (
+                            <td style={{ width: `${getColWidth('planMonth')}px`, minWidth: `${getColWidth('planMonth')}px`, maxWidth: `${getColWidth('planMonth')}px`, ...getStickyStyle('planMonth') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap ${getStickyClass('planMonth')}`}>
+                              <span className="px-2.5 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-[11px] inline-block">
+                                {ord.planMonth}
+                              </span>
+                            </td>
+                          )}
+                          {isColVisible('planType') && (
+                            <td style={{ width: `${getColWidth('planType')}px`, minWidth: `${getColWidth('planType')}px`, maxWidth: `${getColWidth('planType')}px`, ...getStickyStyle('planType') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap ${getStickyClass('planType')}`}>
+                              <span className={`px-2.5 py-0.5 rounded-full font-bold text-[11px] ${
+                                ord.planType === 'Confirm' 
+                                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/50' 
+                                  : 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200/50'
+                              }`}>
+                                {ord.planType}
+                              </span>
+                            </td>
+                          )}
+                          {isColVisible('ewo') && (
+                            <td style={{ width: `${getColWidth('ewo')}px`, minWidth: `${getColWidth('ewo')}px`, maxWidth: `${getColWidth('ewo')}px`, ...getStickyStyle('ewo') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-center ${getStickyClass('ewo')}`}>
+                              <span className="font-mono font-bold text-xs bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-2.5 py-1 rounded-lg border border-slate-200/60 dark:border-slate-700/60 inline-block shadow-2xs">
+                                {ord.ewo}
+                              </span>
+                            </td>
+                          )}
+                          {isColVisible('buyer') && (
+                            <td style={{ width: `${getColWidth('buyer')}px`, minWidth: `${getColWidth('buyer')}px`, maxWidth: `${getColWidth('buyer')}px`, ...getStickyStyle('buyer') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap font-semibold text-slate-900 dark:text-white ${getStickyClass('buyer')}`}>
+                              {ord.buyer}
+                            </td>
+                          )}
+                          {isColVisible('color') && (
+                            <td style={{ width: `${getColWidth('color')}px`, minWidth: `${getColWidth('color')}px`, maxWidth: `${getColWidth('color')}px`, ...getStickyStyle('color') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap ${getStickyClass('color')}`}>
+                              <span className="font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 border border-blue-100 dark:border-blue-900/50 px-2.5 py-1 rounded-lg text-xs inline-block">
+                                {ord.color}
+                              </span>
+                            </td>
+                          )}
+                          {isColVisible('knitStart') && (
+                            <td style={{ width: `${getColWidth('knitStart')}px`, minWidth: `${getColWidth('knitStart')}px`, maxWidth: `${getColWidth('knitStart')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-300 font-semibold">{formatDisplayDate(ord.knitStart)}</td>
+                          )}
+                          {isColVisible('knitEnd') && (
+                            <td style={{ width: `${getColWidth('knitEnd')}px`, minWidth: `${getColWidth('knitEnd')}px`, maxWidth: `${getColWidth('knitEnd')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-300 font-semibold">{formatDisplayDate(ord.knitEnd)}</td>
+                          )}
+                          {isColVisible('target') && (
+                            <td style={{ width: `${getColWidth('target')}px`, minWidth: `${getColWidth('target')}px`, maxWidth: `${getColWidth('target')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right font-extrabold text-slate-900 dark:text-white">
+                              {ord.target.toLocaleString()}
+                            </td>
+                          )}
+                          {isColVisible('targetNextMonth') && (
+                            <td style={{ width: `${getColWidth('targetNextMonth')}px`, minWidth: `${getColWidth('targetNextMonth')}px`, maxWidth: `${getColWidth('targetNextMonth')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right text-slate-500">{ord.targetNextMonth}</td>
+                          )}
+                          {isColVisible('allocationStart') && (
+                            <td style={{ width: `${getColWidth('allocationStart')}px`, minWidth: `${getColWidth('allocationStart')}px`, maxWidth: `${getColWidth('allocationStart')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-400">{formatDisplayDate(ord.allocationStart)}</td>
+                          )}
+                          {isColVisible('allocationEnd') && (
+                            <td style={{ width: `${getColWidth('allocationEnd')}px`, minWidth: `${getColWidth('allocationEnd')}px`, maxWidth: `${getColWidth('allocationEnd')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-400">{formatDisplayDate(ord.allocationEnd)}</td>
+                          )}
+                          {isColVisible('allocatedQty') && (
+                            <td style={{ width: `${getColWidth('allocatedQty')}px`, minWidth: `${getColWidth('allocatedQty')}px`, maxWidth: `${getColWidth('allocatedQty')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right font-semibold text-slate-700 dark:text-slate-300">
+                              {ord.allocatedQty ? ord.allocatedQty.toLocaleString() : '-'}
+                            </td>
+                          )}
+                          {isColVisible('allocatedBal') && (
+                            <td style={{ width: `${getColWidth('allocatedBal')}px`, minWidth: `${getColWidth('allocatedBal')}px`, maxWidth: `${getColWidth('allocatedBal')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right text-slate-500">{ord.allocatedBal}</td>
+                          )}
+                          {isColVisible('greyReq') && (
+                            <td style={{ width: `${getColWidth('greyReq')}px`, minWidth: `${getColWidth('greyReq')}px`, maxWidth: `${getColWidth('greyReq')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right font-extrabold text-slate-900 dark:text-slate-100">
+                              {ord.greyReq ? ord.greyReq.toLocaleString() : '-'}
+                            </td>
+                          )}
+                          {isColVisible('knitPro') && (
+                            <td style={{ width: `${getColWidth('knitPro')}px`, minWidth: `${getColWidth('knitPro')}px`, maxWidth: `${getColWidth('knitPro')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right">
+                              <span className="font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-100 dark:border-emerald-900/50 px-2.5 py-1 rounded-lg inline-block">
+                                {ord.knitPro ? ord.knitPro.toLocaleString() : '0'}
+                              </span>
+                            </td>
+                          )}
+                          {isColVisible('knitBal') && (
+                            <td style={{ width: `${getColWidth('knitBal')}px`, minWidth: `${getColWidth('knitBal')}px`, maxWidth: `${getColWidth('knitBal')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right">
+                              <span className="font-extrabold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 border border-amber-100 dark:border-amber-900/50 px-2.5 py-1 rounded-lg inline-block">
+                                {ord.knitBal ? ord.knitBal.toLocaleString() : '-'}
+                              </span>
+                            </td>
+                          )}
+                          {isColVisible('aKnitStart') && (
+                            <td style={{ width: `${getColWidth('aKnitStart')}px`, minWidth: `${getColWidth('aKnitStart')}px`, maxWidth: `${getColWidth('aKnitStart')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-700 dark:text-slate-300 font-medium">
+                              {formatDisplayDate(ord.aKnitStart)}
+                            </td>
+                          )}
+                          {isColVisible('startVariance') && (
+                            <td style={{ width: `${getColWidth('startVariance')}px`, minWidth: `${getColWidth('startVariance')}px`, maxWidth: `${getColWidth('startVariance')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-center bg-blue-50/20 dark:bg-blue-950/10">
+                              {startVar.status === 'early' && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 px-2.5 py-0.5 text-[11px] font-extrabold shadow-2xs">
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                                  {startVar.formatted}
+                                </span>
+                              )}
+                              {startVar.status === 'delay' && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200/60 dark:border-rose-800/60 px-2.5 py-0.5 text-[11px] font-extrabold shadow-2xs">
+                                  <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />
+                                  {startVar.formatted}
+                                </span>
+                              )}
+                              {startVar.status === 'ontime' && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/60 px-2.5 py-0.5 text-[11px] font-extrabold shadow-2xs">
+                                  <Clock className="h-3.5 w-3.5 text-blue-500" />
+                                  0 Days
+                                </span>
+                              )}
+                              {startVar.status === 'none' && <span className="text-slate-400 font-normal">-</span>}
+                            </td>
+                          )}
+                          {isColVisible('lastProductionDate') && (
+                            <td style={{ width: `${getColWidth('lastProductionDate')}px`, minWidth: `${getColWidth('lastProductionDate')}px`, maxWidth: `${getColWidth('lastProductionDate')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-700 dark:text-slate-300 font-medium">
+                              {formatDisplayDate(ord.lastProductionDate)}
+                            </td>
+                          )}
+                          {isColVisible('endVariance') && (
+                            <td style={{ width: `${getColWidth('endVariance')}px`, minWidth: `${getColWidth('endVariance')}px`, maxWidth: `${getColWidth('endVariance')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-center bg-indigo-50/20 dark:bg-indigo-950/10">
+                              {endVar.status === 'early' && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 px-2.5 py-0.5 text-[11px] font-extrabold shadow-2xs">
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                                  {endVar.formatted}
+                                </span>
+                              )}
+                              {endVar.status === 'delay' && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200/60 dark:border-rose-800/60 px-2.5 py-0.5 text-[11px] font-extrabold shadow-2xs">
+                                  <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />
+                                  {endVar.formatted}
+                                </span>
+                              )}
+                              {endVar.status === 'ontime' && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/60 px-2.5 py-0.5 text-[11px] font-extrabold shadow-2xs">
+                                  <Clock className="h-3.5 w-3.5 text-blue-500" />
+                                  0 Days
+                                </span>
+                              )}
+                              {endVar.status === 'none' && <span className="text-slate-400 font-normal">-</span>}
+                            </td>
+                          )}
+                          {isColVisible('avgProdDay') && (
+                            <td style={{ width: `${getColWidth('avgProdDay')}px`, minWidth: `${getColWidth('avgProdDay')}px`, maxWidth: `${getColWidth('avgProdDay')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right font-semibold text-slate-700 dark:text-slate-300">
+                              {ord.avgProdDay || '-'}
+                            </td>
+                          )}
+                          {isColVisible('expectedKnitEnd') && (
+                            <td style={{ width: `${getColWidth('expectedKnitEnd')}px`, minWidth: `${getColWidth('expectedKnitEnd')}px`, maxWidth: `${getColWidth('expectedKnitEnd')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-400">
+                              {formatDisplayDate(ord.expectedKnitEnd)}
+                            </td>
+                          )}
+                          {isColVisible('knitStartOTD') && (
+                            <td style={{ width: `${getColWidth('knitStartOTD')}px`, minWidth: `${getColWidth('knitStartOTD')}px`, maxWidth: `${getColWidth('knitStartOTD')}px` }} className={`px-3.5 py-3 border-b whitespace-nowrap text-center transition-colors ${
+                              ord.knitStartOtd === 'Passed'
+                                ? 'bg-emerald-500/20 dark:bg-emerald-950/80 text-emerald-950 dark:text-emerald-100 border-emerald-300 dark:border-emerald-800/80'
+                                : ord.knitStartOtd === 'Failed'
+                                ? 'bg-rose-500/20 dark:bg-rose-950/80 text-rose-950 dark:text-rose-100 border-rose-300 dark:border-rose-800/80'
+                                : 'border-slate-100 dark:border-slate-800/60 text-slate-500 bg-slate-50/50 dark:bg-slate-800/20'
                             }`}>
-                              {ord.planType}
-                            </span>
-                          </td>
-                          <td className="lg:sticky lg:left-[230px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-100 dark:group-hover:bg-slate-800 min-w-[110px] w-[110px] px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-center">
-                            <span className="font-mono font-bold text-xs bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-2.5 py-1 rounded-lg border border-slate-200/60 dark:border-slate-700/60 inline-block shadow-2xs">
-                              {ord.ewo}
-                            </span>
-                          </td>
-                          <td className="lg:sticky lg:left-[340px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-100 dark:group-hover:bg-slate-800 min-w-[160px] w-[160px] px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap font-semibold text-slate-900 dark:text-white">
-                            {ord.buyer}
-                          </td>
-                          <td className="lg:sticky lg:left-[500px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-100 dark:group-hover:bg-slate-800 min-w-[140px] w-[140px] px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap lg:border-r-2 border-slate-300 dark:border-slate-700 lg:shadow-[4px_0_10px_-2px_rgba(0,0,0,0.12)]">
-                            <span className="font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 border border-blue-100 dark:border-blue-900/50 px-2.5 py-1 rounded-lg text-xs inline-block">
-                              {ord.color}
-                            </span>
-                          </td>
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-300 font-semibold">{formatDisplayDate(ord.knitStart)}</td>
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-300 font-semibold">{formatDisplayDate(ord.knitEnd)}</td>
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right font-extrabold text-slate-900 dark:text-white">
-                            {ord.target.toLocaleString()}
-                          </td>
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right text-slate-500">{ord.targetNextMonth}</td>
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-400">{formatDisplayDate(ord.allocationStart)}</td>
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-400">{formatDisplayDate(ord.allocationEnd)}</td>
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right font-semibold text-slate-700 dark:text-slate-300">
-                            {ord.allocatedQty ? ord.allocatedQty.toLocaleString() : '-'}
-                          </td>
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right text-slate-500">{ord.allocatedBal}</td>
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right font-extrabold text-slate-900 dark:text-slate-100">
-                            {ord.greyReq ? ord.greyReq.toLocaleString() : '-'}
-                          </td>
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right">
-                            <span className="font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-100 dark:border-emerald-900/50 px-2.5 py-1 rounded-lg inline-block">
-                              {ord.knitPro ? ord.knitPro.toLocaleString() : '0'}
-                            </span>
-                          </td>
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right">
-                            <span className="font-extrabold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 border border-amber-100 dark:border-amber-900/50 px-2.5 py-1 rounded-lg inline-block">
-                              {ord.knitBal ? ord.knitBal.toLocaleString() : '-'}
-                            </span>
-                          </td>
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-700 dark:text-slate-300 font-medium">
-                            {formatDisplayDate(ord.aKnitStart)}
-                          </td>
-                          
-                          {/* Knit Start VS A. Knit Start Column */}
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-center bg-blue-50/20 dark:bg-blue-950/10">
-                            {startVar.status === 'early' && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 px-2.5 py-0.5 text-[11px] font-extrabold shadow-2xs">
-                                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                                {startVar.formatted}
-                              </span>
-                            )}
-                            {startVar.status === 'delay' && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200/60 dark:border-rose-800/60 px-2.5 py-0.5 text-[11px] font-extrabold shadow-2xs">
-                                <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />
-                                {startVar.formatted}
-                              </span>
-                            )}
-                            {startVar.status === 'ontime' && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/60 px-2.5 py-0.5 text-[11px] font-extrabold shadow-2xs">
-                                <Clock className="h-3.5 w-3.5 text-blue-500" />
-                                0 Days
-                              </span>
-                            )}
-                            {startVar.status === 'none' && <span className="text-slate-400 font-normal">-</span>}
-                          </td>
-
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-700 dark:text-slate-300 font-medium">
-                            {formatDisplayDate(ord.lastProductionDate)}
-                          </td>
-
-                          {/* Knit End VS A. Knit End Column */}
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-center bg-indigo-50/20 dark:bg-indigo-950/10">
-                            {endVar.status === 'early' && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 px-2.5 py-0.5 text-[11px] font-extrabold shadow-2xs">
-                                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                                {endVar.formatted}
-                              </span>
-                            )}
-                            {endVar.status === 'delay' && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200/60 dark:border-rose-800/60 px-2.5 py-0.5 text-[11px] font-extrabold shadow-2xs">
-                                <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />
-                                {endVar.formatted}
-                              </span>
-                            )}
-                            {endVar.status === 'ontime' && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/60 px-2.5 py-0.5 text-[11px] font-extrabold shadow-2xs">
-                                <Clock className="h-3.5 w-3.5 text-blue-500" />
-                                0 Days
-                              </span>
-                            )}
-                            {endVar.status === 'none' && <span className="text-slate-400 font-normal">-</span>}
-                          </td>
-
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-right font-semibold text-slate-700 dark:text-slate-300">
-                            {ord.avgProdDay || '-'}
-                          </td>
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-400">
-                            {formatDisplayDate(ord.expectedKnitEnd)}
-                          </td>
-
-                          {/* KNIT START OTD COLUMN - FULL GREEN / RED CELL COLOR */}
-                          <td className={`px-3.5 py-3 border-b whitespace-nowrap text-center transition-colors ${
-                            ord.knitStartOtd === 'Passed'
-                              ? 'bg-emerald-500/20 dark:bg-emerald-950/80 text-emerald-950 dark:text-emerald-100 border-emerald-300 dark:border-emerald-800/80'
-                              : ord.knitStartOtd === 'Failed'
-                              ? 'bg-rose-500/20 dark:bg-rose-950/80 text-rose-950 dark:text-rose-100 border-rose-300 dark:border-rose-800/80'
-                              : 'border-slate-100 dark:border-slate-800/60 text-slate-500 bg-slate-50/50 dark:bg-slate-800/20'
-                          }`}>
-                            {ord.knitStartOtd === 'Passed' && (
-                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-emerald-600 text-white font-extrabold text-xs shadow-xs">
-                                <span className="h-2 w-2 rounded-full bg-white"></span>
-                                Passed
-                              </span>
-                            )}
-                            {ord.knitStartOtd === 'Failed' && (
-                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-rose-600 text-white font-extrabold text-xs shadow-xs">
-                                <span className="h-2 w-2 rounded-full bg-white"></span>
-                                Failed
-                              </span>
-                            )}
-                            {ord.knitStartOtd === 'Pending' && (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300 font-bold text-[11px]">
-                                Pending
-                              </span>
-                            )}
-                          </td>
-
-                          {/* KNIT END OTD COLUMN - FULL GREEN / RED CELL COLOR */}
-                          <td className={`px-3.5 py-3 border-b whitespace-nowrap text-center transition-colors ${
-                            ord.knitEndOtd === 'Passed'
-                              ? 'bg-emerald-500/20 dark:bg-emerald-950/80 text-emerald-950 dark:text-emerald-100 border-emerald-300 dark:border-emerald-800/80'
-                              : ord.knitEndOtd === 'Failed'
-                              ? 'bg-rose-500/20 dark:bg-rose-950/80 text-rose-950 dark:text-rose-100 border-rose-300 dark:border-rose-800/80'
-                              : 'border-slate-100 dark:border-slate-800/60 text-slate-500 bg-slate-50/50 dark:bg-slate-800/20'
-                          }`}>
-                            {ord.knitEndOtd === 'Passed' && (
-                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-emerald-600 text-white font-extrabold text-xs shadow-xs">
-                                <span className="h-2 w-2 rounded-full bg-white"></span>
-                                Passed
-                              </span>
-                            )}
-                            {ord.knitEndOtd === 'Failed' && (
-                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-rose-600 text-white font-extrabold text-xs shadow-xs">
-                                <span className="h-2 w-2 rounded-full bg-white"></span>
-                                Failed
-                              </span>
-                            )}
-                            {ord.knitEndOtd === 'Pending' && (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300 font-bold text-[11px]">
-                                Pending
-                              </span>
-                            )}
-                          </td>
-
-                          {/* KNIT START REMARKS */}
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap">
-                            {ord.knitStartRemarks ? (
-                              <span className={`px-2.5 py-1 rounded-md text-xs font-semibold inline-block max-w-[220px] truncate ${
-                                ord.knitStartOtd === 'Failed'
-                                  ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-900 dark:text-rose-200 border border-rose-300 dark:border-rose-800/60'
-                                  : ord.knitStartOtd === 'Passed'
-                                  ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50'
-                                  : 'text-slate-700 dark:text-slate-300'
-                              }`} title={ord.knitStartRemarks}>
-                                {ord.knitStartRemarks}
-                              </span>
-                            ) : ord.knitStartOtd === 'Failed' ? (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 px-2.5 py-1 rounded-md border border-rose-300 dark:border-rose-800/60">
-                                ⚠️ Remarks Needed
-                              </span>
-                            ) : (
-                              <span className="text-slate-400 font-normal">-</span>
-                            )}
-                          </td>
-
-                          {/* KNIT END REMARKS */}
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap">
-                            {ord.knitEndRemarks ? (
-                              <span className={`px-2.5 py-1 rounded-md text-xs font-semibold inline-block max-w-[220px] truncate ${
-                                ord.knitEndOtd === 'Failed'
-                                  ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-900 dark:text-rose-200 border border-rose-300 dark:border-rose-800/60'
-                                  : ord.knitEndOtd === 'Passed'
-                                  ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50'
-                                  : 'text-slate-700 dark:text-slate-300'
-                              }`} title={ord.knitEndRemarks}>
-                                {ord.knitEndRemarks}
-                              </span>
-                            ) : ord.knitEndOtd === 'Failed' ? (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 px-2.5 py-1 rounded-md border border-rose-300 dark:border-rose-800/60">
-                                ⚠️ Remarks Needed
-                              </span>
-                            ) : (
-                              <span className="text-slate-400 font-normal">-</span>
-                            )}
-                          </td>
-                          <td className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-center">
+                              {ord.knitStartOtd === 'Passed' && (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-emerald-600 text-white font-extrabold text-xs shadow-xs">
+                                  <span className="h-2 w-2 rounded-full bg-white"></span>
+                                  Passed
+                                </span>
+                              )}
+                              {ord.knitStartOtd === 'Failed' && (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-rose-600 text-white font-extrabold text-xs shadow-xs">
+                                  <span className="h-2 w-2 rounded-full bg-white"></span>
+                                  Failed
+                                </span>
+                              )}
+                              {ord.knitStartOtd === 'Pending' && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300 font-bold text-[11px]">
+                                  Pending
+                                </span>
+                              )}
+                            </td>
+                          )}
+                          {isColVisible('knitEndOTD') && (
+                            <td style={{ width: `${getColWidth('knitEndOTD')}px`, minWidth: `${getColWidth('knitEndOTD')}px`, maxWidth: `${getColWidth('knitEndOTD')}px` }} className={`px-3.5 py-3 border-b whitespace-nowrap text-center transition-colors ${
+                              ord.knitEndOtd === 'Passed'
+                                ? 'bg-emerald-500/20 dark:bg-emerald-950/80 text-emerald-950 dark:text-emerald-100 border-emerald-300 dark:border-emerald-800/80'
+                                : ord.knitEndOtd === 'Failed'
+                                ? 'bg-rose-500/20 dark:bg-rose-950/80 text-rose-950 dark:text-rose-100 border-rose-300 dark:border-rose-800/80'
+                                : 'border-slate-100 dark:border-slate-800/60 text-slate-500 bg-slate-50/50 dark:bg-slate-800/20'
+                            }`}>
+                              {ord.knitEndOtd === 'Passed' && (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-emerald-600 text-white font-extrabold text-xs shadow-xs">
+                                  <span className="h-2 w-2 rounded-full bg-white"></span>
+                                  Passed
+                                </span>
+                              )}
+                              {ord.knitEndOtd === 'Failed' && (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-rose-600 text-white font-extrabold text-xs shadow-xs">
+                                  <span className="h-2 w-2 rounded-full bg-white"></span>
+                                  Failed
+                                </span>
+                              )}
+                              {ord.knitEndOtd === 'Pending' && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300 font-bold text-[11px]">
+                                  Pending
+                                </span>
+                              )}
+                            </td>
+                          )}
+                          {isColVisible('knitStartRemarks') && (
+                            <td style={{ width: `${getColWidth('knitStartRemarks')}px`, minWidth: `${getColWidth('knitStartRemarks')}px`, maxWidth: `${getColWidth('knitStartRemarks')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap">
+                              {ord.knitStartRemarks ? (
+                                <span className={`px-2.5 py-1 rounded-md text-xs font-semibold inline-block max-w-[220px] truncate ${
+                                  ord.knitStartOtd === 'Failed'
+                                    ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-900 dark:text-rose-200 border border-rose-300 dark:border-rose-800/60'
+                                    : ord.knitStartOtd === 'Passed'
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50'
+                                    : 'text-slate-700 dark:text-slate-300'
+                                }`} title={ord.knitStartRemarks}>
+                                  {ord.knitStartRemarks}
+                                </span>
+                              ) : ord.knitStartOtd === 'Failed' ? (
+                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 px-2.5 py-1 rounded-md border border-rose-300 dark:border-rose-800/60">
+                                  ⚠️ Remarks Needed
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 font-normal">-</span>
+                              )}
+                            </td>
+                          )}
+                          {isColVisible('knitEndRemarks') && (
+                            <td style={{ width: `${getColWidth('knitEndRemarks')}px`, minWidth: `${getColWidth('knitEndRemarks')}px`, maxWidth: `${getColWidth('knitEndRemarks')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap">
+                              {ord.knitEndRemarks ? (
+                                <span className={`px-2.5 py-1 rounded-md text-xs font-semibold inline-block max-w-[220px] truncate ${
+                                  ord.knitEndOtd === 'Failed'
+                                    ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-900 dark:text-rose-200 border border-rose-300 dark:border-rose-800/60'
+                                    : ord.knitEndOtd === 'Passed'
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50'
+                                    : 'text-slate-700 dark:text-slate-300'
+                                }`} title={ord.knitEndRemarks}>
+                                  {ord.knitEndRemarks}
+                                </span>
+                              ) : ord.knitEndOtd === 'Failed' ? (
+                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 px-2.5 py-1 rounded-md border border-rose-300 dark:border-rose-800/60">
+                                  ⚠️ Remarks Needed
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 font-normal">-</span>
+                              )}
+                            </td>
+                          )}
+                          {isColVisible('action') && (
+                            <td style={{ width: `${getColWidth('action')}px`, minWidth: `${getColWidth('action')}px`, maxWidth: `${getColWidth('action')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-center">
                             <div className="flex items-center justify-center gap-1">
                               {!(ord.knitStartOtd === 'Passed' && ord.knitEndOtd === 'Passed') && (
                                 <button
@@ -1339,6 +1501,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                               )}
                             </div>
                           </td>
+                          )}
                         </tr>
                       );
                     })

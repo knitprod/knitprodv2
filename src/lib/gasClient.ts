@@ -18,7 +18,10 @@ export class GasClient {
 
   static onSyncStateChange(listener: (isSyncing: boolean) => void): () => void {
     this.syncListeners.push(listener);
-    listener(this.activeSyncCount > 0);
+    const isSyncing = this.activeSyncCount > 0;
+    Promise.resolve().then(() => {
+      listener(isSyncing);
+    });
     return () => {
       this.syncListeners = this.syncListeners.filter(l => l !== listener);
     };
@@ -26,14 +29,18 @@ export class GasClient {
 
   private static startSyncNotification() {
     this.activeSyncCount++;
-    this.syncListeners.forEach(listener => listener(true));
+    const isSyncing = this.activeSyncCount > 0;
+    Promise.resolve().then(() => {
+      this.syncListeners.forEach(listener => listener(isSyncing));
+    });
   }
 
   private static stopSyncNotification() {
     this.activeSyncCount = Math.max(0, this.activeSyncCount - 1);
-    if (this.activeSyncCount === 0) {
-      this.syncListeners.forEach(listener => listener(false));
-    }
+    const isSyncing = this.activeSyncCount > 0;
+    Promise.resolve().then(() => {
+      this.syncListeners.forEach(listener => listener(isSyncing));
+    });
   }
 
   static setSyncing(isSyncing: boolean) {

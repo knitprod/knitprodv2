@@ -23,6 +23,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
+import { useTableColumns, ColumnCustomizerDropdown, FreezePanesButton, ResizableTh, ColumnDef } from './TableColumnCustomizer';
 import { GasClient } from '../lib/gasClient';
 import { FirestoreSyncService } from '../lib/firestoreSync';
 
@@ -341,7 +342,49 @@ interface YarnAllocationViewProps {
   currentUser?: UserRecord | null;
 }
 
+const YARN_ALLOCATION_COLUMNS: ColumnDef[] = [
+  { id: 'actualRequisitionDate', label: 'Actual Yarn Requisition Date', defaultWidth: 150 },
+  { id: 'buyer', label: 'Buyer', defaultWidth: 110 },
+  { id: 'orderNumber', label: 'Order Number', defaultWidth: 120 },
+  { id: 'fabricsType', label: 'Fabrics Type', defaultWidth: 130 },
+  { id: 'fabricShade', label: 'Fabric Shade', defaultWidth: 120 },
+  { id: 'fabricGsm', label: 'Fabric GSM', defaultWidth: 100 },
+  { id: 'yarnRequired', label: 'Yarn Required', defaultWidth: 180 },
+  { id: 'lotRef', label: 'Lot Ref', defaultWidth: 160 },
+  { id: 'allocatedYarn', label: 'Allocated Yarn', defaultWidth: 180 },
+  { id: 'lotNo', label: 'Lot #', defaultWidth: 100 },
+  { id: 'spinnersName', label: "Spinner's Name", defaultWidth: 140 },
+  { id: 'allocationStatus', label: 'Allocation Status', defaultWidth: 120 },
+  { id: 'yarnStockStatus', label: 'Yarn Stock Status', defaultWidth: 120 },
+  { id: 'yarnDeliveryStatus', label: 'Yarn Delivery Status', defaultWidth: 130 },
+  { id: 'proposedAllocationDate', label: 'Proposed Allocation Date', defaultWidth: 140 },
+  { id: 'existingRange', label: 'Allocation Start Date to End Date', defaultWidth: 160 },
+  { id: 'allocationNo', label: 'Allocation No', defaultWidth: 110 },
+  { id: 'yarnRqQty', label: 'Yarn Rq Qty', defaultWidth: 110 },
+  { id: 'allocatedQty', label: 'Allocated Qty', defaultWidth: 110 },
+  { id: 'balance', label: 'Balance', defaultWidth: 100 },
+  { id: 'remarks', label: 'Remarks', defaultWidth: 160 },
+];
+
 export default function YarnAllocationView({ currentUser }: YarnAllocationViewProps) {
+  const {
+    hiddenColumns,
+    toggleColumn,
+    resetColumns,
+    setColumnWidth,
+    isColVisible,
+    getColWidth,
+    isFrozen,
+    freezeCount,
+    toggleFreeze,
+    setFreezeCount,
+    getStickyStyle,
+    getStickyClass,
+    isColFrozen,
+    getStickyLeft,
+    lastFrozenColId,
+  } = useTableColumns('yarn_allocation', currentUser?.uid || 'guest', YARN_ALLOCATION_COLUMNS, 4);
+
   const [yarnAllocations, setYarnAllocations] = useState<YarnAllocationRecord[]>(INITIAL_YARN_ALLOCATIONS);
   const [yarnSearchQuery, setYarnSearchQuery] = useState('');
   const [yarnBuyerFilter, setYarnBuyerFilter] = useState('All');
@@ -855,22 +898,21 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     }).catch(err => console.warn('Could not fetch initial master_yarn_upload_info from Firestore:', err));
 
     // 2. Real-time subscription to Firestore settings for instant cross-device updates
+    let lastKnownMeta = uploadInfo;
     const unsubscribeFirestore = FirestoreSyncService.subscribeToSettings((settings) => {
       if (settings && settings.master_yarn_upload_info) {
         const remoteMeta = settings.master_yarn_upload_info as MasterUploadInfo;
-        setUploadInfo(prev => {
-          if (
-            prev.lastUploadedAt !== remoteMeta.lastUploadedAt ||
-            prev.totalRecords !== remoteMeta.totalRecords ||
-            prev.fileName !== remoteMeta.fileName ||
-            prev.status !== remoteMeta.status
-          ) {
-            // Automatically re-fetch updated dataset for other devices when master file is uploaded on any device
-            fetchAllocations(true);
-            return remoteMeta;
-          }
-          return prev;
-        });
+        if (
+          lastKnownMeta.lastUploadedAt !== remoteMeta.lastUploadedAt ||
+          lastKnownMeta.totalRecords !== remoteMeta.totalRecords ||
+          lastKnownMeta.fileName !== remoteMeta.fileName ||
+          lastKnownMeta.status !== remoteMeta.status
+        ) {
+          lastKnownMeta = remoteMeta;
+          setUploadInfo(remoteMeta);
+          // Automatically re-fetch updated dataset for other devices when master file is uploaded on any device
+          fetchAllocations(true);
+        }
       }
     });
 
@@ -1135,6 +1177,26 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
+
+            <FreezePanesButton
+              isFrozen={isFrozen}
+              freezeCount={freezeCount}
+              onToggleFreeze={toggleFreeze}
+              onSetFreezeCount={setFreezeCount}
+              maxFreezeCount={5}
+            />
+
+            <ColumnCustomizerDropdown
+              tableId="yarn_allocation"
+              columns={YARN_ALLOCATION_COLUMNS}
+              hiddenColumns={hiddenColumns}
+              onToggleColumn={toggleColumn}
+              onResetColumns={resetColumns}
+              isFrozen={isFrozen}
+              freezeCount={freezeCount}
+              onToggleFreeze={toggleFreeze}
+              onSetFreezeCount={setFreezeCount}
+            />
           </div>
         </div>
       </div>
@@ -1145,27 +1207,69 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
           <table className="w-full text-left text-xs border-collapse min-w-[2100px]">
             <thead className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-800 font-extrabold uppercase text-slate-600 dark:text-slate-300 text-[10px] tracking-tight border-b-2 border-slate-200 dark:border-slate-700">
               <tr>
-                <th className="lg:sticky top-0 lg:left-0 z-40 bg-slate-100 dark:bg-slate-800 min-w-[150px] w-[150px] px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Actual Yarn Requisition date</th>
-                <th className="lg:sticky top-0 lg:left-[150px] z-40 bg-slate-100 dark:bg-slate-800 min-w-[110px] w-[110px] px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Buyer</th>
-                <th className="lg:sticky top-0 lg:left-[260px] z-40 bg-slate-100 dark:bg-slate-800 min-w-[120px] w-[120px] px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Order Number</th>
-                <th className="lg:sticky top-0 lg:left-[380px] z-40 bg-slate-100 dark:bg-slate-800 min-w-[130px] w-[130px] px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Fabrics Type</th>
-                <th className="lg:sticky top-0 lg:left-[510px] z-40 bg-slate-100 dark:bg-slate-800 min-w-[120px] w-[120px] px-3.5 py-3 border-r border-slate-200 lg:border-r-2 border-slate-300 dark:border-slate-700 lg:shadow-[4px_0_8px_-2px_rgba(0,0,0,0.12)] whitespace-nowrap">Fabric Shade</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Fabric GSM</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap min-w-[180px]">Yarn Required</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap min-w-[160px]">Lot Ref</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap min-w-[180px]">Allocated Yarn</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Lot #</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Spinner's Name</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Allocation Status</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Yarn Stock Status</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Yarn Delivery Status</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Proposed Allocation Date</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap min-w-[160px] text-center">Allocation Sart Date to End Date</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Allocation No</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-right bg-blue-50/50 dark:bg-blue-950/30">Yarn Rq Qty</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-right bg-emerald-50/50 dark:bg-emerald-950/30">Allocated Qty</th>
-                <th className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-right bg-amber-50/50 dark:bg-amber-950/30">Balance</th>
-                <th className="px-3.5 py-3 whitespace-nowrap min-w-[160px]">Remarks</th>
+                {isColVisible('actualRequisitionDate') && (
+                  <ResizableTh width={getColWidth('actualRequisitionDate')} onWidthChange={(w) => setColumnWidth('actualRequisitionDate', w)} isSticky={isColFrozen('actualRequisitionDate')} stickyLeft={getStickyLeft('actualRequisitionDate')} isLastFrozen={'actualRequisitionDate' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Actual Yarn Requisition date</ResizableTh>
+                )}
+                {isColVisible('buyer') && (
+                  <ResizableTh width={getColWidth('buyer')} onWidthChange={(w) => setColumnWidth('buyer', w)} isSticky={isColFrozen('buyer')} stickyLeft={getStickyLeft('buyer')} isLastFrozen={'buyer' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Buyer</ResizableTh>
+                )}
+                {isColVisible('orderNumber') && (
+                  <ResizableTh width={getColWidth('orderNumber')} onWidthChange={(w) => setColumnWidth('orderNumber', w)} isSticky={isColFrozen('orderNumber')} stickyLeft={getStickyLeft('orderNumber')} isLastFrozen={'orderNumber' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Order Number</ResizableTh>
+                )}
+                {isColVisible('fabricsType') && (
+                  <ResizableTh width={getColWidth('fabricsType')} onWidthChange={(w) => setColumnWidth('fabricsType', w)} isSticky={isColFrozen('fabricsType')} stickyLeft={getStickyLeft('fabricsType')} isLastFrozen={'fabricsType' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Fabrics Type</ResizableTh>
+                )}
+                {isColVisible('fabricShade') && (
+                  <ResizableTh width={getColWidth('fabricShade')} onWidthChange={(w) => setColumnWidth('fabricShade', w)} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Fabric Shade</ResizableTh>
+                )}
+                {isColVisible('fabricGsm') && (
+                  <ResizableTh width={getColWidth('fabricGsm')} onWidthChange={(w) => setColumnWidth('fabricGsm', w)} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Fabric GSM</ResizableTh>
+                )}
+                {isColVisible('yarnRequired') && (
+                  <ResizableTh width={getColWidth('yarnRequired')} onWidthChange={(w) => setColumnWidth('yarnRequired', w)} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Yarn Required</ResizableTh>
+                )}
+                {isColVisible('lotRef') && (
+                  <ResizableTh width={getColWidth('lotRef')} onWidthChange={(w) => setColumnWidth('lotRef', w)} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Lot Ref</ResizableTh>
+                )}
+                {isColVisible('allocatedYarn') && (
+                  <ResizableTh width={getColWidth('allocatedYarn')} onWidthChange={(w) => setColumnWidth('allocatedYarn', w)} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Allocated Yarn</ResizableTh>
+                )}
+                {isColVisible('lotNo') && (
+                  <ResizableTh width={getColWidth('lotNo')} onWidthChange={(w) => setColumnWidth('lotNo', w)} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Lot #</ResizableTh>
+                )}
+                {isColVisible('spinnersName') && (
+                  <ResizableTh width={getColWidth('spinnersName')} onWidthChange={(w) => setColumnWidth('spinnersName', w)} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Spinner's Name</ResizableTh>
+                )}
+                {isColVisible('allocationStatus') && (
+                  <ResizableTh width={getColWidth('allocationStatus')} onWidthChange={(w) => setColumnWidth('allocationStatus', w)} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Allocation Status</ResizableTh>
+                )}
+                {isColVisible('yarnStockStatus') && (
+                  <ResizableTh width={getColWidth('yarnStockStatus')} onWidthChange={(w) => setColumnWidth('yarnStockStatus', w)} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Yarn Stock Status</ResizableTh>
+                )}
+                {isColVisible('yarnDeliveryStatus') && (
+                  <ResizableTh width={getColWidth('yarnDeliveryStatus')} onWidthChange={(w) => setColumnWidth('yarnDeliveryStatus', w)} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Yarn Delivery Status</ResizableTh>
+                )}
+                {isColVisible('proposedAllocationDate') && (
+                  <ResizableTh width={getColWidth('proposedAllocationDate')} onWidthChange={(w) => setColumnWidth('proposedAllocationDate', w)} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Proposed Allocation Date</ResizableTh>
+                )}
+                {isColVisible('existingRange') && (
+                  <ResizableTh width={getColWidth('existingRange')} onWidthChange={(w) => setColumnWidth('existingRange', w)} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Allocation Sart Date to End Date</ResizableTh>
+                )}
+                {isColVisible('allocationNo') && (
+                  <ResizableTh width={getColWidth('allocationNo')} onWidthChange={(w) => setColumnWidth('allocationNo', w)} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Allocation No</ResizableTh>
+                )}
+                {isColVisible('yarnRqQty') && (
+                  <ResizableTh width={getColWidth('yarnRqQty')} onWidthChange={(w) => setColumnWidth('yarnRqQty', w)} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-right bg-blue-50/50 dark:bg-blue-950/30">Yarn Rq Qty</ResizableTh>
+                )}
+                {isColVisible('allocatedQty') && (
+                  <ResizableTh width={getColWidth('allocatedQty')} onWidthChange={(w) => setColumnWidth('allocatedQty', w)} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-right bg-emerald-50/50 dark:bg-emerald-950/30">Allocated Qty</ResizableTh>
+                )}
+                {isColVisible('balance') && (
+                  <ResizableTh width={getColWidth('balance')} onWidthChange={(w) => setColumnWidth('balance', w)} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-right bg-amber-50/50 dark:bg-amber-950/30">Balance</ResizableTh>
+                )}
+                {isColVisible('remarks') && (
+                  <ResizableTh width={getColWidth('remarks')} onWidthChange={(w) => setColumnWidth('remarks', w)} className="px-3.5 py-3 whitespace-nowrap">Remarks</ResizableTh>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 font-semibold text-slate-800 dark:text-slate-200">
@@ -1178,78 +1282,119 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
               ) : (
                 paginatedYarnAllocations.map((row) => (
                   <tr key={row.id} className="group hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors">
-                    <td className="lg:sticky lg:left-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-100 dark:group-hover:bg-slate-800 min-w-[150px] w-[150px] px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-bold text-slate-900 dark:text-white">
-                      {formatDisplayDate(row.actualRequisitionDate)}
-                    </td>
-                    <td className="lg:sticky lg:left-[150px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-100 dark:group-hover:bg-slate-800 min-w-[110px] w-[110px] px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-black text-slate-900 dark:text-white">
-                      {row.buyer || '-'}
-                    </td>
-                    <td className="lg:sticky lg:left-[260px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-100 dark:group-hover:bg-slate-800 min-w-[120px] w-[120px] px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-mono font-bold text-blue-600 dark:text-blue-400">
-                      {row.orderNumber || '-'}
-                    </td>
-                    <td className="lg:sticky lg:left-[380px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-100 dark:group-hover:bg-slate-800 min-w-[130px] w-[130px] px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-bold">
-                      {row.fabricsType || '-'}
-                    </td>
-                    <td className="lg:sticky lg:left-[510px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-100 dark:group-hover:bg-slate-800 min-w-[120px] w-[120px] px-3.5 py-3 border-r border-slate-100 lg:border-r-2 border-slate-300 dark:border-slate-700 lg:shadow-[4px_0_8px_-2px_rgba(0,0,0,0.12)] whitespace-nowrap text-slate-600 dark:text-slate-300">
-                      {row.fabricShade || '-'}
-                    </td>
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center font-bold">
-                      {row.fabricGsm || '-'}
-                    </td>
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-bold text-slate-800 dark:text-slate-200">
-                      {row.yarnRequired || '-'}
-                    </td>
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-xs text-slate-600 dark:text-slate-300 italic">
-                      {row.lotRef || '-'}
-                    </td>
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-bold text-slate-900 dark:text-white">
-                      {row.allocatedYarn || '-'}
-                    </td>
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-mono font-bold text-slate-900 dark:text-white">
-                      {row.lotNo || '-'}
-                    </td>
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-semibold">
-                      {row.spinnersName || '-'}
-                    </td>
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center">
-                      <span className="inline-block px-2.5 py-0.5 rounded-md text-[11px] font-black bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300">
-                        {row.allocationStatus || 'Allocated'}
-                      </span>
-                    </td>
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center">
-                      <span className="inline-block px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                        {row.yarnStockStatus || 'Stock Available'}
-                      </span>
-                    </td>
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center">
-                      <span className="inline-block px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-blue-100 dark:bg-blue-950/70 text-blue-800 dark:text-blue-300">
-                        {row.yarnDeliveryStatus || 'Completed'}
-                      </span>
-                    </td>
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center text-slate-500">
-                      {formatDisplayDate(row.proposedAllocationDate)}
-                    </td>
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                      {formatDisplayDate(row.allocationDateRange)}
-                    </td>
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center font-mono font-bold text-blue-600 dark:text-blue-400">
-                      {row.allocationNo || '-'}
-                    </td>
+                    {isColVisible('actualRequisitionDate') && (
+                      <td style={{ width: `${getColWidth('actualRequisitionDate')}px`, minWidth: `${getColWidth('actualRequisitionDate')}px`, maxWidth: `${getColWidth('actualRequisitionDate')}px`, ...getStickyStyle('actualRequisitionDate') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-bold text-slate-900 dark:text-white ${getStickyClass('actualRequisitionDate')}`}>
+                        {formatDisplayDate(row.actualRequisitionDate)}
+                      </td>
+                    )}
+                    {isColVisible('buyer') && (
+                      <td style={{ width: `${getColWidth('buyer')}px`, minWidth: `${getColWidth('buyer')}px`, maxWidth: `${getColWidth('buyer')}px`, ...getStickyStyle('buyer') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-black text-slate-900 dark:text-white ${getStickyClass('buyer')}`}>
+                        {row.buyer || '-'}
+                      </td>
+                    )}
+                    {isColVisible('orderNumber') && (
+                      <td style={{ width: `${getColWidth('orderNumber')}px`, minWidth: `${getColWidth('orderNumber')}px`, maxWidth: `${getColWidth('orderNumber')}px`, ...getStickyStyle('orderNumber') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-mono font-bold text-blue-600 dark:text-blue-400 ${getStickyClass('orderNumber')}`}>
+                        {row.orderNumber || '-'}
+                      </td>
+                    )}
+                    {isColVisible('fabricsType') && (
+                      <td style={{ width: `${getColWidth('fabricsType')}px`, minWidth: `${getColWidth('fabricsType')}px`, maxWidth: `${getColWidth('fabricsType')}px`, ...getStickyStyle('fabricsType') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-bold ${getStickyClass('fabricsType')}`}>
+                        {row.fabricsType || '-'}
+                      </td>
+                    )}
+                    {isColVisible('fabricShade') && (
+                      <td style={{ width: `${getColWidth('fabricShade')}px`, minWidth: `${getColWidth('fabricShade')}px`, maxWidth: `${getColWidth('fabricShade')}px` }} className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-slate-600 dark:text-slate-300">
+                        {row.fabricShade || '-'}
+                      </td>
+                    )}
+                    {isColVisible('fabricGsm') && (
+                      <td style={{ width: `${getColWidth('fabricGsm')}px`, minWidth: `${getColWidth('fabricGsm')}px`, maxWidth: `${getColWidth('fabricGsm')}px` }} className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center font-bold">
+                        {row.fabricGsm || '-'}
+                      </td>
+                    )}
+                    {isColVisible('yarnRequired') && (
+                      <td style={{ width: `${getColWidth('yarnRequired')}px`, minWidth: `${getColWidth('yarnRequired')}px`, maxWidth: `${getColWidth('yarnRequired')}px` }} className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-bold text-slate-800 dark:text-slate-200">
+                        {row.yarnRequired || '-'}
+                      </td>
+                    )}
+                    {isColVisible('lotRef') && (
+                      <td style={{ width: `${getColWidth('lotRef')}px`, minWidth: `${getColWidth('lotRef')}px`, maxWidth: `${getColWidth('lotRef')}px` }} className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-xs text-slate-600 dark:text-slate-300 italic">
+                        {row.lotRef || '-'}
+                      </td>
+                    )}
+                    {isColVisible('allocatedYarn') && (
+                      <td style={{ width: `${getColWidth('allocatedYarn')}px`, minWidth: `${getColWidth('allocatedYarn')}px`, maxWidth: `${getColWidth('allocatedYarn')}px` }} className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-bold text-slate-900 dark:text-white">
+                        {row.allocatedYarn || '-'}
+                      </td>
+                    )}
+                    {isColVisible('lotNo') && (
+                      <td style={{ width: `${getColWidth('lotNo')}px`, minWidth: `${getColWidth('lotNo')}px`, maxWidth: `${getColWidth('lotNo')}px` }} className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-mono font-bold text-slate-900 dark:text-white">
+                        {row.lotNo || '-'}
+                      </td>
+                    )}
+                    {isColVisible('spinnersName') && (
+                      <td style={{ width: `${getColWidth('spinnersName')}px`, minWidth: `${getColWidth('spinnersName')}px`, maxWidth: `${getColWidth('spinnersName')}px` }} className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-semibold">
+                        {row.spinnersName || '-'}
+                      </td>
+                    )}
+                    {isColVisible('allocationStatus') && (
+                      <td style={{ width: `${getColWidth('allocationStatus')}px`, minWidth: `${getColWidth('allocationStatus')}px`, maxWidth: `${getColWidth('allocationStatus')}px` }} className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center">
+                        <span className="inline-block px-2.5 py-0.5 rounded-md text-[11px] font-black bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300">
+                          {row.allocationStatus || 'Allocated'}
+                        </span>
+                      </td>
+                    )}
+                    {isColVisible('yarnStockStatus') && (
+                      <td style={{ width: `${getColWidth('yarnStockStatus')}px`, minWidth: `${getColWidth('yarnStockStatus')}px`, maxWidth: `${getColWidth('yarnStockStatus')}px` }} className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center">
+                        <span className="inline-block px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                          {row.yarnStockStatus || 'Stock Available'}
+                        </span>
+                      </td>
+                    )}
+                    {isColVisible('yarnDeliveryStatus') && (
+                      <td style={{ width: `${getColWidth('yarnDeliveryStatus')}px`, minWidth: `${getColWidth('yarnDeliveryStatus')}px`, maxWidth: `${getColWidth('yarnDeliveryStatus')}px` }} className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center">
+                        <span className="inline-block px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-blue-100 dark:bg-blue-950/70 text-blue-800 dark:text-blue-300">
+                          {row.yarnDeliveryStatus || 'Completed'}
+                        </span>
+                      </td>
+                    )}
+                    {isColVisible('proposedAllocationDate') && (
+                      <td style={{ width: `${getColWidth('proposedAllocationDate')}px`, minWidth: `${getColWidth('proposedAllocationDate')}px`, maxWidth: `${getColWidth('proposedAllocationDate')}px` }} className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center text-slate-500">
+                        {formatDisplayDate(row.proposedAllocationDate)}
+                      </td>
+                    )}
+                    {isColVisible('existingRange') && (
+                      <td style={{ width: `${getColWidth('existingRange')}px`, minWidth: `${getColWidth('existingRange')}px`, maxWidth: `${getColWidth('existingRange')}px` }} className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                        {formatDisplayDate(row.allocationDateRange)}
+                      </td>
+                    )}
+                    {isColVisible('allocationNo') && (
+                      <td style={{ width: `${getColWidth('allocationNo')}px`, minWidth: `${getColWidth('allocationNo')}px`, maxWidth: `${getColWidth('allocationNo')}px` }} className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center font-mono font-bold text-blue-600 dark:text-blue-400">
+                        {row.allocationNo || '-'}
+                      </td>
+                    )}
 
                     {/* QUANTITY COLUMNS */}
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-right font-mono font-black text-slate-900 dark:text-white bg-blue-50/20 dark:bg-blue-950/10">
-                      {formatYarnQty(row.yarnRqQty)}
-                    </td>
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-right font-mono font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50/20 dark:bg-emerald-950/10">
-                      {formatYarnQty(row.allocatedQty)}
-                    </td>
-                    <td className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-right font-mono font-black text-amber-600 dark:text-amber-400 bg-amber-50/20 dark:bg-amber-950/10">
-                      {formatYarnQty(row.balance)}
-                    </td>
-
-                    <td className="px-3.5 py-3 whitespace-nowrap text-xs text-slate-600 dark:text-slate-300">
-                      {row.remarks || '-'}
-                    </td>
+                    {isColVisible('yarnRqQty') && (
+                      <td style={{ width: `${getColWidth('yarnRqQty')}px`, minWidth: `${getColWidth('yarnRqQty')}px`, maxWidth: `${getColWidth('yarnRqQty')}px` }} className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-right font-mono font-black text-slate-900 dark:text-white bg-blue-50/20 dark:bg-blue-950/10">
+                        {formatYarnQty(row.yarnRqQty)}
+                      </td>
+                    )}
+                    {isColVisible('allocatedQty') && (
+                      <td style={{ width: `${getColWidth('allocatedQty')}px`, minWidth: `${getColWidth('allocatedQty')}px`, maxWidth: `${getColWidth('allocatedQty')}px` }} className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-right font-mono font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50/20 dark:bg-emerald-950/10">
+                        {formatYarnQty(row.allocatedQty)}
+                      </td>
+                    )}
+                    {isColVisible('balance') && (
+                      <td style={{ width: `${getColWidth('balance')}px`, minWidth: `${getColWidth('balance')}px`, maxWidth: `${getColWidth('balance')}px` }} className="px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-right font-mono font-black text-amber-600 dark:text-amber-400 bg-amber-50/20 dark:bg-amber-950/10">
+                        {formatYarnQty(row.balance)}
+                      </td>
+                    )}
+                    {isColVisible('remarks') && (
+                      <td style={{ width: `${getColWidth('remarks')}px`, minWidth: `${getColWidth('remarks')}px`, maxWidth: `${getColWidth('remarks')}px` }} className="px-3.5 py-3 whitespace-nowrap text-slate-500">
+                        {row.remarks || '-'}
+                      </td>
+                    )}
                   </tr>
                 ))
               )}

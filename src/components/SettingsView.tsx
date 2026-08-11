@@ -3,11 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
-import { Settings, Save, Image, Cpu, CheckCircle, ShoppingBag, Plus, X, RotateCcw, Search, RefreshCw, Edit, Trash2, Building2, Layers, Check } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Settings, Save, Image, Cpu, CheckCircle, ShoppingBag, Plus, X, RotateCcw, Search, RefreshCw, Edit, Trash2, Building2, Layers, Check, Upload } from 'lucide-react';
 import { GasClient } from '../lib/gasClient';
 import { FirestoreSyncService } from '../lib/firestoreSync';
 import { getBuyers, saveBuyers, addBuyer as addNewBuyerToStore, removeBuyer as removeBuyerFromStore, renameBuyerInStore, resetBuyersToDefault } from '../lib/buyerStore';
+import { getCompanyLogo, saveCompanyLogo, removeCompanyLogo } from '../lib/logoStore';
 import { ActivityLog } from '../types';
 
 export interface UnitThresholdConfig {
@@ -65,6 +66,39 @@ export default function SettingsView() {
 
   const [isSaved, setIsSaved] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Logo Upload State
+  const [logoState, setLogoState] = useState<string | null>(() => getCompanyLogo());
+  const logoInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const handleLogoUpdate = (e: Event) => {
+      const customEv = e as CustomEvent<string | null>;
+      if (customEv.detail !== undefined) {
+        setLogoState(customEv.detail);
+      } else {
+        setLogoState(getCompanyLogo());
+      }
+    };
+    window.addEventListener('company_logo_updated', handleLogoUpdate);
+    return () => window.removeEventListener('company_logo_updated', handleLogoUpdate);
+  }, []);
+
+  const handleSettingsLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert("Logo image size must be under 5MB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        saveCompanyLogo(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   useEffect(() => {
     const applyRemoteSettings = (remoteSettings: Record<string, any>) => {
@@ -779,36 +813,75 @@ export default function SettingsView() {
           </form>
         </div>
 
-        {/* Logo Customization guidelines */}
+        {/* Interactive Logo Customization Card */}
         <div className="rounded-2xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs flex flex-col justify-between">
           <div>
-            <div className="flex items-center gap-2 border-b border-gray-50 dark:border-slate-800 pb-3 mb-4">
-              <Image className="h-4.5 w-4.5 text-blue-600" />
-              <h3 className="font-sans text-xs font-black text-gray-900 dark:text-white uppercase">Logo Customization</h3>
+            <div className="flex items-center justify-between border-b border-gray-50 dark:border-slate-800 pb-3 mb-4">
+              <div className="flex items-center gap-2">
+                <Image className="h-4.5 w-4.5 text-blue-600 dark:text-blue-400" />
+                <h3 className="font-sans text-xs font-black text-gray-900 dark:text-white uppercase">Company Logo Customization</h3>
+              </div>
+              {logoState && (
+                <button
+                  type="button"
+                  onClick={() => removeCompanyLogo()}
+                  className="text-[10px] font-bold text-red-600 dark:text-red-400 hover:underline cursor-pointer"
+                >
+                  Reset Logo
+                </button>
+              )}
             </div>
 
+            <input
+              type="file"
+              ref={logoInputRef}
+              onChange={handleSettingsLogoUpload}
+              accept="image/*"
+              className="hidden"
+            />
+
             <div className="space-y-4">
-              <div className="rounded-xl border border-dashed border-gray-200 dark:border-slate-700 p-6 text-center">
-                <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg bg-gray-50 dark:bg-slate-800 text-gray-400">
-                  <Image className="h-5 w-5" />
-                </div>
-                <span className="mt-2 block text-xs font-bold text-gray-700 dark:text-slate-200">Company Logo Placeholder</span>
-                <span className="mt-1 block text-[10px] text-gray-400">Recommended size: 160 x 50 pixels (PNG with alpha channel transparent)</span>
+              {/* Dropzone / Preview Area */}
+              <div 
+                onClick={() => logoInputRef.current?.click()}
+                className={`group relative rounded-2xl border-2 border-dashed p-6 text-center transition-all cursor-pointer ${
+                  logoState 
+                    ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/20 dark:bg-emerald-950/10 hover:border-emerald-500' 
+                    : 'border-blue-200 dark:border-slate-700 bg-blue-50/20 dark:bg-slate-800/40 hover:border-blue-500 hover:bg-blue-50/50'
+                }`}
+              >
+                {logoState ? (
+                  <div className="space-y-3">
+                    <div className="flex h-20 w-full items-center justify-center p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs">
+                      <img src={logoState} alt="Uploaded Company Logo" className="max-h-full max-w-full object-contain" />
+                    </div>
+                    <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                      <CheckCircle className="h-4 w-4 text-emerald-500" />
+                      <span>Custom Logo Active</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-medium">Click to upload a different logo image</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 dark:bg-slate-800 text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform">
+                      <Upload className="h-6 w-6" />
+                    </div>
+                    <span className="block text-xs font-black text-gray-800 dark:text-slate-200">
+                      Click to Upload Company Logo
+                    </span>
+                    <span className="block text-[10px] text-gray-400 font-medium">
+                      PNG, JPEG, WebP or SVG (Recommended: 160 x 50 px, Max 5MB)
+                    </span>
+                  </div>
+                )}
               </div>
 
-              <div className="space-y-3">
-                <h4 className="text-xs font-bold text-gray-900 dark:text-slate-200 uppercase">Step-by-step Replacement Guide:</h4>
-                <div className="text-[11px] font-medium text-gray-500 dark:text-slate-400 leading-relaxed space-y-2.5">
-                  <p>
-                    1. Save your company logo as a transparent PNG asset under the name <strong>company_logo.png</strong>.
-                  </p>
-                  <p>
-                    2. Drag and upload that image into the <strong>/public/</strong> directory of the applet using the file browser.
-                  </p>
-                  <p>
-                    3. Modify the placeholder image element in <strong>src/components/Header.tsx</strong> to reference your newly uploaded asset.
-                  </p>
-                </div>
+              <div className="rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3.5 space-y-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-300 border border-slate-100 dark:border-slate-800">
+                <span className="font-extrabold text-slate-900 dark:text-white block uppercase text-[10px] tracking-wider">
+                  Logo Sync Features:
+                </span>
+                <p>• Your logo instantly displays on the top navigation header across all pages.</p>
+                <p>• Automatically synced to Firebase Firestore for all company users.</p>
               </div>
             </div>
           </div>

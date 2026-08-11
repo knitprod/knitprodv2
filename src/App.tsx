@@ -1020,24 +1020,12 @@ export default function App() {
       )}
 
       {/* 2. Main Layout Container */}
-      <div className="flex pt-16 w-full max-w-full overflow-x-hidden">
-        {/* Sidebar Left Component */}
-        <Sidebar
-          currentPage={currentPage}
-          onNavigate={setCurrentPage}
-          collapsed={sidebarCollapsed}
-          setCollapsed={setSidebarCollapsed}
-          onLogout={handleLogout}
-          currentUser={currentUser}
-        />
-
+      <div className="flex pt-16 md:pt-28 w-full max-w-full overflow-x-hidden">
         {/* Main Workspace Frame */}
         <main 
-          className={`flex-1 min-w-0 max-w-full min-h-[calc(100vh-4rem)] p-4 sm:p-6 transition-all duration-300 ease-in-out ${
-            sidebarCollapsed ? 'pl-4 md:pl-20' : 'pl-4 md:pl-72'
-          }`}
+          className="flex-1 min-w-0 max-w-full min-h-[calc(100vh-7rem)] p-2 sm:p-4 md:p-4 transition-all duration-300 ease-in-out"
         >
-          <div className="mx-auto max-w-7xl space-y-6 w-full min-w-0">
+          <div className="w-full space-y-6 min-w-0">
             
             {/* Page View Switcher */}
             {currentPage === 'Dashboard' && (

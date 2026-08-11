@@ -5,6 +5,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { UserRecord } from './UserManagementView';
+import { useTableColumns, ColumnCustomizerDropdown, FreezePanesButton, ResizableTh, ColumnDef } from './TableColumnCustomizer';
 import { 
   Search, 
   Filter, 
@@ -197,8 +198,68 @@ interface ProductionLedgerViewProps {
   currentUser?: UserRecord | null;
 }
 
+const PRODUCTION_LEDGER_COLUMNS: ColumnDef[] = [
+  { id: 'year', label: 'Year', defaultWidth: 80 },
+  { id: 'month', label: 'Month', defaultWidth: 90 },
+  { id: 'date', label: 'Date', defaultWidth: 100 },
+  { id: 'floor', label: 'Unit', defaultWidth: 100 },
+  { id: 'target', label: 'Target (Kg)', defaultWidth: 100 },
+  { id: 'shiftA', label: 'Shift A', defaultWidth: 90 },
+  { id: 'shiftB', label: 'Shift B', defaultWidth: 90 },
+  { id: 'shiftC', label: 'Shift C', defaultWidth: 90 },
+  { id: 'totalProduction', label: 'Total Prod (Kg)', defaultWidth: 110 },
+  { id: 'achievement', label: 'Achievement %', defaultWidth: 100 },
+  { id: 'efficiency', label: 'Efficiency %', defaultWidth: 100 },
+  { id: 'capacityUtilization', label: 'Cap Util %', defaultWidth: 100 },
+  { id: 'totalMachine', label: 'Total M/C', defaultWidth: 90 },
+  { id: 'runningMachine', label: 'Running', defaultWidth: 90 },
+  { id: 'idleMachine', label: 'Idle', defaultWidth: 80 },
+  { id: 'mcUtil', label: 'Machine Util %', defaultWidth: 100 },
+  { id: 'idleMcPct', label: 'Idle Machine %', defaultWidth: 100 },
+  { id: 'idleProdLoss', label: 'Idle Prod Loss (Kg)', defaultWidth: 120 },
+  { id: 'prodPerMc', label: 'Prod/Machine', defaultWidth: 100 },
+  { id: 'rejectKg', label: 'Reject (Kg)', defaultWidth: 90 },
+  { id: 'rejectPct', label: 'Reject %', defaultWidth: 90 },
+  { id: 'holdKg', label: 'Hold (Kg)', defaultWidth: 90 },
+  { id: 'holdPct', label: 'Hold %', defaultWidth: 90 },
+  { id: 'needleBroken', label: 'Needle Broken', defaultWidth: 100 },
+  { id: 'needlePerKg', label: 'Needle / Kg', defaultWidth: 90 },
+  { id: 'sinkerBroken', label: 'Sinker Broken', defaultWidth: 100 },
+  { id: 'oilCons', label: 'Oil Cons (Ltr)', defaultWidth: 100 },
+  { id: 'lossEfficiency', label: 'Loss for Efficiency', defaultWidth: 110 },
+  { id: 'totalStaff', label: 'Total Staff', defaultWidth: 90 },
+  { id: 'absentStaff', label: 'Absent', defaultWidth: 80 },
+  { id: 'absentPct', label: 'Absent %', defaultWidth: 80 },
+  { id: 'setChange', label: 'Set Change', defaultWidth: 90 },
+  { id: 'remarks', label: 'Remarks', defaultWidth: 150 },
+  { id: 'productionFlatKnit', label: 'Flat Knit (PCS)', defaultWidth: 110 },
+  { id: 'yarnIssued', label: 'Yarn Issued (Kg)', defaultWidth: 110 },
+  { id: 'runningFactories', label: 'Running Factories', defaultWidth: 120 },
+  { id: 'subMcRunning', label: 'Sub-MC Running', defaultWidth: 110 },
+  { id: 'fabricReturn', label: 'Fabric Return (Kg)', defaultWidth: 110 },
+  { id: 'action', label: 'Actions', defaultWidth: 90, alwaysVisible: true },
+];
+
 export default function ProductionLedgerView({ currentUser }: ProductionLedgerViewProps = {}) {
   const isAdmin = currentUser?.userType === 'Admin';
+
+  const {
+    hiddenColumns,
+    toggleColumn,
+    resetColumns,
+    setColumnWidth,
+    isColVisible,
+    getColWidth,
+    isFrozen,
+    freezeCount,
+    toggleFreeze,
+    setFreezeCount,
+    getStickyStyle,
+    getStickyClass,
+    isColFrozen,
+    getStickyLeft,
+    lastFrozenColId,
+  } = useTableColumns('production_ledger', currentUser?.uid || 'guest', PRODUCTION_LEDGER_COLUMNS, 4);
   const [isGasMode, setIsGasMode] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [ledgerGasError, setLedgerGasError] = useState<string | null>(null);
@@ -1352,6 +1413,26 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
               <Download className="h-4 w-4" />
               <span>Export Excel</span>
             </button>
+
+            <FreezePanesButton
+              isFrozen={isFrozen}
+              freezeCount={freezeCount}
+              onToggleFreeze={toggleFreeze}
+              onSetFreezeCount={setFreezeCount}
+              maxFreezeCount={5}
+            />
+
+            <ColumnCustomizerDropdown
+              tableId="production_ledger"
+              columns={PRODUCTION_LEDGER_COLUMNS}
+              hiddenColumns={hiddenColumns}
+              onToggleColumn={toggleColumn}
+              onResetColumns={resetColumns}
+              isFrozen={isFrozen}
+              freezeCount={freezeCount}
+              onToggleFreeze={toggleFreeze}
+              onSetFreezeCount={setFreezeCount}
+            />
           </div>
         </div>
 
@@ -1395,52 +1476,128 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
               </tr>
               <tr className="border-b border-gray-100 dark:border-slate-700 text-[9px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap divide-x divide-gray-100 dark:divide-slate-700">
                 {/* General */}
-                <th className="px-2.5 py-2.5 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 text-left" onClick={() => { setSortField('year'); setSortAsc(!sortAsc); }}>Year {sortField === 'year' && (sortAsc ? '▲' : '▼')}</th>
-                <th className="px-2.5 py-2.5 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 text-left" onClick={() => { setSortField('month'); setSortAsc(!sortAsc); }}>Month {sortField === 'month' && (sortAsc ? '▲' : '▼')}</th>
-                <th className="px-3.5 py-2.5 text-left cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => { setSortField('date'); setSortAsc(!sortAsc); }}>Date (DD MMM YYYY) {sortField === 'date' && (sortAsc ? '▲' : '▼')}</th>
-                <th className="px-3.5 py-2.5 text-left cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => { setSortField('floor'); setSortAsc(!sortAsc); }}>Unit {sortField === 'floor' && (sortAsc ? '▲' : '▼')}</th>
+                {isColVisible('year') && (
+                  <ResizableTh width={getColWidth('year')} onWidthChange={(w) => setColumnWidth('year', w)} isSticky={isColFrozen('year')} stickyLeft={getStickyLeft('year')} isLastFrozen={'year' === lastFrozenColId} className="px-2.5 py-2.5 cursor-pointer text-left" onClick={() => { setSortField('year'); setSortAsc(!sortAsc); }}>Year {sortField === 'year' && (sortAsc ? '▲' : '▼')}</ResizableTh>
+                )}
+                {isColVisible('month') && (
+                  <ResizableTh width={getColWidth('month')} onWidthChange={(w) => setColumnWidth('month', w)} isSticky={isColFrozen('month')} stickyLeft={getStickyLeft('month')} isLastFrozen={'month' === lastFrozenColId} className="px-2.5 py-2.5 cursor-pointer text-left" onClick={() => { setSortField('month'); setSortAsc(!sortAsc); }}>Month {sortField === 'month' && (sortAsc ? '▲' : '▼')}</ResizableTh>
+                )}
+                {isColVisible('date') && (
+                  <ResizableTh width={getColWidth('date')} onWidthChange={(w) => setColumnWidth('date', w)} isSticky={isColFrozen('date')} stickyLeft={getStickyLeft('date')} isLastFrozen={'date' === lastFrozenColId} className="px-3.5 py-2.5 text-left cursor-pointer" onClick={() => { setSortField('date'); setSortAsc(!sortAsc); }}>Date {sortField === 'date' && (sortAsc ? '▲' : '▼')}</ResizableTh>
+                )}
+                {isColVisible('floor') && (
+                  <ResizableTh width={getColWidth('floor')} onWidthChange={(w) => setColumnWidth('floor', w)} isSticky={isColFrozen('floor')} stickyLeft={getStickyLeft('floor')} isLastFrozen={'floor' === lastFrozenColId} className="px-3.5 py-2.5 text-left cursor-pointer" onClick={() => { setSortField('floor'); setSortAsc(!sortAsc); }}>Unit {sortField === 'floor' && (sortAsc ? '▲' : '▼')}</ResizableTh>
+                )}
                 {/* Production */}
-                <th className="px-3 py-2.5 text-right cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => { setSortField('target'); setSortAsc(!sortAsc); }}>Target (Kg)</th>
-                <th className="px-2.5 py-2.5 text-right">Shift A</th>
-                <th className="px-2.5 py-2.5 text-right">Shift B</th>
-                <th className="px-2.5 py-2.5 text-right">Shift C</th>
-                <th className="px-3 py-2.5 text-right cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => { setSortField('totalProduction'); setSortAsc(!sortAsc); }}>Total Prod (Kg) {sortField === 'totalProduction' && (sortAsc ? '▲' : '▼')}</th>
-                <th className="px-3 py-2.5 text-right cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => { setSortField('efficiency'); setSortAsc(!sortAsc); }}>Achievement % {sortField === 'efficiency' && (sortAsc ? '▲' : '▼')}</th>
-                <th className="px-2.5 py-2.5 text-center cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => { setSortField('efficiency'); setSortAsc(!sortAsc); }}>Efficiency %</th>
-                <th className="px-2.5 py-2.5 text-center cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => { setSortField('capacityUtilization'); setSortAsc(!sortAsc); }}>Cap Util %</th>
+                {isColVisible('target') && (
+                  <ResizableTh width={getColWidth('target')} onWidthChange={(w) => setColumnWidth('target', w)} className="px-3 py-2.5 text-right cursor-pointer" onClick={() => { setSortField('target'); setSortAsc(!sortAsc); }}>Target (Kg)</ResizableTh>
+                )}
+                {isColVisible('shiftA') && (
+                  <ResizableTh width={getColWidth('shiftA')} onWidthChange={(w) => setColumnWidth('shiftA', w)} className="px-2.5 py-2.5 text-right">Shift A</ResizableTh>
+                )}
+                {isColVisible('shiftB') && (
+                  <ResizableTh width={getColWidth('shiftB')} onWidthChange={(w) => setColumnWidth('shiftB', w)} className="px-2.5 py-2.5 text-right">Shift B</ResizableTh>
+                )}
+                {isColVisible('shiftC') && (
+                  <ResizableTh width={getColWidth('shiftC')} onWidthChange={(w) => setColumnWidth('shiftC', w)} className="px-2.5 py-2.5 text-right">Shift C</ResizableTh>
+                )}
+                {isColVisible('totalProduction') && (
+                  <ResizableTh width={getColWidth('totalProduction')} onWidthChange={(w) => setColumnWidth('totalProduction', w)} className="px-3 py-2.5 text-right cursor-pointer" onClick={() => { setSortField('totalProduction'); setSortAsc(!sortAsc); }}>Total Prod (Kg) {sortField === 'totalProduction' && (sortAsc ? '▲' : '▼')}</ResizableTh>
+                )}
+                {isColVisible('achievement') && (
+                  <ResizableTh width={getColWidth('achievement')} onWidthChange={(w) => setColumnWidth('achievement', w)} className="px-3 py-2.5 text-right cursor-pointer" onClick={() => { setSortField('efficiency'); setSortAsc(!sortAsc); }}>Achievement % {sortField === 'efficiency' && (sortAsc ? '▲' : '▼')}</ResizableTh>
+                )}
+                {isColVisible('efficiency') && (
+                  <ResizableTh width={getColWidth('efficiency')} onWidthChange={(w) => setColumnWidth('efficiency', w)} className="px-2.5 py-2.5 text-center cursor-pointer" onClick={() => { setSortField('efficiency'); setSortAsc(!sortAsc); }}>Efficiency %</ResizableTh>
+                )}
+                {isColVisible('capacityUtilization') && (
+                  <ResizableTh width={getColWidth('capacityUtilization')} onWidthChange={(w) => setColumnWidth('capacityUtilization', w)} className="px-2.5 py-2.5 text-center cursor-pointer" onClick={() => { setSortField('capacityUtilization'); setSortAsc(!sortAsc); }}>Cap Util %</ResizableTh>
+                )}
                 {/* Machine */}
-                <th className="px-2.5 py-2.5 text-center">Total M/C</th>
-                <th className="px-2.5 py-2.5 text-center">Running</th>
-                <th className="px-2.5 py-2.5 text-center">Idle</th>
-                <th className="px-2.5 py-2.5 text-center">Machine Util %</th>
-                <th className="px-2.5 py-2.5 text-center">Idle Machine %</th>
-                <th className="px-2.5 py-2.5 text-right">Idle Prod Loss (Kg)</th>
-                <th className="px-2.5 py-2.5 text-right">Prod/Machine</th>
+                {isColVisible('totalMachine') && (
+                  <ResizableTh width={getColWidth('totalMachine')} onWidthChange={(w) => setColumnWidth('totalMachine', w)} className="px-2.5 py-2.5 text-center">Total M/C</ResizableTh>
+                )}
+                {isColVisible('runningMachine') && (
+                  <ResizableTh width={getColWidth('runningMachine')} onWidthChange={(w) => setColumnWidth('runningMachine', w)} className="px-2.5 py-2.5 text-center">Running</ResizableTh>
+                )}
+                {isColVisible('idleMachine') && (
+                  <ResizableTh width={getColWidth('idleMachine')} onWidthChange={(w) => setColumnWidth('idleMachine', w)} className="px-2.5 py-2.5 text-center">Idle</ResizableTh>
+                )}
+                {isColVisible('mcUtil') && (
+                  <ResizableTh width={getColWidth('mcUtil')} onWidthChange={(w) => setColumnWidth('mcUtil', w)} className="px-2.5 py-2.5 text-center">Machine Util %</ResizableTh>
+                )}
+                {isColVisible('idleMcPct') && (
+                  <ResizableTh width={getColWidth('idleMcPct')} onWidthChange={(w) => setColumnWidth('idleMcPct', w)} className="px-2.5 py-2.5 text-center">Idle Machine %</ResizableTh>
+                )}
+                {isColVisible('idleProdLoss') && (
+                  <ResizableTh width={getColWidth('idleProdLoss')} onWidthChange={(w) => setColumnWidth('idleProdLoss', w)} className="px-2.5 py-2.5 text-right">Idle Prod Loss (Kg)</ResizableTh>
+                )}
+                {isColVisible('prodPerMc') && (
+                  <ResizableTh width={getColWidth('prodPerMc')} onWidthChange={(w) => setColumnWidth('prodPerMc', w)} className="px-2.5 py-2.5 text-right">Prod/Machine</ResizableTh>
+                )}
                 {/* Quality */}
-                <th className="px-2.5 py-2.5 text-right">Reject (Kg)</th>
-                <th className="px-2.5 py-2.5 text-right">Reject %</th>
-                <th className="px-2.5 py-2.5 text-right">Hold (Kg)</th>
-                <th className="px-2.5 py-2.5 text-right">Hold %</th>
+                {isColVisible('rejectKg') && (
+                  <ResizableTh width={getColWidth('rejectKg')} onWidthChange={(w) => setColumnWidth('rejectKg', w)} className="px-2.5 py-2.5 text-right">Reject (Kg)</ResizableTh>
+                )}
+                {isColVisible('rejectPct') && (
+                  <ResizableTh width={getColWidth('rejectPct')} onWidthChange={(w) => setColumnWidth('rejectPct', w)} className="px-2.5 py-2.5 text-right">Reject %</ResizableTh>
+                )}
+                {isColVisible('holdKg') && (
+                  <ResizableTh width={getColWidth('holdKg')} onWidthChange={(w) => setColumnWidth('holdKg', w)} className="px-2.5 py-2.5 text-right">Hold (Kg)</ResizableTh>
+                )}
+                {isColVisible('holdPct') && (
+                  <ResizableTh width={getColWidth('holdPct')} onWidthChange={(w) => setColumnWidth('holdPct', w)} className="px-2.5 py-2.5 text-right">Hold %</ResizableTh>
+                )}
                 {/* Consumables */}
-                <th className="px-2.5 py-2.5 text-center">Needle Broken</th>
-                <th className="px-2.5 py-2.5 text-center">Needle / Kg</th>
-                <th className="px-2.5 py-2.5 text-center">Sinker Broken</th>
-                <th className="px-2.5 py-2.5 text-center">Oil Cons (Ltr)</th>
+                {isColVisible('needleBroken') && (
+                  <ResizableTh width={getColWidth('needleBroken')} onWidthChange={(w) => setColumnWidth('needleBroken', w)} className="px-2.5 py-2.5 text-center">Needle Broken</ResizableTh>
+                )}
+                {isColVisible('needlePerKg') && (
+                  <ResizableTh width={getColWidth('needlePerKg')} onWidthChange={(w) => setColumnWidth('needlePerKg', w)} className="px-2.5 py-2.5 text-center">Needle / Kg</ResizableTh>
+                )}
+                {isColVisible('sinkerBroken') && (
+                  <ResizableTh width={getColWidth('sinkerBroken')} onWidthChange={(w) => setColumnWidth('sinkerBroken', w)} className="px-2.5 py-2.5 text-center">Sinker Broken</ResizableTh>
+                )}
+                {isColVisible('oilCons') && (
+                  <ResizableTh width={getColWidth('oilCons')} onWidthChange={(w) => setColumnWidth('oilCons', w)} className="px-2.5 py-2.5 text-center">Oil Cons (Ltr)</ResizableTh>
+                )}
                 {/* Performance */}
-                <th className="px-2.5 py-2.5 text-right">Loss for Efficiency</th>
+                {isColVisible('lossEfficiency') && (
+                  <ResizableTh width={getColWidth('lossEfficiency')} onWidthChange={(w) => setColumnWidth('lossEfficiency', w)} className="px-2.5 py-2.5 text-right">Loss for Efficiency</ResizableTh>
+                )}
                 {/* Manpower */}
-                <th className="px-2.5 py-2.5 text-center">Total Staff</th>
-                <th className="px-2.5 py-2.5 text-center">Absent</th>
-                <th className="px-2.5 py-2.5 text-center">Absent %</th>
+                {isColVisible('totalStaff') && (
+                  <ResizableTh width={getColWidth('totalStaff')} onWidthChange={(w) => setColumnWidth('totalStaff', w)} className="px-2.5 py-2.5 text-center">Total Staff</ResizableTh>
+                )}
+                {isColVisible('absentStaff') && (
+                  <ResizableTh width={getColWidth('absentStaff')} onWidthChange={(w) => setColumnWidth('absentStaff', w)} className="px-2.5 py-2.5 text-center">Absent</ResizableTh>
+                )}
+                {isColVisible('absentPct') && (
+                  <ResizableTh width={getColWidth('absentPct')} onWidthChange={(w) => setColumnWidth('absentPct', w)} className="px-2.5 py-2.5 text-center">Absent %</ResizableTh>
+                )}
                 {/* Other */}
-                <th className="px-2.5 py-2.5 text-center">Set Change</th>
-                <th className="px-4 py-2.5 text-left">Remarks</th>
+                {isColVisible('setChange') && (
+                  <ResizableTh width={getColWidth('setChange')} onWidthChange={(w) => setColumnWidth('setChange', w)} className="px-2.5 py-2.5 text-center">Set Change</ResizableTh>
+                )}
+                {isColVisible('remarks') && (
+                  <ResizableTh width={getColWidth('remarks')} onWidthChange={(w) => setColumnWidth('remarks', w)} className="px-4 py-2.5 text-left">Remarks</ResizableTh>
+                )}
                 {/* Sub-Contact */}
-                <th className="px-2.5 py-2.5 text-center cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => { setSortField('productionFlatKnit'); setSortAsc(!sortAsc); }}>Flat Knit (PCS)</th>
-                <th className="px-2.5 py-2.5 text-right cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => { setSortField('yarnIssued'); setSortAsc(!sortAsc); }}>Yarn Issued (Kg)</th>
-                <th className="px-2.5 py-2.5 text-center cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => { setSortField('runningFactories'); setSortAsc(!sortAsc); }}>Running Factories</th>
-                <th className="px-2.5 py-2.5 text-center cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => { setSortField('runningMachine'); setSortAsc(!sortAsc); }}>Running Machine</th>
-                <th className="px-2.5 py-2.5 text-right cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700" onClick={() => { setSortField('fabricReturn'); setSortAsc(!sortAsc); }}>Fabric Return (Kg)</th>
+                {isColVisible('productionFlatKnit') && (
+                  <ResizableTh width={getColWidth('productionFlatKnit')} onWidthChange={(w) => setColumnWidth('productionFlatKnit', w)} className="px-2.5 py-2.5 text-center cursor-pointer" onClick={() => { setSortField('productionFlatKnit'); setSortAsc(!sortAsc); }}>Flat Knit (PCS)</ResizableTh>
+                )}
+                {isColVisible('yarnIssued') && (
+                  <ResizableTh width={getColWidth('yarnIssued')} onWidthChange={(w) => setColumnWidth('yarnIssued', w)} className="px-2.5 py-2.5 text-right cursor-pointer" onClick={() => { setSortField('yarnIssued'); setSortAsc(!sortAsc); }}>Yarn Issued (Kg)</ResizableTh>
+                )}
+                {isColVisible('runningFactories') && (
+                  <ResizableTh width={getColWidth('runningFactories')} onWidthChange={(w) => setColumnWidth('runningFactories', w)} className="px-2.5 py-2.5 text-center cursor-pointer" onClick={() => { setSortField('runningFactories'); setSortAsc(!sortAsc); }}>Running Factories</ResizableTh>
+                )}
+                {isColVisible('subMcRunning') && (
+                  <ResizableTh width={getColWidth('subMcRunning')} onWidthChange={(w) => setColumnWidth('subMcRunning', w)} className="px-2.5 py-2.5 text-center cursor-pointer" onClick={() => { setSortField('runningMachine'); setSortAsc(!sortAsc); }}>Running Machine</ResizableTh>
+                )}
+                {isColVisible('fabricReturn') && (
+                  <ResizableTh width={getColWidth('fabricReturn')} onWidthChange={(w) => setColumnWidth('fabricReturn', w)} className="px-2.5 py-2.5 text-right cursor-pointer" onClick={() => { setSortField('fabricReturn'); setSortAsc(!sortAsc); }}>Fabric Return (Kg)</ResizableTh>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-slate-800 text-gray-700 dark:text-slate-300">
@@ -1452,70 +1609,72 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                   }`}
                 >
                   {/* General */}
-                  <td className="px-2.5 py-3 text-gray-400 font-mono whitespace-nowrap">{r.year}</td>
-                  <td className="px-2.5 py-3 text-gray-400 whitespace-nowrap">{r.month}</td>
-                  <td className="px-3.5 py-3 font-mono font-bold whitespace-nowrap text-gray-900 dark:text-slate-100">{formatDateFriendly(r.date)}</td>
-                  <td className="px-3.5 py-3 font-black whitespace-nowrap text-gray-900 dark:text-slate-100">{r.floor}</td>
+                  {isColVisible('year') && <td style={{ width: `${getColWidth('year')}px`, minWidth: `${getColWidth('year')}px`, maxWidth: `${getColWidth('year')}px`, ...getStickyStyle('year') }} className={`px-2.5 py-3 text-gray-400 font-mono whitespace-nowrap ${getStickyClass('year')}`}>{r.year}</td>}
+                  {isColVisible('month') && <td style={{ width: `${getColWidth('month')}px`, minWidth: `${getColWidth('month')}px`, maxWidth: `${getColWidth('month')}px`, ...getStickyStyle('month') }} className={`px-2.5 py-3 text-gray-400 whitespace-nowrap ${getStickyClass('month')}`}>{r.month}</td>}
+                  {isColVisible('date') && <td style={{ width: `${getColWidth('date')}px`, minWidth: `${getColWidth('date')}px`, maxWidth: `${getColWidth('date')}px`, ...getStickyStyle('date') }} className={`px-3.5 py-3 font-mono font-bold whitespace-nowrap text-gray-900 dark:text-slate-100 ${getStickyClass('date')}`}>{formatDateFriendly(r.date)}</td>}
+                  {isColVisible('floor') && <td style={{ width: `${getColWidth('floor')}px`, minWidth: `${getColWidth('floor')}px`, maxWidth: `${getColWidth('floor')}px`, ...getStickyStyle('floor') }} className={`px-3.5 py-3 font-black whitespace-nowrap text-gray-900 dark:text-slate-100 ${getStickyClass('floor')}`}>{r.floor}</td>}
 
                   {/* Production */}
-                  <td className="px-3 py-3 font-mono font-semibold text-right whitespace-nowrap text-gray-500">{r.target.toLocaleString()}</td>
-                  <td className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-500">{r.shiftA.toLocaleString()}</td>
-                  <td className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-500">{r.shiftB.toLocaleString()}</td>
-                  <td className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-500">{r.shiftC.toLocaleString()}</td>
-                  <td className="px-3 py-3 font-mono font-black text-right whitespace-nowrap text-[#0F4C81] dark:text-blue-300">{r.totalProduction.toLocaleString()}</td>
-                  <td className="px-3 py-3 font-mono font-black text-right whitespace-nowrap text-emerald-600 dark:text-emerald-400">{(r.target > 0 ? (r.totalProduction / r.target) * 100 : 0).toFixed(1)}%</td>
-                  <td className="px-2.5 py-3 font-mono text-center whitespace-nowrap">
-                    <span className={`px-2 py-0.5 rounded-sm font-black text-[10px] ${
-                      r.efficiency >= 95 
-                        ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' 
-                        : r.efficiency >= 85 
-                          ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' 
-                          : 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400'
-                    }`}>
-                      {r.efficiency}%
-                    </span>
-                  </td>
-                  <td className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500">{r.capacityUtilization}%</td>
+                  {isColVisible('target') && <td style={{ width: `${getColWidth('target')}px`, minWidth: `${getColWidth('target')}px`, maxWidth: `${getColWidth('target')}px` }} className="px-3 py-3 font-mono font-semibold text-right whitespace-nowrap text-gray-500">{r.target.toLocaleString()}</td>}
+                  {isColVisible('shiftA') && <td style={{ width: `${getColWidth('shiftA')}px`, minWidth: `${getColWidth('shiftA')}px`, maxWidth: `${getColWidth('shiftA')}px` }} className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-500">{r.shiftA.toLocaleString()}</td>}
+                  {isColVisible('shiftB') && <td style={{ width: `${getColWidth('shiftB')}px`, minWidth: `${getColWidth('shiftB')}px`, maxWidth: `${getColWidth('shiftB')}px` }} className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-500">{r.shiftB.toLocaleString()}</td>}
+                  {isColVisible('shiftC') && <td style={{ width: `${getColWidth('shiftC')}px`, minWidth: `${getColWidth('shiftC')}px`, maxWidth: `${getColWidth('shiftC')}px` }} className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-500">{r.shiftC.toLocaleString()}</td>}
+                  {isColVisible('totalProduction') && <td style={{ width: `${getColWidth('totalProduction')}px`, minWidth: `${getColWidth('totalProduction')}px`, maxWidth: `${getColWidth('totalProduction')}px` }} className="px-3 py-3 font-mono font-black text-right whitespace-nowrap text-[#0F4C81] dark:text-blue-300">{r.totalProduction.toLocaleString()}</td>}
+                  {isColVisible('achievement') && <td style={{ width: `${getColWidth('achievement')}px`, minWidth: `${getColWidth('achievement')}px`, maxWidth: `${getColWidth('achievement')}px` }} className="px-3 py-3 font-mono font-black text-right whitespace-nowrap text-emerald-600 dark:text-emerald-400">{(r.target > 0 ? (r.totalProduction / r.target) * 100 : 0).toFixed(1)}%</td>}
+                  {isColVisible('efficiency') && (
+                    <td style={{ width: `${getColWidth('efficiency')}px`, minWidth: `${getColWidth('efficiency')}px`, maxWidth: `${getColWidth('efficiency')}px` }} className="px-2.5 py-3 font-mono text-center whitespace-nowrap">
+                      <span className={`px-2 py-0.5 rounded-sm font-black text-[10px] ${
+                        r.efficiency >= 95 
+                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' 
+                          : r.efficiency >= 85 
+                            ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' 
+                            : 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400'
+                      }`}>
+                        {r.efficiency}%
+                      </span>
+                    </td>
+                  )}
+                  {isColVisible('capacityUtilization') && <td style={{ width: `${getColWidth('capacityUtilization')}px`, minWidth: `${getColWidth('capacityUtilization')}px`, maxWidth: `${getColWidth('capacityUtilization')}px` }} className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500">{r.capacityUtilization}%</td>}
 
                   {/* Machine */}
-                  <td className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-400">{getTotalMachinesForFloor(r.floor)}</td>
-                  <td className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-emerald-600 font-bold">{r.runningMachine}</td>
-                  <td className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-400">{r.idleMachine}</td>
-                  <td className="px-2.5 py-3 font-mono text-center whitespace-nowrap font-bold text-gray-800 dark:text-slate-200">{r.machineUtilization}%</td>
-                  <td className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-400">{r.idleMachinePct}%</td>
-                  <td className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-400">{r.idleProduction.toLocaleString()}</td>
-                  <td className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-500">{r.productionPerMachine}</td>
+                  {isColVisible('totalMachine') && <td style={{ width: `${getColWidth('totalMachine')}px`, minWidth: `${getColWidth('totalMachine')}px`, maxWidth: `${getColWidth('totalMachine')}px` }} className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-400">{getTotalMachinesForFloor(r.floor)}</td>}
+                  {isColVisible('runningMachine') && <td style={{ width: `${getColWidth('runningMachine')}px`, minWidth: `${getColWidth('runningMachine')}px`, maxWidth: `${getColWidth('runningMachine')}px` }} className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-emerald-600 font-bold">{r.runningMachine}</td>}
+                  {isColVisible('idleMachine') && <td style={{ width: `${getColWidth('idleMachine')}px`, minWidth: `${getColWidth('idleMachine')}px`, maxWidth: `${getColWidth('idleMachine')}px` }} className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-400">{r.idleMachine}</td>}
+                  {isColVisible('mcUtil') && <td style={{ width: `${getColWidth('mcUtil')}px`, minWidth: `${getColWidth('mcUtil')}px`, maxWidth: `${getColWidth('mcUtil')}px` }} className="px-2.5 py-3 font-mono text-center whitespace-nowrap font-bold text-gray-800 dark:text-slate-200">{r.machineUtilization}%</td>}
+                  {isColVisible('idleMcPct') && <td style={{ width: `${getColWidth('idleMcPct')}px`, minWidth: `${getColWidth('idleMcPct')}px`, maxWidth: `${getColWidth('idleMcPct')}px` }} className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-400">{r.idleMachinePct}%</td>}
+                  {isColVisible('idleProdLoss') && <td style={{ width: `${getColWidth('idleProdLoss')}px`, minWidth: `${getColWidth('idleProdLoss')}px`, maxWidth: `${getColWidth('idleProdLoss')}px` }} className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-400">{r.idleProduction.toLocaleString()}</td>}
+                  {isColVisible('prodPerMc') && <td style={{ width: `${getColWidth('prodPerMc')}px`, minWidth: `${getColWidth('prodPerMc')}px`, maxWidth: `${getColWidth('prodPerMc')}px` }} className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-500">{r.productionPerMachine}</td>}
 
                   {/* Quality */}
-                  <td className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-red-600 font-bold">{r.reject.toLocaleString()}</td>
-                  <td className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-red-500">{r.rejectPct}%</td>
-                  <td className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-amber-600">{r.hold.toLocaleString()}</td>
-                  <td className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-amber-500">{r.holdPct}%</td>
+                  {isColVisible('rejectKg') && <td style={{ width: `${getColWidth('rejectKg')}px`, minWidth: `${getColWidth('rejectKg')}px`, maxWidth: `${getColWidth('rejectKg')}px` }} className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-red-600 font-bold">{r.reject.toLocaleString()}</td>}
+                  {isColVisible('rejectPct') && <td style={{ width: `${getColWidth('rejectPct')}px`, minWidth: `${getColWidth('rejectPct')}px`, maxWidth: `${getColWidth('rejectPct')}px` }} className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-red-500">{r.rejectPct}%</td>}
+                  {isColVisible('holdKg') && <td style={{ width: `${getColWidth('holdKg')}px`, minWidth: `${getColWidth('holdKg')}px`, maxWidth: `${getColWidth('holdKg')}px` }} className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-amber-600">{r.hold.toLocaleString()}</td>}
+                  {isColVisible('holdPct') && <td style={{ width: `${getColWidth('holdPct')}px`, minWidth: `${getColWidth('holdPct')}px`, maxWidth: `${getColWidth('holdPct')}px` }} className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-amber-500">{r.holdPct}%</td>}
 
                   {/* Consumables */}
-                  <td className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500">{r.needleBroken}</td>
-                  <td className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-400">{r.needlePerKg.toFixed(4)}</td>
-                  <td className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500">{r.sinkerBroken}</td>
-                  <td className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500">{r.oilConsumption}</td>
+                  {isColVisible('needleBroken') && <td style={{ width: `${getColWidth('needleBroken')}px`, minWidth: `${getColWidth('needleBroken')}px`, maxWidth: `${getColWidth('needleBroken')}px` }} className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500">{r.needleBroken}</td>}
+                  {isColVisible('needlePerKg') && <td style={{ width: `${getColWidth('needlePerKg')}px`, minWidth: `${getColWidth('needlePerKg')}px`, maxWidth: `${getColWidth('needlePerKg')}px` }} className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-400">{r.needlePerKg.toFixed(4)}</td>}
+                  {isColVisible('sinkerBroken') && <td style={{ width: `${getColWidth('sinkerBroken')}px`, minWidth: `${getColWidth('sinkerBroken')}px`, maxWidth: `${getColWidth('sinkerBroken')}px` }} className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500">{r.sinkerBroken}</td>}
+                  {isColVisible('oilCons') && <td style={{ width: `${getColWidth('oilCons')}px`, minWidth: `${getColWidth('oilCons')}px`, maxWidth: `${getColWidth('oilCons')}px` }} className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500">{r.oilConsumption}</td>}
 
                   {/* Performance */}
-                  <td className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-red-500">{r.productionLossForEfficiency.toLocaleString()}</td>
+                  {isColVisible('lossEfficiency') && <td style={{ width: `${getColWidth('lossEfficiency')}px`, minWidth: `${getColWidth('lossEfficiency')}px`, maxWidth: `${getColWidth('lossEfficiency')}px` }} className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-red-500">{r.productionLossForEfficiency.toLocaleString()}</td>}
 
                   {/* Manpower */}
-                  <td className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500">{r.totalOperator}</td>
-                  <td className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-red-500">{r.absent}</td>
-                  <td className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-red-400">{r.absentPct}%</td>
+                  {isColVisible('totalStaff') && <td style={{ width: `${getColWidth('totalStaff')}px`, minWidth: `${getColWidth('totalStaff')}px`, maxWidth: `${getColWidth('totalStaff')}px` }} className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500">{r.totalOperator}</td>}
+                  {isColVisible('absentStaff') && <td style={{ width: `${getColWidth('absentStaff')}px`, minWidth: `${getColWidth('absentStaff')}px`, maxWidth: `${getColWidth('absentStaff')}px` }} className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-red-500">{r.absent}</td>}
+                  {isColVisible('absentPct') && <td style={{ width: `${getColWidth('absentPct')}px`, minWidth: `${getColWidth('absentPct')}px`, maxWidth: `${getColWidth('absentPct')}px` }} className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-red-400">{r.absentPct}%</td>}
 
                   {/* Other */}
-                  <td className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500">{r.setChange}</td>
-                  <td className="px-4 py-3 whitespace-normal max-w-xs text-gray-500 truncate" title={r.remarks}>{r.remarks}</td>
+                  {isColVisible('setChange') && <td style={{ width: `${getColWidth('setChange')}px`, minWidth: `${getColWidth('setChange')}px`, maxWidth: `${getColWidth('setChange')}px` }} className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500">{r.setChange}</td>}
+                  {isColVisible('remarks') && <td style={{ width: `${getColWidth('remarks')}px`, minWidth: `${getColWidth('remarks')}px`, maxWidth: `${getColWidth('remarks')}px` }} className="px-4 py-3 whitespace-normal text-gray-500 truncate" title={r.remarks}>{r.remarks}</td>}
 
                   {/* Sub-Contact */}
-                  <td className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500">{r.floor === 'Sub-Contact' ? (r.productionFlatKnit ?? 0).toLocaleString() : ''}</td>
-                  <td className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-500">{r.floor === 'Sub-Contact' ? (r.yarnIssued ?? 0).toLocaleString() : ''}</td>
-                  <td className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500">{r.floor === 'Sub-Contact' ? (r.runningFactories ?? 0).toLocaleString() : ''}</td>
-                  <td className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500">{r.floor === 'Sub-Contact' ? (r.runningMachine ?? 0).toLocaleString() : ''}</td>
-                  <td className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-500">{r.floor === 'Sub-Contact' ? (r.fabricReturn ?? 0).toLocaleString() : ''}</td>
+                  {isColVisible('productionFlatKnit') && <td style={{ width: `${getColWidth('productionFlatKnit')}px`, minWidth: `${getColWidth('productionFlatKnit')}px`, maxWidth: `${getColWidth('productionFlatKnit')}px` }} className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500">{r.floor === 'Sub-Contact' ? (r.productionFlatKnit ?? 0).toLocaleString() : ''}</td>}
+                  {isColVisible('yarnIssued') && <td style={{ width: `${getColWidth('yarnIssued')}px`, minWidth: `${getColWidth('yarnIssued')}px`, maxWidth: `${getColWidth('yarnIssued')}px` }} className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-500">{r.floor === 'Sub-Contact' ? (r.yarnIssued ?? 0).toLocaleString() : ''}</td>}
+                  {isColVisible('runningFactories') && <td style={{ width: `${getColWidth('runningFactories')}px`, minWidth: `${getColWidth('runningFactories')}px`, maxWidth: `${getColWidth('runningFactories')}px` }} className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500">{r.floor === 'Sub-Contact' ? (r.runningFactories ?? 0).toLocaleString() : ''}</td>}
+                  {isColVisible('subMcRunning') && <td style={{ width: `${getColWidth('subMcRunning')}px`, minWidth: `${getColWidth('subMcRunning')}px`, maxWidth: `${getColWidth('subMcRunning')}px` }} className="px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500">{r.floor === 'Sub-Contact' ? (r.runningMachine ?? 0).toLocaleString() : ''}</td>}
+                  {isColVisible('fabricReturn') && <td style={{ width: `${getColWidth('fabricReturn')}px`, minWidth: `${getColWidth('fabricReturn')}px`, maxWidth: `${getColWidth('fabricReturn')}px` }} className="px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-500">{r.floor === 'Sub-Contact' ? (r.fabricReturn ?? 0).toLocaleString() : ''}</td>}
 
                   {/* Sticky right actions row */}
                   <td className="px-4 py-3 text-center whitespace-nowrap sticky right-0 bg-white dark:bg-slate-900 z-10">
