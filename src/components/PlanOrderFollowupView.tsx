@@ -39,8 +39,19 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
-  ChevronsRight
+  ChevronsRight,
+  Building2,
 } from 'lucide-react';
+
+export const getYesterdayDateString = (): string => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const dayPad = String(d.getDate()).padStart(2, '0');
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthShort = monthNames[d.getMonth()];
+  const yr2 = String(d.getFullYear()).slice(-2);
+  return `${dayPad}-${monthShort}-${yr2}`;
+};
 
 export interface OrderPlan {
   id: string;
@@ -68,6 +79,7 @@ export interface OrderPlan {
   knitEndOtd: 'Passed' | 'Failed' | 'Pending';
   knitStartRemarks: string;
   knitEndRemarks: string;
+  knitTeamLeaders: string;
 }
 
 /**
@@ -162,7 +174,8 @@ const INITIAL_ORDERS: OrderPlan[] = [
     knitStartOtd: 'Passed',
     knitEndOtd: 'Passed',
     knitStartRemarks: '',
-    knitEndRemarks: ''
+    knitEndRemarks: '',
+    knitTeamLeaders: ''
   },
   {
     id: 'ord-270258-2',
@@ -189,7 +202,8 @@ const INITIAL_ORDERS: OrderPlan[] = [
     knitStartOtd: 'Failed',
     knitEndOtd: 'Failed',
     knitStartRemarks: '',
-    knitEndRemarks: ''
+    knitEndRemarks: '',
+    knitTeamLeaders: ''
   },
   {
     id: 'ord-270418',
@@ -216,7 +230,8 @@ const INITIAL_ORDERS: OrderPlan[] = [
     knitStartOtd: 'Failed',
     knitEndOtd: 'Failed',
     knitStartRemarks: '',
-    knitEndRemarks: ''
+    knitEndRemarks: '',
+    knitTeamLeaders: ''
   },
   {
     id: 'ord-270435',
@@ -243,7 +258,8 @@ const INITIAL_ORDERS: OrderPlan[] = [
     knitStartOtd: 'Pending',
     knitEndOtd: 'Pending',
     knitStartRemarks: '',
-    knitEndRemarks: ''
+    knitEndRemarks: '',
+    knitTeamLeaders: ''
   }
 ];
 
@@ -433,6 +449,7 @@ const PLAN_ORDER_COLUMNS: ColumnDef[] = [
   { id: 'knitEndOTD', label: 'Knit End OTD', defaultWidth: 120 },
   { id: 'knitStartRemarks', label: 'Knit Start Remarks', defaultWidth: 150 },
   { id: 'knitEndRemarks', label: 'Knit End Remarks', defaultWidth: 150 },
+  { id: 'knitTeamLeaders', label: 'Knit Team Leader', defaultWidth: 140 },
   { id: 'action', label: 'Action', defaultWidth: 90, alwaysVisible: true },
 ];
 
@@ -463,7 +480,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   const [buyerFilter, setBuyerFilter] = useState('All');
   const [planMonthFilter, setPlanMonthFilter] = useState('All');
   const [otdFilter, setOtdFilter] = useState('All');
-  const [knitStartSelect, setKnitStartSelect] = useState('All');
+  const [knitStartSelect, setKnitStartSelect] = useState<string>(() => getYesterdayDateString());
   const [knitEndSelect, setKnitEndSelect] = useState('All');
   const [showAddModal, setShowAddModal] = useState(false);
 
@@ -501,6 +518,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   const [editKnitEndOtd, setEditKnitEndOtd] = useState<'Passed' | 'Failed' | 'Pending'>('Pending');
   const [editKnitStartRemarks, setEditKnitStartRemarks] = useState('');
   const [editKnitEndRemarks, setEditKnitEndRemarks] = useState('');
+  const [editKnitTeamLeaders, setEditKnitTeamLeaders] = useState('');
 
   // Yarn Allocation state & filters
   const [yarnAllocations, setYarnAllocations] = useState<YarnAllocationRecord[]>(INITIAL_YARN_ALLOCATIONS);
@@ -678,7 +696,8 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         ord.planMonth.toLowerCase().includes(q) ||
         ord.planType.toLowerCase().includes(q) ||
         (ord.knitStart && ord.knitStart.toLowerCase().includes(q)) ||
-        (ord.knitEnd && ord.knitEnd.toLowerCase().includes(q));
+        (ord.knitEnd && ord.knitEnd.toLowerCase().includes(q)) ||
+        (ord.knitTeamLeaders && ord.knitTeamLeaders.toLowerCase().includes(q));
       
       const matchesBuyer = buyerFilter === 'All' || ord.buyer === buyerFilter;
       const matchesMonth = planMonthFilter === 'All' || ord.planMonth === planMonthFilter;
@@ -723,6 +742,10 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     return Array.from(set);
   }, [orders]);
 
+  const planMonthOptions = useMemo(() => {
+    return monthsList.map(m => ({ label: `Month: ${m}`, value: m }));
+  }, [monthsList]);
+
   const knitStartsList = useMemo(() => {
     const set = new Set(orders.map(o => o.knitStart).filter(Boolean));
     return Array.from(set).sort();
@@ -734,8 +757,16 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   }, [orders]);
 
   const knitStartOptions = useMemo(() => {
-    return knitStartsList.map(ks => ({ label: `Knit Start: ${ks}`, value: ks }));
-  }, [knitStartsList]);
+    const opts = knitStartsList.map(ks => ({ label: `Knit Start: ${ks}`, value: ks }));
+    const yesterdayStr = getYesterdayDateString();
+    if (knitStartSelect !== 'All' && !knitStartsList.includes(knitStartSelect)) {
+      opts.unshift({ 
+        label: `Knit Start: ${knitStartSelect}${knitStartSelect === yesterdayStr ? ' (Yesterday)' : ''}`, 
+        value: knitStartSelect 
+      });
+    }
+    return opts;
+  }, [knitStartsList, knitStartSelect]);
 
   const knitEndOptions = useMemo(() => {
     return knitEndsList.map(ke => ({ label: `Knit End: ${ke}`, value: ke }));
@@ -753,8 +784,16 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   const totalGreyReq = filteredOrders.reduce((sum, o) => sum + (o.greyReq || 0), 0);
   const totalKnitPro = filteredOrders.reduce((sum, o) => sum + (o.knitPro || 0), 0);
   const totalKnitBal = filteredOrders.reduce((sum, o) => sum + (o.knitBal || 0), 0);
-  const otdPassedCount = filteredOrders.filter(o => o.knitEndOtd === 'Passed').length;
-  const otdTotalCount = filteredOrders.filter(o => o.knitEndOtd !== 'Pending').length;
+  const otdPassedCount = filteredOrders.filter(
+    o => o.knitStartOtd !== 'Failed' && o.knitEndOtd !== 'Failed' && (o.knitStartOtd === 'Passed' || o.knitEndOtd === 'Passed')
+  ).length;
+  const otdFailedCount = filteredOrders.filter(
+    o => o.knitStartOtd === 'Failed' || o.knitEndOtd === 'Failed'
+  ).length;
+  const otdPendingCount = filteredOrders.filter(
+    o => o.knitStartOtd === 'Pending' && o.knitEndOtd === 'Pending'
+  ).length;
+  const otdTotalCount = otdPassedCount + otdFailedCount;
   const otdRate = otdTotalCount > 0 ? Math.round((otdPassedCount / otdTotalCount) * 100) : 100;
 
   // Add order submission
@@ -791,7 +830,8 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       knitStartOtd: 'Pending',
       knitEndOtd: 'Pending',
       knitStartRemarks: '',
-      knitEndRemarks: ''
+      knitEndRemarks: '',
+      knitTeamLeaders: ''
     };
 
     const updated = [newEntry, ...orders];
@@ -823,6 +863,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     setEditKnitEndOtd(ord.knitEndOtd || 'Pending');
     setEditKnitStartRemarks(ord.knitStartRemarks || '');
     setEditKnitEndRemarks(ord.knitEndRemarks || '');
+    setEditKnitTeamLeaders(ord.knitTeamLeaders || '');
     setShowEditModal(true);
   };
 
@@ -832,8 +873,26 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
 
     const updatedOrder: OrderPlan = {
       ...editingOrder,
+      planMonth: editPlanMonth,
+      planType: editPlanType,
+      ewo: editEwo,
+      buyer: editBuyer,
+      color: editColor,
+      knitStart: editKnitStart,
+      knitEnd: editKnitEnd,
+      target: parseFloat(editTarget) || 0,
+      allocationStart: editAllocationStart,
+      allocationEnd: editAllocationEnd,
+      allocatedQty: parseFloat(editAllocatedQty) || 0,
+      greyReq: parseFloat(editGreyReq) || 0,
+      knitPro: parseFloat(editKnitPro) || 0,
+      aKnitStart: editAKnitStart,
+      lastProductionDate: editLastProductionDate,
+      knitStartOtd: editKnitStartOtd,
+      knitEndOtd: editKnitEndOtd,
       knitStartRemarks: editKnitStartRemarks.trim(),
       knitEndRemarks: editKnitEndRemarks.trim(),
+      knitTeamLeaders: editKnitTeamLeaders.trim(),
     };
 
     const updatedList = orders.map(o => o.id === editingOrder.id ? updatedOrder : o);
@@ -863,7 +922,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       "Allocated Bal.","GREY REQ.","KNIT PRO.","KNIT BAL.","A.Knit Start",
       "Knit Start VS A. Knit Start","A. Knit End/Last Production Date","Knit End VS A. Knit End",
       "Avg Prod/Day","Expected Knit End","Knit Start OTD",
-      "Knit End OTD","Knit Start Remarks","Knit End Remarks"
+      "Knit End OTD","Knit Start Remarks","Knit End Remarks","Knit Team Leader"
     ];
 
     const rows = filteredOrders.map(o => {
@@ -876,7 +935,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         o.allocatedBal, o.greyReq, o.knitPro, o.knitBal, o.aKnitStart,
         startVar.formatted, o.lastProductionDate, endVar.formatted,
         o.avgProdDay, o.expectedKnitEnd, o.knitStartOtd,
-        o.knitEndOtd, o.knitStartRemarks, o.knitEndRemarks
+        o.knitEndOtd, o.knitStartRemarks, o.knitEndRemarks, o.knitTeamLeaders || ''
       ];
     });
 
@@ -960,11 +1019,27 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
           </div>
         </div>
 
-        <div className="col-span-2 sm:col-span-4 lg:col-span-1 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 shadow-xs">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">OTD Pass Rate</span>
+        <div className="col-span-2 sm:col-span-4 lg:col-span-1 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 shadow-xs" title={`OTD Breakdown out of ${filteredOrders.length} Total Orders: ${otdPassedCount} Passed, ${otdFailedCount} Failed, ${otdPendingCount} Pending`}>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">OTD Pass Rate</span>
+            <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded-md" title={`${otdTotalCount} evaluated out of ${filteredOrders.length} total orders`}>
+              {otdTotalCount.toLocaleString()} / {filteredOrders.length.toLocaleString()} Orders
+            </span>
+          </div>
           <div className="mt-1 flex items-baseline gap-1.5">
             <span className="text-xl font-black text-indigo-600 dark:text-indigo-400">{otdRate}%</span>
             <span className="text-[10px] font-bold text-slate-400">On-Time</span>
+          </div>
+          <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-semibold text-slate-400 flex-wrap">
+            <span className="text-emerald-600 dark:text-emerald-400 font-bold">{otdPassedCount.toLocaleString()} Passed</span>
+            <span>•</span>
+            <span className="text-rose-600 dark:text-rose-400 font-bold">{otdFailedCount.toLocaleString()} Failed</span>
+            {otdPendingCount > 0 && (
+              <>
+                <span>•</span>
+                <span className="text-amber-600 dark:text-amber-400">{otdPendingCount.toLocaleString()} Pending</span>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -1034,6 +1109,14 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
               />
 
               <SearchableSelect
+                value={planMonthFilter}
+                onChange={setPlanMonthFilter}
+                options={planMonthOptions}
+                allLabel="All Plan Months"
+                placeholder="Search Month..."
+              />
+
+              <SearchableSelect
                 value={knitStartSelect}
                 onChange={setKnitStartSelect}
                 options={knitStartOptions}
@@ -1077,12 +1160,13 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                 onSetFreezeCount={setFreezeCount}
               />
 
-              {(searchQuery !== '' || buyerFilter !== 'All' || knitStartSelect !== 'All' || knitEndSelect !== 'All' || otdFilter !== 'All') && (
+              {(searchQuery !== '' || buyerFilter !== 'All' || planMonthFilter !== 'All' || knitStartSelect !== 'All' || knitEndSelect !== 'All' || otdFilter !== 'All') && (
                 <button
                   type="button"
                   onClick={() => {
                     setSearchQuery('');
                     setBuyerFilter('All');
+                    setPlanMonthFilter('All');
                     setKnitStartSelect('All');
                     setKnitEndSelect('All');
                     setOtdFilter('All');
@@ -1213,6 +1297,9 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                     {isColVisible('knitEndRemarks') && (
                       <ResizableTh width={getColWidth('knitEndRemarks')} onWidthChange={(w) => setColumnWidth('knitEndRemarks', w)} isSticky={isColFrozen('knitEndRemarks')} stickyLeft={getStickyLeft('knitEndRemarks')} isLastFrozen={'knitEndRemarks' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap">Knit End Remarks</ResizableTh>
                     )}
+                    {isColVisible('knitTeamLeaders') && (
+                      <ResizableTh width={getColWidth('knitTeamLeaders')} onWidthChange={(w) => setColumnWidth('knitTeamLeaders', w)} isSticky={isColFrozen('knitTeamLeaders')} stickyLeft={getStickyLeft('knitTeamLeaders')} isLastFrozen={'knitTeamLeaders' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap">Knit Team Leader</ResizableTh>
+                    )}
                     {isColVisible('action') && (
                       <ResizableTh width={getColWidth('action')} onWidthChange={(w) => setColumnWidth('action', w)} isSticky={isColFrozen('action')} stickyLeft={getStickyLeft('action')} isLastFrozen={'action' === lastFrozenColId} className="px-3.5 py-3.5 whitespace-nowrap text-center">Action</ResizableTh>
                     )}
@@ -1221,7 +1308,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-800 dark:text-slate-200 font-medium">
                   {paginatedOrders.length === 0 ? (
                     <tr>
-                      <td colSpan={27} className="px-4 py-12 text-center text-slate-400 font-medium">
+                      <td colSpan={28} className="px-4 py-12 text-center text-slate-400 font-medium">
                         No order plans match the selected filter criteria.
                       </td>
                     </tr>
@@ -1478,6 +1565,13 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                               )}
                             </td>
                           )}
+                          {isColVisible('knitTeamLeaders') && (
+                            <td style={{ width: `${getColWidth('knitTeamLeaders')}px`, minWidth: `${getColWidth('knitTeamLeaders')}px`, maxWidth: `${getColWidth('knitTeamLeaders')}px`, ...getStickyStyle('knitTeamLeaders') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 overflow-hidden ${getStickyClass('knitTeamLeaders')}`}>
+                              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate block" title={ord.knitTeamLeaders || '-'}>
+                                {ord.knitTeamLeaders || '-'}
+                              </span>
+                            </td>
+                          )}
                           {isColVisible('action') && (
                             <td style={{ width: `${getColWidth('action')}px`, minWidth: `${getColWidth('action')}px`, maxWidth: `${getColWidth('action')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-center">
                             <div className="flex items-center justify-center gap-1">
@@ -1583,49 +1677,326 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       )}
 
       {/* SUB-TAB 2: BUYER SUMMARY */}
-      {activeSubTab === 'buyer' && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {buyersList.map(b => {
-            const buyerOrders = filteredOrders.filter(o => o.buyer === b);
-            const targetTotal = buyerOrders.reduce((sum, o) => sum + (o.target || 0), 0);
-            const knitProTotal = buyerOrders.reduce((sum, o) => sum + (o.knitPro || 0), 0);
-            const pct = targetTotal > 0 ? Math.min(100, Math.round((knitProTotal / targetTotal) * 100)) : 0;
+      {activeSubTab === 'buyer' && (() => {
+        const displayBuyers = buyerFilter === 'All'
+          ? buyersList
+          : buyersList.filter(b => b === buyerFilter);
 
-            return (
-              <div key={b} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-base font-black text-slate-900 dark:text-white">{b}</h3>
-                    <span className="text-xs text-slate-400 font-semibold">{buyerOrders.length} Order Rows</span>
-                  </div>
-                  <span className="text-xl font-black text-blue-600 dark:text-blue-400">{pct}%</span>
-                </div>
+        const yesterdayStr = getYesterdayDateString();
 
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs font-bold text-slate-500">
-                    <span>Knitted: {knitProTotal.toLocaleString()} Kg</span>
-                    <span>Target: {targetTotal.toLocaleString()} Kg</span>
-                  </div>
-                  <div className="h-3 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                    <div 
-                      className="h-full rounded-full bg-gradient-to-r from-blue-600 to-indigo-600" 
-                      style={{ width: `${pct}%` }} 
-                    />
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 font-medium">
-                  <span>Balance: {Math.max(0, targetTotal - knitProTotal).toLocaleString()} Kg</span>
-                  <span className="text-blue-600 font-bold cursor-pointer hover:underline" onClick={() => {
-                    setBuyerFilter(b);
-                    setActiveSubTab('summary');
-                  }}>View Spreadsheet Row →</span>
-                </div>
+        return (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            {/* Filter Toolbar inside Buyer Summary */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search EWO, Buyer, Color, Month..."
+                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 py-2 pl-9 pr-4 text-xs font-medium text-slate-900 dark:text-white focus:border-blue-500 focus:outline-hidden"
+                />
               </div>
-            );
-          })}
-        </div>
-      )}
+
+              <div className="flex flex-wrap items-center gap-2">
+                <SearchableSelect
+                  value={buyerFilter}
+                  onChange={setBuyerFilter}
+                  options={buyersList}
+                  allLabel="All Buyers"
+                  placeholder="Search Buyers..."
+                />
+
+                <SearchableSelect
+                  value={planMonthFilter}
+                  onChange={setPlanMonthFilter}
+                  options={planMonthOptions}
+                  allLabel="All Plan Months"
+                  placeholder="Search Month..."
+                />
+
+                <SearchableSelect
+                  value={knitStartSelect}
+                  onChange={setKnitStartSelect}
+                  options={knitStartOptions}
+                  allLabel="All Knit Start Dates"
+                  placeholder="Search Knit Start..."
+                />
+
+                <SearchableSelect
+                  value={knitEndSelect}
+                  onChange={setKnitEndSelect}
+                  options={knitEndOptions}
+                  allLabel="All Knit End Dates"
+                  placeholder="Search Knit End..."
+                />
+
+                <SearchableSelect
+                  value={otdFilter}
+                  onChange={setOtdFilter}
+                  options={otdOptions}
+                  allLabel="All OTD Status"
+                  placeholder="Search OTD Status..."
+                />
+
+                {(searchQuery !== '' || buyerFilter !== 'All' || planMonthFilter !== 'All' || knitStartSelect !== 'All' || knitEndSelect !== 'All' || otdFilter !== 'All') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setBuyerFilter('All');
+                      setPlanMonthFilter('All');
+                      setKnitStartSelect('All');
+                      setKnitEndSelect('All');
+                      setOtdFilter('All');
+                    }}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                    title="Clear all active filters"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    <span>Clear All Filters</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Notice banner if pre-selected Yesterday date has no matching orders */}
+            {knitStartSelect === yesterdayStr && filteredOrders.length === 0 && (
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 text-xs flex items-center justify-between shadow-2xs">
+                <div className="flex items-center gap-2">
+                  <Info className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <span>
+                    Default Knit Start Date filter applied: <strong>Yesterday ({yesterdayStr})</strong>. No orders match Yesterday in current dataset.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setKnitStartSelect('All')}
+                  className="px-3 py-1 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition-all cursor-pointer shadow-2xs"
+                >
+                  View All Dates
+                </button>
+              </div>
+            )}
+
+            {/* Buyer Cards Grid */}
+            {filteredOrders.length === 0 ? (
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-10 text-center space-y-3">
+                <Target className="h-10 w-10 text-slate-400 mx-auto" />
+                <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No Orders Found for Selected Filters</h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  There are no orders matching your current filter criteria. Try changing the Knit Start Date filter to "All Knit Start Dates" or reset all active filters.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setBuyerFilter('All');
+                    setPlanMonthFilter('All');
+                    setKnitStartSelect('All');
+                    setKnitEndSelect('All');
+                    setOtdFilter('All');
+                  }}
+                  className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition-all cursor-pointer shadow-xs"
+                >
+                  <X className="h-4 w-4" />
+                  <span>Reset All Filters</span>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                {displayBuyers.map(b => {
+                  const buyerOrders = filteredOrders.filter(o => o.buyer === b);
+                  if (buyerOrders.length === 0 && buyerFilter === 'All') return null;
+
+                  const totalOrders = buyerOrders.length;
+                  const targetQty = buyerOrders.reduce((sum, o) => sum + (o.target || 0), 0);
+                  const allocatedQty = buyerOrders.reduce((sum, o) => sum + (o.allocatedQty || 0), 0);
+                  const greyQty = buyerOrders.reduce((sum, o) => sum + (o.greyReq || 0), 0);
+                  const knitPro = buyerOrders.reduce((sum, o) => sum + (o.knitPro || 0), 0);
+                  const balance = buyerOrders.reduce((sum, o) => sum + (o.knitBal || 0), 0);
+                  const knitPct = targetQty > 0 ? Math.min(100, Math.round((knitPro / targetQty) * 100)) : 0;
+
+                  // Knit Start OTD
+                  const ksEval = buyerOrders.filter(o => o.knitStartOtd !== 'Pending');
+                  const ksPassed = buyerOrders.filter(o => o.knitStartOtd === 'Passed').length;
+                  const ksPassRate = ksEval.length > 0 ? Math.round((ksPassed / ksEval.length) * 100) : 100;
+
+                  // Knit End OTD
+                  const keEval = buyerOrders.filter(o => o.knitEndOtd !== 'Pending');
+                  const kePassed = buyerOrders.filter(o => o.knitEndOtd === 'Passed').length;
+                  const kePassRate = keEval.length > 0 ? Math.round((kePassed / keEval.length) * 100) : 100;
+
+                  // Pending Order Count
+                  const pendingOrdersCount = buyerOrders.filter(
+                    o => o.knitStartOtd === 'Pending' || o.knitEndOtd === 'Pending'
+                  ).length;
+
+                  // Overall Failed Orders & Rate
+                  const totalFailedOrders = buyerOrders.filter(
+                    o => o.knitStartOtd === 'Failed' || o.knitEndOtd === 'Failed'
+                  );
+                  const totalFailedCount = totalFailedOrders.length;
+                  const totalEvalCount = buyerOrders.filter(
+                    o => o.knitStartOtd !== 'Pending' || o.knitEndOtd !== 'Pending'
+                  ).length;
+                  const failedRate = totalEvalCount > 0
+                    ? Math.round((totalFailedCount / totalEvalCount) * 100)
+                    : (totalOrders > 0 ? Math.round((totalFailedCount / totalOrders) * 100) : 0);
+
+                  // Extract Major Reason for Failing
+                  const failureReasonsMap: Record<string, number> = {};
+                  totalFailedOrders.forEach(o => {
+                    const remarks = [o.knitStartRemarks, o.knitEndRemarks].filter(r => r && r.trim().length > 0);
+                    if (remarks.length === 0) {
+                      failureReasonsMap['Delay Reason Pending Review'] = (failureReasonsMap['Delay Reason Pending Review'] || 0) + 1;
+                    } else {
+                      remarks.forEach(r => {
+                        const cleaned = r.trim();
+                        failureReasonsMap[cleaned] = (failureReasonsMap[cleaned] || 0) + 1;
+                      });
+                    }
+                  });
+
+                  const sortedReasons = Object.entries(failureReasonsMap).sort((x, y) => y[1] - x[1]);
+                  const majorReason = sortedReasons.length > 0
+                    ? `${sortedReasons[0][0]} (${sortedReasons[0][1]} order${sortedReasons[0][1] > 1 ? 's' : ''})`
+                    : 'No Failures (100% On-Time)';
+
+                  return (
+                    <div key={b} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4 hover:border-slate-300 dark:hover:border-slate-700 transition-all">
+                      {/* Buyer Header */}
+                      <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 font-bold">
+                            <Building2 className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <h3 className="text-base font-black text-slate-900 dark:text-white">{b}</h3>
+                            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                              Total Orders in Plan: <strong className="text-slate-900 dark:text-white font-bold">{totalOrders.toLocaleString()} Orders</strong>
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Production Completion</span>
+                          <span className="text-xl font-black text-blue-600 dark:text-blue-400">{knitPct}%</span>
+                        </div>
+                      </div>
+
+                      {/* Quantities Breakdown Grid */}
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 bg-slate-50/80 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Target QTY</span>
+                          <span className="text-xs font-black text-slate-900 dark:text-white block">{targetQty.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Allocated QTY</span>
+                          <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 block">{allocatedQty.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Grey QTY</span>
+                          <span className="text-xs font-black text-slate-800 dark:text-slate-200 block">{greyQty.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Knit Prod.</span>
+                          <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 block">{knitPro.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
+                        </div>
+                        <div className="space-y-0.5 col-span-2 sm:col-span-1">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Balance QTY</span>
+                          <span className="text-xs font-black text-amber-600 dark:text-amber-400 block">{balance.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
+                        </div>
+                      </div>
+
+                      {/* Progress Bar */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                          <span>Knitted: {knitPro.toLocaleString()} Kg</span>
+                          <span>Target: {targetQty.toLocaleString()} Kg</span>
+                        </div>
+                        <div className="h-2.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                          <div 
+                            className="h-full rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 transition-all duration-300" 
+                            style={{ width: `${knitPct}%` }} 
+                          />
+                        </div>
+                      </div>
+
+                      {/* OTD Performance Section */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                        {/* Knit Start OTD */}
+                        <div className="p-2.5 rounded-xl border border-emerald-200/70 dark:border-emerald-900/40 bg-emerald-50/50 dark:bg-emerald-950/20">
+                          <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider block">Knit Start OTD</span>
+                          <div className="flex items-baseline justify-between mt-1">
+                            <span className="text-base font-black text-emerald-700 dark:text-emerald-300">{ksPassRate}%</span>
+                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/60 px-1.5 py-0.5 rounded-md">
+                              {ksPassed}/{ksEval.length} Passed
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Knit End OTD */}
+                        <div className="p-2.5 rounded-xl border border-blue-200/70 dark:border-blue-900/40 bg-blue-50/50 dark:bg-blue-950/20">
+                          <span className="text-[10px] font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider block">Knit End OTD</span>
+                          <div className="flex items-baseline justify-between mt-1">
+                            <span className="text-base font-black text-blue-700 dark:text-blue-300">{kePassRate}%</span>
+                            <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/60 px-1.5 py-0.5 rounded-md">
+                              {kePassed}/{keEval.length} Passed
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Failed & Pending Summary */}
+                        <div className="p-2.5 rounded-xl border border-rose-200/70 dark:border-rose-900/40 bg-rose-50/50 dark:bg-rose-950/20">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wider block">OTD Failed Rate</span>
+                            <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+                              {pendingOrdersCount} Pending
+                            </span>
+                          </div>
+                          <div className="flex items-baseline justify-between mt-1">
+                            <span className="text-base font-black text-rose-700 dark:text-rose-300">{failedRate}%</span>
+                            <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-100 dark:bg-rose-900/60 px-1.5 py-0.5 rounded-md">
+                              {totalFailedCount} Failed
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Major Reason for Failing */}
+                      <div className="p-2.5 rounded-xl border border-rose-200/60 dark:border-rose-900/40 bg-rose-50/30 dark:bg-rose-950/10 flex items-start gap-2 text-xs">
+                        <AlertCircle className="h-4 w-4 text-rose-500 shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wider block">Major Reason for Failing</span>
+                          <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate" title={majorReason}>
+                            {majorReason}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Footer Row */}
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 font-medium">
+                        <span>{buyerOrders.length} matching order rows</span>
+                        <button
+                          type="button"
+                          className="text-blue-600 dark:text-blue-400 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                          onClick={() => {
+                            setBuyerFilter(b);
+                            setActiveSubTab('summary');
+                          }}
+                        >
+                          View Spreadsheet Row →
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* SUB-TAB 4: DELIVERY TIMELINE */}
       {activeSubTab === 'delivery' && (
@@ -2097,6 +2468,16 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                           ? 'border-rose-400 dark:border-rose-600 focus:ring-rose-500/20'
                           : 'border-blue-300 dark:border-blue-600/80 focus:ring-blue-500/20'
                       }`}
+                    />
+                  </div>
+                  <div className="space-y-1 col-span-2">
+                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Knit Team Leader</label>
+                    <input
+                      type="text"
+                      value={editKnitTeamLeaders}
+                      onChange={(e) => setEditKnitTeamLeaders(e.target.value)}
+                      placeholder="e.g. Leader Name"
+                      className="w-full rounded-xl border border-blue-300 dark:border-blue-600/80 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500/20 focus:outline-hidden transition-all shadow-xs"
                     />
                   </div>
                 </div>

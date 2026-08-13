@@ -1124,7 +1124,8 @@ export class GasClient {
       knitStartOtd: String(getVal('knitStartOtd', 'Knit Start OTD') || '').trim(),
       knitEndOtd: String(getVal('knitEndOtd', 'Knit End OTD') || '').trim(),
       knitStartRemarks: String(getVal('knitStartRemarks', 'Knit Start Remarks') || '').trim(),
-      knitEndRemarks: String(getVal('knitEndRemarks', 'Knit End Remarks') || '').trim()
+      knitEndRemarks: String(getVal('knitEndRemarks', 'Knit End Remarks') || '').trim(),
+      knitTeamLeaders: String(getVal('knitTeamLeaders', 'Knit Team Leaders', 'Knit Team Leader', 'knitteamleaders', 'Team Leader', 'Team Leaders') || '').trim()
     };
   }
 

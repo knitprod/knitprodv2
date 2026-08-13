@@ -165,6 +165,7 @@ export interface OrderPlan extends SyncMetadata {
   knitEndOtd: 'Passed' | 'Failed' | 'Pending';
   knitStartRemarks: string;
   knitEndRemarks: string;
+  knitTeamLeaders: string;
 }
 
 
