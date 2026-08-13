@@ -69,6 +69,9 @@ export const ALL_TABS = [
   'Management Dashboard',
   'Reports',
   'Plan Order Followup',
+  'Team Leader OTD Status',
+  'Buyerwise OTD Status',
+  'Orderwise OTD Status',
   'Buyer Plan vs Actual',
   'Yarn Allocation',
   'Delivery Schedule',
@@ -85,6 +88,9 @@ export const getTabEmoji = (tabName: string): string => {
     case 'Management Dashboard': return '📈';
     case 'Reports': return '📑';
     case 'Plan Order Followup': return '🎯';
+    case 'Team Leader OTD Status': return '👥';
+    case 'Buyerwise OTD Status': return '🏢';
+    case 'Orderwise OTD Status': return '📄';
     case 'Buyer Plan vs Actual': return '🛍️';
     case 'Yarn Allocation': return '🧶';
     case 'Delivery Schedule': return '🚚';

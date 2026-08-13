@@ -1035,32 +1035,68 @@ export class GasClient {
           if (v !== undefined && v !== null && v !== '') return v;
         }
       }
+
+      // Fallback substring search across keys
+      for (const k of keys) {
+        const stripped = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (stripped.length >= 3) {
+          for (const [mapKey, val] of rawKeyMap.entries()) {
+            if (val !== undefined && val !== null && val !== '') {
+              const strippedMapKey = mapKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (strippedMapKey.includes(stripped) || stripped.includes(strippedMapKey)) {
+                return val;
+              }
+            }
+          }
+        }
+      }
       return '';
     };
 
+    const parseNumVal = (v: any): number => {
+      if (v === undefined || v === null || v === '') return 0;
+      if (typeof v === 'number') return isNaN(v) ? 0 : v;
+      const cleaned = String(v).replace(/[^0-9.-]/g, '');
+      const parsed = parseFloat(cleaned);
+      return isNaN(parsed) ? 0 : parsed;
+    };
+
+    const rawGsmVal = getVal('fabricGsm', 'Fabric Gsm', 'Fabric GSM', 'Finished GSM', 'Fin GSM', 'GSM', 'Gsm', 'FGSM');
+    let gsmValue: string | number = '';
+    if (rawGsmVal !== undefined && rawGsmVal !== null && rawGsmVal !== '') {
+      const numGsm = parseNumVal(rawGsmVal);
+      if (numGsm > 0) gsmValue = Math.round(numGsm);
+      else gsmValue = String(rawGsmVal).trim();
+    }
+
+    const rqQtyVal = parseNumVal(getVal('yarnRqQty', 'Yarn Rq Qty', 'Yarn Rq Quantity', 'Yarn Req Qty', 'Yarn Req Quantity', 'Yarn Requisition Qty', 'Yarn Requisition Quantity', 'Yarn Requirement Qty', 'Yarn Requirement Quantity', 'Yarn Requirement', 'Yarn Required Qty', 'Yarn Required Quantity', 'Requisition Qty', 'Requisition Quantity', 'Req Qty', 'Req Quantity', 'RQ Qty', 'RQ Quantity', 'Yarn Qty', 'Yarn Quantity'));
+    const alcQtyVal = parseNumVal(getVal('allocatedQty', 'Allocated Qty', 'Allocated Quantity', 'Allocation Qty', 'Allocation Quantity', 'Alloc Qty', 'Alc Qty'));
+    let balVal = parseNumVal(getVal('balance', 'Balance', 'Balance Qty', 'Bal Qty', 'Bal'));
+    if (balVal === 0 && (rqQtyVal > 0 || alcQtyVal > 0)) balVal = rqQtyVal - alcQtyVal;
+
     return {
       id: String(getVal('id', 'ID') || `yarn-${index + 1}`).trim(),
-      actualRequisitionDate: GasClient.formatDateValue(getVal('actualRequisitionDate', 'Actual Requisition Date', 'Requisition Date')),
-      buyer: String(getVal('buyer', 'Buyer') || '').trim(),
-      orderNumber: String(getVal('orderNumber', 'Order Number', 'Order No', 'Order #', 'EWO') || '').trim(),
-      fabricsType: String(getVal('fabricsType', 'Fabrics Type', 'Fabric Type', 'Fabric') || '').trim(),
-      fabricShade: String(getVal('fabricShade', 'Fabric Shade', 'Shade', 'Color') || '').trim(),
-      fabricGsm: getVal('fabricGsm', 'Fabric Gsm', 'GSM', 'Gsm') || '',
-      yarnRequired: String(getVal('yarnRequired', 'Yarn Required', 'Yarn Requirement') || '').trim(),
-      lotRef: String(getVal('lotRef', 'Lot Ref', 'Lot Reference') || '').trim(),
-      allocatedYarn: String(getVal('allocatedYarn', 'Allocated Yarn') || '').trim(),
-      lotNo: String(getVal('lotNo', 'Lot #', 'Lot No', 'Lot Number', 'Lot') || '').trim(),
-      spinnersName: String(getVal('spinnersName', "Spinner's Name", 'Spinners Name', 'Spinner Name', 'Spinner') || '').trim(),
-      allocationStatus: String(getVal('allocationStatus', 'Allocation Status', 'Status') || 'Allocated').trim(),
+      actualRequisitionDate: GasClient.formatDateValue(getVal('actualRequisitionDate', 'Actual Requisition Date', 'Requisition Date', 'Actual Req Date', 'Req Date')),
+      buyer: String(getVal('buyer', 'Buyer', 'Buyer Name', 'Brand', 'Customer') || '').trim(),
+      orderNumber: String(getVal('orderNumber', 'Order Number', 'Order No', 'Order #', 'Fabric Booking No', 'Fabric Booking Number', 'Fabric Booking #', 'Booking No', 'Booking #', 'Booking', 'EWO', 'EWO #') || '').trim(),
+      fabricsType: String(getVal('fabricsType', 'Fabrics Type', 'Fabric Type', 'Fabrics Name', 'Fabric Name', 'Fabric Description', 'Fabric Details', 'Fabric') || '').trim(),
+      fabricShade: String(getVal('fabricShade', 'Fabric Shade', 'Shade Name', 'Shade No', 'Shade', 'Color Name', 'Color No', 'Color', 'Colour') || '').trim(),
+      fabricGsm: gsmValue,
+      yarnRequired: String(getVal('yarnRequired', 'Yarn Required', 'Yarn Requirement', 'Yarn Category', 'Yarn Description', 'As Per FR', 'As Per F.R', 'Yarn Cat', 'Category') || '').trim(),
+      lotRef: String(getVal('lotRef', 'Lot Ref', 'Lot Reference', 'Ref No', 'Ref') || '').trim(),
+      allocatedYarn: String(getVal('allocatedYarn', 'Allocated Yarn', 'Yarn Count Physical', 'Count Physical', 'Physical Count', 'Allocated Yarn Count', 'Yarn Count', 'Count') || '').trim(),
+      lotNo: String(getVal('lotNo', 'Lot #', 'Lot No', 'Lot Number', 'Yarn Lot', 'Yarn Lot No', 'Lot Code', 'Lot') || '').trim(),
+      spinnersName: String(getVal('spinnersName', "Spinner's Name", 'Spinners Name', 'Spinner Name', 'Spinner', 'Spinning Mill', 'Mill Name', 'Supplier', 'Yarn Supplier') || '').trim(),
+      allocationStatus: String(getVal('allocationStatus', 'Allocation Status', 'Alloc Status', 'Status') || 'Allocated').trim(),
       yarnStockStatus: String(getVal('yarnStockStatus', 'Yarn Stock Status', 'Stock Status') || 'Stock Available').trim(),
       yarnDeliveryStatus: String(getVal('yarnDeliveryStatus', 'Yarn Delivery Status', 'Delivery Status') || 'Completed').trim(),
-      proposedAllocationDate: GasClient.formatDateValue(getVal('proposedAllocationDate', 'Proposed Allocation Date')),
-      allocationDateRange: GasClient.formatDateValue(getVal('allocationDateRange', 'Allocation Sart Date to End Date', 'Allocation Start Date to End Date', 'Allocation Date Range')),
-      allocationNo: String(getVal('allocationNo', 'Allocation No', 'Allocation #', 'Allocation Number') || '').trim(),
-      yarnRqQty: Number(getVal('yarnRqQty', 'Yarn Rq Qty', 'Yarn Req Qty', 'Yarn Required Qty')) || 0,
-      allocatedQty: Number(getVal('allocatedQty', 'Allocated Qty', 'Allocated Quantity')) || 0,
-      balance: Number(getVal('balance', 'Balance', 'Balance Qty')) || 0,
-      remarks: String(getVal('remarks', 'Remarks', 'Comment') || '').trim()
+      proposedAllocationDate: GasClient.formatDateValue(getVal('proposedAllocationDate', 'Proposed Allocation Date', 'Proposed Alloc Date', 'Prop Alloc Date')),
+      allocationDateRange: GasClient.formatDateValue(getVal('allocationDateRange', 'Allocation Sart Date to End Date', 'Allocation Start Date to End Date', 'Allocation Date Range', 'Date Range')),
+      allocationNo: String(getVal('allocationNo', 'Allocation No', 'Allocation #', 'Allocation Number', 'Alloc No') || '').trim(),
+      yarnRqQty: rqQtyVal,
+      allocatedQty: alcQtyVal,
+      balance: balVal,
+      remarks: String(getVal('remarks', 'Remarks', 'Comment', 'Comments', 'Note', 'Notes') || '').trim()
     };
   }
 

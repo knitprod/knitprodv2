@@ -24,6 +24,8 @@ import {
   Target,
   Layers,
   CalendarCheck,
+  Building2,
+  FileSpreadsheet,
   ChevronDown,
   ChevronUp,
   ShieldCheck,
@@ -852,7 +854,14 @@ export default function App() {
                   const isTabAllowed = (tabName: string) => {
                     if (currentUser?.userType === 'Admin') return true;
                     if (currentUser?.allowedTabs && currentUser.allowedTabs.length > 0) {
-                      return currentUser.allowedTabs.includes(tabName);
+                      if (currentUser.allowedTabs.includes(tabName)) return true;
+                      if (
+                        ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order Plan & Status', 'Plan Order Followup'].includes(tabName) &&
+                        (currentUser.allowedTabs.includes('Plan Order Followup') || currentUser.allowedTabs.includes('Order Plan & Status'))
+                      ) {
+                        return true;
+                      }
+                      return false;
                     }
                     if (tabName === 'User Management' || tabName === 'Database Connection' || tabName === 'Admin Panel') {
                       return false;
@@ -920,15 +929,52 @@ export default function App() {
                       )}
 
                       {/* Plan Order Followup Group */}
-                      {['Plan Order Followup', 'Buyer Plan vs Actual', 'Yarn Allocation', 'Delivery Schedule'].some(isTabAllowed) && (
+                      {['Plan Order Followup', 'Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Buyer Plan vs Actual', 'Yarn Allocation', 'Delivery Schedule'].some(isTabAllowed) && (
                         <div className="space-y-1 pt-1">
                           <div className="flex items-center gap-2 px-4 py-1.5 text-xs font-black uppercase text-indigo-400 tracking-wider">
                             <ClipboardList className="h-4 w-4 shrink-0" />
                             <span>Plan Order Followup</span>
                           </div>
                           <div className="pl-4 space-y-1 border-l-2 border-indigo-900/50 ml-4">
+                            {/* Order Plan & Status Sub-Menu Group */}
+                            {isTabAllowed('Plan Order Followup') && (
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 px-2 py-1 text-xs font-bold text-slate-200">
+                                  <ClipboardList className="h-3.5 w-3.5 text-indigo-400" />
+                                  <span>Order Plan & Status</span>
+                                </div>
+                                <div className="pl-3 ml-2 border-l border-indigo-500/40 space-y-0.5">
+                                  {[
+                                    { name: 'Team Leader OTD Status', icon: Users, label: '1. Team Leader OTD Status' },
+                                    { name: 'Buyerwise OTD Status', icon: Building2, label: '2. Buyerwise OTD Status' },
+                                    { name: 'Orderwise OTD Status', icon: FileSpreadsheet, label: '3. Orderwise OTD Status' },
+                                  ].map((sub) => {
+                                    const Icon = sub.icon;
+                                    const isActive = currentPage === sub.name;
+                                    return (
+                                      <button
+                                        key={sub.name}
+                                        onClick={() => {
+                                          setCurrentPage(sub.name);
+                                          setMobileMenuOpen(false);
+                                        }}
+                                        className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs font-semibold transition-all cursor-pointer ${
+                                          isActive 
+                                            ? 'bg-indigo-600/40 text-white font-bold border border-indigo-500/40' 
+                                            : 'text-slate-300 hover:bg-white/10'
+                                        }`}
+                                      >
+                                        <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-indigo-400' : 'text-slate-400'}`} />
+                                        <span>{sub.label}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Other Items */}
                             {[
-                              { name: 'Plan Order Followup', icon: ClipboardList, label: 'Order Plan & Status' },
                               { name: 'Buyer Plan vs Actual', icon: Target, label: 'Buyer Plan vs Actual' },
                               { name: 'Yarn Allocation', icon: Layers, label: 'Yarn Allocation' },
                               { name: 'Delivery Schedule', icon: CalendarCheck, label: 'Delivery Schedule' },
@@ -1167,13 +1213,22 @@ export default function App() {
               </div>
             )}
 
-            {(currentPage === 'Plan Order Followup' || currentPage === 'Buyer Plan vs Actual' || currentPage === 'Delivery Schedule') && (
+            {(
+              currentPage === 'Plan Order Followup' ||
+              currentPage === 'Team Leader OTD Status' ||
+              currentPage === 'Buyerwise OTD Status' ||
+              currentPage === 'Orderwise OTD Status' ||
+              currentPage === 'Buyer Plan vs Actual' ||
+              currentPage === 'Delivery Schedule'
+            ) && (
               <div className="animate-fade-in">
                 <PlanOrderFollowupView 
                   currentUser={currentUser}
                   initialSubTab={
-                    currentPage === 'Buyer Plan vs Actual' ? 'buyer' :
-                    currentPage === 'Delivery Schedule' ? 'delivery' : 'summary'
+                    currentPage === 'Team Leader OTD Status' ? 'team_leader' :
+                    currentPage === 'Buyerwise OTD Status' || currentPage === 'Buyer Plan vs Actual' ? 'buyer' :
+                    currentPage === 'Orderwise OTD Status' ? 'summary' :
+                    currentPage === 'Delivery Schedule' ? 'delivery' : 'team_leader'
                   } 
                 />
               </div>

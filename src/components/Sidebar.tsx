@@ -22,6 +22,8 @@ import {
   Target,
   Layers,
   CalendarCheck,
+  Building2,
+  FileSpreadsheet,
   ShieldCheck,
   Database
 } from 'lucide-react';
@@ -48,11 +50,20 @@ export default function Sidebar({
   // Group expand/collapse states
   const [productionUpdateOpen, setProductionUpdateOpen] = useState(true);
   const [planOrderOpen, setPlanOrderOpen] = useState(true);
+  const [orderPlanSubOpen, setOrderPlanSubOpen] = useState(true);
   const [adminPanelOpen, setAdminPanelOpen] = useState(true);
 
   // Auto expand group if active page is inside it
   const productionItems = ['Production Ledger', 'Floor Dashboard', 'Management Dashboard', 'Reports'];
-  const planOrderItems = ['Plan Order Followup', 'Buyer Plan vs Actual', 'Yarn Allocation', 'Delivery Schedule'];
+  const planOrderItems = [
+    'Plan Order Followup',
+    'Team Leader OTD Status',
+    'Buyerwise OTD Status',
+    'Orderwise OTD Status',
+    'Buyer Plan vs Actual',
+    'Yarn Allocation',
+    'Delivery Schedule'
+  ];
   const adminPanelItems = ['Admin Panel', 'User Management', 'Database Connection', 'Settings'];
 
   useEffect(() => {
@@ -61,6 +72,9 @@ export default function Sidebar({
     }
     if (planOrderItems.includes(currentPage)) {
       setPlanOrderOpen(true);
+      if (['Plan Order Followup', 'Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status'].includes(currentPage)) {
+        setOrderPlanSubOpen(true);
+      }
     }
     if (adminPanelItems.includes(currentPage)) {
       setAdminPanelOpen(true);
@@ -74,7 +88,14 @@ export default function Sidebar({
       return true;
     }
     if (currentUser?.allowedTabs && currentUser.allowedTabs.length > 0) {
-      return currentUser.allowedTabs.includes(tabName);
+      if (currentUser.allowedTabs.includes(tabName)) return true;
+      if (
+        ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order Plan & Status', 'Plan Order Followup'].includes(tabName) &&
+        (currentUser.allowedTabs.includes('Plan Order Followup') || currentUser.allowedTabs.includes('Order Plan & Status'))
+      ) {
+        return true;
+      }
+      return false;
     }
     if (tabName === 'User Management' || tabName === 'Database Connection' || tabName === 'Admin Panel') {
       return false;
@@ -225,8 +246,59 @@ export default function Sidebar({
               {/* Sub-items list */}
               {(!collapsed && planOrderOpen) && (
                 <div className="ml-3 pl-2.5 border-l-2 border-slate-100 dark:border-slate-800 space-y-1 pt-0.5">
+                  {/* Order Plan & Status Expandable Header */}
+                  {isTabAllowed('Plan Order Followup') && (
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => setOrderPlanSubOpen(!orderPlanSubOpen)}
+                        className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs font-bold transition-all cursor-pointer ${
+                          ['Plan Order Followup', 'Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status'].includes(currentPage)
+                            ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/30'
+                            : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <ClipboardList className="h-4 w-4 shrink-0 text-indigo-500" />
+                          <span className="truncate">Order Plan & Status</span>
+                        </div>
+                        <span className="text-slate-400">
+                          {orderPlanSubOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                        </span>
+                      </button>
+
+                      {/* Nested Sub-Menu under Order Plan & Status */}
+                      {orderPlanSubOpen && (
+                        <div className="ml-3 pl-2 border-l border-indigo-200 dark:border-indigo-900/60 space-y-0.5">
+                          {[
+                            { name: 'Team Leader OTD Status', icon: Users, label: '1. Team Leader OTD Status' },
+                            { name: 'Buyerwise OTD Status', icon: Building2, label: '2. Buyerwise OTD Status' },
+                            { name: 'Orderwise OTD Status', icon: FileSpreadsheet, label: '3. Orderwise OTD Status' },
+                          ].map((sub) => {
+                            const Icon = sub.icon;
+                            const isActive = currentPage === sub.name || (currentPage === 'Plan Order Followup' && sub.name === 'Team Leader OTD Status');
+                            return (
+                              <button
+                                key={sub.name}
+                                onClick={() => onNavigate(sub.name)}
+                                className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] font-semibold transition-all cursor-pointer ${
+                                  isActive
+                                    ? 'bg-indigo-50/90 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-bold'
+                                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'
+                                }`}
+                              >
+                                <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
+                                <span className="truncate">{sub.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Other Plan Order Followup Items */}
                   {[
-                    { name: 'Plan Order Followup', icon: ClipboardList, label: 'Order Plan & Status' },
                     { name: 'Buyer Plan vs Actual', icon: Target, label: 'Buyer Plan vs Actual' },
                     { name: 'Yarn Allocation', icon: Layers, label: 'Yarn Allocation' },
                     { name: 'Delivery Schedule', icon: CalendarCheck, label: 'Delivery Schedule' },

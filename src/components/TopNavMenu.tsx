@@ -12,12 +12,15 @@ import {
   Users, 
   Settings, 
   ChevronDown,
+  ChevronUp,
   Factory,
   Table,
   ClipboardList,
   Target,
   Layers,
   CalendarCheck,
+  Building2,
+  FileSpreadsheet,
   ShieldCheck,
   Database
 } from 'lucide-react';
@@ -31,6 +34,7 @@ interface TopNavMenuProps {
 
 export default function TopNavMenu({ currentPage, onNavigate, currentUser }: TopNavMenuProps) {
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const [orderPlanSubOpen, setOrderPlanSubOpen] = useState<boolean>(true);
   const navRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown on click outside
@@ -50,7 +54,14 @@ export default function TopNavMenu({ currentPage, onNavigate, currentUser }: Top
       return true;
     }
     if (currentUser?.allowedTabs && currentUser.allowedTabs.length > 0) {
-      return currentUser.allowedTabs.includes(tabName);
+      if (currentUser.allowedTabs.includes(tabName)) return true;
+      if (
+        ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order Plan & Status', 'Plan Order Followup'].includes(tabName) &&
+        (currentUser.allowedTabs.includes('Plan Order Followup') || currentUser.allowedTabs.includes('Order Plan & Status'))
+      ) {
+        return true;
+      }
+      return false;
     }
     if (tabName === 'User Management' || tabName === 'Database Connection' || tabName === 'Admin Panel') {
       return false;
@@ -67,6 +78,9 @@ export default function TopNavMenu({ currentPage, onNavigate, currentUser }: Top
 
   const planOrderItems = [
     { name: 'Plan Order Followup', icon: ClipboardList, label: 'Order Plan & Status' },
+    { name: 'Team Leader OTD Status', icon: Users, label: 'Team Leader OTD Status' },
+    { name: 'Buyerwise OTD Status', icon: Building2, label: 'Buyerwise OTD Status' },
+    { name: 'Orderwise OTD Status', icon: FileSpreadsheet, label: 'Orderwise OTD Status' },
     { name: 'Buyer Plan vs Actual', icon: Target, label: 'Buyer Plan vs Actual' },
     { name: 'Yarn Allocation', icon: Layers, label: 'Yarn Allocation' },
     { name: 'Delivery Schedule', icon: CalendarCheck, label: 'Delivery Schedule' },
@@ -179,8 +193,68 @@ export default function TopNavMenu({ currentPage, onNavigate, currentUser }: Top
           </button>
 
           {openDropdown === 'planOrder' && (
-            <div className="absolute left-0 mt-1.5 w-56 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-2 shadow-xl z-50 animate-fade-in space-y-1">
-              {planOrderItems.map((sub) => {
+            <div className="absolute left-0 mt-1.5 w-60 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-2 shadow-xl z-50 animate-fade-in space-y-1">
+              {/* Order Plan & Status Header and Sub-menu */}
+              {isTabAllowed('Plan Order Followup') && (
+                <div className="space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => setOrderPlanSubOpen(!orderPlanSubOpen)}
+                    className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50/70 dark:hover:bg-indigo-950/50 transition-all cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2">
+                      <ClipboardList className="h-4 w-4 shrink-0 text-indigo-500" />
+                      <span className="font-black uppercase tracking-wider text-[11px]">Order Plan & Status</span>
+                    </div>
+                    <span className="p-0.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-all">
+                      {orderPlanSubOpen ? (
+                        <ChevronUp className="h-3.5 w-3.5 text-indigo-500" />
+                      ) : (
+                        <ChevronDown className="h-3.5 w-3.5 text-indigo-500" />
+                      )}
+                    </span>
+                  </button>
+                  
+                  {orderPlanSubOpen && (
+                    <div className="pl-3 ml-2 border-l-2 border-indigo-100 dark:border-indigo-900/60 space-y-0.5">
+                      {[
+                        { name: 'Team Leader OTD Status', icon: Users, label: '1. Team Leader OTD Status' },
+                        { name: 'Buyerwise OTD Status', icon: Building2, label: '2. Buyerwise OTD Status' },
+                        { name: 'Orderwise OTD Status', icon: FileSpreadsheet, label: '3. Orderwise OTD Status' },
+                      ].map((sub) => {
+                        const Icon = sub.icon;
+                        const isActive = currentPage === sub.name || (currentPage === 'Plan Order Followup' && sub.name === 'Team Leader OTD Status');
+                        return (
+                          <button
+                            key={sub.name}
+                            onClick={() => {
+                              onNavigate(sub.name);
+                              setOpenDropdown(null);
+                            }}
+                            className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-semibold transition-all cursor-pointer ${
+                              isActive
+                                ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-extrabold'
+                                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80'
+                            }`}
+                          >
+                            <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
+                            <span className="truncate">{sub.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+
+              {/* Other Plan Order Followup Items */}
+              {[
+                { name: 'Buyer Plan vs Actual', icon: Target, label: 'Buyer Plan vs Actual' },
+                { name: 'Yarn Allocation', icon: Layers, label: 'Yarn Allocation' },
+                { name: 'Delivery Schedule', icon: CalendarCheck, label: 'Delivery Schedule' },
+              ].map((sub) => {
                 if (!isTabAllowed(sub.name)) return null;
                 const Icon = sub.icon;
                 const isActive = currentPage === sub.name;

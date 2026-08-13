@@ -41,17 +41,31 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Building2,
+  Users,
 } from 'lucide-react';
 
 export const getYesterdayDateString = (): string => {
   const d = new Date();
   d.setDate(d.getDate() - 1);
-  const dayPad = String(d.getDate()).padStart(2, '0');
-  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const monthShort = monthNames[d.getMonth()];
-  const yr2 = String(d.getFullYear()).slice(-2);
-  return `${dayPad}-${monthShort}-${yr2}`;
+  return formatDisplayDate(d.toISOString());
 };
+
+export function isSameDateStr(d1: string | null | undefined, d2: string | null | undefined): boolean {
+  if (d1 === d2) return true;
+  if (!d1 || !d2) return false;
+  if (d1 === 'All' || d2 === 'All') return true;
+  
+  const n1 = formatDisplayDate(d1).toLowerCase();
+  const n2 = formatDisplayDate(d2).toLowerCase();
+  if (n1 === n2 && n1 !== '-' && n1 !== '') return true;
+
+  const dt1 = parseDateString(d1);
+  const dt2 = parseDateString(d2);
+  if (dt1 && dt2 && dt1.getFullYear() === dt2.getFullYear() && dt1.getMonth() === dt2.getMonth() && dt1.getDate() === dt2.getDate()) {
+    return true;
+  }
+  return false;
+}
 
 export interface OrderPlan {
   id: string;
@@ -149,6 +163,62 @@ function calculateDateVariance(plannedStr: string, actualStr: string) {
 }
 
 const INITIAL_ORDERS: OrderPlan[] = [
+  {
+    id: 'ord-aug-12-1',
+    planMonth: 'August',
+    planType: 'Confirm',
+    ewo: '271890',
+    buyer: 'Vogue Sourcin',
+    color: 'Navy Blue',
+    knitStart: '12-August-2026',
+    knitEnd: '25-August-2026',
+    target: 1500,
+    targetNextMonth: 0,
+    allocationStart: '01-August-2026',
+    allocationEnd: '10-August-2026',
+    allocatedQty: 1600,
+    allocatedBal: 0,
+    greyReq: 1550,
+    knitPro: 450,
+    knitBal: 1050,
+    aKnitStart: '12-August-2026',
+    lastProductionDate: '12-August-2026',
+    avgProdDay: 150,
+    expectedKnitEnd: '22-August-2026',
+    knitStartOtd: 'Passed',
+    knitEndOtd: 'Pending',
+    knitStartRemarks: 'On time start',
+    knitEndRemarks: '',
+    knitTeamLeaders: ''
+  },
+  {
+    id: 'ord-aug-12-2',
+    planMonth: 'August',
+    planType: 'Confirm',
+    ewo: '271891',
+    buyer: 'S.Oliver',
+    color: 'Olive Green',
+    knitStart: '12-August-2026',
+    knitEnd: '28-August-2026',
+    target: 2400,
+    targetNextMonth: 0,
+    allocationStart: '02-August-2026',
+    allocationEnd: '11-August-2026',
+    allocatedQty: 2500,
+    allocatedBal: 0,
+    greyReq: 2450,
+    knitPro: 800,
+    knitBal: 1600,
+    aKnitStart: '12-August-2026',
+    lastProductionDate: '12-August-2026',
+    avgProdDay: 200,
+    expectedKnitEnd: '26-August-2026',
+    knitStartOtd: 'Passed',
+    knitEndOtd: 'Pending',
+    knitStartRemarks: 'On time start',
+    knitEndRemarks: '',
+    knitTeamLeaders: ''
+  },
   {
     id: 'ord-270258-1',
     planMonth: 'July',
@@ -412,13 +482,15 @@ export const INITIAL_YARN_ALLOCATIONS: YarnAllocationRecord[] = [
 ];
 
 function formatYarnQty(val: number): string {
-  if (val === 0) return '-';
-  if (val < 0) return `(${Math.abs(val).toLocaleString()})`;
-  return val.toLocaleString();
+  if (val === undefined || val === null || isNaN(val) || val === 0) return '-';
+  const rounded = Math.round(val);
+  if (rounded === 0) return '-';
+  if (rounded < 0) return `(${Math.abs(rounded).toLocaleString()})`;
+  return rounded.toLocaleString();
 }
 
 interface PlanOrderFollowupViewProps {
-  initialSubTab?: 'summary' | 'buyer' | 'delivery';
+  initialSubTab?: 'team_leader' | 'buyer' | 'summary' | 'delivery';
   currentUser?: UserRecord | null;
 }
 
@@ -475,9 +547,18 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   } = useTableColumns('plan_order_followup', currentUser?.uid || 'guest', PLAN_ORDER_COLUMNS, 5);
 
   const [orders, setOrders] = useState<OrderPlan[]>(INITIAL_ORDERS);
-  const [activeSubTab, setActiveSubTab] = useState<'summary' | 'buyer' | 'delivery'>(initialSubTab);
+  const [activeSubTab, setActiveSubTab] = useState<'team_leader' | 'buyer' | 'summary' | 'delivery'>(
+    initialSubTab || 'team_leader'
+  );
+
+  useEffect(() => {
+    if (initialSubTab) {
+      setActiveSubTab(initialSubTab);
+    }
+  }, [initialSubTab]);
   const [searchQuery, setSearchQuery] = useState('');
   const [buyerFilter, setBuyerFilter] = useState('All');
+  const [teamLeaderFilter, setTeamLeaderFilter] = useState('All');
   const [planMonthFilter, setPlanMonthFilter] = useState('All');
   const [otdFilter, setOtdFilter] = useState('All');
   const [knitStartSelect, setKnitStartSelect] = useState<string>(() => getYesterdayDateString());
@@ -625,6 +706,17 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
 
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
+  const loadYarnAllocations = async (forceRefresh: boolean = false) => {
+    try {
+      const remoteData = await GasClient.fetchYarnAllocations(forceRefresh);
+      if (remoteData && remoteData.length > 0) {
+        setYarnAllocations(remoteData as YarnAllocationRecord[]);
+      }
+    } catch (err) {
+      console.warn("Could not load yarn allocations in PlanOrderFollowupView:", err);
+    }
+  };
+
   const loadOrders = async (forceRefresh: boolean = false) => {
     setIsSyncing(true);
     try {
@@ -642,18 +734,25 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     }
   };
 
-  // Load cached order plans on mount and listen for real-time Firestore sync & manual events
+  // Load cached order plans and yarn allocations on mount and listen for real-time Firestore sync & manual events
   useEffect(() => {
     loadOrders(false);
+    loadYarnAllocations(false);
 
-    // Real-time Firestore listener for order plan updates across devices
+    // Real-time Firestore listener for order plan & yarn allocation updates across devices
     const unsubscribe = FirestoreSyncService.subscribeToSettings((settings) => {
       if (settings && (settings.last_order_plan_updated || settings.master_order_upload_info)) {
         loadOrders(true);
       }
+      if (settings && (settings.last_yarn_allocation_updated || settings.master_yarn_upload_info)) {
+        loadYarnAllocations(true);
+      }
     });
 
-    const handleSync = () => loadOrders(true);
+    const handleSync = () => {
+      loadOrders(true);
+      loadYarnAllocations(true);
+    };
     window.addEventListener('gas_data_synced', handleSync);
 
     return () => {
@@ -669,7 +768,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   // Reset to page 1 whenever filters or page size change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, buyerFilter, planMonthFilter, otdFilter, knitStartSelect, knitEndSelect, itemsPerPage]);
+  }, [searchQuery, buyerFilter, teamLeaderFilter, planMonthFilter, otdFilter, knitStartSelect, knitEndSelect, itemsPerPage]);
 
   // User-based Buyer Access Restriction
   const userAssignedBuyers = useMemo(() => {
@@ -700,21 +799,31 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         (ord.knitTeamLeaders && ord.knitTeamLeaders.toLowerCase().includes(q));
       
       const matchesBuyer = buyerFilter === 'All' || ord.buyer === buyerFilter;
+      const matchesTeamLeader = teamLeaderFilter === 'All' ||
+        (teamLeaderFilter === 'Unassigned'
+          ? (!ord.knitTeamLeaders || ord.knitTeamLeaders.trim() === '')
+          : ord.knitTeamLeaders?.trim() === teamLeaderFilter);
       const matchesMonth = planMonthFilter === 'All' || ord.planMonth === planMonthFilter;
       
       const matchesOtd = 
         otdFilter === 'All' ||
+        (otdFilter === 'KnitEndPassed' && ord.knitEndOtd === 'Passed') ||
+        (otdFilter === 'KnitEndFailed' && ord.knitEndOtd === 'Failed') ||
+        (otdFilter === 'KnitEndPending' && ord.knitEndOtd === 'Pending') ||
+        (otdFilter === 'KnitStartPassed' && ord.knitStartOtd === 'Passed') ||
+        (otdFilter === 'KnitStartFailed' && ord.knitStartOtd === 'Failed') ||
+        (otdFilter === 'KnitStartPending' && ord.knitStartOtd === 'Pending') ||
         (otdFilter === 'BothPassed' && ord.knitStartOtd === 'Passed' && ord.knitEndOtd === 'Passed') ||
         (otdFilter === 'Passed' && (ord.knitStartOtd === 'Passed' || ord.knitEndOtd === 'Passed')) ||
         (otdFilter === 'Failed' && (ord.knitStartOtd === 'Failed' || ord.knitEndOtd === 'Failed')) ||
         (otdFilter === 'Pending' && (ord.knitStartOtd === 'Pending' || ord.knitEndOtd === 'Pending'));
 
-      const matchesKnitStartSel = knitStartSelect === 'All' || ord.knitStart === knitStartSelect;
-      const matchesKnitEndSel = knitEndSelect === 'All' || ord.knitEnd === knitEndSelect;
+      const matchesKnitStartSel = knitStartSelect === 'All' || isSameDateStr(ord.knitStart, knitStartSelect);
+      const matchesKnitEndSel = knitEndSelect === 'All' || isSameDateStr(ord.knitEnd, knitEndSelect);
 
-      return matchesSearch && matchesBuyer && matchesMonth && matchesOtd && matchesKnitStartSel && matchesKnitEndSel;
+      return matchesSearch && matchesBuyer && matchesTeamLeader && matchesMonth && matchesOtd && matchesKnitStartSel && matchesKnitEndSel;
     });
-  }, [orders, searchQuery, buyerFilter, planMonthFilter, otdFilter, knitStartSelect, knitEndSelect, userAssignedBuyers]);
+  }, [orders, searchQuery, buyerFilter, teamLeaderFilter, planMonthFilter, otdFilter, knitStartSelect, knitEndSelect, userAssignedBuyers]);
 
   const totalPages = useMemo(() => {
     return itemsPerPage > 0 ? Math.ceil(filteredOrders.length / itemsPerPage) || 1 : 1;
@@ -727,6 +836,23 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   }, [filteredOrders, currentPage, itemsPerPage]);
 
   // Unique lists for filters
+  const teamLeadersList = useMemo(() => {
+    const set = new Set<string>();
+    orders.forEach(o => {
+      const tl = o.knitTeamLeaders?.trim();
+      if (tl) {
+        set.add(tl);
+      } else {
+        set.add('Unassigned');
+      }
+    });
+    return Array.from(set).sort();
+  }, [orders]);
+
+  const teamLeaderOptions = useMemo(() => {
+    return teamLeadersList.map(tl => ({ label: `TL: ${tl}`, value: tl }));
+  }, [teamLeadersList]);
+
   const buyersList = useMemo(() => {
     const set = new Set(
       orders
@@ -747,21 +873,26 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   }, [monthsList]);
 
   const knitStartsList = useMemo(() => {
-    const set = new Set(orders.map(o => o.knitStart).filter(Boolean));
+    const set = new Set(orders.map(o => formatDisplayDate(o.knitStart) || o.knitStart).filter(Boolean));
     return Array.from(set).sort();
   }, [orders]);
 
   const knitEndsList = useMemo(() => {
-    const set = new Set(orders.map(o => o.knitEnd).filter(Boolean));
+    const set = new Set(orders.map(o => formatDisplayDate(o.knitEnd) || o.knitEnd).filter(Boolean));
     return Array.from(set).sort();
   }, [orders]);
 
   const knitStartOptions = useMemo(() => {
-    const opts = knitStartsList.map(ks => ({ label: `Knit Start: ${ks}`, value: ks }));
     const yesterdayStr = getYesterdayDateString();
-    if (knitStartSelect !== 'All' && !knitStartsList.includes(knitStartSelect)) {
+    const opts = knitStartsList.map(ks => ({
+      label: `Knit Start: ${ks}${isSameDateStr(ks, yesterdayStr) ? ' (Yesterday)' : ''}`,
+      value: ks
+    }));
+
+    const exists = knitStartsList.some(ks => isSameDateStr(ks, knitStartSelect));
+    if (knitStartSelect !== 'All' && !exists) {
       opts.unshift({ 
-        label: `Knit Start: ${knitStartSelect}${knitStartSelect === yesterdayStr ? ' (Yesterday)' : ''}`, 
+        label: `Knit Start: ${knitStartSelect}${isSameDateStr(knitStartSelect, yesterdayStr) ? ' (Yesterday)' : ''}`, 
         value: knitStartSelect 
       });
     }
@@ -773,10 +904,16 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   }, [knitEndsList]);
 
   const otdOptions = useMemo(() => [
-    { label: 'Both Passed (Passed Orders Only)', value: 'BothPassed' },
-    { label: 'Any Passed', value: 'Passed' },
-    { label: 'Failed Orders', value: 'Failed' },
-    { label: 'Pending Orders', value: 'Pending' },
+    { label: 'Knit End OTD: Passed', value: 'KnitEndPassed' },
+    { label: 'Knit End OTD: Failed', value: 'KnitEndFailed' },
+    { label: 'Knit End OTD: Pending', value: 'KnitEndPending' },
+    { label: 'Knit Start OTD: Passed', value: 'KnitStartPassed' },
+    { label: 'Knit Start OTD: Failed', value: 'KnitStartFailed' },
+    { label: 'Knit Start OTD: Pending', value: 'KnitStartPending' },
+    { label: 'Both Start & End Passed', value: 'BothPassed' },
+    { label: 'Any Passed (Start or End Passed)', value: 'Passed' },
+    { label: 'Any Failed (Start or End Failed)', value: 'Failed' },
+    { label: 'Any Pending (Start or End Pending)', value: 'Pending' },
   ], []);
 
   // KPIs dynamically respond to active filter selections
@@ -990,7 +1127,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 shadow-xs">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Target</span>
           <div className="mt-1 flex items-baseline gap-1.5">
-            <span className="text-xl font-black text-slate-900 dark:text-white">{totalTarget.toLocaleString()}</span>
+            <span className="text-xl font-black text-slate-900 dark:text-white">{Math.round(totalTarget).toLocaleString()}</span>
             <span className="text-[10px] font-bold text-slate-400">Kg</span>
           </div>
         </div>
@@ -998,7 +1135,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 shadow-xs">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Grey Requirement</span>
           <div className="mt-1 flex items-baseline gap-1.5">
-            <span className="text-xl font-black text-blue-600 dark:text-blue-400">{totalGreyReq.toLocaleString()}</span>
+            <span className="text-xl font-black text-blue-600 dark:text-blue-400">{Math.round(totalGreyReq).toLocaleString()}</span>
             <span className="text-[10px] font-bold text-slate-400">Kg</span>
           </div>
         </div>
@@ -1006,7 +1143,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 shadow-xs">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Knit Produced</span>
           <div className="mt-1 flex items-baseline gap-1.5">
-            <span className="text-xl font-black text-emerald-600 dark:text-emerald-400">{totalKnitPro.toLocaleString()}</span>
+            <span className="text-xl font-black text-emerald-600 dark:text-emerald-400">{Math.round(totalKnitPro).toLocaleString()}</span>
             <span className="text-[10px] font-bold text-slate-400">Kg</span>
           </div>
         </div>
@@ -1014,7 +1151,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 shadow-xs">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Knit Balance</span>
           <div className="mt-1 flex items-baseline gap-1.5">
-            <span className="text-xl font-black text-amber-600 dark:text-amber-400">{totalKnitBal.toLocaleString()}</span>
+            <span className="text-xl font-black text-amber-600 dark:text-amber-400">{Math.round(totalKnitBal).toLocaleString()}</span>
             <span className="text-[10px] font-bold text-slate-400">Kg</span>
           </div>
         </div>
@@ -1047,15 +1184,15 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       {/* Sub-Navigation Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-1">
         <button
-          onClick={() => setActiveSubTab('summary')}
+          onClick={() => setActiveSubTab('team_leader')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
-            activeSubTab === 'summary'
+            activeSubTab === 'team_leader' || activeSubTab === 'delivery'
               ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
               : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
-          <FileSpreadsheet className="h-4 w-4" />
-          <span>Order Plan & Status (Spreadsheet)</span>
+          <Users className="h-4 w-4" />
+          <span>1. Team Leader OTD Status</span>
         </button>
 
         <button
@@ -1066,24 +1203,691 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
               : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
-          <Target className="h-4 w-4" />
-          <span>Buyer Summary</span>
+          <Building2 className="h-4 w-4" />
+          <span>2. Buyerwise OTD Status</span>
         </button>
 
         <button
-          onClick={() => setActiveSubTab('delivery')}
+          onClick={() => setActiveSubTab('summary')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
-            activeSubTab === 'delivery'
+            activeSubTab === 'summary'
               ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
               : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
-          <CalendarCheck className="h-4 w-4" />
-          <span>OTD Delivery Timeline</span>
+          <FileSpreadsheet className="h-4 w-4" />
+          <span>3. Orderwise OTD Status</span>
         </button>
       </div>
 
-      {/* SUB-TAB 1: ORDER PLAN & STATUS SPREADSHEET VIEW */}
+      {/* SUB-TAB 1: TEAM LEADER OTD STATUS */}
+      {(activeSubTab === 'team_leader' || activeSubTab === 'delivery') && (() => {
+        const displayTeamLeaders = teamLeaderFilter === 'All'
+          ? teamLeadersList
+          : teamLeadersList.filter(tl => tl === teamLeaderFilter);
+
+        const yesterdayStr = getYesterdayDateString();
+
+        return (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            {/* Filter Toolbar inside Team Leader OTD Status */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search EWO, Buyer, Team Leader, Color, Month..."
+                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 py-2 pl-9 pr-4 text-xs font-medium text-slate-900 dark:text-white focus:border-blue-500 focus:outline-hidden"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <SearchableSelect
+                  value={teamLeaderFilter}
+                  onChange={setTeamLeaderFilter}
+                  options={teamLeaderOptions}
+                  allLabel="All Team Leaders"
+                  placeholder="Search Team Leader..."
+                />
+
+                <SearchableSelect
+                  value={buyerFilter}
+                  onChange={setBuyerFilter}
+                  options={buyersList}
+                  allLabel="All Buyers"
+                  placeholder="Search Buyers..."
+                />
+
+                <SearchableSelect
+                  value={planMonthFilter}
+                  onChange={setPlanMonthFilter}
+                  options={planMonthOptions}
+                  allLabel="All Plan Months"
+                  placeholder="Search Month..."
+                />
+
+                <SearchableSelect
+                  value={knitStartSelect}
+                  onChange={setKnitStartSelect}
+                  options={knitStartOptions}
+                  allLabel="All Knit Start Dates"
+                  placeholder="Search Knit Start..."
+                />
+
+                <SearchableSelect
+                  value={knitEndSelect}
+                  onChange={setKnitEndSelect}
+                  options={knitEndOptions}
+                  allLabel="All Knit End Dates"
+                  placeholder="Search Knit End..."
+                />
+
+                <SearchableSelect
+                  value={otdFilter}
+                  onChange={setOtdFilter}
+                  options={otdOptions}
+                  allLabel="All OTD Status"
+                  placeholder="Search OTD Status..."
+                />
+
+                {(searchQuery !== '' || buyerFilter !== 'All' || teamLeaderFilter !== 'All' || planMonthFilter !== 'All' || knitStartSelect !== 'All' || knitEndSelect !== 'All' || otdFilter !== 'All') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setBuyerFilter('All');
+                      setTeamLeaderFilter('All');
+                      setPlanMonthFilter('All');
+                      setKnitStartSelect('All');
+                      setKnitEndSelect('All');
+                      setOtdFilter('All');
+                    }}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                    title="Clear all active filters"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    <span>Clear All Filters</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Notice banner if pre-selected Yesterday date has no matching orders */}
+            {isSameDateStr(knitStartSelect, yesterdayStr) && filteredOrders.length === 0 && (
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 text-xs flex items-center justify-between shadow-2xs">
+                <div className="flex items-center gap-2">
+                  <Info className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <span>
+                    Default Knit Start Date filter applied: <strong>Yesterday ({yesterdayStr})</strong>. No orders match Yesterday in current dataset.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setKnitStartSelect('All')}
+                  className="px-3 py-1 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition-all cursor-pointer shadow-2xs"
+                >
+                  View All Dates
+                </button>
+              </div>
+            )}
+
+            {/* Team Leader Cards Grid */}
+            {filteredOrders.length === 0 ? (
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-10 text-center space-y-3">
+                <Users className="h-10 w-10 text-slate-400 mx-auto" />
+                <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No Orders Found for Selected Filters</h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  There are no orders matching your current filter criteria. Try changing the Knit Start Date filter to "All Knit Start Dates" or reset all active filters.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setBuyerFilter('All');
+                    setTeamLeaderFilter('All');
+                    setPlanMonthFilter('All');
+                    setKnitStartSelect('All');
+                    setKnitEndSelect('All');
+                    setOtdFilter('All');
+                  }}
+                  className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition-all cursor-pointer shadow-xs"
+                >
+                  <X className="h-4 w-4" />
+                  <span>Reset All Filters</span>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                {displayTeamLeaders.map(tl => {
+                  const tlOrders = filteredOrders.filter(o => {
+                    const leader = o.knitTeamLeaders?.trim() || 'Unassigned';
+                    return leader === tl;
+                  });
+                  if (tlOrders.length === 0 && teamLeaderFilter === 'All') return null;
+
+                  const totalOrders = tlOrders.length;
+                  const targetQty = tlOrders.reduce((sum, o) => sum + (o.target || 0), 0);
+                  const allocatedQty = tlOrders.reduce((sum, o) => sum + (o.allocatedQty || 0), 0);
+                  const greyQty = tlOrders.reduce((sum, o) => sum + (o.greyReq || 0), 0);
+                  const knitPro = tlOrders.reduce((sum, o) => sum + (o.knitPro || 0), 0);
+                  const balance = tlOrders.reduce((sum, o) => sum + (o.knitBal || 0), 0);
+                  const knitPct = targetQty > 0 ? Math.min(100, Math.round((knitPro / targetQty) * 100)) : 0;
+
+                  // Knit Start OTD
+                  const ksEval = tlOrders.filter(o => o.knitStartOtd !== 'Pending');
+                  const ksPassed = tlOrders.filter(o => o.knitStartOtd === 'Passed').length;
+                  const ksPassRate = ksEval.length > 0 ? Math.round((ksPassed / ksEval.length) * 100) : 100;
+
+                  // Knit End OTD
+                  const keEval = tlOrders.filter(o => o.knitEndOtd !== 'Pending');
+                  const kePassed = tlOrders.filter(o => o.knitEndOtd === 'Passed').length;
+                  const kePassRate = keEval.length > 0 ? Math.round((kePassed / keEval.length) * 100) : 100;
+
+                  // Pending Order Count
+                  const pendingOrdersCount = tlOrders.filter(
+                    o => o.knitStartOtd === 'Pending' || o.knitEndOtd === 'Pending'
+                  ).length;
+
+                  // Overall Failed Orders & Rate
+                  const totalFailedOrders = tlOrders.filter(
+                    o => o.knitStartOtd === 'Failed' || o.knitEndOtd === 'Failed'
+                  );
+                  const totalFailedCount = totalFailedOrders.length;
+                  const totalEvalCount = tlOrders.filter(
+                    o => o.knitStartOtd !== 'Pending' || o.knitEndOtd !== 'Pending'
+                  ).length;
+                  const failedRate = totalEvalCount > 0
+                    ? Math.round((totalFailedCount / totalEvalCount) * 100)
+                    : (totalOrders > 0 ? Math.round((totalFailedCount / totalOrders) * 100) : 0);
+
+                  // Extract Major Reason for Failing
+                  const failureReasonsMap: Record<string, number> = {};
+                  totalFailedOrders.forEach(o => {
+                    const remarks = [o.knitStartRemarks, o.knitEndRemarks].filter(r => r && r.trim().length > 0);
+                    if (remarks.length === 0) {
+                      failureReasonsMap['Delay Reason Pending Review'] = (failureReasonsMap['Delay Reason Pending Review'] || 0) + 1;
+                    } else {
+                      remarks.forEach(r => {
+                        const cleaned = r.trim();
+                        failureReasonsMap[cleaned] = (failureReasonsMap[cleaned] || 0) + 1;
+                      });
+                    }
+                  });
+
+                  const sortedReasons = Object.entries(failureReasonsMap).sort((x, y) => y[1] - x[1]);
+                  const majorReason = sortedReasons.length > 0
+                    ? `${sortedReasons[0][0]} (${sortedReasons[0][1]} order${sortedReasons[0][1] > 1 ? 's' : ''})`
+                    : 'No Failures (100% On-Time)';
+
+                  return (
+                    <div key={tl} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4 hover:border-slate-300 dark:hover:border-slate-700 transition-all">
+                      {/* Team Leader Header */}
+                      <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 font-bold">
+                            <Users className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <h3 className="text-base font-black text-slate-900 dark:text-white">Team Leader: {tl}</h3>
+                            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                              Total Orders in Plan: <strong className="text-slate-900 dark:text-white font-bold">{totalOrders.toLocaleString()} Orders</strong>
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Production Completion</span>
+                          <span className="text-xl font-black text-indigo-600 dark:text-indigo-400">{knitPct}%</span>
+                        </div>
+                      </div>
+
+                      {/* Quantities Breakdown Grid */}
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 bg-slate-50/80 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Target QTY</span>
+                          <span className="text-xs font-black text-slate-900 dark:text-white block">{targetQty.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Allocated QTY</span>
+                          <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 block">{allocatedQty.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Grey QTY</span>
+                          <span className="text-xs font-black text-slate-800 dark:text-slate-200 block">{greyQty.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Knit Prod.</span>
+                          <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 block">{knitPro.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
+                        </div>
+                        <div className="space-y-0.5 col-span-2 sm:col-span-1">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Balance QTY</span>
+                          <span className="text-xs font-black text-amber-600 dark:text-amber-400 block">{balance.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
+                        </div>
+                      </div>
+
+                      {/* Progress Bar */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                          <span>Knitted: {knitPro.toLocaleString()} Kg</span>
+                          <span>Target: {targetQty.toLocaleString()} Kg</span>
+                        </div>
+                        <div className="h-2.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                          <div 
+                            className="h-full rounded-full bg-gradient-to-r from-indigo-600 to-blue-600 transition-all duration-300" 
+                            style={{ width: `${knitPct}%` }} 
+                          />
+                        </div>
+                      </div>
+
+                      {/* OTD Performance Section */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                        {/* Knit Start OTD */}
+                        <div className="p-2.5 rounded-xl border border-emerald-200/70 dark:border-emerald-900/40 bg-emerald-50/50 dark:bg-emerald-950/20">
+                          <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider block">Knit Start OTD</span>
+                          <div className="flex items-baseline justify-between mt-1">
+                            <span className="text-base font-black text-emerald-700 dark:text-emerald-300">{ksPassRate}%</span>
+                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/60 px-1.5 py-0.5 rounded-md">
+                              {ksPassed}/{ksEval.length} Passed
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Knit End OTD */}
+                        <div className="p-2.5 rounded-xl border border-blue-200/70 dark:border-blue-900/40 bg-blue-50/50 dark:bg-blue-950/20">
+                          <span className="text-[10px] font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider block">Knit End OTD</span>
+                          <div className="flex items-baseline justify-between mt-1">
+                            <span className="text-base font-black text-blue-700 dark:text-blue-300">{kePassRate}%</span>
+                            <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/60 px-1.5 py-0.5 rounded-md">
+                              {kePassed}/{keEval.length} Passed
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Failed & Pending Summary */}
+                        <div className="p-2.5 rounded-xl border border-rose-200/70 dark:border-rose-900/40 bg-rose-50/50 dark:bg-rose-950/20">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wider block">OTD Failed Rate</span>
+                            <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+                              {pendingOrdersCount} Pending
+                            </span>
+                          </div>
+                          <div className="flex items-baseline justify-between mt-1">
+                            <span className="text-base font-black text-rose-700 dark:text-rose-300">{failedRate}%</span>
+                            <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-100 dark:bg-rose-900/60 px-1.5 py-0.5 rounded-md">
+                              {totalFailedCount} Failed
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Major Reason for Failing */}
+                      <div className="p-2.5 rounded-xl border border-rose-200/60 dark:border-rose-900/40 bg-rose-50/30 dark:bg-rose-950/10 flex items-start gap-2 text-xs">
+                        <AlertCircle className="h-4 w-4 text-rose-500 shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wider block">Major Reason for Failing</span>
+                          <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate" title={majorReason}>
+                            {majorReason}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Footer Row */}
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 font-medium">
+                        <span>{tlOrders.length} matching order rows</span>
+                        <button
+                          type="button"
+                          className="text-indigo-600 dark:text-indigo-400 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                          onClick={() => {
+                            setTeamLeaderFilter(tl);
+                            setActiveSubTab('summary');
+                          }}
+                        >
+                          View Orderwise Rows →
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* SUB-TAB 2: BUYERWISE OTD STATUS */}
+      {activeSubTab === 'buyer' && (() => {
+        const displayBuyers = buyerFilter === 'All'
+          ? buyersList
+          : buyersList.filter(b => b === buyerFilter);
+
+        const yesterdayStr = getYesterdayDateString();
+
+        return (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            {/* Filter Toolbar inside Buyerwise OTD Status */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search EWO, Buyer, Team Leader, Color, Month..."
+                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 py-2 pl-9 pr-4 text-xs font-medium text-slate-900 dark:text-white focus:border-blue-500 focus:outline-hidden"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <SearchableSelect
+                  value={teamLeaderFilter}
+                  onChange={setTeamLeaderFilter}
+                  options={teamLeaderOptions}
+                  allLabel="All Team Leaders"
+                  placeholder="Search Team Leader..."
+                />
+
+                <SearchableSelect
+                  value={buyerFilter}
+                  onChange={setBuyerFilter}
+                  options={buyersList}
+                  allLabel="All Buyers"
+                  placeholder="Search Buyers..."
+                />
+
+                <SearchableSelect
+                  value={planMonthFilter}
+                  onChange={setPlanMonthFilter}
+                  options={planMonthOptions}
+                  allLabel="All Plan Months"
+                  placeholder="Search Month..."
+                />
+
+                <SearchableSelect
+                  value={knitStartSelect}
+                  onChange={setKnitStartSelect}
+                  options={knitStartOptions}
+                  allLabel="All Knit Start Dates"
+                  placeholder="Search Knit Start..."
+                />
+
+                <SearchableSelect
+                  value={knitEndSelect}
+                  onChange={setKnitEndSelect}
+                  options={knitEndOptions}
+                  allLabel="All Knit End Dates"
+                  placeholder="Search Knit End..."
+                />
+
+                <SearchableSelect
+                  value={otdFilter}
+                  onChange={setOtdFilter}
+                  options={otdOptions}
+                  allLabel="All OTD Status"
+                  placeholder="Search OTD Status..."
+                />
+
+                {(searchQuery !== '' || buyerFilter !== 'All' || teamLeaderFilter !== 'All' || planMonthFilter !== 'All' || knitStartSelect !== 'All' || knitEndSelect !== 'All' || otdFilter !== 'All') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setBuyerFilter('All');
+                      setTeamLeaderFilter('All');
+                      setPlanMonthFilter('All');
+                      setKnitStartSelect('All');
+                      setKnitEndSelect('All');
+                      setOtdFilter('All');
+                    }}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                    title="Clear all active filters"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    <span>Clear All Filters</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Notice banner if pre-selected Yesterday date has no matching orders */}
+            {isSameDateStr(knitStartSelect, yesterdayStr) && filteredOrders.length === 0 && (
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 text-xs flex items-center justify-between shadow-2xs">
+                <div className="flex items-center gap-2">
+                  <Info className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <span>
+                    Default Knit Start Date filter applied: <strong>Yesterday ({yesterdayStr})</strong>. No orders match Yesterday in current dataset.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setKnitStartSelect('All')}
+                  className="px-3 py-1 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition-all cursor-pointer shadow-2xs"
+                >
+                  View All Dates
+                </button>
+              </div>
+            )}
+
+            {/* Buyer Cards Grid */}
+            {filteredOrders.length === 0 ? (
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-10 text-center space-y-3">
+                <Target className="h-10 w-10 text-slate-400 mx-auto" />
+                <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No Orders Found for Selected Filters</h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  There are no orders matching your current filter criteria. Try changing the Knit Start Date filter to "All Knit Start Dates" or reset all active filters.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setBuyerFilter('All');
+                    setTeamLeaderFilter('All');
+                    setPlanMonthFilter('All');
+                    setKnitStartSelect('All');
+                    setKnitEndSelect('All');
+                    setOtdFilter('All');
+                  }}
+                  className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition-all cursor-pointer shadow-xs"
+                >
+                  <X className="h-4 w-4" />
+                  <span>Reset All Filters</span>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                {displayBuyers.map(b => {
+                  const buyerOrders = filteredOrders.filter(o => o.buyer === b);
+                  if (buyerOrders.length === 0 && buyerFilter === 'All') return null;
+
+                  const totalOrders = buyerOrders.length;
+                  const targetQty = buyerOrders.reduce((sum, o) => sum + (o.target || 0), 0);
+                  const allocatedQty = buyerOrders.reduce((sum, o) => sum + (o.allocatedQty || 0), 0);
+                  const greyQty = buyerOrders.reduce((sum, o) => sum + (o.greyReq || 0), 0);
+                  const knitPro = buyerOrders.reduce((sum, o) => sum + (o.knitPro || 0), 0);
+                  const balance = buyerOrders.reduce((sum, o) => sum + (o.knitBal || 0), 0);
+                  const knitPct = targetQty > 0 ? Math.min(100, Math.round((knitPro / targetQty) * 100)) : 0;
+
+                  // Knit Start OTD
+                  const ksEval = buyerOrders.filter(o => o.knitStartOtd !== 'Pending');
+                  const ksPassed = buyerOrders.filter(o => o.knitStartOtd === 'Passed').length;
+                  const ksPassRate = ksEval.length > 0 ? Math.round((ksPassed / ksEval.length) * 100) : 100;
+
+                  // Knit End OTD
+                  const keEval = buyerOrders.filter(o => o.knitEndOtd !== 'Pending');
+                  const kePassed = buyerOrders.filter(o => o.knitEndOtd === 'Passed').length;
+                  const kePassRate = keEval.length > 0 ? Math.round((kePassed / keEval.length) * 100) : 100;
+
+                  // Pending Order Count
+                  const pendingOrdersCount = buyerOrders.filter(
+                    o => o.knitStartOtd === 'Pending' || o.knitEndOtd === 'Pending'
+                  ).length;
+
+                  // Overall Failed Orders & Rate
+                  const totalFailedOrders = buyerOrders.filter(
+                    o => o.knitStartOtd === 'Failed' || o.knitEndOtd === 'Failed'
+                  );
+                  const totalFailedCount = totalFailedOrders.length;
+                  const totalEvalCount = buyerOrders.filter(
+                    o => o.knitStartOtd !== 'Pending' || o.knitEndOtd !== 'Pending'
+                  ).length;
+                  const failedRate = totalEvalCount > 0
+                    ? Math.round((totalFailedCount / totalEvalCount) * 100)
+                    : (totalOrders > 0 ? Math.round((totalFailedCount / totalOrders) * 100) : 0);
+
+                  // Extract Major Reason for Failing
+                  const failureReasonsMap: Record<string, number> = {};
+                  totalFailedOrders.forEach(o => {
+                    const remarks = [o.knitStartRemarks, o.knitEndRemarks].filter(r => r && r.trim().length > 0);
+                    if (remarks.length === 0) {
+                      failureReasonsMap['Delay Reason Pending Review'] = (failureReasonsMap['Delay Reason Pending Review'] || 0) + 1;
+                    } else {
+                      remarks.forEach(r => {
+                        const cleaned = r.trim();
+                        failureReasonsMap[cleaned] = (failureReasonsMap[cleaned] || 0) + 1;
+                      });
+                    }
+                  });
+
+                  const sortedReasons = Object.entries(failureReasonsMap).sort((x, y) => y[1] - x[1]);
+                  const majorReason = sortedReasons.length > 0
+                    ? `${sortedReasons[0][0]} (${sortedReasons[0][1]} order${sortedReasons[0][1] > 1 ? 's' : ''})`
+                    : 'No Failures (100% On-Time)';
+
+                  return (
+                    <div key={b} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4 hover:border-slate-300 dark:hover:border-slate-700 transition-all">
+                      {/* Buyer Header */}
+                      <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 font-bold">
+                            <Building2 className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <h3 className="text-base font-black text-slate-900 dark:text-white">{b}</h3>
+                            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                              Total Orders in Plan: <strong className="text-slate-900 dark:text-white font-bold">{totalOrders.toLocaleString()} Orders</strong>
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Production Completion</span>
+                          <span className="text-xl font-black text-blue-600 dark:text-blue-400">{knitPct}%</span>
+                        </div>
+                      </div>
+
+                      {/* Quantities Breakdown Grid */}
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 bg-slate-50/80 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Target QTY</span>
+                          <span className="text-xs font-black text-slate-900 dark:text-white block">{targetQty.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Allocated QTY</span>
+                          <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 block">{allocatedQty.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Grey QTY</span>
+                          <span className="text-xs font-black text-slate-800 dark:text-slate-200 block">{greyQty.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Knit Prod.</span>
+                          <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 block">{knitPro.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
+                        </div>
+                        <div className="space-y-0.5 col-span-2 sm:col-span-1">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Balance QTY</span>
+                          <span className="text-xs font-black text-amber-600 dark:text-amber-400 block">{balance.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
+                        </div>
+                      </div>
+
+                      {/* Progress Bar */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                          <span>Knitted: {knitPro.toLocaleString()} Kg</span>
+                          <span>Target: {targetQty.toLocaleString()} Kg</span>
+                        </div>
+                        <div className="h-2.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                          <div 
+                            className="h-full rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 transition-all duration-300" 
+                            style={{ width: `${knitPct}%` }} 
+                          />
+                        </div>
+                      </div>
+
+                      {/* OTD Performance Section */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                        {/* Knit Start OTD */}
+                        <div className="p-2.5 rounded-xl border border-emerald-200/70 dark:border-emerald-900/40 bg-emerald-50/50 dark:bg-emerald-950/20">
+                          <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider block">Knit Start OTD</span>
+                          <div className="flex items-baseline justify-between mt-1">
+                            <span className="text-base font-black text-emerald-700 dark:text-emerald-300">{ksPassRate}%</span>
+                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/60 px-1.5 py-0.5 rounded-md">
+                              {ksPassed}/{ksEval.length} Passed
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Knit End OTD */}
+                        <div className="p-2.5 rounded-xl border border-blue-200/70 dark:border-blue-900/40 bg-blue-50/50 dark:bg-blue-950/20">
+                          <span className="text-[10px] font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider block">Knit End OTD</span>
+                          <div className="flex items-baseline justify-between mt-1">
+                            <span className="text-base font-black text-blue-700 dark:text-blue-300">{kePassRate}%</span>
+                            <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/60 px-1.5 py-0.5 rounded-md">
+                              {kePassed}/{keEval.length} Passed
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Failed & Pending Summary */}
+                        <div className="p-2.5 rounded-xl border border-rose-200/70 dark:border-rose-900/40 bg-rose-50/50 dark:bg-rose-950/20">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wider block">OTD Failed Rate</span>
+                            <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+                              {pendingOrdersCount} Pending
+                            </span>
+                          </div>
+                          <div className="flex items-baseline justify-between mt-1">
+                            <span className="text-base font-black text-rose-700 dark:text-rose-300">{failedRate}%</span>
+                            <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-100 dark:bg-rose-900/60 px-1.5 py-0.5 rounded-md">
+                              {totalFailedCount} Failed
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Major Reason for Failing */}
+                      <div className="p-2.5 rounded-xl border border-rose-200/60 dark:border-rose-900/40 bg-rose-50/30 dark:bg-rose-950/10 flex items-start gap-2 text-xs">
+                        <AlertCircle className="h-4 w-4 text-rose-500 shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wider block">Major Reason for Failing</span>
+                          <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate" title={majorReason}>
+                            {majorReason}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Footer Row */}
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 font-medium">
+                        <span>{buyerOrders.length} matching order rows</span>
+                        <button
+                          type="button"
+                          className="text-blue-600 dark:text-blue-400 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                          onClick={() => {
+                            setBuyerFilter(b);
+                            setActiveSubTab('summary');
+                          }}
+                        >
+                          View Orderwise Rows →
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* SUB-TAB 3: ORDERWISE OTD STATUS */}
       {activeSubTab === 'summary' && (
         <div className="space-y-3">
           {/* Controls toolbar */}
@@ -1094,12 +1898,20 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search EWO, Buyer, Color or Month..."
+                placeholder="Search EWO, Buyer, Team Leader, Color, Month..."
                 className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 py-2 pl-9 pr-4 text-xs font-medium text-slate-900 dark:text-white focus:border-blue-500 focus:outline-hidden"
               />
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <SearchableSelect
+                value={teamLeaderFilter}
+                onChange={setTeamLeaderFilter}
+                options={teamLeaderOptions}
+                allLabel="All Team Leaders"
+                placeholder="Search Team Leader..."
+              />
+
               <SearchableSelect
                 value={buyerFilter}
                 onChange={setBuyerFilter}
@@ -1160,12 +1972,13 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                 onSetFreezeCount={setFreezeCount}
               />
 
-              {(searchQuery !== '' || buyerFilter !== 'All' || planMonthFilter !== 'All' || knitStartSelect !== 'All' || knitEndSelect !== 'All' || otdFilter !== 'All') && (
+              {(searchQuery !== '' || buyerFilter !== 'All' || teamLeaderFilter !== 'All' || planMonthFilter !== 'All' || knitStartSelect !== 'All' || knitEndSelect !== 'All' || otdFilter !== 'All') && (
                 <button
                   type="button"
                   onClick={() => {
                     setSearchQuery('');
                     setBuyerFilter('All');
+                    setTeamLeaderFilter('All');
                     setPlanMonthFilter('All');
                     setKnitStartSelect('All');
                     setKnitEndSelect('All');
@@ -1671,368 +2484,6 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                   <ChevronsRight className="h-4 w-4" />
                 </button>
               </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* SUB-TAB 2: BUYER SUMMARY */}
-      {activeSubTab === 'buyer' && (() => {
-        const displayBuyers = buyerFilter === 'All'
-          ? buyersList
-          : buyersList.filter(b => b === buyerFilter);
-
-        const yesterdayStr = getYesterdayDateString();
-
-        return (
-          <div className="space-y-4 animate-in fade-in duration-200">
-            {/* Filter Toolbar inside Buyer Summary */}
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search EWO, Buyer, Color, Month..."
-                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 py-2 pl-9 pr-4 text-xs font-medium text-slate-900 dark:text-white focus:border-blue-500 focus:outline-hidden"
-                />
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <SearchableSelect
-                  value={buyerFilter}
-                  onChange={setBuyerFilter}
-                  options={buyersList}
-                  allLabel="All Buyers"
-                  placeholder="Search Buyers..."
-                />
-
-                <SearchableSelect
-                  value={planMonthFilter}
-                  onChange={setPlanMonthFilter}
-                  options={planMonthOptions}
-                  allLabel="All Plan Months"
-                  placeholder="Search Month..."
-                />
-
-                <SearchableSelect
-                  value={knitStartSelect}
-                  onChange={setKnitStartSelect}
-                  options={knitStartOptions}
-                  allLabel="All Knit Start Dates"
-                  placeholder="Search Knit Start..."
-                />
-
-                <SearchableSelect
-                  value={knitEndSelect}
-                  onChange={setKnitEndSelect}
-                  options={knitEndOptions}
-                  allLabel="All Knit End Dates"
-                  placeholder="Search Knit End..."
-                />
-
-                <SearchableSelect
-                  value={otdFilter}
-                  onChange={setOtdFilter}
-                  options={otdOptions}
-                  allLabel="All OTD Status"
-                  placeholder="Search OTD Status..."
-                />
-
-                {(searchQuery !== '' || buyerFilter !== 'All' || planMonthFilter !== 'All' || knitStartSelect !== 'All' || knitEndSelect !== 'All' || otdFilter !== 'All') && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearchQuery('');
-                      setBuyerFilter('All');
-                      setPlanMonthFilter('All');
-                      setKnitStartSelect('All');
-                      setKnitEndSelect('All');
-                      setOtdFilter('All');
-                    }}
-                    className="px-3 py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                    title="Clear all active filters"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                    <span>Clear All Filters</span>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Notice banner if pre-selected Yesterday date has no matching orders */}
-            {knitStartSelect === yesterdayStr && filteredOrders.length === 0 && (
-              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 text-xs flex items-center justify-between shadow-2xs">
-                <div className="flex items-center gap-2">
-                  <Info className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                  <span>
-                    Default Knit Start Date filter applied: <strong>Yesterday ({yesterdayStr})</strong>. No orders match Yesterday in current dataset.
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setKnitStartSelect('All')}
-                  className="px-3 py-1 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition-all cursor-pointer shadow-2xs"
-                >
-                  View All Dates
-                </button>
-              </div>
-            )}
-
-            {/* Buyer Cards Grid */}
-            {filteredOrders.length === 0 ? (
-              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-10 text-center space-y-3">
-                <Target className="h-10 w-10 text-slate-400 mx-auto" />
-                <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No Orders Found for Selected Filters</h3>
-                <p className="text-xs text-slate-400 max-w-md mx-auto">
-                  There are no orders matching your current filter criteria. Try changing the Knit Start Date filter to "All Knit Start Dates" or reset all active filters.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchQuery('');
-                    setBuyerFilter('All');
-                    setPlanMonthFilter('All');
-                    setKnitStartSelect('All');
-                    setKnitEndSelect('All');
-                    setOtdFilter('All');
-                  }}
-                  className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition-all cursor-pointer shadow-xs"
-                >
-                  <X className="h-4 w-4" />
-                  <span>Reset All Filters</span>
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-                {displayBuyers.map(b => {
-                  const buyerOrders = filteredOrders.filter(o => o.buyer === b);
-                  if (buyerOrders.length === 0 && buyerFilter === 'All') return null;
-
-                  const totalOrders = buyerOrders.length;
-                  const targetQty = buyerOrders.reduce((sum, o) => sum + (o.target || 0), 0);
-                  const allocatedQty = buyerOrders.reduce((sum, o) => sum + (o.allocatedQty || 0), 0);
-                  const greyQty = buyerOrders.reduce((sum, o) => sum + (o.greyReq || 0), 0);
-                  const knitPro = buyerOrders.reduce((sum, o) => sum + (o.knitPro || 0), 0);
-                  const balance = buyerOrders.reduce((sum, o) => sum + (o.knitBal || 0), 0);
-                  const knitPct = targetQty > 0 ? Math.min(100, Math.round((knitPro / targetQty) * 100)) : 0;
-
-                  // Knit Start OTD
-                  const ksEval = buyerOrders.filter(o => o.knitStartOtd !== 'Pending');
-                  const ksPassed = buyerOrders.filter(o => o.knitStartOtd === 'Passed').length;
-                  const ksPassRate = ksEval.length > 0 ? Math.round((ksPassed / ksEval.length) * 100) : 100;
-
-                  // Knit End OTD
-                  const keEval = buyerOrders.filter(o => o.knitEndOtd !== 'Pending');
-                  const kePassed = buyerOrders.filter(o => o.knitEndOtd === 'Passed').length;
-                  const kePassRate = keEval.length > 0 ? Math.round((kePassed / keEval.length) * 100) : 100;
-
-                  // Pending Order Count
-                  const pendingOrdersCount = buyerOrders.filter(
-                    o => o.knitStartOtd === 'Pending' || o.knitEndOtd === 'Pending'
-                  ).length;
-
-                  // Overall Failed Orders & Rate
-                  const totalFailedOrders = buyerOrders.filter(
-                    o => o.knitStartOtd === 'Failed' || o.knitEndOtd === 'Failed'
-                  );
-                  const totalFailedCount = totalFailedOrders.length;
-                  const totalEvalCount = buyerOrders.filter(
-                    o => o.knitStartOtd !== 'Pending' || o.knitEndOtd !== 'Pending'
-                  ).length;
-                  const failedRate = totalEvalCount > 0
-                    ? Math.round((totalFailedCount / totalEvalCount) * 100)
-                    : (totalOrders > 0 ? Math.round((totalFailedCount / totalOrders) * 100) : 0);
-
-                  // Extract Major Reason for Failing
-                  const failureReasonsMap: Record<string, number> = {};
-                  totalFailedOrders.forEach(o => {
-                    const remarks = [o.knitStartRemarks, o.knitEndRemarks].filter(r => r && r.trim().length > 0);
-                    if (remarks.length === 0) {
-                      failureReasonsMap['Delay Reason Pending Review'] = (failureReasonsMap['Delay Reason Pending Review'] || 0) + 1;
-                    } else {
-                      remarks.forEach(r => {
-                        const cleaned = r.trim();
-                        failureReasonsMap[cleaned] = (failureReasonsMap[cleaned] || 0) + 1;
-                      });
-                    }
-                  });
-
-                  const sortedReasons = Object.entries(failureReasonsMap).sort((x, y) => y[1] - x[1]);
-                  const majorReason = sortedReasons.length > 0
-                    ? `${sortedReasons[0][0]} (${sortedReasons[0][1]} order${sortedReasons[0][1] > 1 ? 's' : ''})`
-                    : 'No Failures (100% On-Time)';
-
-                  return (
-                    <div key={b} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4 hover:border-slate-300 dark:hover:border-slate-700 transition-all">
-                      {/* Buyer Header */}
-                      <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 font-bold">
-                            <Building2 className="h-5 w-5" />
-                          </div>
-                          <div>
-                            <h3 className="text-base font-black text-slate-900 dark:text-white">{b}</h3>
-                            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                              Total Orders in Plan: <strong className="text-slate-900 dark:text-white font-bold">{totalOrders.toLocaleString()} Orders</strong>
-                            </span>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Production Completion</span>
-                          <span className="text-xl font-black text-blue-600 dark:text-blue-400">{knitPct}%</span>
-                        </div>
-                      </div>
-
-                      {/* Quantities Breakdown Grid */}
-                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 bg-slate-50/80 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200/60 dark:border-slate-800">
-                        <div className="space-y-0.5">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Target QTY</span>
-                          <span className="text-xs font-black text-slate-900 dark:text-white block">{targetQty.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
-                        </div>
-                        <div className="space-y-0.5">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Allocated QTY</span>
-                          <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 block">{allocatedQty.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
-                        </div>
-                        <div className="space-y-0.5">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Grey QTY</span>
-                          <span className="text-xs font-black text-slate-800 dark:text-slate-200 block">{greyQty.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
-                        </div>
-                        <div className="space-y-0.5">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Knit Prod.</span>
-                          <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 block">{knitPro.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
-                        </div>
-                        <div className="space-y-0.5 col-span-2 sm:col-span-1">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Balance QTY</span>
-                          <span className="text-xs font-black text-amber-600 dark:text-amber-400 block">{balance.toLocaleString()} <span className="text-[9px] font-normal text-slate-400">Kg</span></span>
-                        </div>
-                      </div>
-
-                      {/* Progress Bar */}
-                      <div className="space-y-1">
-                        <div className="flex justify-between text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                          <span>Knitted: {knitPro.toLocaleString()} Kg</span>
-                          <span>Target: {targetQty.toLocaleString()} Kg</span>
-                        </div>
-                        <div className="h-2.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                          <div 
-                            className="h-full rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 transition-all duration-300" 
-                            style={{ width: `${knitPct}%` }} 
-                          />
-                        </div>
-                      </div>
-
-                      {/* OTD Performance Section */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
-                        {/* Knit Start OTD */}
-                        <div className="p-2.5 rounded-xl border border-emerald-200/70 dark:border-emerald-900/40 bg-emerald-50/50 dark:bg-emerald-950/20">
-                          <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider block">Knit Start OTD</span>
-                          <div className="flex items-baseline justify-between mt-1">
-                            <span className="text-base font-black text-emerald-700 dark:text-emerald-300">{ksPassRate}%</span>
-                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/60 px-1.5 py-0.5 rounded-md">
-                              {ksPassed}/{ksEval.length} Passed
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Knit End OTD */}
-                        <div className="p-2.5 rounded-xl border border-blue-200/70 dark:border-blue-900/40 bg-blue-50/50 dark:bg-blue-950/20">
-                          <span className="text-[10px] font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider block">Knit End OTD</span>
-                          <div className="flex items-baseline justify-between mt-1">
-                            <span className="text-base font-black text-blue-700 dark:text-blue-300">{kePassRate}%</span>
-                            <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/60 px-1.5 py-0.5 rounded-md">
-                              {kePassed}/{keEval.length} Passed
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Failed & Pending Summary */}
-                        <div className="p-2.5 rounded-xl border border-rose-200/70 dark:border-rose-900/40 bg-rose-50/50 dark:bg-rose-950/20">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wider block">OTD Failed Rate</span>
-                            <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400">
-                              {pendingOrdersCount} Pending
-                            </span>
-                          </div>
-                          <div className="flex items-baseline justify-between mt-1">
-                            <span className="text-base font-black text-rose-700 dark:text-rose-300">{failedRate}%</span>
-                            <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-100 dark:bg-rose-900/60 px-1.5 py-0.5 rounded-md">
-                              {totalFailedCount} Failed
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Major Reason for Failing */}
-                      <div className="p-2.5 rounded-xl border border-rose-200/60 dark:border-rose-900/40 bg-rose-50/30 dark:bg-rose-950/10 flex items-start gap-2 text-xs">
-                        <AlertCircle className="h-4 w-4 text-rose-500 shrink-0 mt-0.5" />
-                        <div className="flex-1 min-w-0">
-                          <span className="text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wider block">Major Reason for Failing</span>
-                          <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate" title={majorReason}>
-                            {majorReason}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Footer Row */}
-                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 font-medium">
-                        <span>{buyerOrders.length} matching order rows</span>
-                        <button
-                          type="button"
-                          className="text-blue-600 dark:text-blue-400 font-bold hover:underline flex items-center gap-1 cursor-pointer"
-                          onClick={() => {
-                            setBuyerFilter(b);
-                            setActiveSubTab('summary');
-                          }}
-                        >
-                          View Spreadsheet Row →
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
-      {/* SUB-TAB 4: DELIVERY TIMELINE */}
-      {activeSubTab === 'delivery' && (
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
-          <h3 className="text-sm font-bold text-slate-900 dark:text-white">OTD Delivery & Knit Completion Timeline</h3>
-          <div className="space-y-3">
-            {filteredOrders.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-6">No order plans match the selected filter criteria.</p>
-            ) : (
-              filteredOrders.map(o => (
-                <div key={o.id} className="flex items-center justify-between p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 font-bold text-xs">
-                      <CalendarCheck className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <span className="block text-xs font-bold text-slate-900 dark:text-white">EWO: {o.ewo} — {o.buyer} ({o.color})</span>
-                      <span className="block text-[10px] text-slate-400">Planned Knit: {o.knitStart} to {o.knitEnd} | Expected End: {o.expectedKnitEnd || 'N/A'}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4 text-right">
-                    <div>
-                      <span className="block text-xs font-bold text-blue-600 dark:text-blue-400">{o.knitPro.toLocaleString()} / {o.target.toLocaleString()} Kg</span>
-                      <span className="block text-[10px] text-slate-400">Avg Prod/Day: {o.avgProdDay} Kg</span>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${o.knitStartOtd === 'Passed' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
-                        Start OTD: {o.knitStartOtd}
-                      </span>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${o.knitEndOtd === 'Passed' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
-                        End OTD: {o.knitEndOtd}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))
             )}
           </div>
         </div>

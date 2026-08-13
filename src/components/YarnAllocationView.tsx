@@ -184,9 +184,11 @@ export const INITIAL_YARN_ALLOCATIONS: YarnAllocationRecord[] = [
 ];
 
 function formatYarnQty(val: number): string {
-  if (val === 0) return '-';
-  if (val < 0) return `(${Math.abs(val).toLocaleString()})`;
-  return val.toLocaleString();
+  if (val === undefined || val === null || isNaN(val) || val === 0) return '-';
+  const rounded = Math.round(val);
+  if (rounded === 0) return '-';
+  if (rounded < 0) return `(${Math.abs(rounded).toLocaleString()})`;
+  return rounded.toLocaleString();
 }
 
 export function formatDisplayDate(val: any): string {
@@ -622,43 +624,104 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
             String(cell || '').replace(/[\r\n]+/g, ' ').replace(/\u00a0/g, ' ').trim()
           );
 
-          // Fast O(1) header column lookup map
+          // Fast, flexible, multi-pass header column lookup map
           const findHeaderKey = (possibleKeys: string[]): string => {
+            // Pass 1: Exact match on normalized header text
             for (const pk of possibleKeys) {
-              const pkClean = pk.toLowerCase().trim();
-              const match = headers.find(h => {
-                const hc = h.toLowerCase().trim();
-                return hc === pkClean || hc.startsWith(pkClean) || (pkClean.length > 3 && hc.includes(pkClean));
-              });
-              if (match) return match;
+              const pkNorm = pk.toLowerCase().trim();
+              for (const h of headers) {
+                if (!h) continue;
+                if (h.toLowerCase().trim() === pkNorm) return h;
+              }
             }
+
+            // Pass 2: Clean alphanumeric match (ignore symbols, brackets, spaces, e.g. 'Fabric GSM (g/m2)' -> 'fabricgsmgm2')
+            for (const pk of possibleKeys) {
+              const pkClean = pk.toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (!pkClean) continue;
+              for (const h of headers) {
+                if (!h) continue;
+                const hClean = h.toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (hClean === pkClean) return h;
+              }
+            }
+
+            // Pass 3: Clean alphanumeric startsWith / includes match
+            for (const pk of possibleKeys) {
+              const pkClean = pk.toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (!pkClean) continue;
+              for (const h of headers) {
+                if (!h) continue;
+                const hClean = h.toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (hClean.startsWith(pkClean) || pkClean.startsWith(hClean)) return h;
+                if (hClean.includes(pkClean) || (pkClean.length >= 3 && pkClean.includes(hClean))) return h;
+              }
+            }
+
+            // Pass 4: Fallback partial keyword match for multi-token keys
+            for (const pk of possibleKeys) {
+              const pkTokens = pk.toLowerCase().split(/\s+/).filter(t => t.length >= 2);
+              if (pkTokens.length === 0) continue;
+              for (const h of headers) {
+                if (!h) continue;
+                const hNorm = h.toLowerCase();
+                if (pkTokens.every(t => hNorm.includes(t))) return h;
+              }
+            }
+
             return '';
           };
 
           const colMap = {
-            orderNumber: findHeaderKey(['fabric booking no', 'fabric booking number', 'order number', 'order no', 'order #', 'booking no', 'booking']),
-            fabricsType: findHeaderKey(['fabrics type', 'fabric type', 'fabric']),
-            fabricShade: findHeaderKey(['fabric shade', 'shade', 'color']),
-            fabricGsm: findHeaderKey(['fabric gsm', 'gsm']),
-            yarnRequired: findHeaderKey(['yarn category', 'yarn required', 'as per fr', 'yarn cat', 'category']),
-            allocatedYarn: findHeaderKey(['yarn count physical', 'allocated yarn', 'count physical', 'physical count', 'yarn req', 'count']),
-            lotNo: findHeaderKey(['lot #', 'lot no', 'lot number', 'lot']),
-            spinnersName: findHeaderKey(["spinner's name", 'spinners name', 'spinner name', 'spinner']),
-            buyer: findHeaderKey(['buyer']),
-            lotRef: findHeaderKey(['lot reference', 'lot ref']),
-            allocationStatus: findHeaderKey(['allocation status']),
-            yarnStockStatus: findHeaderKey(['yarn stock status']),
-            yarnDeliveryStatus: findHeaderKey(['yarn delivery status']),
-            proposedAllocationDate: findHeaderKey(['proposed allocation date']),
-            actualRequisitionDate: findHeaderKey(['actual yarn requisition date', 'actual requisition date', 'requisition date', 'req date']),
-            allocationNo: findHeaderKey(['allocation no', 'allocation #', 'allocation number']),
-            remarks: findHeaderKey(['remarks', 'comment']),
-            yarnRqQty: findHeaderKey(['yarn requisition qty', 'yarn rq qty', 'yarn req qty', 'required qty']),
-            allocatedQty: findHeaderKey(['allocated qty', 'allocated quantity']),
-            balance: findHeaderKey(['balance qty', 'balance']),
-            allocationDate: findHeaderKey(['allocation date', 'alloc date', 'allocation d', 'alloc d', 'date']),
-            existingRange: findHeaderKey(['allocation sart date to end date', 'allocation start date to end date', 'allocation date range']),
+            orderNumber: findHeaderKey(['fabric booking no', 'fabric booking number', 'fabric booking #', 'order number', 'order no', 'order #', 'booking no', 'booking number', 'booking #', 'booking', 'ewo', 'ewo no', 'ewo number', 'job no', 'po no', 'style no', 'fabric booking']),
+            fabricsType: findHeaderKey(['fabrics type', 'fabric type', 'fabrics name', 'fabric name', 'fabric description', 'fabric desc', 'fabric details', 'fabric', 'fabrics']),
+            fabricShade: findHeaderKey(['fabric shade', 'shade name', 'shade no', 'shade', 'color name', 'color no', 'color', 'colour', 'garment color', 'pantone']),
+            fabricGsm: findHeaderKey(['fabric gsm', 'finished gsm', 'fin gsm', 'fin. gsm', 'f.gsm', 'f gsm', 'fgsm', 'fabric_gsm', 'gsm (g/m2)', 'gsm (g/m²)', 'gsm/oz', 'req gsm', 'target gsm', 'gsm/weight', 'fabric gsm (g/m2)', 'gsm']),
+            yarnRequired: findHeaderKey(['yarn category', 'yarn required', 'yarn requirement', 'yarn description', 'as per fr', 'as per f.r', 'yarn cat', 'category', 'yarn details', 'required yarn', 'yarn spec', 'yarn count required']),
+            allocatedYarn: findHeaderKey(['yarn count physical', 'allocated yarn', 'count physical', 'physical count', 'allocated yarn count', 'yarn req', 'count', 'allocated count', 'physical yarn count', 'allocated yarn description', 'yarn count']),
+            lotNo: findHeaderKey(['lot #', 'lot no', 'lot number', 'lot', 'yarn lot', 'yarn lot no', 'yarn lot #', 'lot code', 'batch no', 'lotid']),
+            spinnersName: findHeaderKey(["spinner's name", 'spinners name', 'spinner name', 'spinner', 'spinning mill', 'mill name', 'mill', 'supplier', 'yarn supplier']),
+            buyer: findHeaderKey(['buyer name', 'buyer', 'brand', 'customer', 'customer name']),
+            lotRef: findHeaderKey(['lot reference', 'lot ref', 'ref no', 'ref', 'lot reference no']),
+            allocationStatus: findHeaderKey(['allocation status', 'alloc status', 'status']),
+            yarnStockStatus: findHeaderKey(['yarn stock status', 'stock status', 'yarn status']),
+            yarnDeliveryStatus: findHeaderKey(['yarn delivery status', 'delivery status']),
+            proposedAllocationDate: findHeaderKey(['proposed allocation date', 'proposed alloc date', 'prop alloc date', 'prop. alloc date', 'proposed date']),
+            actualRequisitionDate: findHeaderKey(['actual yarn requisition date', 'actual requisition date', 'requisition date', 'req date', 'req. date', 'rq date', 'actual req date', 'actual rq date']),
+            allocationNo: findHeaderKey(['allocation no', 'allocation #', 'allocation number', 'alloc no', 'alloc #']),
+            remarks: findHeaderKey(['remarks', 'comment', 'comments', 'note', 'notes']),
+            yarnRqQty: findHeaderKey([
+              'yarn requisition qty', 'yarn requisition quantity', 'yarn rq qty', 'yarn rq quantity',
+              'yarn req qty', 'yarn req quantity', 'yarn requirement qty', 'yarn requirement quantity',
+              'yarn requirement', 'yarn required qty', 'yarn required quantity', 'requisition qty',
+              'requisition quantity', 'req qty', 'req quantity', 'req. qty', 'rq qty', 'rq quantity',
+              'required qty', 'required quantity', 'yarn qty', 'yarn quantity', 'allocation req qty', 'allocation requisition qty'
+            ]),
+            allocatedQty: findHeaderKey(['allocated qty', 'allocated quantity', 'allocation qty', 'allocation quantity', 'alloc qty', 'alloc quantity', 'allocated weight', 'alc qty', 'allocated (kg)', 'alloc (kg)']),
+            balance: findHeaderKey(['balance qty', 'balance quantity', 'balance', 'bal qty', 'bal quantity', 'bal', 'yarn balance', 'unallocated qty']),
+            allocationDate: findHeaderKey(['allocation date', 'alloc date', 'allocation d', 'alloc d', 'date', 'allocation start date']),
+            existingRange: findHeaderKey(['allocation sart date to end date', 'allocation start date to end date', 'allocation date range', 'date range', 'alloc date range']),
           };
+
+          // Robust fallback checks for Fabric GSM and Yarn RQ Qty if not matched by standard aliases
+          if (!colMap.fabricGsm) {
+            const gsmHeader = headers.find(h => {
+              const l = h.toLowerCase();
+              return l.includes('gsm') || l.includes('g/m') || l.includes('weight');
+            });
+            if (gsmHeader) colMap.fabricGsm = gsmHeader;
+          }
+
+          if (!colMap.yarnRqQty) {
+            const rqHeader = headers.find(h => {
+              const l = h.toLowerCase();
+              return (l.includes('rq') || l.includes('req') || l.includes('requisition') || l.includes('requirement')) && !l.includes('date');
+            }) || headers.find(h => {
+              const l = h.toLowerCase();
+              return l.includes('qty') && !l.includes('alloc') && !l.includes('bal');
+            });
+            if (rqHeader) colMap.yarnRqQty = rqHeader;
+          }
 
           // Validate required source columns
           const missingCols: string[] = [];
@@ -734,10 +797,29 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
               }
             }
 
+            const parseNum = (val: any): number => {
+              if (val === undefined || val === null || val === '') return 0;
+              if (typeof val === 'number') return isNaN(val) ? 0 : val;
+              const cleaned = String(val).replace(/[^0-9.-]/g, '');
+              const parsed = parseFloat(cleaned);
+              return isNaN(parsed) ? 0 : parsed;
+            };
+
             const orderNumber = String(colMap.orderNumber ? rowObj[colMap.orderNumber] : '').trim();
             const fabricsType = String(colMap.fabricsType ? rowObj[colMap.fabricsType] : '').trim();
             const fabricShade = String(colMap.fabricShade ? rowObj[colMap.fabricShade] : '').trim();
-            const fabricGsm = colMap.fabricGsm ? rowObj[colMap.fabricGsm] : '';
+            
+            const rawGsm = colMap.fabricGsm ? rowObj[colMap.fabricGsm] : '';
+            let fabricGsm: string | number = '';
+            if (rawGsm !== undefined && rawGsm !== null && rawGsm !== '') {
+              const numGsm = parseNum(rawGsm);
+              if (numGsm > 0) {
+                fabricGsm = Math.round(numGsm);
+              } else {
+                fabricGsm = String(rawGsm).trim();
+              }
+            }
+
             const yarnRequired = String(colMap.yarnRequired ? rowObj[colMap.yarnRequired] : '').trim();
             const allocatedYarn = String(colMap.allocatedYarn ? rowObj[colMap.allocatedYarn] : '').trim();
             const lotNo = String(colMap.lotNo ? rowObj[colMap.lotNo] : '').trim();
@@ -745,11 +827,11 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
 
             const groupKey = `${orderNumber.toLowerCase()}|${fabricsType.toLowerCase()}|${fabricShade.toLowerCase()}|${String(fabricGsm).toLowerCase()}|${allocatedYarn.toLowerCase()}|${lotNo.toLowerCase()}|${spinnersName.toLowerCase()}`;
 
-            const rqQty = parseFloat(colMap.yarnRqQty ? rowObj[colMap.yarnRqQty] : 0) || 0;
-            const alcQty = parseFloat(colMap.allocatedQty ? rowObj[colMap.allocatedQty] : 0) || 0;
+            const rqQty = parseNum(colMap.yarnRqQty ? rowObj[colMap.yarnRqQty] : 0);
+            const alcQty = parseNum(colMap.allocatedQty ? rowObj[colMap.allocatedQty] : 0);
             let balVal = colMap.balance ? rowObj[colMap.balance] : '';
-            let bal = typeof balVal === 'number' ? balVal : parseFloat(balVal);
-            if (isNaN(bal)) bal = rqQty - alcQty;
+            let bal = parseNum(balVal);
+            if (bal === 0 && (rqQty > 0 || alcQty > 0)) bal = rqQty - alcQty;
 
             const allocDateRaw = colMap.allocationDate ? rowObj[colMap.allocationDate] : '';
             const parsedDate = parseToDate(allocDateRaw);
