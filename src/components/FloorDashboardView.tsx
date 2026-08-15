@@ -622,53 +622,54 @@ const getMetricsForUnitAndDate = (unitId: string, dateStr: string) => {
 
   // If we have a record for the specified date, use its actual values!
   if (currentRecord) {
-    const target = currentRecord.target;
-    const production = currentRecord.totalProduction;
-    const achievement = currentRecord.efficiency; // or (production / target) * 100
-    const totalMachines = currentRecord.runningMachine + currentRecord.idleMachine;
-    const runningMachines = currentRecord.runningMachine;
-    const idlePct = currentRecord.idleMachinePct;
-    const capacity = currentRecord.capacityUtilization;
-    const efficiency = currentRecord.efficiency;
-    const operators = currentRecord.totalOperator;
-    const absentPct = currentRecord.absentPct;
-    const absentCount = currentRecord.absent;
+    const target = currentRecord.target || 0;
+    const production = currentRecord.totalProduction || 0;
+    const achievement = currentRecord.efficiency !== undefined ? currentRecord.efficiency : (target > 0 ? parseFloat(((production / target) * 100).toFixed(1)) : 0);
+    const runningMachines = currentRecord.runningMachine || 0;
+    const idleMachine = currentRecord.idleMachine !== undefined ? currentRecord.idleMachine : (currentRecord.idleMc || 0);
+    const totalMachines = runningMachines + idleMachine || 12;
+    const idlePct = currentRecord.idleMachinePct !== undefined ? currentRecord.idleMachinePct : (currentRecord.idleMcPct || 0);
+    const capacity = currentRecord.capacityUtilization || 0;
+    const efficiency = currentRecord.efficiency || 0;
+    const operators = currentRecord.totalOperator || 0;
+    const absentCount = currentRecord.absent || 0;
+    const absentPct = currentRecord.absentPct || 0;
     const presentPct = 100 - absentPct;
 
     // Compare with yesterday's record
-    const targetVsYesterday = yesterdayRecord ? yesterdayRecord.target : 0;
+    const targetVsYesterday = yesterdayRecord ? (yesterdayRecord.target || 0) : 0;
     const targetChange = targetVsYesterday > 0 ? parseFloat((((target - targetVsYesterday) / targetVsYesterday) * 100).toFixed(1)) : 0;
 
-    const productionVsYesterday = yesterdayRecord ? yesterdayRecord.totalProduction : 0;
+    const productionVsYesterday = yesterdayRecord ? (yesterdayRecord.totalProduction || 0) : 0;
     const productionChange = productionVsYesterday > 0 ? parseFloat((((production - productionVsYesterday) / productionVsYesterday) * 100).toFixed(1)) : 0;
 
-    const achievementVsYesterday = yesterdayRecord ? yesterdayRecord.efficiency : 0;
-    const achievementChange = parseFloat((achievement - achievementVsYesterday).toFixed(1));
+    const achievementVsYesterday = yesterdayRecord ? (yesterdayRecord.efficiency || 0) : 0;
+    const achievementChange = parseFloat(((achievement || 0) - (achievementVsYesterday || 0)).toFixed(1));
 
-    const machineVsYesterday = yesterdayRecord ? yesterdayRecord.runningMachine : 0;
+    const machineVsYesterday = yesterdayRecord ? (yesterdayRecord.runningMachine || 0) : 0;
     const machineChange = machineVsYesterday > 0 ? parseFloat((((runningMachines - machineVsYesterday) / machineVsYesterday) * 100).toFixed(1)) : 0;
 
     return {
       target,
       targetVsYesterday,
-      targetChange,
+      targetChange: isNaN(targetChange) ? 0 : targetChange,
       production,
       productionVsYesterday,
-      productionChange,
-      achievement,
-      achievementVsYesterday,
-      achievementChange,
+      productionChange: isNaN(productionChange) ? 0 : productionChange,
+      achievement: isNaN(achievement) ? 0 : achievement,
+      achievementVsYesterday: isNaN(achievementVsYesterday) ? 0 : achievementVsYesterday,
+      achievementChange: isNaN(achievementChange) ? 0 : achievementChange,
       totalMachines,
       runningMachines,
-      idlePct,
+      idlePct: isNaN(idlePct) ? 0 : idlePct,
       machineVsYesterday,
-      machineChange,
+      machineChange: isNaN(machineChange) ? 0 : machineChange,
       capacity,
       efficiency,
       operators,
-      absentCount,
-      absentPct,
-      presentPct
+      absentCount: isNaN(absentCount) ? 0 : absentCount,
+      absentPct: isNaN(absentPct) ? 0 : absentPct,
+      presentPct: isNaN(presentPct) ? 100 : presentPct
     };
   }
 
@@ -851,15 +852,15 @@ export default function FloorDashboardView({
     const dates = dateStrings.length > 0 ? dateStrings : ['2026-06-28'];
     const results = dates.map(d => getMetricsForUnitAndDate(floorId, d));
     
-    const totalTarget = results.reduce((sum, r) => sum + r.target, 0);
-    const totalProduction = results.reduce((sum, r) => sum + r.production, 0);
-    const totalTargetVsYesterday = results.reduce((sum, r) => sum + r.targetVsYesterday, 0);
-    const totalProductionVsYesterday = results.reduce((sum, r) => sum + r.productionVsYesterday, 0);
-    const totalRunningMachines = Math.round(results.reduce((sum, r) => sum + r.runningMachines, 0) / results.length);
-    const avgCapacity = Math.round(results.reduce((sum, r) => sum + r.capacity, 0) / results.length);
-    const avgEfficiency = Math.round(results.reduce((sum, r) => sum + r.efficiency, 0) / results.length);
-    const avgAbsentPct = results.reduce((sum, r) => sum + r.absentPct, 0) / results.length;
-    const avgPresentPct = 100 - avgAbsentPct;
+    const totalTarget = results.reduce((sum, r) => sum + (r.target || 0), 0);
+    const totalProduction = results.reduce((sum, r) => sum + (r.production || 0), 0);
+    const totalTargetVsYesterday = results.reduce((sum, r) => sum + (r.targetVsYesterday || 0), 0);
+    const totalProductionVsYesterday = results.reduce((sum, r) => sum + (r.productionVsYesterday || 0), 0);
+    const totalRunningMachines = results.length > 0 ? Math.round(results.reduce((sum, r) => sum + (r.runningMachines || 0), 0) / results.length) : 0;
+    const avgCapacity = results.length > 0 ? Math.round(results.reduce((sum, r) => sum + (r.capacity || 0), 0) / results.length) : 0;
+    const avgEfficiency = results.length > 0 ? Math.round(results.reduce((sum, r) => sum + (r.efficiency || 0), 0) / results.length) : 0;
+    const avgAbsentPct = results.length > 0 ? results.reduce((sum, r) => sum + (r.absentPct || 0), 0) / results.length : 0;
+    const avgPresentPct = 100 - (avgAbsentPct || 0);
     const operators = results[0]?.operators || 20;
     
     const targetChange = totalTargetVsYesterday > 0 
@@ -869,31 +870,34 @@ export default function FloorDashboardView({
       ? parseFloat((((totalProduction - totalProductionVsYesterday) / totalProductionVsYesterday) * 100).toFixed(1))
       : 0;
     
-    const achievement = parseFloat(((totalProduction / totalTarget) * 100).toFixed(2));
-    const achievementVsYesterday = parseFloat(((totalProductionVsYesterday / totalTargetVsYesterday) * 100).toFixed(2));
-    const achievementChange = parseFloat((achievement - achievementVsYesterday).toFixed(1));
+    const achievement = totalTarget > 0 ? parseFloat(((totalProduction / totalTarget) * 100).toFixed(2)) : 0;
+    const achievementVsYesterday = totalTargetVsYesterday > 0 ? parseFloat(((totalProductionVsYesterday / totalTargetVsYesterday) * 100).toFixed(2)) : 0;
+    const achievementChange = parseFloat(((achievement || 0) - (achievementVsYesterday || 0)).toFixed(1));
+
+    const totalMacs = results[0]?.totalMachines || 12;
+    const idlePctVal = totalMacs > 0 ? parseFloat((((totalMacs - totalRunningMachines) / totalMacs) * 100).toFixed(2)) : 0;
 
     return {
       target: totalTarget,
       targetVsYesterday: totalTargetVsYesterday,
-      targetChange,
+      targetChange: isNaN(targetChange) ? 0 : targetChange,
       production: totalProduction,
       productionVsYesterday: totalProductionVsYesterday,
-      productionChange,
-      achievement,
-      achievementVsYesterday,
-      achievementChange,
-      totalMachines: results[0]?.totalMachines || 12,
+      productionChange: isNaN(productionChange) ? 0 : productionChange,
+      achievement: isNaN(achievement) ? 0 : achievement,
+      achievementVsYesterday: isNaN(achievementVsYesterday) ? 0 : achievementVsYesterday,
+      achievementChange: isNaN(achievementChange) ? 0 : achievementChange,
+      totalMachines: totalMacs,
       runningMachines: totalRunningMachines,
-      idlePct: parseFloat(((((results[0]?.totalMachines || 12) - totalRunningMachines) / (results[0]?.totalMachines || 12)) * 100).toFixed(2)),
+      idlePct: isNaN(idlePctVal) ? 0 : idlePctVal,
       machineVsYesterday: results[0]?.machineVsYesterday || 10,
       machineChange: 0,
       capacity: avgCapacity,
       efficiency: avgEfficiency,
       operators: operators,
-      absentCount: Math.round((avgAbsentPct / 100) * operators),
-      absentPct: parseFloat(avgAbsentPct.toFixed(2)),
-      presentPct: parseFloat(avgPresentPct.toFixed(2))
+      absentCount: isNaN(Math.round(((avgAbsentPct || 0) / 100) * operators)) ? 0 : Math.round(((avgAbsentPct || 0) / 100) * operators),
+      absentPct: isNaN(avgAbsentPct) ? 0 : parseFloat((avgAbsentPct || 0).toFixed(2)),
+      presentPct: isNaN(avgPresentPct) ? 100 : parseFloat((avgPresentPct || 100).toFixed(2))
     };
   };
 

@@ -159,33 +159,36 @@ export default function App() {
 
   const [currentUser, setCurrentUser] = useState<UserRecord | null>(() => {
     try {
-      const savedSession = sessionStorage.getItem('active_user_session');
+      const savedSession = sessionStorage.getItem('active_user_session') || localStorage.getItem('active_user_session');
       if (savedSession) {
         const parsed = JSON.parse(savedSession);
-        if (parsed && parsed.id && parsed.activeStatus === 'Active') {
+        if (parsed && (parsed.uid || parsed.id) && parsed.status !== 'Inactive') {
           delete parsed.password;
           return parsed;
         }
       }
     } catch (e) {
-      console.warn('Failed to restore active session from sessionStorage:', e);
+      console.warn('Failed to restore active session from storage:', e);
     }
     return null;
   });
   const lastActivityRef = useRef<number>(Date.now());
 
-  // Sync active user with GasClient and sessionStorage whenever state changes
+  // Sync active user with GasClient and storage whenever state changes
   useEffect(() => {
     GasClient.setActiveUser(currentUser);
     if (currentUser) {
       try {
         const safeUser = { ...currentUser };
         delete safeUser.password;
-        sessionStorage.setItem('active_user_session', JSON.stringify(safeUser));
+        const serialized = JSON.stringify(safeUser);
+        sessionStorage.setItem('active_user_session', serialized);
+        localStorage.setItem('active_user_session', serialized);
       } catch (e) {}
     } else {
       try {
         sessionStorage.removeItem('active_user_session');
+        localStorage.removeItem('active_user_session');
       } catch (e) {}
     }
   }, [currentUser]);
@@ -273,7 +276,22 @@ export default function App() {
     };
   }, [currentUser]);
 
-  const [currentPage, setCurrentPage] = useState<string>('Dashboard');
+  const [currentPage, setCurrentPage] = useState<string>(() => {
+    try {
+      const savedPage = sessionStorage.getItem('active_current_page') || localStorage.getItem('active_current_page');
+      if (savedPage) return savedPage;
+    } catch (e) {}
+    return 'Dashboard';
+  });
+
+  useEffect(() => {
+    try {
+      if (currentPage) {
+        sessionStorage.setItem('active_current_page', currentPage);
+        localStorage.setItem('active_current_page', currentPage);
+      }
+    } catch (e) {}
+  }, [currentPage]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
   const [selectedFloorId, setSelectedFloorId] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
@@ -744,6 +762,9 @@ export default function App() {
   const executeLogout = () => {
     try {
       sessionStorage.removeItem('active_user_session');
+      localStorage.removeItem('active_user_session');
+      sessionStorage.removeItem('active_current_page');
+      localStorage.removeItem('active_current_page');
     } catch (e) {}
     setCurrentUser(null);
     GasClient.setActiveUser(null);
@@ -763,6 +784,12 @@ export default function App() {
           setCurrentUser(safeUser);
           GasClient.setActiveUser(safeUser);
           setInactivityNotice(null);
+          try {
+            const saved = sessionStorage.getItem('active_current_page') || localStorage.getItem('active_current_page');
+            if (saved) {
+              setCurrentPage(saved);
+            }
+          } catch (e) {}
         }} 
       />
     );

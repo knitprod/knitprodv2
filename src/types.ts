@@ -74,57 +74,65 @@ export interface ChartDataPoint {
 
 export interface LedgerRecord extends SyncMetadata {
   id: string;
-  date: string;       // YYYY-MM-DD
-  floor: string;      // EKL, EFL, EFL-2, Auto Stripe, EFL-Extension, ESL-Extension, Sub-Contact
-  month: string;      // Month name
-  year: number;       // Year
+  unit?: string;                  // Unit (Sub-Contact, In-House)
+  year: number;                   // Year (e.g. 2026)
+  month: string;                  // Month (e.g. August)
+  date: string;                   // Date (e.g. 8/11/2026 or YYYY-MM-DD)
+  floor: string;                  // Floor (Extension, ESL-Extension, Sub-Contact, EKL, Auto-Stripe, EFL, EFL-2)
+  target: number;                 // Target Total
+  shiftA: number;                 // Shift A
+  shiftB: number;                 // Shift B
+  shiftC: number;                 // Shift C
+  totalProduction: number;        // Total Production
+  targetBulk?: number;            // Target Bulk
+  bulkProd?: number;              // Bulk Prod.
+  sampleProd?: number;            // Sample Prod.
+  runningBulk?: number;           // Running Bulk
+  runningSample?: number;         // Running Sample
+  idleMc?: number;                // Idle Mc
+  machineUtilization?: number;    // Machine Utilization %
+  idleMcPct?: number;             // Idle Mc %
+  prodLossForSample?: number;     // Prod. Loss For Sample
+  idleProduction?: number;        // Idle Production
+  efficiency?: number;            // Efficiency %
+  proPerMc?: number;              // Pro Per Mc
+  reject?: number;                // Reject
+  rejectPct?: number;             // Reject%
+  hold?: number;                  // Hold
+  holdPct?: number;               // Hold%
+  jhuteCutpcs?: number;            // Jhute/Cutpcs
+  jhuteCutpcsPct?: number;         // Jhute/Cutpcs%
+  needleBroken?: number;          // Needle Broken
+  needlePerKg?: number;           // Needle/Per Kg
+  sinkerBroken?: number;          // Sinker Broken
+  sinkerPerKg?: number;           // Sinker/Per Kg
+  oilConsumption?: number;        // Oil Consumption
+  beltBroken?: number;            // Belt Broken
+  otherSparePartsName?: string;   // Other Spare parts Name
+  otherSparePartsQty?: number;    // Other Spare parts QTY
+  setChangePcs?: number;          // Set Change(Pcs)
+  productionLossForEff?: number;  // Production Loss For Eff
+  capacityUtilization?: number;   // Capacity Utilization %
+  totalOperator?: number;         // Total Operator
+  absent?: number;                // Absent
+  absentPct?: number;             // Absent %
+  productionFlatKnit?: number;    // Production-Flat Knit
+  achievmentCircular?: number;    // Achievment-Circular
+  otd?: number | string;          // OTD
+  yarnIssued?: number;            // Yarn Issued
+  totalRunningFactories?: number; // Total Running Factories
+  runningMachine?: number;        // Running Machine
+  numberVehicles?: number;        // Number Vehicles
+  fabricReturn?: number;          // Fabric Return
+  remarks?: string;               // Remarks
 
-  // Production
-  target: number;
-  shiftA: number;
-  shiftB: number;
-  shiftC: number;
-  totalProduction: number;
-
-  // Machine Performance
-  runningMachine: number;
-  idleMachine: number;
-  machineUtilization: number;  // (runningMachine / total) * 100
-  idleMachinePct: number;      // (idleMachine / total) * 100
-  idleProduction: number;      // lost production
-  efficiency: number;          // totalProduction / target * 100
-  productionPerMachine: number;// totalProduction / runningMachine
-
-  // Quality
-  reject: number;
-  rejectPct: number;           // reject / totalProduction * 100
-  hold: number;
-  holdPct: number;             // hold / totalProduction * 100
-
-  // Consumables
-  needleBroken: number;
-  needlePerKg: number;         // needleBroken / totalProduction
-  sinkerBroken: number;
-  oilConsumption: number;
-
-  // Performance
-  productionLossForEfficiency: number; // target - totalProduction (0 if negative)
-  capacityUtilization: number;         // capacity percentage
-
-  // Manpower
-  totalOperator: number;
-  absent: number;
-  absentPct: number;           // absent / totalOperator * 100
-
-  // Other
-  setChange: number;
-  remarks: string;
-
-  // Sub-Contact specific fields
-  productionFlatKnit?: number;
-  yarnIssued?: number;
+  // Backward compatibility aliases
+  idleMachine?: number;
+  idleMachinePct?: number;
+  productionPerMachine?: number;
+  productionLossForEfficiency?: number;
+  setChange?: number;
   runningFactories?: number;
-  fabricReturn?: number;
 }
 
 export interface SyncConflictLog {

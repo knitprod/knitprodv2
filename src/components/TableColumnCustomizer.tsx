@@ -503,6 +503,7 @@ export function ResizableTh({
   isSticky = false,
   stickyLeft = 0,
   isLastFrozen = false,
+  stickyBgClass,
   ...props
 }: {
   children: React.ReactNode;
@@ -513,6 +514,7 @@ export function ResizableTh({
   isSticky?: boolean;
   stickyLeft?: number;
   isLastFrozen?: boolean;
+  stickyBgClass?: string;
   [key: string]: any;
 }) {
   const isResizing = useRef(false);
@@ -555,7 +557,9 @@ export function ResizableTh({
         left: `${stickyLeft}px`,
         zIndex: 40,
       }
-    : {};
+    : {
+        zIndex: 20,
+      };
 
   const currentStyle: React.CSSProperties = {
     ...stickyStyle,
@@ -563,11 +567,13 @@ export function ResizableTh({
     ...(width ? { width: `${width}px`, minWidth: `${width}px`, maxWidth: `${width}px` } : {}),
   };
 
+  const bgClassToUse = stickyBgClass || (className.includes('bg-') ? '' : 'bg-slate-100 dark:bg-slate-800');
+
   const stickyClasses = isSticky
-    ? `sticky bg-slate-100 dark:bg-slate-800 ${
+    ? `sticky ${bgClassToUse} ${
         isLastFrozen
-          ? 'border-r-2 border-slate-300 dark:border-slate-700 shadow-[4px_0_10px_-2px_rgba(0,0,0,0.15)]'
-          : 'border-r border-slate-200 dark:border-slate-800'
+          ? 'border-r-2 border-slate-300/40 dark:border-slate-700 shadow-[4px_0_10px_-2px_rgba(0,0,0,0.15)]'
+          : 'border-r border-slate-200/20 dark:border-slate-800'
       }`
     : '';
 
@@ -577,7 +583,7 @@ export function ResizableTh({
       style={currentStyle}
       {...props}
     >
-      <div className="truncate w-full">{children}</div>
+      <div className="w-full whitespace-normal break-words leading-tight">{children}</div>
       {onWidthChange && (
         <div
           onMouseDown={handleMouseDown}

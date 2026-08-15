@@ -5,7 +5,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { UserRecord } from './UserManagementView';
-import { useTableColumns, ColumnCustomizerDropdown, FreezePanesButton, ResizableTh, ColumnDef } from './TableColumnCustomizer';
+import { useTableColumns, ColumnCustomizerDropdown, ResizableTh, ColumnDef } from './TableColumnCustomizer';
 import { 
   Search, 
   Filter, 
@@ -66,111 +66,416 @@ const formatDateFriendly = (dateStr: string) => {
 
 // Helper to generate realistic data from July 1st to July 13th for all 6 floors
 export const generateInitialLedger = (): LedgerRecord[] => {
-  const records: LedgerRecord[] = [];
-  const floorsData = [
-    { name: 'EKL', target: getLocalStorageTarget('EKL', 7500), machines: getLocalStorageMachines('EKL', 48), operators: 110 },
-    { name: 'EFL', target: getLocalStorageTarget('EFL', 15000), machines: getLocalStorageMachines('EFL', 40), operators: 95 },
-    { name: 'EFL-2', target: getLocalStorageTarget('EFL-2', 15000), machines: getLocalStorageMachines('EFL-2', 35), operators: 85 },
-    { name: 'Auto Stripe', target: getLocalStorageTarget('Auto Stripe', 12000), machines: getLocalStorageMachines('Auto Stripe', 20), operators: 50 },
-    { name: 'EFL-Extension', target: getLocalStorageTarget('EFL-Extension', 15000), machines: getLocalStorageMachines('EFL-Extension', 25), operators: 65 },
-    { name: 'ESL-Extension', target: getLocalStorageTarget('ESL-Extension', 10000), machines: getLocalStorageMachines('ESL-Extension', 16), operators: 40 },
+  const aug11Records: LedgerRecord[] = [
+    {
+      id: 'rec-2026-08-11-sub-contact-1',
+      unit: 'Sub-Contact',
+      year: 2026,
+      month: 'August',
+      date: '2026-08-11',
+      floor: 'Sub-Contact',
+      target: 25000,
+      shiftA: 0,
+      shiftB: 0,
+      shiftC: 0,
+      totalProduction: 20259,
+      targetBulk: 20259,
+      bulkProd: 20259,
+      sampleProd: 0,
+      runningBulk: 0,
+      runningSample: 0,
+      idleMc: 0,
+      machineUtilization: 0,
+      idleMcPct: 0,
+      prodLossForSample: 0,
+      idleProduction: 0,
+      efficiency: 81.04,
+      proPerMc: 0,
+      reject: 0,
+      rejectPct: 0,
+      hold: 0,
+      holdPct: 0,
+      jhuteCutpcs: 0,
+      jhuteCutpcsPct: 0,
+      needleBroken: 0,
+      needlePerKg: 0,
+      sinkerBroken: 0,
+      sinkerPerKg: 0,
+      oilConsumption: 0,
+      beltBroken: 0,
+      otherSparePartsName: '',
+      otherSparePartsQty: 0,
+      setChangePcs: 0,
+      productionLossForEff: 0,
+      capacityUtilization: 81.04,
+      totalOperator: 13,
+      absent: 0,
+      absentPct: 0,
+      yarnIssued: 49,
+      runningMachine: 153,
+      numberVehicles: 8,
+      remarks: '',
+      idleMachine: 0,
+      idleMachinePct: 0,
+      productionPerMachine: 0,
+      productionLossForEfficiency: 0,
+    },
+    {
+      id: 'rec-2026-08-11-extension',
+      unit: 'In-House',
+      year: 2026,
+      month: 'August',
+      date: '2026-08-11',
+      floor: 'Extension',
+      target: 4787,
+      shiftA: 1377,
+      shiftB: 1502,
+      shiftC: 1324,
+      totalProduction: 4203,
+      targetBulk: 3960,
+      bulkProd: 4023,
+      sampleProd: 180,
+      runningBulk: 22,
+      runningSample: 4,
+      idleMc: 12,
+      machineUtilization: 58,
+      idleMcPct: 32,
+      prodLossForSample: 0,
+      idleProduction: 552,
+      efficiency: 102,
+      proPerMc: 191.05,
+      reject: 2,
+      rejectPct: 0.05,
+      hold: 61,
+      holdPct: 1.45,
+      jhuteCutpcs: 0,
+      jhuteCutpcsPct: 0,
+      needleBroken: 201,
+      needlePerKg: 20.9,
+      sinkerBroken: 0,
+      sinkerPerKg: 0,
+      oilConsumption: 10,
+      beltBroken: 0,
+      otherSparePartsName: '',
+      otherSparePartsQty: 0,
+      setChangePcs: 0,
+      productionLossForEff: -30865.13,
+      capacityUtilization: 63.49,
+      totalOperator: 49,
+      absent: 4,
+      absentPct: 8.16,
+      remarks: '',
+      idleMachine: 12,
+      idleMachinePct: 32,
+      productionPerMachine: 191.05,
+      productionLossForEfficiency: -30865.13,
+    },
+    {
+      id: 'rec-2026-08-11-sub-contact-2',
+      unit: 'Sub-Contact',
+      year: 2026,
+      month: 'August',
+      date: '2026-08-11',
+      floor: 'Sub-Contact',
+      target: 25000,
+      shiftA: 0,
+      shiftB: 0,
+      shiftC: 0,
+      totalProduction: 27290,
+      targetBulk: 27290,
+      bulkProd: 27290,
+      sampleProd: 0,
+      runningBulk: 0,
+      runningSample: 0,
+      idleMc: 0,
+      machineUtilization: 0,
+      idleMcPct: 0,
+      prodLossForSample: 0,
+      idleProduction: 0,
+      efficiency: 109.16,
+      proPerMc: 0,
+      reject: 0,
+      rejectPct: 0,
+      hold: 0,
+      holdPct: 0,
+      jhuteCutpcs: 0,
+      jhuteCutpcsPct: 0,
+      needleBroken: 0,
+      needlePerKg: 0,
+      sinkerBroken: 0,
+      sinkerPerKg: 0,
+      oilConsumption: 0,
+      beltBroken: 0,
+      otherSparePartsName: '',
+      otherSparePartsQty: 0,
+      setChangePcs: 0,
+      productionLossForEff: 0,
+      capacityUtilization: 109.16,
+      totalOperator: 0,
+      absent: 0,
+      absentPct: 0,
+      yarnIssued: 49,
+      runningMachine: 153,
+      numberVehicles: 9,
+      remarks: '',
+      idleMachine: 0,
+      idleMachinePct: 0,
+      productionPerMachine: 0,
+      productionLossForEfficiency: 0,
+    },
+    {
+      id: 'rec-2026-08-11-esl-extension',
+      unit: 'In-House',
+      year: 2026,
+      month: 'August',
+      date: '2026-08-11',
+      floor: 'ESL-Extension',
+      target: 5500,
+      shiftA: 1568,
+      shiftB: 1455,
+      shiftC: 1731,
+      totalProduction: 4754,
+      targetBulk: 5600,
+      bulkProd: 4635,
+      sampleProd: 119,
+      runningBulk: 28,
+      runningSample: 7,
+      idleMc: 1,
+      machineUtilization: 78,
+      idleMcPct: 3,
+      prodLossForSample: 0,
+      idleProduction: 1043,
+      efficiency: 83,
+      proPerMc: 169.79,
+      reject: 5.5,
+      rejectPct: 0.12,
+      hold: 73,
+      holdPct: 1.54,
+      jhuteCutpcs: 9,
+      jhuteCutpcsPct: 0,
+      needleBroken: 26,
+      needlePerKg: 182.8,
+      sinkerBroken: 0,
+      sinkerPerKg: 0,
+      oilConsumption: 5,
+      beltBroken: 0,
+      otherSparePartsName: '',
+      otherSparePartsQty: 0,
+      setChangePcs: 0,
+      productionLossForEff: -32886.16,
+      capacityUtilization: 62.80,
+      totalOperator: 52,
+      absent: 0,
+      absentPct: 0,
+      remarks: '',
+      idleMachine: 1,
+      idleMachinePct: 3,
+      productionPerMachine: 169.79,
+      productionLossForEfficiency: -32886.16,
+    },
+    {
+      id: 'rec-2026-08-11-ekl',
+      unit: 'In-House',
+      year: 2026,
+      month: 'August',
+      date: '2026-08-11',
+      floor: 'EKL',
+      target: 5863,
+      shiftA: 1836,
+      shiftB: 1630,
+      shiftC: 1502,
+      totalProduction: 4968,
+      targetBulk: 5520,
+      bulkProd: 4672,
+      sampleProd: 296,
+      runningBulk: 24,
+      runningSample: 3,
+      idleMc: 2,
+      machineUtilization: 83,
+      idleMcPct: 7,
+      prodLossForSample: 0,
+      idleProduction: 289,
+      efficiency: 90,
+      proPerMc: 207.00,
+      reject: 0,
+      rejectPct: 0,
+      hold: 114.58,
+      holdPct: 2.31,
+      jhuteCutpcs: 0,
+      jhuteCutpcsPct: 0,
+      needleBroken: 123,
+      needlePerKg: 40.4,
+      sinkerBroken: 0,
+      sinkerPerKg: 0,
+      oilConsumption: 9,
+      beltBroken: 0,
+      otherSparePartsName: '',
+      otherSparePartsQty: 0,
+      setChangePcs: 0,
+      productionLossForEff: -43943.86,
+      capacityUtilization: 78.24,
+      totalOperator: 44,
+      absent: 1,
+      absentPct: 2.27,
+      remarks: '',
+      idleMachine: 2,
+      idleMachinePct: 7,
+      productionPerMachine: 207.00,
+      productionLossForEfficiency: -43943.86,
+    },
+    {
+      id: 'rec-2026-08-11-auto-stripe',
+      unit: 'In-House',
+      year: 2026,
+      month: 'August',
+      date: '2026-08-11',
+      floor: 'Auto-Stripe',
+      target: 773,
+      shiftA: 159,
+      shiftB: 137,
+      shiftC: 217,
+      totalProduction: 513,
+      targetBulk: 720,
+      bulkProd: 466,
+      sampleProd: 47,
+      runningBulk: 6,
+      runningSample: 1,
+      idleMc: 3,
+      machineUtilization: 60,
+      idleMcPct: 30,
+      prodLossForSample: 0,
+      idleProduction: 30.67,
+      efficiency: 61,
+      proPerMc: 85.50,
+      reject: 0,
+      rejectPct: 0,
+      hold: 87,
+      holdPct: 16.96,
+      jhuteCutpcs: 0,
+      jhuteCutpcsPct: 0,
+      needleBroken: 30,
+      needlePerKg: 17.1,
+      sinkerBroken: 2,
+      sinkerPerKg: 256.50,
+      oilConsumption: 3.2,
+      beltBroken: 0,
+      otherSparePartsName: '',
+      otherSparePartsQty: 0,
+      setChangePcs: 0,
+      productionLossForEff: -8063,
+      capacityUtilization: 51.30,
+      totalOperator: 17,
+      absent: 0,
+      absentPct: 0,
+      remarks: '',
+      idleMachine: 3,
+      idleMachinePct: 30,
+      productionPerMachine: 85.50,
+      productionLossForEfficiency: -8063,
+    },
+    {
+      id: 'rec-2026-08-11-efl',
+      unit: 'In-House',
+      year: 2026,
+      month: 'August',
+      date: '2026-08-11',
+      floor: 'EFL',
+      target: 14053,
+      shiftA: 3177,
+      shiftB: 2909,
+      shiftC: 3424,
+      totalProduction: 9510,
+      targetBulk: 10350,
+      bulkProd: 9228,
+      sampleProd: 282,
+      runningBulk: 45,
+      runningSample: 6,
+      idleMc: 15,
+      machineUtilization: 68,
+      idleMcPct: 23,
+      prodLossForSample: 0,
+      idleProduction: 948,
+      efficiency: 89,
+      proPerMc: 211.33,
+      reject: 13,
+      rejectPct: 0.14,
+      hold: 77,
+      holdPct: 0.81,
+      jhuteCutpcs: 0,
+      jhuteCutpcsPct: 0,
+      needleBroken: 54,
+      needlePerKg: 176.1,
+      sinkerBroken: 0,
+      sinkerPerKg: 0,
+      oilConsumption: 7,
+      beltBroken: 0,
+      otherSparePartsName: '',
+      otherSparePartsQty: 0,
+      setChangePcs: 0,
+      productionLossForEff: -45050.61,
+      capacityUtilization: 58.92,
+      totalOperator: 96,
+      absent: 4,
+      absentPct: 4.17,
+      remarks: '',
+      idleMachine: 15,
+      idleMachinePct: 23,
+      productionPerMachine: 211.33,
+      productionLossForEfficiency: -45050.61,
+    },
+    {
+      id: 'rec-2026-08-11-efl-2',
+      unit: 'In-House',
+      year: 2026,
+      month: 'August',
+      date: '2026-08-11',
+      floor: 'EFL-2',
+      target: 8627,
+      shiftA: 1644,
+      shiftB: 1516,
+      shiftC: 2352,
+      totalProduction: 5512,
+      targetBulk: 8960,
+      bulkProd: 5376,
+      sampleProd: 136,
+      runningBulk: 32,
+      runningSample: 3,
+      idleMc: 8,
+      machineUtilization: 81,
+      idleMcPct: 19,
+      prodLossForSample: 0,
+      idleProduction: 368,
+      efficiency: 60,
+      proPerMc: 172.25,
+      reject: 0,
+      rejectPct: 0,
+      hold: 94.34,
+      holdPct: 1.75,
+      jhuteCutpcs: 14.6,
+      jhuteCutpcsPct: 0,
+      needleBroken: 37,
+      needlePerKg: 149.0,
+      sinkerBroken: 0,
+      sinkerPerKg: 0,
+      oilConsumption: 15,
+      beltBroken: 0,
+      otherSparePartsName: '',
+      otherSparePartsQty: 0,
+      setChangePcs: 0,
+      productionLossForEff: 5548,
+      capacityUtilization: 44.74,
+      totalOperator: 63,
+      absent: 1,
+      absentPct: 1.59,
+      remarks: 'power problem 4.13hours',
+      idleMachine: 8,
+      idleMachinePct: 19,
+      productionPerMachine: 172.25,
+      productionLossForEfficiency: 5548,
+    }
   ];
 
-  // July 1 to July 13
-  for (let day = 13; day >= 1; day--) {
-    const dayStr = day < 10 ? `0${day}` : `${day}`;
-    const dateStr = `2026-07-${dayStr}`;
-    const seed = day * 3.5;
-
-    floorsData.forEach((floor, idx) => {
-      const targetVariation = Math.round((1 + Math.sin(seed + idx) * 0.04) * floor.target);
-      const isEFLExtCritical = floor.name === 'EFL-Extension' && day === 10;
-      const factor = isEFLExtCritical ? 0.65 : (0.92 + Math.cos(seed - idx) * 0.05);
-
-      const totalProduction = Math.round(targetVariation * factor);
-      const shiftA = Math.round(totalProduction * 0.35);
-      const shiftB = Math.round(totalProduction * 0.35);
-      const shiftC = totalProduction - shiftA - shiftB;
-
-      const runningMachine = isEFLExtCritical ? 15 : Math.round(floor.machines * (0.85 + Math.sin(seed) * 0.06));
-      const idleMachine = floor.machines - runningMachine;
-      const machineUtilization = parseFloat(((runningMachine / floor.machines) * 100).toFixed(1));
-      const idleMachinePct = parseFloat(((idleMachine / floor.machines) * 100).toFixed(1));
-      const idleProduction = idleMachine * 260;
-
-      const efficiency = parseFloat(((totalProduction / targetVariation) * 100).toFixed(1));
-      const productionPerMachine = parseFloat((totalProduction / (runningMachine || 1)).toFixed(1));
-
-      // Quality
-      const reject = Math.round(totalProduction * (0.012 + Math.sin(seed + idx) * 0.005));
-      const rejectPct = parseFloat(((reject / totalProduction) * 100).toFixed(2));
-      const hold = Math.round(totalProduction * (0.015 + Math.cos(seed) * 0.007));
-      const holdPct = parseFloat(((hold / totalProduction) * 100).toFixed(2));
-
-      // Consumables
-      const needleBroken = Math.round(8 + Math.sin(seed * 1.5) * 3 + idx * 2);
-      const needlePerKg = parseFloat((needleBroken / totalProduction).toFixed(5));
-      const sinkerBroken = Math.round(4 + Math.cos(seed) * 1.5 + idx);
-      const oilConsumption = Math.round(15 + Math.sin(seed) * 2 + idx * 2);
-
-      // Performance
-      const productionLossForEfficiency = Math.max(0, targetVariation - totalProduction);
-      const capacityUtilization = parseFloat(((runningMachine / floor.machines) * 100).toFixed(1));
-
-      // Manpower
-      const absent = Math.round(floor.operators * (0.03 + Math.sin(seed + idx) * 0.025));
-      const absentPct = parseFloat(((absent / floor.operators) * 100).toFixed(1));
-
-      const setChange = Math.round(1 + (seed % 3));
-      const remarksArr = [
-        "Normal operation, target achieved.",
-        "Minor Lycra breakages sorted out.",
-        "Good quality yarn allocation, standard run.",
-        "High machine efficiency observed.",
-        "Awaiting set setup in morning shift.",
-        "Yarn feeding delay in shift C resolved."
-      ];
-      const remarks = isEFLExtCritical
-        ? "Motor malfunction in group B circular frames. Resumed after maintenance."
-        : remarksArr[Math.floor((seed + idx) % remarksArr.length)];
-
-      records.push({
-        id: `rec-${dateStr}-${floor.name.toLowerCase().replace(' ', '-')}`,
-        date: dateStr,
-        floor: floor.name,
-        month: 'July',
-        year: 2026,
-        target: targetVariation,
-        shiftA,
-        shiftB,
-        shiftC,
-        totalProduction,
-        runningMachine,
-        idleMachine,
-        machineUtilization,
-        idleMachinePct,
-        idleProduction,
-        efficiency,
-        productionPerMachine,
-        reject,
-        rejectPct,
-        hold,
-        holdPct,
-        needleBroken,
-        needlePerKg,
-        sinkerBroken,
-        oilConsumption,
-        productionLossForEfficiency,
-        capacityUtilization,
-        totalOperator: floor.operators,
-        absent,
-        absentPct,
-        setChange,
-        remarks
-      });
-    });
-  }
-  return records;
+  return aug11Records;
 };
 
 const ensureUniqueIds = <T extends { id: string }>(items: T[], prefix: string): T[] => {
@@ -199,45 +504,58 @@ interface ProductionLedgerViewProps {
 }
 
 const PRODUCTION_LEDGER_COLUMNS: ColumnDef[] = [
-  { id: 'year', label: 'Year', defaultWidth: 80 },
-  { id: 'month', label: 'Month', defaultWidth: 90 },
-  { id: 'date', label: 'Date', defaultWidth: 100 },
-  { id: 'floor', label: 'Unit', defaultWidth: 100 },
-  { id: 'target', label: 'Target (Kg)', defaultWidth: 100 },
-  { id: 'shiftA', label: 'Shift A', defaultWidth: 90 },
-  { id: 'shiftB', label: 'Shift B', defaultWidth: 90 },
-  { id: 'shiftC', label: 'Shift C', defaultWidth: 90 },
-  { id: 'totalProduction', label: 'Total Prod (Kg)', defaultWidth: 110 },
-  { id: 'achievement', label: 'Achievement %', defaultWidth: 100 },
-  { id: 'efficiency', label: 'Efficiency %', defaultWidth: 100 },
-  { id: 'capacityUtilization', label: 'Cap Util %', defaultWidth: 100 },
-  { id: 'totalMachine', label: 'Total M/C', defaultWidth: 90 },
-  { id: 'runningMachine', label: 'Running', defaultWidth: 90 },
-  { id: 'idleMachine', label: 'Idle', defaultWidth: 80 },
-  { id: 'mcUtil', label: 'Machine Util %', defaultWidth: 100 },
-  { id: 'idleMcPct', label: 'Idle Machine %', defaultWidth: 100 },
-  { id: 'idleProdLoss', label: 'Idle Prod Loss (Kg)', defaultWidth: 120 },
-  { id: 'prodPerMc', label: 'Prod/Machine', defaultWidth: 100 },
-  { id: 'rejectKg', label: 'Reject (Kg)', defaultWidth: 90 },
-  { id: 'rejectPct', label: 'Reject %', defaultWidth: 90 },
-  { id: 'holdKg', label: 'Hold (Kg)', defaultWidth: 90 },
-  { id: 'holdPct', label: 'Hold %', defaultWidth: 90 },
-  { id: 'needleBroken', label: 'Needle Broken', defaultWidth: 100 },
-  { id: 'needlePerKg', label: 'Needle / Kg', defaultWidth: 90 },
-  { id: 'sinkerBroken', label: 'Sinker Broken', defaultWidth: 100 },
-  { id: 'oilCons', label: 'Oil Cons (Ltr)', defaultWidth: 100 },
-  { id: 'lossEfficiency', label: 'Loss for Efficiency', defaultWidth: 110 },
-  { id: 'totalStaff', label: 'Total Staff', defaultWidth: 90 },
-  { id: 'absentStaff', label: 'Absent', defaultWidth: 80 },
+  { id: 'unit', label: 'Unit', defaultWidth: 95 },
+  { id: 'year', label: 'Year', defaultWidth: 65 },
+  { id: 'month', label: 'Month', defaultWidth: 80 },
+  { id: 'date', label: 'Date', defaultWidth: 90 },
+  { id: 'floor', label: 'Floor', defaultWidth: 105 },
+  { id: 'target', label: 'Target Total', defaultWidth: 95 },
+  { id: 'shiftA', label: 'Shift A', defaultWidth: 80 },
+  { id: 'shiftB', label: 'Shift B', defaultWidth: 80 },
+  { id: 'shiftC', label: 'Shift C', defaultWidth: 80 },
+  { id: 'totalProduction', label: 'Total Production', defaultWidth: 110 },
+  { id: 'targetBulk', label: 'Target Bulk', defaultWidth: 95 },
+  { id: 'bulkProd', label: 'Bulk Prod.', defaultWidth: 90 },
+  { id: 'sampleProd', label: 'Sample Prod.', defaultWidth: 90 },
+  { id: 'runningBulk', label: 'Running Bulk', defaultWidth: 90 },
+  { id: 'runningSample', label: 'Running Sample', defaultWidth: 100 },
+  { id: 'idleMc', label: 'Idle Mc', defaultWidth: 75 },
+  { id: 'machineUtilization', label: 'Machine Utilization', defaultWidth: 120 },
+  { id: 'idleMcPct', label: 'Idle Mc %', defaultWidth: 85 },
+  { id: 'prodLossForSample', label: 'Prod. Loss For Sample', defaultWidth: 125 },
+  { id: 'idleProduction', label: 'Idle Production', defaultWidth: 105 },
+  { id: 'efficiency', label: 'Efficiency', defaultWidth: 90 },
+  { id: 'proPerMc', label: 'Pro Per Mc', defaultWidth: 90 },
+  { id: 'reject', label: 'Reject', defaultWidth: 75 },
+  { id: 'rejectPct', label: 'Reject%', defaultWidth: 75 },
+  { id: 'hold', label: 'Hold', defaultWidth: 75 },
+  { id: 'holdPct', label: 'Hold%', defaultWidth: 75 },
+  { id: 'jhuteCutpcs', label: 'Jhute/Cutpcs', defaultWidth: 95 },
+  { id: 'jhuteCutpcsPct', label: 'Jhute/Cutpcs%', defaultWidth: 95 },
+  { id: 'needleBroken', label: 'Needle Broken', defaultWidth: 95 },
+  { id: 'needlePerKg', label: 'Needle/Per Kg', defaultWidth: 95 },
+  { id: 'sinkerBroken', label: 'Sinker Broken', defaultWidth: 95 },
+  { id: 'sinkerPerKg', label: 'Sinker/Per Kg', defaultWidth: 95 },
+  { id: 'oilConsumption', label: 'Oil Consumption', defaultWidth: 105 },
+  { id: 'beltBroken', label: 'Belt Broken', defaultWidth: 90 },
+  { id: 'otherSparePartsName', label: 'Other Spare parts Name', defaultWidth: 135 },
+  { id: 'otherSparePartsQty', label: 'Other Spare parts QTY', defaultWidth: 125 },
+  { id: 'setChangePcs', label: 'Set Change(Pcs)', defaultWidth: 105 },
+  { id: 'productionLossForEff', label: 'Production Loss For Eff', defaultWidth: 130 },
+  { id: 'capacityUtilization', label: 'Capacity Utilization', defaultWidth: 120 },
+  { id: 'totalOperator', label: 'Total Operator', defaultWidth: 95 },
+  { id: 'absent', label: 'Absent', defaultWidth: 75 },
   { id: 'absentPct', label: 'Absent %', defaultWidth: 80 },
-  { id: 'setChange', label: 'Set Change', defaultWidth: 90 },
-  { id: 'remarks', label: 'Remarks', defaultWidth: 150 },
-  { id: 'productionFlatKnit', label: 'Flat Knit (PCS)', defaultWidth: 110 },
-  { id: 'yarnIssued', label: 'Yarn Issued (Kg)', defaultWidth: 110 },
-  { id: 'runningFactories', label: 'Running Factories', defaultWidth: 120 },
-  { id: 'subMcRunning', label: 'Sub-MC Running', defaultWidth: 110 },
-  { id: 'fabricReturn', label: 'Fabric Return (Kg)', defaultWidth: 110 },
-  { id: 'action', label: 'Actions', defaultWidth: 90, alwaysVisible: true },
+  { id: 'productionFlatKnit', label: 'Production-Flat Knit', defaultWidth: 120 },
+  { id: 'achievmentCircular', label: 'Achievment-Circular', defaultWidth: 125 },
+  { id: 'otd', label: 'OTD', defaultWidth: 75 },
+  { id: 'yarnIssued', label: 'Yarn Issued', defaultWidth: 95 },
+  { id: 'totalRunningFactories', label: 'Total Running Factories', defaultWidth: 130 },
+  { id: 'runningMachine', label: 'Running Machine', defaultWidth: 105 },
+  { id: 'numberVehicles', label: 'Number Vehicles', defaultWidth: 105 },
+  { id: 'fabricReturn', label: 'Fabric Return', defaultWidth: 100 },
+  { id: 'remarks', label: 'Remarks', defaultWidth: 160 },
+  { id: 'action', label: 'Actions', defaultWidth: 85, alwaysVisible: true },
 ];
 
 export default function ProductionLedgerView({ currentUser }: ProductionLedgerViewProps = {}) {
@@ -560,22 +878,25 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   // DYNAMIC TOP SUMMARY & KPI CALCULATIONS
   // ----------------------------------------------------
   const summaryKPIs = useMemo(() => {
-    const totalTarget = filteredRecords.reduce((sum, r) => sum + r.target, 0);
-    const totalProduction = filteredRecords.reduce((sum, r) => sum + r.totalProduction, 0);
+    const totalTarget = filteredRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
+    const totalProduction = filteredRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0);
     const achievementPct = totalTarget > 0 ? parseFloat(((totalProduction / totalTarget) * 100).toFixed(1)) : 0;
 
-    const runningMachine = filteredRecords.reduce((sum, r) => sum + r.runningMachine, 0);
-    const idleMachine = filteredRecords.reduce((sum, r) => sum + r.idleMachine, 0);
+    const runningMachine = filteredRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.runningMachine)) ? 0 : Number(r.runningMachine || 0)), 0);
+    const idleMachine = filteredRecords.reduce((sum, r) => {
+      const val = r.idleMachine !== undefined ? r.idleMachine : (r.idleMc !== undefined ? r.idleMc : 0);
+      return sum + (Number.isNaN(Number(val)) ? 0 : Number(val || 0));
+    }, 0);
     const totalMachines = runningMachine + idleMachine;
     const machineUtilization = totalMachines > 0 ? parseFloat(((runningMachine / totalMachines) * 100).toFixed(1)) : 0;
 
-    const totalReject = filteredRecords.reduce((sum, r) => sum + r.reject, 0);
+    const totalReject = filteredRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.reject)) ? 0 : Number(r.reject || 0)), 0);
     const rejectPct = totalProduction > 0 ? parseFloat(((totalReject / totalProduction) * 100).toFixed(2)) : 0;
-    const totalHold = filteredRecords.reduce((sum, r) => sum + r.hold, 0);
+    const totalHold = filteredRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.hold)) ? 0 : Number(r.hold || 0)), 0);
     const holdPct = totalProduction > 0 ? parseFloat(((totalHold / totalProduction) * 100).toFixed(2)) : 0;
 
-    const totalOperators = filteredRecords.reduce((sum, r) => sum + r.totalOperator, 0);
-    const totalAbsent = filteredRecords.reduce((sum, r) => sum + r.absent, 0);
+    const totalOperators = filteredRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalOperator)) ? 0 : Number(r.totalOperator || 0)), 0);
+    const totalAbsent = filteredRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.absent)) ? 0 : Number(r.absent || 0)), 0);
     const absentPct = totalOperators > 0 ? parseFloat(((totalAbsent / totalOperators) * 100).toFixed(1)) : 0;
 
     return {
@@ -604,17 +925,20 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     return floorsList.map((floorName) => {
       const floorRows = filteredRecords.filter((r) => r.floor === floorName);
       
-      const target = floorRows.reduce((sum, r) => sum + r.target, 0);
-      const production = floorRows.reduce((sum, r) => sum + r.totalProduction, 0);
+      const target = floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
+      const production = floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0);
       const achievementPct = target > 0 ? parseFloat(((production / target) * 100).toFixed(1)) : 0;
 
-      const runningMachine = floorRows.reduce((sum, r) => sum + r.runningMachine, 0);
-      const idleMachine = floorRows.reduce((sum, r) => sum + r.idleMachine, 0);
+      const runningMachine = floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.runningMachine)) ? 0 : Number(r.runningMachine || 0)), 0);
+      const idleMachine = floorRows.reduce((sum, r) => {
+        const val = r.idleMachine !== undefined ? r.idleMachine : (r.idleMc !== undefined ? r.idleMc : 0);
+        return sum + (Number.isNaN(Number(val)) ? 0 : Number(val || 0));
+      }, 0);
       
-      const reject = floorRows.reduce((sum, r) => sum + r.reject, 0);
-      const hold = floorRows.reduce((sum, r) => sum + r.hold, 0);
-      const absent = floorRows.reduce((sum, r) => sum + r.absent, 0);
-      const totalOperator = floorRows.reduce((sum, r) => sum + r.totalOperator, 0);
+      const reject = floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.reject)) ? 0 : Number(r.reject || 0)), 0);
+      const hold = floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.hold)) ? 0 : Number(r.hold || 0)), 0);
+      const absent = floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.absent)) ? 0 : Number(r.absent || 0)), 0);
+      const totalOperator = floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalOperator)) ? 0 : Number(r.totalOperator || 0)), 0);
       const absentPct = totalOperator > 0 ? parseFloat(((absent / totalOperator) * 100).toFixed(1)) : 0;
 
       const lastUpdated = floorRows.length > 0 ? 'Verified' : 'N/A';
@@ -1184,7 +1508,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
             </div>
           </div>
           <p className="text-[9px] font-bold text-gray-400 mt-2 text-right">
-            Cumulative Scrap: {(summaryKPIs.rejectPct + summaryKPIs.holdPct).toFixed(2)}%
+            Cumulative Scrap: {(((summaryKPIs.rejectPct || 0) + (summaryKPIs.holdPct || 0)) || 0).toFixed(2)}%
           </p>
         </div>
 
@@ -1414,14 +1738,6 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
               <span>Export Excel</span>
             </button>
 
-            <FreezePanesButton
-              isFrozen={isFrozen}
-              freezeCount={freezeCount}
-              onToggleFreeze={toggleFreeze}
-              onSetFreezeCount={setFreezeCount}
-              maxFreezeCount={5}
-            />
-
             <ColumnCustomizerDropdown
               tableId="production_ledger"
               columns={PRODUCTION_LEDGER_COLUMNS}
@@ -1458,226 +1774,314 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         </div>
 
         {/* Grouped Header Data Table with Sticky Column */}
-        <div className="overflow-x-auto border border-gray-100 dark:border-slate-800 rounded-xl max-h-[500px]">
+        <div className="overflow-x-auto border border-gray-100 dark:border-slate-800 rounded-xl max-h-[550px]">
           <table className="w-full text-left text-[11px] font-semibold border-collapse">
-            {/* Double Row Grouped Headers */}
-            <thead className="sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 shadow-sm">
-              <tr className="border-b border-gray-100 dark:border-slate-700 text-[10px] font-black text-[#0F4C81] dark:text-blue-300 uppercase tracking-wider text-center divide-x divide-gray-100 dark:divide-slate-700">
-                <th colSpan={4} className="px-3 py-2 bg-blue-50/50 dark:bg-slate-900/60">General Information</th>
-                <th colSpan={8} className="px-3 py-2 bg-emerald-50/20 dark:bg-slate-900/40">Production</th>
-                <th colSpan={7} className="px-3 py-2 bg-blue-50/50 dark:bg-slate-900/60">Machine Performance</th>
-                <th colSpan={4} className="px-3 py-2 bg-red-50/20 dark:bg-slate-900/40">Quality Standards</th>
-                <th colSpan={4} className="px-3 py-2 bg-blue-50/50 dark:bg-slate-900/60">Consumables</th>
-                <th colSpan={1} className="px-3 py-2 bg-orange-50/20 dark:bg-slate-900/40">Performance Projections</th>
-                <th colSpan={3} className="px-3 py-2 bg-blue-50/50 dark:bg-slate-900/60">Manpower Status</th>
-                <th colSpan={2} className="px-3 py-2 bg-emerald-50/20 dark:bg-slate-900/40">Other Variables</th>
-                <th colSpan={5} className="px-3 py-2 bg-indigo-50/30 dark:bg-slate-900/50">Sub-Contact Parameters</th>
-                <th rowSpan={2} className="px-4 py-2 bg-gray-100 dark:bg-slate-850 text-gray-500 font-bold sticky right-0 z-30">Actions</th>
-              </tr>
-              <tr className="border-b border-gray-100 dark:border-slate-700 text-[9px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap divide-x divide-gray-100 dark:divide-slate-700">
-                {/* General */}
-                {isColVisible('year') && (
-                  <ResizableTh width={getColWidth('year')} onWidthChange={(w) => setColumnWidth('year', w)} isSticky={isColFrozen('year')} stickyLeft={getStickyLeft('year')} isLastFrozen={'year' === lastFrozenColId} className="px-2.5 py-2.5 cursor-pointer text-left" onClick={() => { setSortField('year'); setSortAsc(!sortAsc); }}>Year {sortField === 'year' && (sortAsc ? '▲' : '▼')}</ResizableTh>
-                )}
-                {isColVisible('month') && (
-                  <ResizableTh width={getColWidth('month')} onWidthChange={(w) => setColumnWidth('month', w)} isSticky={isColFrozen('month')} stickyLeft={getStickyLeft('month')} isLastFrozen={'month' === lastFrozenColId} className="px-2.5 py-2.5 cursor-pointer text-left" onClick={() => { setSortField('month'); setSortAsc(!sortAsc); }}>Month {sortField === 'month' && (sortAsc ? '▲' : '▼')}</ResizableTh>
-                )}
-                {isColVisible('date') && (
-                  <ResizableTh width={getColWidth('date')} onWidthChange={(w) => setColumnWidth('date', w)} isSticky={isColFrozen('date')} stickyLeft={getStickyLeft('date')} isLastFrozen={'date' === lastFrozenColId} className="px-3.5 py-2.5 text-left cursor-pointer" onClick={() => { setSortField('date'); setSortAsc(!sortAsc); }}>Date {sortField === 'date' && (sortAsc ? '▲' : '▼')}</ResizableTh>
-                )}
-                {isColVisible('floor') && (
-                  <ResizableTh width={getColWidth('floor')} onWidthChange={(w) => setColumnWidth('floor', w)} isSticky={isColFrozen('floor')} stickyLeft={getStickyLeft('floor')} isLastFrozen={'floor' === lastFrozenColId} className="px-3.5 py-2.5 text-left cursor-pointer" onClick={() => { setSortField('floor'); setSortAsc(!sortAsc); }}>Unit {sortField === 'floor' && (sortAsc ? '▲' : '▼')}</ResizableTh>
-                )}
-                {/* Production */}
-                {isColVisible('target') && (
-                  <ResizableTh width={getColWidth('target')} onWidthChange={(w) => setColumnWidth('target', w)} isSticky={isColFrozen('target')} stickyLeft={getStickyLeft('target')} isLastFrozen={'target' === lastFrozenColId} className="px-3 py-2.5 text-right cursor-pointer" onClick={() => { setSortField('target'); setSortAsc(!sortAsc); }}>Target (Kg)</ResizableTh>
-                )}
-                {isColVisible('shiftA') && (
-                  <ResizableTh width={getColWidth('shiftA')} onWidthChange={(w) => setColumnWidth('shiftA', w)} isSticky={isColFrozen('shiftA')} stickyLeft={getStickyLeft('shiftA')} isLastFrozen={'shiftA' === lastFrozenColId} className="px-2.5 py-2.5 text-right">Shift A</ResizableTh>
-                )}
-                {isColVisible('shiftB') && (
-                  <ResizableTh width={getColWidth('shiftB')} onWidthChange={(w) => setColumnWidth('shiftB', w)} isSticky={isColFrozen('shiftB')} stickyLeft={getStickyLeft('shiftB')} isLastFrozen={'shiftB' === lastFrozenColId} className="px-2.5 py-2.5 text-right">Shift B</ResizableTh>
-                )}
-                {isColVisible('shiftC') && (
-                  <ResizableTh width={getColWidth('shiftC')} onWidthChange={(w) => setColumnWidth('shiftC', w)} isSticky={isColFrozen('shiftC')} stickyLeft={getStickyLeft('shiftC')} isLastFrozen={'shiftC' === lastFrozenColId} className="px-2.5 py-2.5 text-right">Shift C</ResizableTh>
-                )}
-                {isColVisible('totalProduction') && (
-                  <ResizableTh width={getColWidth('totalProduction')} onWidthChange={(w) => setColumnWidth('totalProduction', w)} isSticky={isColFrozen('totalProduction')} stickyLeft={getStickyLeft('totalProduction')} isLastFrozen={'totalProduction' === lastFrozenColId} className="px-3 py-2.5 text-right cursor-pointer" onClick={() => { setSortField('totalProduction'); setSortAsc(!sortAsc); }}>Total Prod (Kg) {sortField === 'totalProduction' && (sortAsc ? '▲' : '▼')}</ResizableTh>
-                )}
-                {isColVisible('achievement') && (
-                  <ResizableTh width={getColWidth('achievement')} onWidthChange={(w) => setColumnWidth('achievement', w)} isSticky={isColFrozen('achievement')} stickyLeft={getStickyLeft('achievement')} isLastFrozen={'achievement' === lastFrozenColId} className="px-3 py-2.5 text-right cursor-pointer" onClick={() => { setSortField('efficiency'); setSortAsc(!sortAsc); }}>Achievement % {sortField === 'efficiency' && (sortAsc ? '▲' : '▼')}</ResizableTh>
-                )}
-                {isColVisible('efficiency') && (
-                  <ResizableTh width={getColWidth('efficiency')} onWidthChange={(w) => setColumnWidth('efficiency', w)} isSticky={isColFrozen('efficiency')} stickyLeft={getStickyLeft('efficiency')} isLastFrozen={'efficiency' === lastFrozenColId} className="px-2.5 py-2.5 text-center cursor-pointer" onClick={() => { setSortField('efficiency'); setSortAsc(!sortAsc); }}>Efficiency %</ResizableTh>
-                )}
-                {isColVisible('capacityUtilization') && (
-                  <ResizableTh width={getColWidth('capacityUtilization')} onWidthChange={(w) => setColumnWidth('capacityUtilization', w)} isSticky={isColFrozen('capacityUtilization')} stickyLeft={getStickyLeft('capacityUtilization')} isLastFrozen={'capacityUtilization' === lastFrozenColId} className="px-2.5 py-2.5 text-center cursor-pointer" onClick={() => { setSortField('capacityUtilization'); setSortAsc(!sortAsc); }}>Cap Util %</ResizableTh>
-                )}
-                {/* Machine */}
-                {isColVisible('totalMachine') && (
-                  <ResizableTh width={getColWidth('totalMachine')} onWidthChange={(w) => setColumnWidth('totalMachine', w)} isSticky={isColFrozen('totalMachine')} stickyLeft={getStickyLeft('totalMachine')} isLastFrozen={'totalMachine' === lastFrozenColId} className="px-2.5 py-2.5 text-center">Total M/C</ResizableTh>
-                )}
-                {isColVisible('runningMachine') && (
-                  <ResizableTh width={getColWidth('runningMachine')} onWidthChange={(w) => setColumnWidth('runningMachine', w)} isSticky={isColFrozen('runningMachine')} stickyLeft={getStickyLeft('runningMachine')} isLastFrozen={'runningMachine' === lastFrozenColId} className="px-2.5 py-2.5 text-center">Running</ResizableTh>
-                )}
-                {isColVisible('idleMachine') && (
-                  <ResizableTh width={getColWidth('idleMachine')} onWidthChange={(w) => setColumnWidth('idleMachine', w)} isSticky={isColFrozen('idleMachine')} stickyLeft={getStickyLeft('idleMachine')} isLastFrozen={'idleMachine' === lastFrozenColId} className="px-2.5 py-2.5 text-center">Idle</ResizableTh>
-                )}
-                {isColVisible('mcUtil') && (
-                  <ResizableTh width={getColWidth('mcUtil')} onWidthChange={(w) => setColumnWidth('mcUtil', w)} isSticky={isColFrozen('mcUtil')} stickyLeft={getStickyLeft('mcUtil')} isLastFrozen={'mcUtil' === lastFrozenColId} className="px-2.5 py-2.5 text-center">Machine Util %</ResizableTh>
-                )}
-                {isColVisible('idleMcPct') && (
-                  <ResizableTh width={getColWidth('idleMcPct')} onWidthChange={(w) => setColumnWidth('idleMcPct', w)} isSticky={isColFrozen('idleMcPct')} stickyLeft={getStickyLeft('idleMcPct')} isLastFrozen={'idleMcPct' === lastFrozenColId} className="px-2.5 py-2.5 text-center">Idle Machine %</ResizableTh>
-                )}
-                {isColVisible('idleProdLoss') && (
-                  <ResizableTh width={getColWidth('idleProdLoss')} onWidthChange={(w) => setColumnWidth('idleProdLoss', w)} isSticky={isColFrozen('idleProdLoss')} stickyLeft={getStickyLeft('idleProdLoss')} isLastFrozen={'idleProdLoss' === lastFrozenColId} className="px-2.5 py-2.5 text-right">Idle Prod Loss (Kg)</ResizableTh>
-                )}
-                {isColVisible('prodPerMc') && (
-                  <ResizableTh width={getColWidth('prodPerMc')} onWidthChange={(w) => setColumnWidth('prodPerMc', w)} isSticky={isColFrozen('prodPerMc')} stickyLeft={getStickyLeft('prodPerMc')} isLastFrozen={'prodPerMc' === lastFrozenColId} className="px-2.5 py-2.5 text-right">Prod/Machine</ResizableTh>
-                )}
-                {/* Quality */}
-                {isColVisible('rejectKg') && (
-                  <ResizableTh width={getColWidth('rejectKg')} onWidthChange={(w) => setColumnWidth('rejectKg', w)} isSticky={isColFrozen('rejectKg')} stickyLeft={getStickyLeft('rejectKg')} isLastFrozen={'rejectKg' === lastFrozenColId} className="px-2.5 py-2.5 text-right">Reject (Kg)</ResizableTh>
-                )}
-                {isColVisible('rejectPct') && (
-                  <ResizableTh width={getColWidth('rejectPct')} onWidthChange={(w) => setColumnWidth('rejectPct', w)} isSticky={isColFrozen('rejectPct')} stickyLeft={getStickyLeft('rejectPct')} isLastFrozen={'rejectPct' === lastFrozenColId} className="px-2.5 py-2.5 text-right">Reject %</ResizableTh>
-                )}
-                {isColVisible('holdKg') && (
-                  <ResizableTh width={getColWidth('holdKg')} onWidthChange={(w) => setColumnWidth('holdKg', w)} isSticky={isColFrozen('holdKg')} stickyLeft={getStickyLeft('holdKg')} isLastFrozen={'holdKg' === lastFrozenColId} className="px-2.5 py-2.5 text-right">Hold (Kg)</ResizableTh>
-                )}
-                {isColVisible('holdPct') && (
-                  <ResizableTh width={getColWidth('holdPct')} onWidthChange={(w) => setColumnWidth('holdPct', w)} isSticky={isColFrozen('holdPct')} stickyLeft={getStickyLeft('holdPct')} isLastFrozen={'holdPct' === lastFrozenColId} className="px-2.5 py-2.5 text-right">Hold %</ResizableTh>
-                )}
-                {/* Consumables */}
-                {isColVisible('needleBroken') && (
-                  <ResizableTh width={getColWidth('needleBroken')} onWidthChange={(w) => setColumnWidth('needleBroken', w)} isSticky={isColFrozen('needleBroken')} stickyLeft={getStickyLeft('needleBroken')} isLastFrozen={'needleBroken' === lastFrozenColId} className="px-2.5 py-2.5 text-center">Needle Broken</ResizableTh>
-                )}
-                {isColVisible('needlePerKg') && (
-                  <ResizableTh width={getColWidth('needlePerKg')} onWidthChange={(w) => setColumnWidth('needlePerKg', w)} isSticky={isColFrozen('needlePerKg')} stickyLeft={getStickyLeft('needlePerKg')} isLastFrozen={'needlePerKg' === lastFrozenColId} className="px-2.5 py-2.5 text-center">Needle / Kg</ResizableTh>
-                )}
-                {isColVisible('sinkerBroken') && (
-                  <ResizableTh width={getColWidth('sinkerBroken')} onWidthChange={(w) => setColumnWidth('sinkerBroken', w)} isSticky={isColFrozen('sinkerBroken')} stickyLeft={getStickyLeft('sinkerBroken')} isLastFrozen={'sinkerBroken' === lastFrozenColId} className="px-2.5 py-2.5 text-center">Sinker Broken</ResizableTh>
-                )}
-                {isColVisible('oilCons') && (
-                  <ResizableTh width={getColWidth('oilCons')} onWidthChange={(w) => setColumnWidth('oilCons', w)} isSticky={isColFrozen('oilCons')} stickyLeft={getStickyLeft('oilCons')} isLastFrozen={'oilCons' === lastFrozenColId} className="px-2.5 py-2.5 text-center">Oil Cons (Ltr)</ResizableTh>
-                )}
-                {/* Performance */}
-                {isColVisible('lossEfficiency') && (
-                  <ResizableTh width={getColWidth('lossEfficiency')} onWidthChange={(w) => setColumnWidth('lossEfficiency', w)} isSticky={isColFrozen('lossEfficiency')} stickyLeft={getStickyLeft('lossEfficiency')} isLastFrozen={'lossEfficiency' === lastFrozenColId} className="px-2.5 py-2.5 text-right">Loss for Efficiency</ResizableTh>
-                )}
-                {/* Manpower */}
-                {isColVisible('totalStaff') && (
-                  <ResizableTh width={getColWidth('totalStaff')} onWidthChange={(w) => setColumnWidth('totalStaff', w)} isSticky={isColFrozen('totalStaff')} stickyLeft={getStickyLeft('totalStaff')} isLastFrozen={'totalStaff' === lastFrozenColId} className="px-2.5 py-2.5 text-center">Total Staff</ResizableTh>
-                )}
-                {isColVisible('absentStaff') && (
-                  <ResizableTh width={getColWidth('absentStaff')} onWidthChange={(w) => setColumnWidth('absentStaff', w)} isSticky={isColFrozen('absentStaff')} stickyLeft={getStickyLeft('absentStaff')} isLastFrozen={'absentStaff' === lastFrozenColId} className="px-2.5 py-2.5 text-center">Absent</ResizableTh>
-                )}
-                {isColVisible('absentPct') && (
-                  <ResizableTh width={getColWidth('absentPct')} onWidthChange={(w) => setColumnWidth('absentPct', w)} isSticky={isColFrozen('absentPct')} stickyLeft={getStickyLeft('absentPct')} isLastFrozen={'absentPct' === lastFrozenColId} className="px-2.5 py-2.5 text-center">Absent %</ResizableTh>
-                )}
-                {/* Other */}
-                {isColVisible('setChange') && (
-                  <ResizableTh width={getColWidth('setChange')} onWidthChange={(w) => setColumnWidth('setChange', w)} isSticky={isColFrozen('setChange')} stickyLeft={getStickyLeft('setChange')} isLastFrozen={'setChange' === lastFrozenColId} className="px-2.5 py-2.5 text-center">Set Change</ResizableTh>
-                )}
-                {isColVisible('remarks') && (
-                  <ResizableTh width={getColWidth('remarks')} onWidthChange={(w) => setColumnWidth('remarks', w)} isSticky={isColFrozen('remarks')} stickyLeft={getStickyLeft('remarks')} isLastFrozen={'remarks' === lastFrozenColId} className="px-4 py-2.5 text-left">Remarks</ResizableTh>
-                )}
-                {/* Sub-Contact */}
-                {isColVisible('productionFlatKnit') && (
-                  <ResizableTh width={getColWidth('productionFlatKnit')} onWidthChange={(w) => setColumnWidth('productionFlatKnit', w)} isSticky={isColFrozen('productionFlatKnit')} stickyLeft={getStickyLeft('productionFlatKnit')} isLastFrozen={'productionFlatKnit' === lastFrozenColId} className="px-2.5 py-2.5 text-center cursor-pointer" onClick={() => { setSortField('productionFlatKnit'); setSortAsc(!sortAsc); }}>Flat Knit (PCS)</ResizableTh>
-                )}
-                {isColVisible('yarnIssued') && (
-                  <ResizableTh width={getColWidth('yarnIssued')} onWidthChange={(w) => setColumnWidth('yarnIssued', w)} isSticky={isColFrozen('yarnIssued')} stickyLeft={getStickyLeft('yarnIssued')} isLastFrozen={'yarnIssued' === lastFrozenColId} className="px-2.5 py-2.5 text-right cursor-pointer" onClick={() => { setSortField('yarnIssued'); setSortAsc(!sortAsc); }}>Yarn Issued (Kg)</ResizableTh>
-                )}
-                {isColVisible('runningFactories') && (
-                  <ResizableTh width={getColWidth('runningFactories')} onWidthChange={(w) => setColumnWidth('runningFactories', w)} isSticky={isColFrozen('runningFactories')} stickyLeft={getStickyLeft('runningFactories')} isLastFrozen={'runningFactories' === lastFrozenColId} className="px-2.5 py-2.5 text-center cursor-pointer" onClick={() => { setSortField('runningFactories'); setSortAsc(!sortAsc); }}>Running Factories</ResizableTh>
-                )}
-                {isColVisible('subMcRunning') && (
-                  <ResizableTh width={getColWidth('subMcRunning')} onWidthChange={(w) => setColumnWidth('subMcRunning', w)} isSticky={isColFrozen('subMcRunning')} stickyLeft={getStickyLeft('subMcRunning')} isLastFrozen={'subMcRunning' === lastFrozenColId} className="px-2.5 py-2.5 text-center cursor-pointer" onClick={() => { setSortField('runningMachine'); setSortAsc(!sortAsc); }}>Running Machine</ResizableTh>
-                )}
-                {isColVisible('fabricReturn') && (
-                  <ResizableTh width={getColWidth('fabricReturn')} onWidthChange={(w) => setColumnWidth('fabricReturn', w)} isSticky={isColFrozen('fabricReturn')} stickyLeft={getStickyLeft('fabricReturn')} isLastFrozen={'fabricReturn' === lastFrozenColId} className="px-2.5 py-2.5 text-right cursor-pointer" onClick={() => { setSortField('fabricReturn'); setSortAsc(!sortAsc); }}>Fabric Return (Kg)</ResizableTh>
-                )}
+            <thead className="sticky top-0 z-30 bg-[#0e4a68] dark:bg-[#083348] text-white shadow-md">
+              <tr className="border-b border-[#0a3a52] text-[10px] font-bold uppercase tracking-wider divide-x divide-[#13597d]">
+                {PRODUCTION_LEDGER_COLUMNS.map((col) => {
+                  if (col.id === 'action') {
+                    return (
+                      <th key={col.id} className="px-3 py-2.5 bg-[#0a3950] text-center text-white font-bold sticky right-0 z-40 whitespace-nowrap">
+                        Actions
+                      </th>
+                    );
+                  }
+                  if (!isColVisible(col.id)) return null;
+
+                  const isSticky = isColFrozen(col.id);
+                  const stickyLeft = getStickyLeft(col.id);
+                  const isLastFrozen = col.id === lastFrozenColId;
+
+                  return (
+                    <ResizableTh
+                      key={col.id}
+                      width={getColWidth(col.id)}
+                      onWidthChange={(w) => setColumnWidth(col.id, w)}
+                      isSticky={isSticky}
+                      stickyLeft={stickyLeft}
+                      isLastFrozen={isLastFrozen}
+                      stickyBgClass="bg-[#0e4a68] dark:bg-[#083348]"
+                      className="px-2.5 py-2.5 cursor-pointer hover:bg-[#13597d] transition-colors text-white bg-[#0e4a68] dark:bg-[#083348] align-middle"
+                      onClick={() => {
+                        setSortField(col.id as any);
+                        setSortAsc(!sortAsc);
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-1 w-full text-left">
+                        <span className="whitespace-normal break-words leading-tight">{col.label}</span>
+                        <ChevronDown className="h-3 w-3 text-cyan-200/80 shrink-0 ml-0.5" />
+                      </div>
+                    </ResizableTh>
+                  );
+                })}
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-slate-800 text-gray-700 dark:text-slate-300">
+            <tbody className="divide-y divide-gray-100 dark:divide-slate-800 text-[11px] text-gray-700 dark:text-slate-300 font-semibold">
               {paginatedRecords.map((r, index) => (
-                <tr 
-                  key={r.id} 
-                  className={`hover:bg-blue-50/20 dark:hover:bg-slate-800/40 transition-colors divide-x divide-gray-50 dark:divide-slate-800 ${
+                <tr
+                  key={r.id}
+                  className={`hover:bg-blue-50/40 dark:hover:bg-slate-800/40 transition-colors divide-x divide-gray-100 dark:divide-slate-800 ${
                     index % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-gray-50/30 dark:bg-slate-900/50'
                   }`}
                 >
-                  {/* General */}
-                  {isColVisible('year') && <td style={{ width: `${getColWidth('year')}px`, minWidth: `${getColWidth('year')}px`, maxWidth: `${getColWidth('year')}px`, ...getStickyStyle('year') }} className={`px-2.5 py-3 text-gray-400 font-mono whitespace-nowrap ${getStickyClass('year')}`}>{r.year}</td>}
-                  {isColVisible('month') && <td style={{ width: `${getColWidth('month')}px`, minWidth: `${getColWidth('month')}px`, maxWidth: `${getColWidth('month')}px`, ...getStickyStyle('month') }} className={`px-2.5 py-3 text-gray-400 whitespace-nowrap ${getStickyClass('month')}`}>{r.month}</td>}
-                  {isColVisible('date') && <td style={{ width: `${getColWidth('date')}px`, minWidth: `${getColWidth('date')}px`, maxWidth: `${getColWidth('date')}px`, ...getStickyStyle('date') }} className={`px-3.5 py-3 font-mono font-bold whitespace-nowrap text-gray-900 dark:text-slate-100 ${getStickyClass('date')}`}>{formatDateFriendly(r.date)}</td>}
-                  {isColVisible('floor') && <td style={{ width: `${getColWidth('floor')}px`, minWidth: `${getColWidth('floor')}px`, maxWidth: `${getColWidth('floor')}px`, ...getStickyStyle('floor') }} className={`px-3.5 py-3 font-black whitespace-nowrap text-gray-900 dark:text-slate-100 ${getStickyClass('floor')}`}>{r.floor}</td>}
-
-                  {/* Production */}
-                  {isColVisible('target') && <td style={{ width: `${getColWidth('target')}px`, minWidth: `${getColWidth('target')}px`, maxWidth: `${getColWidth('target')}px`, ...getStickyStyle('target') }} className={`px-3 py-3 font-mono font-semibold text-right whitespace-nowrap text-gray-500 ${getStickyClass('target')}`}>{r.target.toLocaleString()}</td>}
-                  {isColVisible('shiftA') && <td style={{ width: `${getColWidth('shiftA')}px`, minWidth: `${getColWidth('shiftA')}px`, maxWidth: `${getColWidth('shiftA')}px`, ...getStickyStyle('shiftA') }} className={`px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-500 ${getStickyClass('shiftA')}`}>{r.shiftA.toLocaleString()}</td>}
-                  {isColVisible('shiftB') && <td style={{ width: `${getColWidth('shiftB')}px`, minWidth: `${getColWidth('shiftB')}px`, maxWidth: `${getColWidth('shiftB')}px`, ...getStickyStyle('shiftB') }} className={`px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-500 ${getStickyClass('shiftB')}`}>{r.shiftB.toLocaleString()}</td>}
-                  {isColVisible('shiftC') && <td style={{ width: `${getColWidth('shiftC')}px`, minWidth: `${getColWidth('shiftC')}px`, maxWidth: `${getColWidth('shiftC')}px`, ...getStickyStyle('shiftC') }} className={`px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-500 ${getStickyClass('shiftC')}`}>{r.shiftC.toLocaleString()}</td>}
-                  {isColVisible('totalProduction') && <td style={{ width: `${getColWidth('totalProduction')}px`, minWidth: `${getColWidth('totalProduction')}px`, maxWidth: `${getColWidth('totalProduction')}px`, ...getStickyStyle('totalProduction') }} className={`px-3 py-3 font-mono font-black text-right whitespace-nowrap text-[#0F4C81] dark:text-blue-300 ${getStickyClass('totalProduction')}`}>{r.totalProduction.toLocaleString()}</td>}
-                  {isColVisible('achievement') && <td style={{ width: `${getColWidth('achievement')}px`, minWidth: `${getColWidth('achievement')}px`, maxWidth: `${getColWidth('achievement')}px`, ...getStickyStyle('achievement') }} className={`px-3 py-3 font-mono font-black text-right whitespace-nowrap text-emerald-600 dark:text-emerald-400 ${getStickyClass('achievement')}`}>{(r.target > 0 ? (r.totalProduction / r.target) * 100 : 0).toFixed(1)}%</td>}
-                  {isColVisible('efficiency') && (
-                    <td style={{ width: `${getColWidth('efficiency')}px`, minWidth: `${getColWidth('efficiency')}px`, maxWidth: `${getColWidth('efficiency')}px`, ...getStickyStyle('efficiency') }} className={`px-2.5 py-3 font-mono text-center whitespace-nowrap ${getStickyClass('efficiency')}`}>
-                      <span className={`px-2 py-0.5 rounded-sm font-black text-[10px] ${
-                        r.efficiency >= 95 
-                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' 
-                          : r.efficiency >= 85 
-                            ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' 
-                            : 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400'
-                      }`}>
-                        {r.efficiency}%
-                      </span>
+                  {isColVisible('unit') && (
+                    <td style={{ width: `${getColWidth('unit')}px`, minWidth: `${getColWidth('unit')}px`, maxWidth: `${getColWidth('unit')}px`, ...getStickyStyle('unit') }} className={`px-2.5 py-2 text-left whitespace-nowrap font-medium ${getStickyClass('unit')}`}>
+                      {r.unit || (r.floor === 'Sub-Contact' ? 'Sub-Contact' : 'In-House')}
                     </td>
                   )}
-                  {isColVisible('capacityUtilization') && <td style={{ width: `${getColWidth('capacityUtilization')}px`, minWidth: `${getColWidth('capacityUtilization')}px`, maxWidth: `${getColWidth('capacityUtilization')}px`, ...getStickyStyle('capacityUtilization') }} className={`px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500 ${getStickyClass('capacityUtilization')}`}>{r.capacityUtilization}%</td>}
+                  {isColVisible('year') && (
+                    <td style={{ width: `${getColWidth('year')}px`, minWidth: `${getColWidth('year')}px`, maxWidth: `${getColWidth('year')}px`, ...getStickyStyle('year') }} className={`px-2.5 py-2 text-center font-mono text-gray-500 whitespace-nowrap ${getStickyClass('year')}`}>
+                      {r.year}
+                    </td>
+                  )}
+                  {isColVisible('month') && (
+                    <td style={{ width: `${getColWidth('month')}px`, minWidth: `${getColWidth('month')}px`, maxWidth: `${getColWidth('month')}px`, ...getStickyStyle('month') }} className={`px-2.5 py-2 text-left text-gray-600 whitespace-nowrap ${getStickyClass('month')}`}>
+                      {r.month}
+                    </td>
+                  )}
+                  {isColVisible('date') && (
+                    <td style={{ width: `${getColWidth('date')}px`, minWidth: `${getColWidth('date')}px`, maxWidth: `${getColWidth('date')}px`, ...getStickyStyle('date') }} className={`px-2.5 py-2 text-center font-mono font-bold text-gray-900 dark:text-slate-100 whitespace-nowrap ${getStickyClass('date')}`}>
+                      {formatDateFriendly(r.date)}
+                    </td>
+                  )}
+                  {isColVisible('floor') && (
+                    <td style={{ width: `${getColWidth('floor')}px`, minWidth: `${getColWidth('floor')}px`, maxWidth: `${getColWidth('floor')}px`, ...getStickyStyle('floor') }} className={`px-2.5 py-2 text-left font-bold text-gray-900 dark:text-slate-100 whitespace-nowrap ${getStickyClass('floor')}`}>
+                      {r.floor}
+                    </td>
+                  )}
+                  {isColVisible('target') && (
+                    <td style={{ width: `${getColWidth('target')}px`, minWidth: `${getColWidth('target')}px`, maxWidth: `${getColWidth('target')}px`, ...getStickyStyle('target') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('target')}`}>
+                      {r.target !== undefined && r.target !== null ? r.target.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('shiftA') && (
+                    <td style={{ width: `${getColWidth('shiftA')}px`, minWidth: `${getColWidth('shiftA')}px`, maxWidth: `${getColWidth('shiftA')}px`, ...getStickyStyle('shiftA') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('shiftA')}`}>
+                      {r.shiftA !== undefined && r.shiftA !== null ? r.shiftA.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('shiftB') && (
+                    <td style={{ width: `${getColWidth('shiftB')}px`, minWidth: `${getColWidth('shiftB')}px`, maxWidth: `${getColWidth('shiftB')}px`, ...getStickyStyle('shiftB') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('shiftB')}`}>
+                      {r.shiftB !== undefined && r.shiftB !== null ? r.shiftB.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('shiftC') && (
+                    <td style={{ width: `${getColWidth('shiftC')}px`, minWidth: `${getColWidth('shiftC')}px`, maxWidth: `${getColWidth('shiftC')}px`, ...getStickyStyle('shiftC') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('shiftC')}`}>
+                      {r.shiftC !== undefined && r.shiftC !== null ? r.shiftC.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('totalProduction') && (
+                    <td style={{ width: `${getColWidth('totalProduction')}px`, minWidth: `${getColWidth('totalProduction')}px`, maxWidth: `${getColWidth('totalProduction')}px`, ...getStickyStyle('totalProduction') }} className={`px-2.5 py-2 text-right font-mono font-bold text-[#0F4C81] dark:text-blue-300 whitespace-nowrap ${getStickyClass('totalProduction')}`}>
+                      {r.totalProduction !== undefined && r.totalProduction !== null ? r.totalProduction.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('targetBulk') && (
+                    <td style={{ width: `${getColWidth('targetBulk')}px`, minWidth: `${getColWidth('targetBulk')}px`, maxWidth: `${getColWidth('targetBulk')}px`, ...getStickyStyle('targetBulk') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('targetBulk')}`}>
+                      {r.targetBulk !== undefined && r.targetBulk !== null ? r.targetBulk.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('bulkProd') && (
+                    <td style={{ width: `${getColWidth('bulkProd')}px`, minWidth: `${getColWidth('bulkProd')}px`, maxWidth: `${getColWidth('bulkProd')}px`, ...getStickyStyle('bulkProd') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('bulkProd')}`}>
+                      {r.bulkProd !== undefined && r.bulkProd !== null ? r.bulkProd.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('sampleProd') && (
+                    <td style={{ width: `${getColWidth('sampleProd')}px`, minWidth: `${getColWidth('sampleProd')}px`, maxWidth: `${getColWidth('sampleProd')}px`, ...getStickyStyle('sampleProd') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('sampleProd')}`}>
+                      {r.sampleProd !== undefined && r.sampleProd !== null ? r.sampleProd.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('runningBulk') && (
+                    <td style={{ width: `${getColWidth('runningBulk')}px`, minWidth: `${getColWidth('runningBulk')}px`, maxWidth: `${getColWidth('runningBulk')}px`, ...getStickyStyle('runningBulk') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('runningBulk')}`}>
+                      {r.runningBulk !== undefined && r.runningBulk !== null ? r.runningBulk.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('runningSample') && (
+                    <td style={{ width: `${getColWidth('runningSample')}px`, minWidth: `${getColWidth('runningSample')}px`, maxWidth: `${getColWidth('runningSample')}px`, ...getStickyStyle('runningSample') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('runningSample')}`}>
+                      {r.runningSample !== undefined && r.runningSample !== null ? r.runningSample.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('idleMc') && (
+                    <td style={{ width: `${getColWidth('idleMc')}px`, minWidth: `${getColWidth('idleMc')}px`, maxWidth: `${getColWidth('idleMc')}px`, ...getStickyStyle('idleMc') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('idleMc')}`}>
+                      {r.idleMc !== undefined ? r.idleMc : (r.idleMachine ?? '')}
+                    </td>
+                  )}
+                  {isColVisible('machineUtilization') && (
+                    <td style={{ width: `${getColWidth('machineUtilization')}px`, minWidth: `${getColWidth('machineUtilization')}px`, maxWidth: `${getColWidth('machineUtilization')}px`, ...getStickyStyle('machineUtilization') }} className={`px-2.5 py-2 text-center font-mono font-semibold text-gray-800 dark:text-slate-200 whitespace-nowrap ${getStickyClass('machineUtilization')}`}>
+                      {r.machineUtilization !== undefined ? `${r.machineUtilization}%` : ''}
+                    </td>
+                  )}
+                  {isColVisible('idleMcPct') && (
+                    <td style={{ width: `${getColWidth('idleMcPct')}px`, minWidth: `${getColWidth('idleMcPct')}px`, maxWidth: `${getColWidth('idleMcPct')}px`, ...getStickyStyle('idleMcPct') }} className={`px-2.5 py-2 text-center font-mono text-gray-500 whitespace-nowrap ${getStickyClass('idleMcPct')}`}>
+                      {r.idleMcPct !== undefined ? `${r.idleMcPct}%` : (r.idleMachinePct !== undefined ? `${r.idleMachinePct}%` : '')}
+                    </td>
+                  )}
+                  {isColVisible('prodLossForSample') && (
+                    <td style={{ width: `${getColWidth('prodLossForSample')}px`, minWidth: `${getColWidth('prodLossForSample')}px`, maxWidth: `${getColWidth('prodLossForSample')}px`, ...getStickyStyle('prodLossForSample') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('prodLossForSample')}`}>
+                      {r.prodLossForSample !== undefined && r.prodLossForSample !== null ? r.prodLossForSample.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('idleProduction') && (
+                    <td style={{ width: `${getColWidth('idleProduction')}px`, minWidth: `${getColWidth('idleProduction')}px`, maxWidth: `${getColWidth('idleProduction')}px`, ...getStickyStyle('idleProduction') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('idleProduction')}`}>
+                      {r.idleProduction !== undefined && r.idleProduction !== null ? r.idleProduction.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('efficiency') && (
+                    <td style={{ width: `${getColWidth('efficiency')}px`, minWidth: `${getColWidth('efficiency')}px`, maxWidth: `${getColWidth('efficiency')}px`, ...getStickyStyle('efficiency') }} className={`px-2.5 py-2 text-right font-mono font-bold whitespace-nowrap ${getStickyClass('efficiency')}`}>
+                      {r.efficiency !== undefined ? `${r.efficiency}%` : ''}
+                    </td>
+                  )}
+                  {isColVisible('proPerMc') && (
+                    <td style={{ width: `${getColWidth('proPerMc')}px`, minWidth: `${getColWidth('proPerMc')}px`, maxWidth: `${getColWidth('proPerMc')}px`, ...getStickyStyle('proPerMc') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('proPerMc')}`}>
+                      {r.proPerMc !== undefined ? r.proPerMc : (r.productionPerMachine !== undefined ? r.productionPerMachine : '')}
+                    </td>
+                  )}
+                  {isColVisible('reject') && (
+                    <td style={{ width: `${getColWidth('reject')}px`, minWidth: `${getColWidth('reject')}px`, maxWidth: `${getColWidth('reject')}px`, ...getStickyStyle('reject') }} className={`px-2.5 py-2 text-right font-mono text-red-600 font-bold whitespace-nowrap ${getStickyClass('reject')}`}>
+                      {r.reject !== undefined && r.reject !== null ? r.reject.toLocaleString() : '0'}
+                    </td>
+                  )}
+                  {isColVisible('rejectPct') && (
+                    <td style={{ width: `${getColWidth('rejectPct')}px`, minWidth: `${getColWidth('rejectPct')}px`, maxWidth: `${getColWidth('rejectPct')}px`, ...getStickyStyle('rejectPct') }} className={`px-2.5 py-2 text-right font-mono text-red-500 whitespace-nowrap ${getStickyClass('rejectPct')}`}>
+                      {r.rejectPct !== undefined ? `${r.rejectPct}%` : ''}
+                    </td>
+                  )}
+                  {isColVisible('hold') && (
+                    <td style={{ width: `${getColWidth('hold')}px`, minWidth: `${getColWidth('hold')}px`, maxWidth: `${getColWidth('hold')}px`, ...getStickyStyle('hold') }} className={`px-2.5 py-2 text-right font-mono text-amber-600 whitespace-nowrap ${getStickyClass('hold')}`}>
+                      {r.hold !== undefined && r.hold !== null ? r.hold.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('holdPct') && (
+                    <td style={{ width: `${getColWidth('holdPct')}px`, minWidth: `${getColWidth('holdPct')}px`, maxWidth: `${getColWidth('holdPct')}px`, ...getStickyStyle('holdPct') }} className={`px-2.5 py-2 text-right font-mono text-amber-500 whitespace-nowrap ${getStickyClass('holdPct')}`}>
+                      {r.holdPct !== undefined ? `${r.holdPct}%` : ''}
+                    </td>
+                  )}
+                  {isColVisible('jhuteCutpcs') && (
+                    <td style={{ width: `${getColWidth('jhuteCutpcs')}px`, minWidth: `${getColWidth('jhuteCutpcs')}px`, maxWidth: `${getColWidth('jhuteCutpcs')}px`, ...getStickyStyle('jhuteCutpcs') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('jhuteCutpcs')}`}>
+                      {r.jhuteCutpcs !== undefined && r.jhuteCutpcs !== null ? r.jhuteCutpcs.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('jhuteCutpcsPct') && (
+                    <td style={{ width: `${getColWidth('jhuteCutpcsPct')}px`, minWidth: `${getColWidth('jhuteCutpcsPct')}px`, maxWidth: `${getColWidth('jhuteCutpcsPct')}px`, ...getStickyStyle('jhuteCutpcsPct') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('jhuteCutpcsPct')}`}>
+                      {r.jhuteCutpcsPct !== undefined ? `${r.jhuteCutpcsPct}%` : ''}
+                    </td>
+                  )}
+                  {isColVisible('needleBroken') && (
+                    <td style={{ width: `${getColWidth('needleBroken')}px`, minWidth: `${getColWidth('needleBroken')}px`, maxWidth: `${getColWidth('needleBroken')}px`, ...getStickyStyle('needleBroken') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('needleBroken')}`}>
+                      {r.needleBroken !== undefined && r.needleBroken !== null ? r.needleBroken.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('needlePerKg') && (
+                    <td style={{ width: `${getColWidth('needlePerKg')}px`, minWidth: `${getColWidth('needlePerKg')}px`, maxWidth: `${getColWidth('needlePerKg')}px`, ...getStickyStyle('needlePerKg') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('needlePerKg')}`}>
+                      {r.needlePerKg !== undefined ? r.needlePerKg : ''}
+                    </td>
+                  )}
+                  {isColVisible('sinkerBroken') && (
+                    <td style={{ width: `${getColWidth('sinkerBroken')}px`, minWidth: `${getColWidth('sinkerBroken')}px`, maxWidth: `${getColWidth('sinkerBroken')}px`, ...getStickyStyle('sinkerBroken') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('sinkerBroken')}`}>
+                      {r.sinkerBroken !== undefined && r.sinkerBroken !== null ? r.sinkerBroken.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('sinkerPerKg') && (
+                    <td style={{ width: `${getColWidth('sinkerPerKg')}px`, minWidth: `${getColWidth('sinkerPerKg')}px`, maxWidth: `${getColWidth('sinkerPerKg')}px`, ...getStickyStyle('sinkerPerKg') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('sinkerPerKg')}`}>
+                      {r.sinkerPerKg !== undefined ? r.sinkerPerKg : ''}
+                    </td>
+                  )}
+                  {isColVisible('oilConsumption') && (
+                    <td style={{ width: `${getColWidth('oilConsumption')}px`, minWidth: `${getColWidth('oilConsumption')}px`, maxWidth: `${getColWidth('oilConsumption')}px`, ...getStickyStyle('oilConsumption') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('oilConsumption')}`}>
+                      {r.oilConsumption !== undefined && r.oilConsumption !== null ? r.oilConsumption.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('beltBroken') && (
+                    <td style={{ width: `${getColWidth('beltBroken')}px`, minWidth: `${getColWidth('beltBroken')}px`, maxWidth: `${getColWidth('beltBroken')}px`, ...getStickyStyle('beltBroken') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('beltBroken')}`}>
+                      {r.beltBroken !== undefined && r.beltBroken !== null ? r.beltBroken.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('otherSparePartsName') && (
+                    <td style={{ width: `${getColWidth('otherSparePartsName')}px`, minWidth: `${getColWidth('otherSparePartsName')}px`, maxWidth: `${getColWidth('otherSparePartsName')}px`, ...getStickyStyle('otherSparePartsName') }} className={`px-2.5 py-2 text-left text-gray-600 whitespace-nowrap ${getStickyClass('otherSparePartsName')}`}>
+                      {r.otherSparePartsName || ''}
+                    </td>
+                  )}
+                  {isColVisible('otherSparePartsQty') && (
+                    <td style={{ width: `${getColWidth('otherSparePartsQty')}px`, minWidth: `${getColWidth('otherSparePartsQty')}px`, maxWidth: `${getColWidth('otherSparePartsQty')}px`, ...getStickyStyle('otherSparePartsQty') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('otherSparePartsQty')}`}>
+                      {r.otherSparePartsQty !== undefined && r.otherSparePartsQty !== null ? r.otherSparePartsQty.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('setChangePcs') && (
+                    <td style={{ width: `${getColWidth('setChangePcs')}px`, minWidth: `${getColWidth('setChangePcs')}px`, maxWidth: `${getColWidth('setChangePcs')}px`, ...getStickyStyle('setChangePcs') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('setChangePcs')}`}>
+                      {r.setChangePcs !== undefined ? r.setChangePcs.toLocaleString() : (r.setChange !== undefined ? r.setChange.toLocaleString() : '')}
+                    </td>
+                  )}
+                  {isColVisible('productionLossForEff') && (
+                    <td style={{ width: `${getColWidth('productionLossForEff')}px`, minWidth: `${getColWidth('productionLossForEff')}px`, maxWidth: `${getColWidth('productionLossForEff')}px`, ...getStickyStyle('productionLossForEff') }} className={`px-2.5 py-2 text-right font-mono whitespace-nowrap ${r.productionLossForEff && r.productionLossForEff < 0 ? 'text-green-600 font-semibold' : 'text-gray-600'} ${getStickyClass('productionLossForEff')}`}>
+                      {r.productionLossForEff !== undefined ? r.productionLossForEff.toLocaleString() : (r.productionLossForEfficiency !== undefined ? r.productionLossForEfficiency.toLocaleString() : '')}
+                    </td>
+                  )}
+                  {isColVisible('capacityUtilization') && (
+                    <td style={{ width: `${getColWidth('capacityUtilization')}px`, minWidth: `${getColWidth('capacityUtilization')}px`, maxWidth: `${getColWidth('capacityUtilization')}px`, ...getStickyStyle('capacityUtilization') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('capacityUtilization')}`}>
+                      {r.capacityUtilization !== undefined ? `${r.capacityUtilization}%` : ''}
+                    </td>
+                  )}
+                  {isColVisible('totalOperator') && (
+                    <td style={{ width: `${getColWidth('totalOperator')}px`, minWidth: `${getColWidth('totalOperator')}px`, maxWidth: `${getColWidth('totalOperator')}px`, ...getStickyStyle('totalOperator') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('totalOperator')}`}>
+                      {r.totalOperator !== undefined && r.totalOperator !== null ? r.totalOperator.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('absent') && (
+                    <td style={{ width: `${getColWidth('absent')}px`, minWidth: `${getColWidth('absent')}px`, maxWidth: `${getColWidth('absent')}px`, ...getStickyStyle('absent') }} className={`px-2.5 py-2 text-right font-mono text-red-500 whitespace-nowrap ${getStickyClass('absent')}`}>
+                      {r.absent !== undefined && r.absent !== null ? r.absent.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('absentPct') && (
+                    <td style={{ width: `${getColWidth('absentPct')}px`, minWidth: `${getColWidth('absentPct')}px`, maxWidth: `${getColWidth('absentPct')}px`, ...getStickyStyle('absentPct') }} className={`px-2.5 py-2 text-right font-mono text-red-400 whitespace-nowrap ${getStickyClass('absentPct')}`}>
+                      {r.absentPct !== undefined ? `${r.absentPct}%` : ''}
+                    </td>
+                  )}
+                  {isColVisible('productionFlatKnit') && (
+                    <td style={{ width: `${getColWidth('productionFlatKnit')}px`, minWidth: `${getColWidth('productionFlatKnit')}px`, maxWidth: `${getColWidth('productionFlatKnit')}px`, ...getStickyStyle('productionFlatKnit') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('productionFlatKnit')}`}>
+                      {r.productionFlatKnit !== undefined && r.productionFlatKnit !== null ? r.productionFlatKnit.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('achievmentCircular') && (
+                    <td style={{ width: `${getColWidth('achievmentCircular')}px`, minWidth: `${getColWidth('achievmentCircular')}px`, maxWidth: `${getColWidth('achievmentCircular')}px`, ...getStickyStyle('achievmentCircular') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('achievmentCircular')}`}>
+                      {r.achievmentCircular !== undefined && r.achievmentCircular !== null ? r.achievmentCircular.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('otd') && (
+                    <td style={{ width: `${getColWidth('otd')}px`, minWidth: `${getColWidth('otd')}px`, maxWidth: `${getColWidth('otd')}px`, ...getStickyStyle('otd') }} className={`px-2.5 py-2 text-center font-mono text-gray-600 whitespace-nowrap ${getStickyClass('otd')}`}>
+                      {r.otd || ''}
+                    </td>
+                  )}
+                  {isColVisible('yarnIssued') && (
+                    <td style={{ width: `${getColWidth('yarnIssued')}px`, minWidth: `${getColWidth('yarnIssued')}px`, maxWidth: `${getColWidth('yarnIssued')}px`, ...getStickyStyle('yarnIssued') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('yarnIssued')}`}>
+                      {r.yarnIssued !== undefined && r.yarnIssued !== null ? r.yarnIssued.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('totalRunningFactories') && (
+                    <td style={{ width: `${getColWidth('totalRunningFactories')}px`, minWidth: `${getColWidth('totalRunningFactories')}px`, maxWidth: `${getColWidth('totalRunningFactories')}px`, ...getStickyStyle('totalRunningFactories') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('totalRunningFactories')}`}>
+                      {r.totalRunningFactories !== undefined ? r.totalRunningFactories.toLocaleString() : (r.runningFactories ? r.runningFactories.toLocaleString() : '')}
+                    </td>
+                  )}
+                  {isColVisible('runningMachine') && (
+                    <td style={{ width: `${getColWidth('runningMachine')}px`, minWidth: `${getColWidth('runningMachine')}px`, maxWidth: `${getColWidth('runningMachine')}px`, ...getStickyStyle('runningMachine') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('runningMachine')}`}>
+                      {r.runningMachine !== undefined && r.runningMachine !== null ? r.runningMachine.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('numberVehicles') && (
+                    <td style={{ width: `${getColWidth('numberVehicles')}px`, minWidth: `${getColWidth('numberVehicles')}px`, maxWidth: `${getColWidth('numberVehicles')}px`, ...getStickyStyle('numberVehicles') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('numberVehicles')}`}>
+                      {r.numberVehicles !== undefined && r.numberVehicles !== null ? r.numberVehicles.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('fabricReturn') && (
+                    <td style={{ width: `${getColWidth('fabricReturn')}px`, minWidth: `${getColWidth('fabricReturn')}px`, maxWidth: `${getColWidth('fabricReturn')}px`, ...getStickyStyle('fabricReturn') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('fabricReturn')}`}>
+                      {r.fabricReturn !== undefined && r.fabricReturn !== null ? r.fabricReturn.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('remarks') && (
+                    <td style={{ width: `${getColWidth('remarks')}px`, minWidth: `${getColWidth('remarks')}px`, maxWidth: `${getColWidth('remarks')}px`, ...getStickyStyle('remarks') }} className={`px-3 py-2 text-left font-normal text-gray-600 dark:text-slate-300 whitespace-nowrap truncate ${getStickyClass('remarks')}`} title={r.remarks}>
+                      {r.remarks || ''}
+                    </td>
+                  )}
 
-                  {/* Machine */}
-                  {isColVisible('totalMachine') && <td style={{ width: `${getColWidth('totalMachine')}px`, minWidth: `${getColWidth('totalMachine')}px`, maxWidth: `${getColWidth('totalMachine')}px`, ...getStickyStyle('totalMachine') }} className={`px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-400 ${getStickyClass('totalMachine')}`}>{getTotalMachinesForFloor(r.floor)}</td>}
-                  {isColVisible('runningMachine') && <td style={{ width: `${getColWidth('runningMachine')}px`, minWidth: `${getColWidth('runningMachine')}px`, maxWidth: `${getColWidth('runningMachine')}px`, ...getStickyStyle('runningMachine') }} className={`px-2.5 py-3 font-mono text-center whitespace-nowrap text-emerald-600 font-bold ${getStickyClass('runningMachine')}`}>{r.runningMachine}</td>}
-                  {isColVisible('idleMachine') && <td style={{ width: `${getColWidth('idleMachine')}px`, minWidth: `${getColWidth('idleMachine')}px`, maxWidth: `${getColWidth('idleMachine')}px`, ...getStickyStyle('idleMachine') }} className={`px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-400 ${getStickyClass('idleMachine')}`}>{r.idleMachine}</td>}
-                  {isColVisible('mcUtil') && <td style={{ width: `${getColWidth('mcUtil')}px`, minWidth: `${getColWidth('mcUtil')}px`, maxWidth: `${getColWidth('mcUtil')}px`, ...getStickyStyle('mcUtil') }} className={`px-2.5 py-3 font-mono text-center whitespace-nowrap font-bold text-gray-800 dark:text-slate-200 ${getStickyClass('mcUtil')}`}>{r.machineUtilization}%</td>}
-                  {isColVisible('idleMcPct') && <td style={{ width: `${getColWidth('idleMcPct')}px`, minWidth: `${getColWidth('idleMcPct')}px`, maxWidth: `${getColWidth('idleMcPct')}px`, ...getStickyStyle('idleMcPct') }} className={`px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-400 ${getStickyClass('idleMcPct')}`}>{r.idleMachinePct}%</td>}
-                  {isColVisible('idleProdLoss') && <td style={{ width: `${getColWidth('idleProdLoss')}px`, minWidth: `${getColWidth('idleProdLoss')}px`, maxWidth: `${getColWidth('idleProdLoss')}px`, ...getStickyStyle('idleProdLoss') }} className={`px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-400 ${getStickyClass('idleProdLoss')}`}>{r.idleProduction.toLocaleString()}</td>}
-                  {isColVisible('prodPerMc') && <td style={{ width: `${getColWidth('prodPerMc')}px`, minWidth: `${getColWidth('prodPerMc')}px`, maxWidth: `${getColWidth('prodPerMc')}px`, ...getStickyStyle('prodPerMc') }} className={`px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-500 ${getStickyClass('prodPerMc')}`}>{r.productionPerMachine}</td>}
-
-                  {/* Quality */}
-                  {isColVisible('rejectKg') && <td style={{ width: `${getColWidth('rejectKg')}px`, minWidth: `${getColWidth('rejectKg')}px`, maxWidth: `${getColWidth('rejectKg')}px`, ...getStickyStyle('rejectKg') }} className={`px-2.5 py-3 font-mono text-right whitespace-nowrap text-red-600 font-bold ${getStickyClass('rejectKg')}`}>{r.reject.toLocaleString()}</td>}
-                  {isColVisible('rejectPct') && <td style={{ width: `${getColWidth('rejectPct')}px`, minWidth: `${getColWidth('rejectPct')}px`, maxWidth: `${getColWidth('rejectPct')}px`, ...getStickyStyle('rejectPct') }} className={`px-2.5 py-3 font-mono text-right whitespace-nowrap text-red-500 ${getStickyClass('rejectPct')}`}>{r.rejectPct}%</td>}
-                  {isColVisible('holdKg') && <td style={{ width: `${getColWidth('holdKg')}px`, minWidth: `${getColWidth('holdKg')}px`, maxWidth: `${getColWidth('holdKg')}px`, ...getStickyStyle('holdKg') }} className={`px-2.5 py-3 font-mono text-right whitespace-nowrap text-amber-600 ${getStickyClass('holdKg')}`}>{r.hold.toLocaleString()}</td>}
-                  {isColVisible('holdPct') && <td style={{ width: `${getColWidth('holdPct')}px`, minWidth: `${getColWidth('holdPct')}px`, maxWidth: `${getColWidth('holdPct')}px`, ...getStickyStyle('holdPct') }} className={`px-2.5 py-3 font-mono text-right whitespace-nowrap text-amber-500 ${getStickyClass('holdPct')}`}>{r.holdPct}%</td>}
-
-                  {/* Consumables */}
-                  {isColVisible('needleBroken') && <td style={{ width: `${getColWidth('needleBroken')}px`, minWidth: `${getColWidth('needleBroken')}px`, maxWidth: `${getColWidth('needleBroken')}px`, ...getStickyStyle('needleBroken') }} className={`px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500 ${getStickyClass('needleBroken')}`}>{r.needleBroken}</td>}
-                  {isColVisible('needlePerKg') && <td style={{ width: `${getColWidth('needlePerKg')}px`, minWidth: `${getColWidth('needlePerKg')}px`, maxWidth: `${getColWidth('needlePerKg')}px`, ...getStickyStyle('needlePerKg') }} className={`px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-400 ${getStickyClass('needlePerKg')}`}>{r.needlePerKg.toFixed(4)}</td>}
-                  {isColVisible('sinkerBroken') && <td style={{ width: `${getColWidth('sinkerBroken')}px`, minWidth: `${getColWidth('sinkerBroken')}px`, maxWidth: `${getColWidth('sinkerBroken')}px`, ...getStickyStyle('sinkerBroken') }} className={`px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500 ${getStickyClass('sinkerBroken')}`}>{r.sinkerBroken}</td>}
-                  {isColVisible('oilCons') && <td style={{ width: `${getColWidth('oilCons')}px`, minWidth: `${getColWidth('oilCons')}px`, maxWidth: `${getColWidth('oilCons')}px`, ...getStickyStyle('oilCons') }} className={`px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500 ${getStickyClass('oilCons')}`}>{r.oilConsumption}</td>}
-
-                  {/* Performance */}
-                  {isColVisible('lossEfficiency') && <td style={{ width: `${getColWidth('lossEfficiency')}px`, minWidth: `${getColWidth('lossEfficiency')}px`, maxWidth: `${getColWidth('lossEfficiency')}px`, ...getStickyStyle('lossEfficiency') }} className={`px-2.5 py-3 font-mono text-right whitespace-nowrap text-red-500 ${getStickyClass('lossEfficiency')}`}>{r.productionLossForEfficiency.toLocaleString()}</td>}
-
-                  {/* Manpower */}
-                  {isColVisible('totalStaff') && <td style={{ width: `${getColWidth('totalStaff')}px`, minWidth: `${getColWidth('totalStaff')}px`, maxWidth: `${getColWidth('totalStaff')}px`, ...getStickyStyle('totalStaff') }} className={`px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500 ${getStickyClass('totalStaff')}`}>{r.totalOperator}</td>}
-                  {isColVisible('absentStaff') && <td style={{ width: `${getColWidth('absentStaff')}px`, minWidth: `${getColWidth('absentStaff')}px`, maxWidth: `${getColWidth('absentStaff')}px`, ...getStickyStyle('absentStaff') }} className={`px-2.5 py-3 font-mono text-center whitespace-nowrap text-red-500 ${getStickyClass('absentStaff')}`}>{r.absent}</td>}
-                  {isColVisible('absentPct') && <td style={{ width: `${getColWidth('absentPct')}px`, minWidth: `${getColWidth('absentPct')}px`, maxWidth: `${getColWidth('absentPct')}px`, ...getStickyStyle('absentPct') }} className={`px-2.5 py-3 font-mono text-center whitespace-nowrap text-red-400 ${getStickyClass('absentPct')}`}>{r.absentPct}%</td>}
-
-                  {/* Other */}
-                  {isColVisible('setChange') && <td style={{ width: `${getColWidth('setChange')}px`, minWidth: `${getColWidth('setChange')}px`, maxWidth: `${getColWidth('setChange')}px`, ...getStickyStyle('setChange') }} className={`px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500 ${getStickyClass('setChange')}`}>{r.setChange}</td>}
-                  {isColVisible('remarks') && <td style={{ width: `${getColWidth('remarks')}px`, minWidth: `${getColWidth('remarks')}px`, maxWidth: `${getColWidth('remarks')}px`, ...getStickyStyle('remarks') }} className={`px-4 py-3 whitespace-normal text-gray-500 truncate ${getStickyClass('remarks')}`} title={r.remarks}>{r.remarks}</td>}
-
-                  {/* Sub-Contact */}
-                  {isColVisible('productionFlatKnit') && <td style={{ width: `${getColWidth('productionFlatKnit')}px`, minWidth: `${getColWidth('productionFlatKnit')}px`, maxWidth: `${getColWidth('productionFlatKnit')}px`, ...getStickyStyle('productionFlatKnit') }} className={`px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500 ${getStickyClass('productionFlatKnit')}`}>{r.floor === 'Sub-Contact' ? (r.productionFlatKnit ?? 0).toLocaleString() : ''}</td>}
-                  {isColVisible('yarnIssued') && <td style={{ width: `${getColWidth('yarnIssued')}px`, minWidth: `${getColWidth('yarnIssued')}px`, maxWidth: `${getColWidth('yarnIssued')}px`, ...getStickyStyle('yarnIssued') }} className={`px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-500 ${getStickyClass('yarnIssued')}`}>{r.floor === 'Sub-Contact' ? (r.yarnIssued ?? 0).toLocaleString() : ''}</td>}
-                  {isColVisible('runningFactories') && <td style={{ width: `${getColWidth('runningFactories')}px`, minWidth: `${getColWidth('runningFactories')}px`, maxWidth: `${getColWidth('runningFactories')}px`, ...getStickyStyle('runningFactories') }} className={`px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500 ${getStickyClass('runningFactories')}`}>{r.floor === 'Sub-Contact' ? (r.runningFactories ?? 0).toLocaleString() : ''}</td>}
-                  {isColVisible('subMcRunning') && <td style={{ width: `${getColWidth('subMcRunning')}px`, minWidth: `${getColWidth('subMcRunning')}px`, maxWidth: `${getColWidth('subMcRunning')}px`, ...getStickyStyle('subMcRunning') }} className={`px-2.5 py-3 font-mono text-center whitespace-nowrap text-gray-500 ${getStickyClass('subMcRunning')}`}>{r.floor === 'Sub-Contact' ? (r.runningMachine ?? 0).toLocaleString() : ''}</td>}
-                  {isColVisible('fabricReturn') && <td style={{ width: `${getColWidth('fabricReturn')}px`, minWidth: `${getColWidth('fabricReturn')}px`, maxWidth: `${getColWidth('fabricReturn')}px`, ...getStickyStyle('fabricReturn') }} className={`px-2.5 py-3 font-mono text-right whitespace-nowrap text-gray-500 ${getStickyClass('fabricReturn')}`}>{r.floor === 'Sub-Contact' ? (r.fabricReturn ?? 0).toLocaleString() : ''}</td>}
-
-                  {/* Sticky right actions row */}
-                  <td className="px-4 py-3 text-center whitespace-nowrap sticky right-0 bg-white dark:bg-slate-900 z-10">
+                  {/* Sticky right actions cell */}
+                  <td className="px-3 py-2 text-center whitespace-nowrap sticky right-0 bg-white dark:bg-slate-900 z-10">
                     <div className="flex items-center justify-center gap-1.5">
                       <button
                         onClick={() => handleOpenEdit(r)}
@@ -1702,7 +2106,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
               {sortedRecords.length === 0 && (
                 <tr>
-                  <td colSpan={38} className="py-16 text-center text-xs font-black text-gray-400 uppercase tracking-widest">
+                  <td colSpan={52} className="py-16 text-center text-xs font-black text-gray-400 uppercase tracking-widest">
                     No active daily logs found matching query filters.
                   </td>
                 </tr>

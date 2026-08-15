@@ -23,7 +23,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
-import { useTableColumns, ColumnCustomizerDropdown, FreezePanesButton, ResizableTh, ColumnDef } from './TableColumnCustomizer';
+import { useTableColumns, ColumnCustomizerDropdown, ResizableTh, ColumnDef } from './TableColumnCustomizer';
 import { GasClient } from '../lib/gasClient';
 import { FirestoreSyncService } from '../lib/firestoreSync';
 
@@ -392,6 +392,22 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
   const [yarnBuyerFilter, setYarnBuyerFilter] = useState('All');
   const [yarnFabricFilter, setYarnFabricFilter] = useState('All');
   const [yarnSpinnerFilter, setYarnSpinnerFilter] = useState('All');
+
+  // Wrap text state (defaults to true so long yarn specifications wrap neatly)
+  const [isWrapText, setIsWrapText] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('yarn_alloc_wrap_text');
+      return saved !== null ? JSON.parse(saved) : true;
+    } catch (e) {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('yarn_alloc_wrap_text', JSON.stringify(isWrapText));
+    } catch (e) {}
+  }, [isWrapText]);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -1260,14 +1276,6 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
               ))}
             </select>
 
-            <FreezePanesButton
-              isFrozen={isFrozen}
-              freezeCount={freezeCount}
-              onToggleFreeze={toggleFreeze}
-              onSetFreezeCount={setFreezeCount}
-              maxFreezeCount={5}
-            />
-
             <ColumnCustomizerDropdown
               tableId="yarn_allocation"
               columns={YARN_ALLOCATION_COLUMNS}
@@ -1290,67 +1298,67 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
             <thead className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-800 font-extrabold uppercase text-slate-600 dark:text-slate-300 text-[10px] tracking-tight border-b-2 border-slate-200 dark:border-slate-700">
               <tr>
                 {isColVisible('actualRequisitionDate') && (
-                  <ResizableTh width={getColWidth('actualRequisitionDate')} onWidthChange={(w) => setColumnWidth('actualRequisitionDate', w)} isSticky={isColFrozen('actualRequisitionDate')} stickyLeft={getStickyLeft('actualRequisitionDate')} isLastFrozen={'actualRequisitionDate' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Actual Yarn Requisition date</ResizableTh>
+                  <ResizableTh width={getColWidth('actualRequisitionDate')} onWidthChange={(w) => setColumnWidth('actualRequisitionDate', w)} isSticky={isColFrozen('actualRequisitionDate')} stickyLeft={getStickyLeft('actualRequisitionDate')} isLastFrozen={'actualRequisitionDate' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Actual Yarn Requisition date</ResizableTh>
                 )}
                 {isColVisible('buyer') && (
-                  <ResizableTh width={getColWidth('buyer')} onWidthChange={(w) => setColumnWidth('buyer', w)} isSticky={isColFrozen('buyer')} stickyLeft={getStickyLeft('buyer')} isLastFrozen={'buyer' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Buyer</ResizableTh>
+                  <ResizableTh width={getColWidth('buyer')} onWidthChange={(w) => setColumnWidth('buyer', w)} isSticky={isColFrozen('buyer')} stickyLeft={getStickyLeft('buyer')} isLastFrozen={'buyer' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Buyer</ResizableTh>
                 )}
                 {isColVisible('orderNumber') && (
-                  <ResizableTh width={getColWidth('orderNumber')} onWidthChange={(w) => setColumnWidth('orderNumber', w)} isSticky={isColFrozen('orderNumber')} stickyLeft={getStickyLeft('orderNumber')} isLastFrozen={'orderNumber' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Order Number</ResizableTh>
+                  <ResizableTh width={getColWidth('orderNumber')} onWidthChange={(w) => setColumnWidth('orderNumber', w)} isSticky={isColFrozen('orderNumber')} stickyLeft={getStickyLeft('orderNumber')} isLastFrozen={'orderNumber' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Order Number</ResizableTh>
                 )}
                 {isColVisible('fabricsType') && (
-                  <ResizableTh width={getColWidth('fabricsType')} onWidthChange={(w) => setColumnWidth('fabricsType', w)} isSticky={isColFrozen('fabricsType')} stickyLeft={getStickyLeft('fabricsType')} isLastFrozen={'fabricsType' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Fabrics Type</ResizableTh>
+                  <ResizableTh width={getColWidth('fabricsType')} onWidthChange={(w) => setColumnWidth('fabricsType', w)} isSticky={isColFrozen('fabricsType')} stickyLeft={getStickyLeft('fabricsType')} isLastFrozen={'fabricsType' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Fabrics Type</ResizableTh>
                 )}
                 {isColVisible('fabricShade') && (
-                  <ResizableTh width={getColWidth('fabricShade')} onWidthChange={(w) => setColumnWidth('fabricShade', w)} isSticky={isColFrozen('fabricShade')} stickyLeft={getStickyLeft('fabricShade')} isLastFrozen={'fabricShade' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Fabric Shade</ResizableTh>
+                  <ResizableTh width={getColWidth('fabricShade')} onWidthChange={(w) => setColumnWidth('fabricShade', w)} isSticky={isColFrozen('fabricShade')} stickyLeft={getStickyLeft('fabricShade')} isLastFrozen={'fabricShade' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Fabric Shade</ResizableTh>
                 )}
                 {isColVisible('fabricGsm') && (
-                  <ResizableTh width={getColWidth('fabricGsm')} onWidthChange={(w) => setColumnWidth('fabricGsm', w)} isSticky={isColFrozen('fabricGsm')} stickyLeft={getStickyLeft('fabricGsm')} isLastFrozen={'fabricGsm' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Fabric GSM</ResizableTh>
+                  <ResizableTh width={getColWidth('fabricGsm')} onWidthChange={(w) => setColumnWidth('fabricGsm', w)} isSticky={isColFrozen('fabricGsm')} stickyLeft={getStickyLeft('fabricGsm')} isLastFrozen={'fabricGsm' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 text-center ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Fabric GSM</ResizableTh>
                 )}
                 {isColVisible('yarnRequired') && (
-                  <ResizableTh width={getColWidth('yarnRequired')} onWidthChange={(w) => setColumnWidth('yarnRequired', w)} isSticky={isColFrozen('yarnRequired')} stickyLeft={getStickyLeft('yarnRequired')} isLastFrozen={'yarnRequired' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Yarn Required</ResizableTh>
+                  <ResizableTh width={getColWidth('yarnRequired')} onWidthChange={(w) => setColumnWidth('yarnRequired', w)} isSticky={isColFrozen('yarnRequired')} stickyLeft={getStickyLeft('yarnRequired')} isLastFrozen={'yarnRequired' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Yarn Required</ResizableTh>
                 )}
                 {isColVisible('lotRef') && (
-                  <ResizableTh width={getColWidth('lotRef')} onWidthChange={(w) => setColumnWidth('lotRef', w)} isSticky={isColFrozen('lotRef')} stickyLeft={getStickyLeft('lotRef')} isLastFrozen={'lotRef' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Lot Ref</ResizableTh>
+                  <ResizableTh width={getColWidth('lotRef')} onWidthChange={(w) => setColumnWidth('lotRef', w)} isSticky={isColFrozen('lotRef')} stickyLeft={getStickyLeft('lotRef')} isLastFrozen={'lotRef' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Lot Ref</ResizableTh>
                 )}
                 {isColVisible('allocatedYarn') && (
-                  <ResizableTh width={getColWidth('allocatedYarn')} onWidthChange={(w) => setColumnWidth('allocatedYarn', w)} isSticky={isColFrozen('allocatedYarn')} stickyLeft={getStickyLeft('allocatedYarn')} isLastFrozen={'allocatedYarn' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Allocated Yarn</ResizableTh>
+                  <ResizableTh width={getColWidth('allocatedYarn')} onWidthChange={(w) => setColumnWidth('allocatedYarn', w)} isSticky={isColFrozen('allocatedYarn')} stickyLeft={getStickyLeft('allocatedYarn')} isLastFrozen={'allocatedYarn' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Allocated Yarn</ResizableTh>
                 )}
                 {isColVisible('lotNo') && (
-                  <ResizableTh width={getColWidth('lotNo')} onWidthChange={(w) => setColumnWidth('lotNo', w)} isSticky={isColFrozen('lotNo')} stickyLeft={getStickyLeft('lotNo')} isLastFrozen={'lotNo' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Lot #</ResizableTh>
+                  <ResizableTh width={getColWidth('lotNo')} onWidthChange={(w) => setColumnWidth('lotNo', w)} isSticky={isColFrozen('lotNo')} stickyLeft={getStickyLeft('lotNo')} isLastFrozen={'lotNo' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Lot #</ResizableTh>
                 )}
                 {isColVisible('spinnersName') && (
-                  <ResizableTh width={getColWidth('spinnersName')} onWidthChange={(w) => setColumnWidth('spinnersName', w)} isSticky={isColFrozen('spinnersName')} stickyLeft={getStickyLeft('spinnersName')} isLastFrozen={'spinnersName' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">Spinner's Name</ResizableTh>
+                  <ResizableTh width={getColWidth('spinnersName')} onWidthChange={(w) => setColumnWidth('spinnersName', w)} isSticky={isColFrozen('spinnersName')} stickyLeft={getStickyLeft('spinnersName')} isLastFrozen={'spinnersName' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Spinner's Name</ResizableTh>
                 )}
                 {isColVisible('allocationStatus') && (
-                  <ResizableTh width={getColWidth('allocationStatus')} onWidthChange={(w) => setColumnWidth('allocationStatus', w)} isSticky={isColFrozen('allocationStatus')} stickyLeft={getStickyLeft('allocationStatus')} isLastFrozen={'allocationStatus' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Allocation Status</ResizableTh>
+                  <ResizableTh width={getColWidth('allocationStatus')} onWidthChange={(w) => setColumnWidth('allocationStatus', w)} isSticky={isColFrozen('allocationStatus')} stickyLeft={getStickyLeft('allocationStatus')} isLastFrozen={'allocationStatus' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 text-center ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Allocation Status</ResizableTh>
                 )}
                 {isColVisible('yarnStockStatus') && (
-                  <ResizableTh width={getColWidth('yarnStockStatus')} onWidthChange={(w) => setColumnWidth('yarnStockStatus', w)} isSticky={isColFrozen('yarnStockStatus')} stickyLeft={getStickyLeft('yarnStockStatus')} isLastFrozen={'yarnStockStatus' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Yarn Stock Status</ResizableTh>
+                  <ResizableTh width={getColWidth('yarnStockStatus')} onWidthChange={(w) => setColumnWidth('yarnStockStatus', w)} isSticky={isColFrozen('yarnStockStatus')} stickyLeft={getStickyLeft('yarnStockStatus')} isLastFrozen={'yarnStockStatus' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 text-center ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Yarn Stock Status</ResizableTh>
                 )}
                 {isColVisible('yarnDeliveryStatus') && (
-                  <ResizableTh width={getColWidth('yarnDeliveryStatus')} onWidthChange={(w) => setColumnWidth('yarnDeliveryStatus', w)} isSticky={isColFrozen('yarnDeliveryStatus')} stickyLeft={getStickyLeft('yarnDeliveryStatus')} isLastFrozen={'yarnDeliveryStatus' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Yarn Delivery Status</ResizableTh>
+                  <ResizableTh width={getColWidth('yarnDeliveryStatus')} onWidthChange={(w) => setColumnWidth('yarnDeliveryStatus', w)} isSticky={isColFrozen('yarnDeliveryStatus')} stickyLeft={getStickyLeft('yarnDeliveryStatus')} isLastFrozen={'yarnDeliveryStatus' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 text-center ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Yarn Delivery Status</ResizableTh>
                 )}
                 {isColVisible('proposedAllocationDate') && (
-                  <ResizableTh width={getColWidth('proposedAllocationDate')} onWidthChange={(w) => setColumnWidth('proposedAllocationDate', w)} isSticky={isColFrozen('proposedAllocationDate')} stickyLeft={getStickyLeft('proposedAllocationDate')} isLastFrozen={'proposedAllocationDate' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Proposed Allocation Date</ResizableTh>
+                  <ResizableTh width={getColWidth('proposedAllocationDate')} onWidthChange={(w) => setColumnWidth('proposedAllocationDate', w)} isSticky={isColFrozen('proposedAllocationDate')} stickyLeft={getStickyLeft('proposedAllocationDate')} isLastFrozen={'proposedAllocationDate' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 text-center ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Proposed Allocation Date</ResizableTh>
                 )}
                 {isColVisible('existingRange') && (
-                  <ResizableTh width={getColWidth('existingRange')} onWidthChange={(w) => setColumnWidth('existingRange', w)} isSticky={isColFrozen('existingRange')} stickyLeft={getStickyLeft('existingRange')} isLastFrozen={'existingRange' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Allocation Sart Date to End Date</ResizableTh>
+                  <ResizableTh width={getColWidth('existingRange')} onWidthChange={(w) => setColumnWidth('existingRange', w)} isSticky={isColFrozen('existingRange')} stickyLeft={getStickyLeft('existingRange')} isLastFrozen={'existingRange' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 text-center ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Allocation Sart Date to End Date</ResizableTh>
                 )}
                 {isColVisible('allocationNo') && (
-                  <ResizableTh width={getColWidth('allocationNo')} onWidthChange={(w) => setColumnWidth('allocationNo', w)} isSticky={isColFrozen('allocationNo')} stickyLeft={getStickyLeft('allocationNo')} isLastFrozen={'allocationNo' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-center">Allocation No</ResizableTh>
+                  <ResizableTh width={getColWidth('allocationNo')} onWidthChange={(w) => setColumnWidth('allocationNo', w)} isSticky={isColFrozen('allocationNo')} stickyLeft={getStickyLeft('allocationNo')} isLastFrozen={'allocationNo' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 text-center ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Allocation No</ResizableTh>
                 )}
                 {isColVisible('yarnRqQty') && (
-                  <ResizableTh width={getColWidth('yarnRqQty')} onWidthChange={(w) => setColumnWidth('yarnRqQty', w)} isSticky={isColFrozen('yarnRqQty')} stickyLeft={getStickyLeft('yarnRqQty')} isLastFrozen={'yarnRqQty' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-right bg-blue-50/50 dark:bg-blue-950/30">Yarn Rq Qty</ResizableTh>
+                  <ResizableTh width={getColWidth('yarnRqQty')} onWidthChange={(w) => setColumnWidth('yarnRqQty', w)} isSticky={isColFrozen('yarnRqQty')} stickyLeft={getStickyLeft('yarnRqQty')} isLastFrozen={'yarnRqQty' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 text-right bg-blue-50/50 dark:bg-blue-950/30 ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Yarn Rq Qty</ResizableTh>
                 )}
                 {isColVisible('allocatedQty') && (
-                  <ResizableTh width={getColWidth('allocatedQty')} onWidthChange={(w) => setColumnWidth('allocatedQty', w)} isSticky={isColFrozen('allocatedQty')} stickyLeft={getStickyLeft('allocatedQty')} isLastFrozen={'allocatedQty' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-right bg-emerald-50/50 dark:bg-emerald-950/30">Allocated Qty</ResizableTh>
+                  <ResizableTh width={getColWidth('allocatedQty')} onWidthChange={(w) => setColumnWidth('allocatedQty', w)} isSticky={isColFrozen('allocatedQty')} stickyLeft={getStickyLeft('allocatedQty')} isLastFrozen={'allocatedQty' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 text-right bg-emerald-50/50 dark:bg-emerald-950/30 ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Allocated Qty</ResizableTh>
                 )}
                 {isColVisible('balance') && (
-                  <ResizableTh width={getColWidth('balance')} onWidthChange={(w) => setColumnWidth('balance', w)} isSticky={isColFrozen('balance')} stickyLeft={getStickyLeft('balance')} isLastFrozen={'balance' === lastFrozenColId} className="px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap text-right bg-amber-50/50 dark:bg-amber-950/30">Balance</ResizableTh>
+                  <ResizableTh width={getColWidth('balance')} onWidthChange={(w) => setColumnWidth('balance', w)} isSticky={isColFrozen('balance')} stickyLeft={getStickyLeft('balance')} isLastFrozen={'balance' === lastFrozenColId} className={`px-3.5 py-3 border-r border-slate-200 dark:border-slate-700 text-right bg-amber-50/50 dark:bg-amber-950/30 ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Balance</ResizableTh>
                 )}
                 {isColVisible('remarks') && (
-                  <ResizableTh width={getColWidth('remarks')} onWidthChange={(w) => setColumnWidth('remarks', w)} isSticky={isColFrozen('remarks')} stickyLeft={getStickyLeft('remarks')} isLastFrozen={'remarks' === lastFrozenColId} className="px-3.5 py-3 whitespace-nowrap">Remarks</ResizableTh>
+                  <ResizableTh width={getColWidth('remarks')} onWidthChange={(w) => setColumnWidth('remarks', w)} isSticky={isColFrozen('remarks')} stickyLeft={getStickyLeft('remarks')} isLastFrozen={'remarks' === lastFrozenColId} className={`px-3.5 py-3 ${isWrapText ? 'whitespace-normal break-words' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>Remarks</ResizableTh>
                 )}
               </tr>
             </thead>
@@ -1365,115 +1373,115 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
                 paginatedYarnAllocations.map((row) => (
                   <tr key={row.id} className="group hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors">
                     {isColVisible('actualRequisitionDate') && (
-                      <td style={{ width: `${getColWidth('actualRequisitionDate')}px`, minWidth: `${getColWidth('actualRequisitionDate')}px`, maxWidth: `${getColWidth('actualRequisitionDate')}px`, ...getStickyStyle('actualRequisitionDate') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-bold text-slate-900 dark:text-white ${getStickyClass('actualRequisitionDate')}`}>
+                      <td style={{ width: `${getColWidth('actualRequisitionDate')}px`, minWidth: `${getColWidth('actualRequisitionDate')}px`, maxWidth: `${getColWidth('actualRequisitionDate')}px`, ...getStickyStyle('actualRequisitionDate') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 font-bold text-slate-900 dark:text-white ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('actualRequisitionDate')}`}>
                         {formatDisplayDate(row.actualRequisitionDate)}
                       </td>
                     )}
                     {isColVisible('buyer') && (
-                      <td style={{ width: `${getColWidth('buyer')}px`, minWidth: `${getColWidth('buyer')}px`, maxWidth: `${getColWidth('buyer')}px`, ...getStickyStyle('buyer') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 break-words font-black text-slate-900 dark:text-white overflow-hidden ${getStickyClass('buyer')}`}>
+                      <td style={{ width: `${getColWidth('buyer')}px`, minWidth: `${getColWidth('buyer')}px`, maxWidth: `${getColWidth('buyer')}px`, ...getStickyStyle('buyer') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 font-black text-slate-900 dark:text-white ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('buyer')}`}>
                         {row.buyer || '-'}
                       </td>
                     )}
                     {isColVisible('orderNumber') && (
-                      <td style={{ width: `${getColWidth('orderNumber')}px`, minWidth: `${getColWidth('orderNumber')}px`, maxWidth: `${getColWidth('orderNumber')}px`, ...getStickyStyle('orderNumber') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 break-words font-mono font-bold text-blue-600 dark:text-blue-400 overflow-hidden ${getStickyClass('orderNumber')}`}>
+                      <td style={{ width: `${getColWidth('orderNumber')}px`, minWidth: `${getColWidth('orderNumber')}px`, maxWidth: `${getColWidth('orderNumber')}px`, ...getStickyStyle('orderNumber') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 font-mono font-bold text-blue-600 dark:text-blue-400 ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('orderNumber')}`}>
                         {row.orderNumber || '-'}
                       </td>
                     )}
                     {isColVisible('fabricsType') && (
-                      <td style={{ width: `${getColWidth('fabricsType')}px`, minWidth: `${getColWidth('fabricsType')}px`, maxWidth: `${getColWidth('fabricsType')}px`, ...getStickyStyle('fabricsType') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 break-words font-bold overflow-hidden ${getStickyClass('fabricsType')}`}>
+                      <td style={{ width: `${getColWidth('fabricsType')}px`, minWidth: `${getColWidth('fabricsType')}px`, maxWidth: `${getColWidth('fabricsType')}px`, ...getStickyStyle('fabricsType') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 font-bold ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('fabricsType')}`}>
                         {row.fabricsType || '-'}
                       </td>
                     )}
                     {isColVisible('fabricShade') && (
-                      <td style={{ width: `${getColWidth('fabricShade')}px`, minWidth: `${getColWidth('fabricShade')}px`, maxWidth: `${getColWidth('fabricShade')}px`, ...getStickyStyle('fabricShade') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 break-words text-slate-600 dark:text-slate-300 overflow-hidden ${getStickyClass('fabricShade')}`}>
+                      <td style={{ width: `${getColWidth('fabricShade')}px`, minWidth: `${getColWidth('fabricShade')}px`, maxWidth: `${getColWidth('fabricShade')}px`, ...getStickyStyle('fabricShade') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 text-slate-600 dark:text-slate-300 ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('fabricShade')}`}>
                         {row.fabricShade || '-'}
                       </td>
                     )}
                     {isColVisible('fabricGsm') && (
-                      <td style={{ width: `${getColWidth('fabricGsm')}px`, minWidth: `${getColWidth('fabricGsm')}px`, maxWidth: `${getColWidth('fabricGsm')}px`, ...getStickyStyle('fabricGsm') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center font-bold ${getStickyClass('fabricGsm')}`}>
+                      <td style={{ width: `${getColWidth('fabricGsm')}px`, minWidth: `${getColWidth('fabricGsm')}px`, maxWidth: `${getColWidth('fabricGsm')}px`, ...getStickyStyle('fabricGsm') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 text-center font-bold ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('fabricGsm')}`}>
                         {row.fabricGsm || '-'}
                       </td>
                     )}
                     {isColVisible('yarnRequired') && (
-                      <td style={{ width: `${getColWidth('yarnRequired')}px`, minWidth: `${getColWidth('yarnRequired')}px`, maxWidth: `${getColWidth('yarnRequired')}px`, ...getStickyStyle('yarnRequired') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-bold text-slate-800 dark:text-slate-200 ${getStickyClass('yarnRequired')}`}>
+                      <td style={{ width: `${getColWidth('yarnRequired')}px`, minWidth: `${getColWidth('yarnRequired')}px`, maxWidth: `${getColWidth('yarnRequired')}px`, ...getStickyStyle('yarnRequired') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 font-bold text-slate-800 dark:text-slate-200 ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('yarnRequired')}`}>
                         {row.yarnRequired || '-'}
                       </td>
                     )}
                     {isColVisible('lotRef') && (
-                      <td style={{ width: `${getColWidth('lotRef')}px`, minWidth: `${getColWidth('lotRef')}px`, maxWidth: `${getColWidth('lotRef')}px`, ...getStickyStyle('lotRef') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-xs text-slate-600 dark:text-slate-300 italic ${getStickyClass('lotRef')}`}>
+                      <td style={{ width: `${getColWidth('lotRef')}px`, minWidth: `${getColWidth('lotRef')}px`, maxWidth: `${getColWidth('lotRef')}px`, ...getStickyStyle('lotRef') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 text-xs text-slate-600 dark:text-slate-300 italic ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('lotRef')}`}>
                         {row.lotRef || '-'}
                       </td>
                     )}
                     {isColVisible('allocatedYarn') && (
-                      <td style={{ width: `${getColWidth('allocatedYarn')}px`, minWidth: `${getColWidth('allocatedYarn')}px`, maxWidth: `${getColWidth('allocatedYarn')}px`, ...getStickyStyle('allocatedYarn') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-bold text-slate-900 dark:text-white ${getStickyClass('allocatedYarn')}`}>
+                      <td style={{ width: `${getColWidth('allocatedYarn')}px`, minWidth: `${getColWidth('allocatedYarn')}px`, maxWidth: `${getColWidth('allocatedYarn')}px`, ...getStickyStyle('allocatedYarn') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 font-bold text-slate-900 dark:text-white ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('allocatedYarn')}`}>
                         {row.allocatedYarn || '-'}
                       </td>
                     )}
                     {isColVisible('lotNo') && (
-                      <td style={{ width: `${getColWidth('lotNo')}px`, minWidth: `${getColWidth('lotNo')}px`, maxWidth: `${getColWidth('lotNo')}px`, ...getStickyStyle('lotNo') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-mono font-bold text-slate-900 dark:text-white ${getStickyClass('lotNo')}`}>
+                      <td style={{ width: `${getColWidth('lotNo')}px`, minWidth: `${getColWidth('lotNo')}px`, maxWidth: `${getColWidth('lotNo')}px`, ...getStickyStyle('lotNo') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 font-mono font-bold text-slate-900 dark:text-white ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('lotNo')}`}>
                         {row.lotNo || '-'}
                       </td>
                     )}
                     {isColVisible('spinnersName') && (
-                      <td style={{ width: `${getColWidth('spinnersName')}px`, minWidth: `${getColWidth('spinnersName')}px`, maxWidth: `${getColWidth('spinnersName')}px`, ...getStickyStyle('spinnersName') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap font-semibold ${getStickyClass('spinnersName')}`}>
+                      <td style={{ width: `${getColWidth('spinnersName')}px`, minWidth: `${getColWidth('spinnersName')}px`, maxWidth: `${getColWidth('spinnersName')}px`, ...getStickyStyle('spinnersName') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 font-semibold ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('spinnersName')}`}>
                         {row.spinnersName || '-'}
                       </td>
                     )}
                     {isColVisible('allocationStatus') && (
-                      <td style={{ width: `${getColWidth('allocationStatus')}px`, minWidth: `${getColWidth('allocationStatus')}px`, maxWidth: `${getColWidth('allocationStatus')}px`, ...getStickyStyle('allocationStatus') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center ${getStickyClass('allocationStatus')}`}>
+                      <td style={{ width: `${getColWidth('allocationStatus')}px`, minWidth: `${getColWidth('allocationStatus')}px`, maxWidth: `${getColWidth('allocationStatus')}px`, ...getStickyStyle('allocationStatus') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 text-center ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('allocationStatus')}`}>
                         <span className="inline-block px-2.5 py-0.5 rounded-md text-[11px] font-black bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300">
                           {row.allocationStatus || 'Allocated'}
                         </span>
                       </td>
                     )}
                     {isColVisible('yarnStockStatus') && (
-                      <td style={{ width: `${getColWidth('yarnStockStatus')}px`, minWidth: `${getColWidth('yarnStockStatus')}px`, maxWidth: `${getColWidth('yarnStockStatus')}px`, ...getStickyStyle('yarnStockStatus') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center ${getStickyClass('yarnStockStatus')}`}>
+                      <td style={{ width: `${getColWidth('yarnStockStatus')}px`, minWidth: `${getColWidth('yarnStockStatus')}px`, maxWidth: `${getColWidth('yarnStockStatus')}px`, ...getStickyStyle('yarnStockStatus') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 text-center ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('yarnStockStatus')}`}>
                         <span className="inline-block px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                           {row.yarnStockStatus || 'Stock Available'}
                         </span>
                       </td>
                     )}
                     {isColVisible('yarnDeliveryStatus') && (
-                      <td style={{ width: `${getColWidth('yarnDeliveryStatus')}px`, minWidth: `${getColWidth('yarnDeliveryStatus')}px`, maxWidth: `${getColWidth('yarnDeliveryStatus')}px`, ...getStickyStyle('yarnDeliveryStatus') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center ${getStickyClass('yarnDeliveryStatus')}`}>
+                      <td style={{ width: `${getColWidth('yarnDeliveryStatus')}px`, minWidth: `${getColWidth('yarnDeliveryStatus')}px`, maxWidth: `${getColWidth('yarnDeliveryStatus')}px`, ...getStickyStyle('yarnDeliveryStatus') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 text-center ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('yarnDeliveryStatus')}`}>
                         <span className="inline-block px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-blue-100 dark:bg-blue-950/70 text-blue-800 dark:text-blue-300">
                           {row.yarnDeliveryStatus || 'Completed'}
                         </span>
                       </td>
                     )}
                     {isColVisible('proposedAllocationDate') && (
-                      <td style={{ width: `${getColWidth('proposedAllocationDate')}px`, minWidth: `${getColWidth('proposedAllocationDate')}px`, maxWidth: `${getColWidth('proposedAllocationDate')}px`, ...getStickyStyle('proposedAllocationDate') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center text-slate-500 ${getStickyClass('proposedAllocationDate')}`}>
+                      <td style={{ width: `${getColWidth('proposedAllocationDate')}px`, minWidth: `${getColWidth('proposedAllocationDate')}px`, maxWidth: `${getColWidth('proposedAllocationDate')}px`, ...getStickyStyle('proposedAllocationDate') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 text-center text-slate-500 ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('proposedAllocationDate')}`}>
                         {formatDisplayDate(row.proposedAllocationDate)}
                       </td>
                     )}
                     {isColVisible('existingRange') && (
-                      <td style={{ width: `${getColWidth('existingRange')}px`, minWidth: `${getColWidth('existingRange')}px`, maxWidth: `${getColWidth('existingRange')}px`, ...getStickyStyle('existingRange') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center text-[11px] font-semibold text-slate-600 dark:text-slate-300 ${getStickyClass('existingRange')}`}>
+                      <td style={{ width: `${getColWidth('existingRange')}px`, minWidth: `${getColWidth('existingRange')}px`, maxWidth: `${getColWidth('existingRange')}px`, ...getStickyStyle('existingRange') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 text-center text-[11px] font-semibold text-slate-600 dark:text-slate-300 ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('existingRange')}`}>
                         {formatDisplayDate(row.allocationDateRange)}
                       </td>
                     )}
                     {isColVisible('allocationNo') && (
-                      <td style={{ width: `${getColWidth('allocationNo')}px`, minWidth: `${getColWidth('allocationNo')}px`, maxWidth: `${getColWidth('allocationNo')}px`, ...getStickyStyle('allocationNo') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-center font-mono font-bold text-blue-600 dark:text-blue-400 ${getStickyClass('allocationNo')}`}>
+                      <td style={{ width: `${getColWidth('allocationNo')}px`, minWidth: `${getColWidth('allocationNo')}px`, maxWidth: `${getColWidth('allocationNo')}px`, ...getStickyStyle('allocationNo') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 text-center font-mono font-bold text-blue-600 dark:text-blue-400 ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('allocationNo')}`}>
                         {row.allocationNo || '-'}
                       </td>
                     )}
 
                     {/* QUANTITY COLUMNS */}
                     {isColVisible('yarnRqQty') && (
-                      <td style={{ width: `${getColWidth('yarnRqQty')}px`, minWidth: `${getColWidth('yarnRqQty')}px`, maxWidth: `${getColWidth('yarnRqQty')}px`, ...getStickyStyle('yarnRqQty') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-right font-mono font-black text-slate-900 dark:text-white bg-blue-50/20 dark:bg-blue-950/10 ${getStickyClass('yarnRqQty')}`}>
+                      <td style={{ width: `${getColWidth('yarnRqQty')}px`, minWidth: `${getColWidth('yarnRqQty')}px`, maxWidth: `${getColWidth('yarnRqQty')}px`, ...getStickyStyle('yarnRqQty') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 text-right font-mono font-black text-slate-900 dark:text-white bg-blue-50/20 dark:bg-blue-950/10 ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('yarnRqQty')}`}>
                         {formatYarnQty(row.yarnRqQty)}
                       </td>
                     )}
                     {isColVisible('allocatedQty') && (
-                      <td style={{ width: `${getColWidth('allocatedQty')}px`, minWidth: `${getColWidth('allocatedQty')}px`, maxWidth: `${getColWidth('allocatedQty')}px`, ...getStickyStyle('allocatedQty') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-right font-mono font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50/20 dark:bg-emerald-950/10 ${getStickyClass('allocatedQty')}`}>
+                      <td style={{ width: `${getColWidth('allocatedQty')}px`, minWidth: `${getColWidth('allocatedQty')}px`, maxWidth: `${getColWidth('allocatedQty')}px`, ...getStickyStyle('allocatedQty') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 text-right font-mono font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50/20 dark:bg-emerald-950/10 ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('allocatedQty')}`}>
                         {formatYarnQty(row.allocatedQty)}
                       </td>
                     )}
                     {isColVisible('balance') && (
-                      <td style={{ width: `${getColWidth('balance')}px`, minWidth: `${getColWidth('balance')}px`, maxWidth: `${getColWidth('balance')}px`, ...getStickyStyle('balance') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 whitespace-nowrap text-right font-mono font-black text-amber-600 dark:text-amber-400 bg-amber-50/20 dark:bg-amber-950/10 ${getStickyClass('balance')}`}>
+                      <td style={{ width: `${getColWidth('balance')}px`, minWidth: `${getColWidth('balance')}px`, maxWidth: `${getColWidth('balance')}px`, ...getStickyStyle('balance') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 text-right font-mono font-black text-amber-600 dark:text-amber-400 bg-amber-50/20 dark:bg-amber-950/10 ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('balance')}`}>
                         {formatYarnQty(row.balance)}
                       </td>
                     )}
                     {isColVisible('remarks') && (
-                      <td style={{ width: `${getColWidth('remarks')}px`, minWidth: `${getColWidth('remarks')}px`, maxWidth: `${getColWidth('remarks')}px`, ...getStickyStyle('remarks') }} className={`px-3.5 py-3 overflow-hidden break-words whitespace-normal text-slate-500 ${getStickyClass('remarks')}`}>
+                      <td style={{ width: `${getColWidth('remarks')}px`, minWidth: `${getColWidth('remarks')}px`, maxWidth: `${getColWidth('remarks')}px`, ...getStickyStyle('remarks') }} className={`px-3.5 py-3 text-slate-500 ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('remarks')}`}>
                         {row.remarks || '-'}
                       </td>
                     )}

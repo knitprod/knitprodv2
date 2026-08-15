@@ -10,7 +10,7 @@ import { FirestoreSyncService } from '../lib/firestoreSync';
 import { UserRecord } from './UserManagementView';
 import { formatDisplayDate } from './YarnAllocationView';
 import SearchableSelect from './SearchableSelect';
-import { useTableColumns, ColumnCustomizerDropdown, FreezePanesButton, ResizableTh, ColumnDef } from './TableColumnCustomizer';
+import { useTableColumns, ColumnCustomizerDropdown, ResizableTh, ColumnDef } from './TableColumnCustomizer';
 import { 
   ClipboardList, 
   Target, 
@@ -1950,14 +1950,6 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                 options={otdOptions}
                 allLabel="All OTD Status"
                 placeholder="Search OTD Status..."
-              />
-
-              <FreezePanesButton
-                isFrozen={isFrozen}
-                freezeCount={freezeCount}
-                onToggleFreeze={toggleFreeze}
-                onSetFreezeCount={setFreezeCount}
-                maxFreezeCount={5}
               />
 
               <ColumnCustomizerDropdown

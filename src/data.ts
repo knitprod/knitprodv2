@@ -99,15 +99,15 @@ export const INITIAL_FLOORS: FactoryFloor[] = [
 ];
 
 export const INITIAL_KPIS = (floors: FactoryFloor[]): KPIMetric[] => {
-  const totalTarget = floors.reduce((acc, f) => acc + f.targetKg, 0);
-  const totalProduction = floors.reduce((acc, f) => acc + f.productionKg, 0);
-  const achievementPct = Math.round((totalProduction / totalTarget) * 1000) / 10;
-  const runningMachines = floors.reduce((acc, f) => acc + f.runningMachines, 0);
-  const totalMachines = floors.reduce((acc, f) => acc + f.totalMachines, 0);
+  const totalTarget = floors.reduce((acc, f) => acc + (f.targetKg || 0), 0);
+  const totalProduction = floors.reduce((acc, f) => acc + (f.productionKg || 0), 0);
+  const achievementPct = totalTarget > 0 ? Math.round((totalProduction / totalTarget) * 1000) / 10 : 0;
+  const runningMachines = floors.reduce((acc, f) => acc + (f.runningMachines || 0), 0);
+  const totalMachines = floors.reduce((acc, f) => acc + (f.totalMachines || 0), 0);
   const idleMachines = totalMachines - runningMachines;
   
   // Calculate average reject weighted roughly by production
-  const avgReject = Math.round((floors.reduce((acc, f) => acc + (f.rejectPct * f.productionKg), 0) / totalProduction) * 100) / 100;
+  const avgReject = totalProduction > 0 ? Math.round((floors.reduce((acc, f) => acc + ((f.rejectPct || 0) * (f.productionKg || 0)), 0) / totalProduction) * 100) / 100 : 0;
 
   return [
     {
