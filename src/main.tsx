@@ -3,19 +3,15 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
-// Strict Enterprise Requirement: Purge & Disable Browser LocalStorage and SessionStorage completely
+// Purge any legacy sensitive auth tokens or session keys from browser storage
 if (typeof window !== 'undefined') {
   try {
-    if (window.localStorage) {
-      window.localStorage.clear();
-      window.localStorage.setItem = () => {};
-    }
-    if (window.sessionStorage) {
-      window.sessionStorage.clear();
-      window.sessionStorage.setItem = () => {};
-    }
+    sessionStorage.removeItem('active_user_session');
+    localStorage.removeItem('active_user_session');
+    sessionStorage.removeItem('active_user_credentials');
+    localStorage.removeItem('active_user_credentials');
   } catch (e) {
-    console.warn("Could not access or clear browser storage:", e);
+    // Ignore storage access restrictions if any
   }
 }
 
@@ -24,4 +20,5 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 );
+
 

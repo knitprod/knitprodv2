@@ -29,7 +29,8 @@ import {
   ChevronDown,
   ChevronUp,
   ShieldCheck,
-  Database
+  Database,
+  Loader2
 } from 'lucide-react';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
@@ -51,6 +52,8 @@ import YarnAllocationView from './components/YarnAllocationView';
 import DashboardFilterToolbar, { FilterState } from './components/DashboardFilterToolbar';
 import { GasClient } from './lib/gasClient';
 import { FirestoreSyncService } from './lib/firestoreSync';
+import { auth } from './lib/firebase';
+import { onAuthStateChanged, signOut, updateProfile } from 'firebase/auth';
 
 import { FactoryFloor, ProductionEntry, ActivityLog } from './types';
 import { INITIAL_FLOORS, INITIAL_KPIS, INITIAL_ACTIVITY_LOGS } from './data';
@@ -156,41 +159,109 @@ const ensureUniqueIds = <T extends { id: string }>(items: T[], prefix: string): 
 
 export default function App() {
   const [inactivityNotice, setInactivityNotice] = useState<string | null>(null);
-
-  const [currentUser, setCurrentUser] = useState<UserRecord | null>(() => {
-    try {
-      const savedSession = sessionStorage.getItem('active_user_session') || localStorage.getItem('active_user_session');
-      if (savedSession) {
-        const parsed = JSON.parse(savedSession);
-        if (parsed && (parsed.uid || parsed.id) && parsed.status !== 'Inactive') {
-          delete parsed.password;
-          return parsed;
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to restore active session from storage:', e);
-    }
-    return null;
-  });
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [currentUser, setCurrentUser] = useState<UserRecord | null>(null);
   const lastActivityRef = useRef<number>(Date.now());
 
-  // Sync active user with GasClient and storage whenever state changes
+  // Automatic Firebase Authentication state restoration on startup and page refresh
+  useEffect(() => {
+    let isMounted = true;
+
+    const restoreSession = async (firebaseUser: any) => {
+      try {
+        let targetUid: string | null = null;
+
+        if (firebaseUser) {
+          targetUid = firebaseUser.displayName || null;
+        }
+
+        // If Firebase Auth user displayName is not yet assigned, check secure server cookie
+        if (!targetUid) {
+          try {
+            const res = await fetch('/api/auth/session', { credentials: 'same-origin' });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.authenticated && data.uid) {
+                targetUid = data.uid;
+                if (firebaseUser) {
+                  await updateProfile(firebaseUser, { displayName: targetUid }).catch(() => {});
+                }
+              }
+            }
+          } catch (e) {
+            // Server check network fallback
+          }
+        }
+
+        if (targetUid) {
+          // Fetch live user roster from Firestore
+          const liveUsers = await FirestoreSyncService.fetchUsers();
+          const cleanUid = targetUid.trim().toUpperCase();
+          let matchedUser = liveUsers?.find(
+            (u: any) => u.uid && u.uid.toString().trim().toUpperCase() === cleanUid
+          );
+
+          // Fallback to initial roster if Firestore users collection is currently initializing
+          if (!matchedUser) {
+            matchedUser = INITIAL_USERS.find(
+              (u) => u.uid.toUpperCase() === cleanUid
+            );
+          }
+
+          if (matchedUser) {
+            if (matchedUser.status === 'Inactive') {
+              await signOut(auth).catch(() => {});
+              await fetch('/api/auth/session', { method: 'DELETE' }).catch(() => {});
+              if (isMounted) {
+                setCurrentUser(null);
+                GasClient.setActiveUser(null);
+                setInactivityNotice('Your account has been deactivated. Please contact an administrator.');
+                setAuthLoading(false);
+              }
+              return;
+            }
+
+            const safeUser = { ...matchedUser };
+            delete safeUser.password;
+
+            if (isMounted) {
+              setCurrentUser(safeUser);
+              GasClient.setActiveUser(safeUser);
+              setAuthLoading(false);
+            }
+            return;
+          }
+        }
+
+        // No active or valid authenticated session
+        if (isMounted) {
+          setCurrentUser(null);
+          GasClient.setActiveUser(null);
+          setAuthLoading(false);
+        }
+      } catch (err) {
+        console.warn('Error during authentication state restoration:', err);
+        if (isMounted) {
+          setCurrentUser(null);
+          GasClient.setActiveUser(null);
+          setAuthLoading(false);
+        }
+      }
+    };
+
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      restoreSession(firebaseUser);
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, []);
+
+  // Sync active user with GasClient whenever state changes in React memory
   useEffect(() => {
     GasClient.setActiveUser(currentUser);
-    if (currentUser) {
-      try {
-        const safeUser = { ...currentUser };
-        delete safeUser.password;
-        const serialized = JSON.stringify(safeUser);
-        sessionStorage.setItem('active_user_session', serialized);
-        localStorage.setItem('active_user_session', serialized);
-      } catch (e) {}
-    } else {
-      try {
-        sessionStorage.removeItem('active_user_session');
-        localStorage.removeItem('active_user_session');
-      } catch (e) {}
-    }
   }, [currentUser]);
 
   // Real-time synchronization of active user profile from Firestore
@@ -241,7 +312,10 @@ export default function App() {
 
       if (now - lastActivityRef.current >= INACTIVITY_LIMIT_MS) {
         // Trigger security auto-logout
+        signOut(auth).catch(() => {});
+        fetch('/api/auth/session', { method: 'DELETE' }).catch(() => {});
         setCurrentUser(null);
+        GasClient.setActiveUser(null);
         setCurrentPage('Dashboard');
         setShowLogoutConfirm(false);
         setInactivityNotice(
@@ -759,10 +833,10 @@ export default function App() {
     setShowLogoutConfirm(true);
   };
 
-  const executeLogout = () => {
+  const executeLogout = async () => {
     try {
-      sessionStorage.removeItem('active_user_session');
-      localStorage.removeItem('active_user_session');
+      await signOut(auth).catch(() => {});
+      await fetch('/api/auth/session', { method: 'DELETE' }).catch(() => {});
       sessionStorage.removeItem('active_current_page');
       localStorage.removeItem('active_current_page');
     } catch (e) {}
@@ -772,6 +846,27 @@ export default function App() {
     setShowLogoutConfirm(false);
     setInactivityNotice(null);
   };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-[#0B132B] px-4 transition-colors duration-300">
+        <div className="flex flex-col items-center space-y-4 max-w-sm text-center">
+          <div className="h-14 w-14 rounded-2xl bg-gradient-to-tr from-[#0F4C81] to-[#1D2D50] shadow-xl flex items-center justify-center border border-white/20">
+            <Factory className="h-7 w-7 text-sky-300 animate-pulse" />
+          </div>
+          <div className="space-y-1">
+            <h2 className="text-lg font-black text-slate-800 dark:text-white tracking-tight uppercase">
+              Epyllion Knitting Performance
+            </h2>
+            <p className="text-xs font-semibold text-slate-500 dark:text-sky-300 flex items-center justify-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0F4C81] dark:text-sky-400" />
+              Verifying Firebase Authentication session...
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!currentUser) {
     return (

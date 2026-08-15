@@ -205,6 +205,55 @@ function saveDb(partial: any) {
   return updated;
 }
 
+// Secure session cookie helper
+function parseCookies(cookieHeader?: string): Record<string, string> {
+  const list: Record<string, string> = {};
+  if (!cookieHeader) return list;
+  cookieHeader.split(';').forEach((cookie) => {
+    let [name, ...rest] = cookie.split('=');
+    name = name?.trim();
+    if (!name) return;
+    const value = rest.join('=').trim();
+    list[name] = decodeURIComponent(value);
+  });
+  return list;
+}
+
+// GET auth session state via HTTP-only cookie
+app.get('/api/auth/session', (req, res) => {
+  const cookies = parseCookies(req.headers.cookie);
+  const sessionUid = cookies['ekl_auth_session'];
+  if (sessionUid && sessionUid.trim()) {
+    res.json({ authenticated: true, uid: sessionUid.trim() });
+  } else {
+    res.json({ authenticated: false, uid: null });
+  }
+});
+
+// POST establish auth session via HTTP-only cookie
+app.post('/api/auth/session', (req, res) => {
+  const { uid } = req.body || {};
+  if (typeof uid === 'string' && uid.trim()) {
+    const cleanUid = uid.trim().toUpperCase();
+    res.setHeader(
+      'Set-Cookie',
+      `ekl_auth_session=${encodeURIComponent(cleanUid)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`
+    );
+    res.json({ success: true, uid: cleanUid });
+  } else {
+    res.status(400).json({ success: false, message: 'Invalid UID supplied.' });
+  }
+});
+
+// DELETE terminate auth session cookie
+app.delete('/api/auth/session', (req, res) => {
+  res.setHeader(
+    'Set-Cookie',
+    `ekl_auth_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
+  );
+  res.json({ success: true, message: 'Session cookie destroyed.' });
+});
+
 // GET central database configuration
 app.get('/api/config', (req, res) => {
   const config = loadConfig();

@@ -16,6 +16,13 @@ import {
 import { UserRecord } from './UserManagementView';
 import { GasClient } from '../lib/gasClient';
 import { FirestoreSyncService } from '../lib/firestoreSync';
+import { auth } from '../lib/firebase';
+import { 
+  signInAnonymously, 
+  updateProfile, 
+  setPersistence, 
+  browserLocalPersistence 
+} from 'firebase/auth';
 
 interface LoginViewProps {
   onLoginSuccess: (user: UserRecord) => void;
@@ -148,12 +155,33 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
         return;
       }
 
-      // Successful Authenticated Session directly via Firebase Firestore
-      setSuccess(`Welcome back, ${match.userName}! Authenticated live via Firebase Firestore.`);
+      // Establish Firebase Authentication session with browser persistence
+      try {
+        await setPersistence(auth, browserLocalPersistence);
+        let fbUser = auth.currentUser;
+        if (!fbUser) {
+          const cred = await signInAnonymously(auth);
+          fbUser = cred.user;
+        }
+        if (fbUser) {
+          await updateProfile(fbUser, { displayName: match.uid.trim().toUpperCase() });
+        }
+        // Establish secure HTTP-only session cookie
+        await fetch('/api/auth/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uid: match.uid.trim().toUpperCase() })
+        }).catch(() => {});
+      } catch (authErr) {
+        console.warn("Firebase Auth persistence sync warning:", authErr);
+      }
+
+      // Successful Authenticated Session directly via Firebase Firestore & Auth
+      setSuccess(`Welcome back, ${match.userName}! Authenticated live via Firebase.`);
 
       setTimeout(() => {
         onLoginSuccess(match as UserRecord);
-      }, 600);
+      }, 500);
     } catch (err: any) {
       console.error("Firestore authentication failure:", err);
       // Fallback check against local roster state
@@ -171,18 +199,39 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
           setLoading(false);
           return;
         }
+
+        // Establish Firebase Authentication session
+        try {
+          await setPersistence(auth, browserLocalPersistence);
+          let fbUser = auth.currentUser;
+          if (!fbUser) {
+            const cred = await signInAnonymously(auth);
+            fbUser = cred.user;
+          }
+          if (fbUser) {
+            await updateProfile(fbUser, { displayName: match.uid.trim().toUpperCase() });
+          }
+          await fetch('/api/auth/session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uid: match.uid.trim().toUpperCase() })
+          }).catch(() => {});
+        } catch (authErr) {
+          console.warn("Firebase Auth persistence sync warning:", authErr);
+        }
+
         setSuccess(`Welcome back, ${match.userName}! Access granted.`);
         setTimeout(() => {
           onLoginSuccess(match);
-        }, 600);
+        }, 500);
         return;
       }
-      setError(`Authentication Error: Unable to verify credentials with Firebase Firestore.`);
+      setError(`Authentication Error: Unable to verify credentials with Firebase.`);
       setLoading(false);
     }
   };
 
-  const handleQuickLogin = (user: UserRecord) => {
+  const handleQuickLogin = async (user: UserRecord) => {
     if (user.status === 'Inactive') {
       setError(`Account for ${user.userName} is currently set to Inactive. Modify status in User Management first.`);
       return;
@@ -190,11 +239,31 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
     setUid(user.uid);
     setPassword(user.password || 'Password@2026');
     setError(null);
-    setSuccess(`Welcome back, ${user.userName}! Authenticating session...`);
+    setSuccess(`Welcome back, ${user.userName}! Authenticating session with Firebase...`);
     setLoading(true);
+
+    try {
+      await setPersistence(auth, browserLocalPersistence);
+      let fbUser = auth.currentUser;
+      if (!fbUser) {
+        const cred = await signInAnonymously(auth);
+        fbUser = cred.user;
+      }
+      if (fbUser) {
+        await updateProfile(fbUser, { displayName: user.uid.trim().toUpperCase() });
+      }
+      await fetch('/api/auth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: user.uid.trim().toUpperCase() })
+      }).catch(() => {});
+    } catch (authErr) {
+      console.warn("Firebase Auth persistence sync warning:", authErr);
+    }
+
     setTimeout(() => {
       onLoginSuccess(user);
-    }, 500);
+    }, 400);
   };
 
   return (
