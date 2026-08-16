@@ -15,6 +15,7 @@ import {
   ChevronUp,
   Factory,
   Table,
+  PlusCircle,
   ClipboardList,
   Target,
   Layers,

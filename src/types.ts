@@ -78,6 +78,7 @@ export interface LedgerRecord extends SyncMetadata {
   year: number;                   // Year (e.g. 2026)
   month: string;                  // Month (e.g. August)
   date: string;                   // Date (e.g. 8/11/2026 or YYYY-MM-DD)
+  day?: string;                   // Day of week (e.g. Monday)
   floor: string;                  // Floor (Extension, ESL-Extension, Sub-Contact, EKL, Auto-Stripe, EFL, EFL-2)
   target: number;                 // Target Total
   shiftA: number;                 // Shift A
@@ -87,6 +88,8 @@ export interface LedgerRecord extends SyncMetadata {
   targetBulk?: number;            // Target Bulk
   bulkProd?: number;              // Bulk Prod.
   sampleProd?: number;            // Sample Prod.
+  totalMachines?: number;         // Total Machines Allocated
+  runningMachine?: number;        // Running Machine
   runningBulk?: number;           // Running Bulk
   runningSample?: number;         // Running Sample
   idleMc?: number;                // Idle Mc
@@ -121,7 +124,6 @@ export interface LedgerRecord extends SyncMetadata {
   otd?: number | string;          // OTD
   yarnIssued?: number;            // Yarn Issued
   totalRunningFactories?: number; // Total Running Factories
-  runningMachine?: number;        // Running Machine
   numberVehicles?: number;        // Number Vehicles
   fabricReturn?: number;          // Fabric Return
   remarks?: string;               // Remarks

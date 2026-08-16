@@ -42,14 +42,23 @@ import * as XLSX from 'xlsx';
 import { LedgerRecord } from '../types';
 import { GasClient } from '../lib/gasClient';
 import { FirestoreSyncService } from '../lib/firestoreSync';
-
+import AddProductionRecordModal from './AddProductionRecordModal';
+import { 
+  getTargetKgForUnit, 
+  getTotalMachinesForUnit, 
+  getAvgProdPerMachineForUnit, 
+  getProductionCapacityForUnit,
+  getUnitConfigs,
+  saveUnitConfigs,
+  UnitThresholdConfig
+} from '../lib/unitStore';
 
 const getLocalStorageTarget = (floorName: string, defaultVal: number) => {
-  return defaultVal;
+  return getTargetKgForUnit(floorName, defaultVal);
 };
 
 const getLocalStorageMachines = (floorName: string, defaultVal: number) => {
-  return defaultVal;
+  return getTotalMachinesForUnit(floorName, defaultVal);
 };
 
 const formatDateFriendly = (dateStr: string) => {
@@ -522,7 +531,6 @@ const PRODUCTION_LEDGER_COLUMNS: ColumnDef[] = [
   { id: 'idleMc', label: 'Idle Mc', defaultWidth: 75 },
   { id: 'machineUtilization', label: 'Machine Utilization', defaultWidth: 120 },
   { id: 'idleMcPct', label: 'Idle Mc %', defaultWidth: 85 },
-  { id: 'prodLossForSample', label: 'Prod. Loss For Sample', defaultWidth: 125 },
   { id: 'idleProduction', label: 'Idle Production', defaultWidth: 105 },
   { id: 'efficiency', label: 'Efficiency', defaultWidth: 90 },
   { id: 'proPerMc', label: 'Pro Per Mc', defaultWidth: 90 },
@@ -533,15 +541,16 @@ const PRODUCTION_LEDGER_COLUMNS: ColumnDef[] = [
   { id: 'jhuteCutpcs', label: 'Jhute/Cutpcs', defaultWidth: 95 },
   { id: 'jhuteCutpcsPct', label: 'Jhute/Cutpcs%', defaultWidth: 95 },
   { id: 'needleBroken', label: 'Needle Broken', defaultWidth: 95 },
-  { id: 'needlePerKg', label: 'Needle/Per Kg', defaultWidth: 95 },
+  { id: 'needlePerKg', label: 'Needle Broken/KG', defaultWidth: 115 },
   { id: 'sinkerBroken', label: 'Sinker Broken', defaultWidth: 95 },
-  { id: 'sinkerPerKg', label: 'Sinker/Per Kg', defaultWidth: 95 },
+  { id: 'sinkerPerKg', label: 'Sinker Broken/KG', defaultWidth: 115 },
   { id: 'oilConsumption', label: 'Oil Consumption', defaultWidth: 105 },
   { id: 'beltBroken', label: 'Belt Broken', defaultWidth: 90 },
   { id: 'otherSparePartsName', label: 'Other Spare parts Name', defaultWidth: 135 },
   { id: 'otherSparePartsQty', label: 'Other Spare parts QTY', defaultWidth: 125 },
   { id: 'setChangePcs', label: 'Set Change(Pcs)', defaultWidth: 105 },
   { id: 'productionLossForEff', label: 'Production Loss For Eff', defaultWidth: 130 },
+  { id: 'prodLossForSample', label: 'Production Loss for Sample', defaultWidth: 135 },
   { id: 'capacityUtilization', label: 'Capacity Utilization', defaultWidth: 120 },
   { id: 'totalOperator', label: 'Total Operator', defaultWidth: 95 },
   { id: 'absent', label: 'Absent', defaultWidth: 75 },
@@ -660,100 +669,176 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     }
   }, [ledger]);
 
-  // Helper to dynamically fetch total machines per floor unit
-  const getTotalMachinesForFloor = (floorName: string) => {
-    if (floorName === 'Sub-Contact') return 0;
-    
-    const defaults: Record<string, number> = {
-      'EKL': 48,
-      'EFL': 40,
-      'EFL-2': 35,
-      'Auto Stripe': 20,
-      'EFL-Extension': 25,
-      'ESL-Extension': 16,
+  // Unit settings reactive state
+  const [unitConfigs, setUnitConfigs] = useState<UnitThresholdConfig[]>(() => getUnitConfigs());
+
+  // Real-time listener for Settings and Unit Threshold updates
+  React.useEffect(() => {
+    const unsubscribeSettings = FirestoreSyncService.subscribeToSettings((remoteSettings) => {
+      if (remoteSettings && remoteSettings.unitConfigs && Array.isArray(remoteSettings.unitConfigs) && remoteSettings.unitConfigs.length > 0) {
+        setUnitConfigs(remoteSettings.unitConfigs);
+        saveUnitConfigs(remoteSettings.unitConfigs);
+      }
+    });
+
+    const handleUnitConfigsUpdated = (e: Event) => {
+      const customEv = e as CustomEvent<UnitThresholdConfig[]>;
+      if (customEv.detail) {
+        setUnitConfigs(customEv.detail);
+      } else {
+        setUnitConfigs(getUnitConfigs());
+      }
     };
-    return defaults[floorName] || 30;
+    window.addEventListener('unit_configs_updated', handleUnitConfigsUpdated);
+
+    return () => {
+      if (unsubscribeSettings) unsubscribeSettings();
+      window.removeEventListener('unit_configs_updated', handleUnitConfigsUpdated);
+    };
+  }, []);
+
+  // Helper to dynamically fetch total machines per floor unit from unitStore/settings
+  const getTotalMachinesForFloor = (floorName: string) => {
+    return getTotalMachinesForUnit(floorName, floorName === 'Sub-Contact' ? 0 : 30);
   };
 
   const getTargetForFloor = (floorName: string) => {
-    if (floorName === 'Sub-Contact') return 5000;
-    
-    const defaults: Record<string, number> = {
-      'EKL': 7500,
-      'EFL': 15000,
-      'EFL-2': 15000,
-      'Auto Stripe': 12000,
-      'EFL-Extension': 15000,
-      'ESL-Extension': 10000,
-    };
-    return defaults[floorName] || 15000;
+    return getTargetKgForUnit(floorName, 15000);
   };
 
   // Helper to centralize all production, quality, manpower, and machine formulas
   const recalculateRecordFields = (record: LedgerRecord): LedgerRecord => {
-    const isSubContact = record.floor === 'Sub-Contact';
-    const totalM = isSubContact ? 0 : getTotalMachinesForFloor(record.floor);
-    const unitTargetCap = getTargetForFloor(record.floor);
+    const floorName = record.floor || 'EKL';
+    const isSubContact = floorName === 'Sub-Contact';
+    
+    // 3. Target KG from settings panel unit by unit
+    const target = record.target > 0 ? record.target : getTargetForFloor(floorName);
+
+    // 6. Total Machine from settings panel
+    const totalM = getTotalMachinesForFloor(floorName);
     
     // Total production
-    const totalProduction = isSubContact ? (record.totalProduction ?? 0) : (record.shiftA + record.shiftB + record.shiftC);
+    const totalProduction = isSubContact 
+      ? (record.totalProduction ?? 0) 
+      : ((Number(record.shiftA) || 0) + (Number(record.shiftB) || 0) + (Number(record.shiftC) || 0));
     
+    // Sample production
+    const sampleProd = Number(record.sampleProd) || 0;
+
+    // 5. Bulk PROD (KG) = Total Production - Sample Production
+    const bulkProd = Math.max(0, totalProduction - sampleProd);
+
+    // Active & Running machines
+    const runningMachine = Number(record.runningMachine) || 0;
+    const runningSample = Number(record.runningSample) || 0;
+
+    // 7. Running Bulk = Running Machine - Running Sample Machine
+    const runningBulk = Math.max(0, runningMachine - runningSample);
+
+    // Avg Prod / Machine (Kg) from settings panel
+    const avgProdPerMc = getAvgProdPerMachineForUnit(floorName);
+
+    // 4. Target Bulk = Running Bulk (MC) * Avg Prod. / Machine (Kg)
+    const targetBulk = Number((runningBulk * avgProdPerMc).toFixed(2));
+
     // Idle machine
-    const idleMachine = isSubContact ? 0 : Math.max(0, totalM - record.runningMachine);
+    const idleMachine = Math.max(0, totalM - runningMachine);
+    const idleMc = idleMachine;
     
     // Machine utilization %
-    const machineUtilization = (!isSubContact && totalM > 0) ? parseFloat(((record.runningMachine / totalM) * 100).toFixed(1)) : 0;
+    const machineUtilization = totalM > 0 ? parseFloat(((runningMachine / totalM) * 100).toFixed(1)) : 0;
     
     // Idle machine %
-    const idleMachinePct = (!isSubContact && totalM > 0) ? parseFloat(((idleMachine / totalM) * 100).toFixed(1)) : 0;
+    const idleMachinePct = totalM > 0 ? parseFloat(((idleMachine / totalM) * 100).toFixed(1)) : 0;
+    const idleMcPct = idleMachinePct;
     
     // Idle Production
-    const idleProduction = (!isSubContact && idleMachine > 0 && unitTargetCap > 0)
-      ? parseFloat(((totalProduction / idleMachine) * (totalM / unitTargetCap)).toFixed(2))
+    const idleProduction = (idleMachine > 0 && target > 0 && totalM > 0)
+      ? parseFloat(((totalProduction / idleMachine) * (totalM / target)).toFixed(2))
       : 0;
     
     // Production/Machine
-    const productionPerMachine = record.runningMachine > 0 ? parseFloat((totalProduction / record.runningMachine).toFixed(1)) : 0;
+    const productionPerMachine = runningMachine > 0 ? parseFloat((totalProduction / runningMachine).toFixed(2)) : 0;
+    const proPerMc = productionPerMachine;
     
-    // Efficiency %: For Sub-Contact, Achievement % = (Total Production ÷ Target) * 100
+    // 8. Efficiency = (Bulk Prod (Kg) / Target Bulk (Kg)) * 100
     let efficiency = 0;
-    if (isSubContact) {
-      efficiency = record.target > 0 ? parseFloat(((totalProduction / record.target) * 100).toFixed(1)) : 0;
-    } else {
-      const denom = record.runningMachine * (unitTargetCap / (totalM || 1));
-      efficiency = denom > 0 ? parseFloat(((totalProduction / denom) * 100).toFixed(1)) : 0;
+    if (targetBulk > 0) {
+      efficiency = parseFloat(((bulkProd / targetBulk) * 100).toFixed(2));
+    } else if (target > 0) {
+      efficiency = parseFloat(((totalProduction / target) * 100).toFixed(2));
     }
     
-    // Capacity Utilization %
-    const capacityUtilization = isSubContact ? 0 : (unitTargetCap > 0 ? parseFloat(((totalProduction / unitTargetCap) * 100).toFixed(1)) : 0);
+    // 9. Capacity Utilization = (Total Production / Production Capacity) * 100
+    const prodCapacity = getProductionCapacityForUnit(floorName, target);
+    const capacityUtilization = prodCapacity > 0 ? parseFloat(((totalProduction / prodCapacity) * 100).toFixed(2)) : 0;
     
+    // 10. Production Loss for Sample: (((Bulk Prod. / Running Bulk (MC)) * Running Sample (Mc)) - Sample Prod (Kg))
+    const prodLossForSample = (runningBulk > 0)
+      ? parseFloat((((bulkProd / runningBulk) * runningSample) - sampleProd).toFixed(2))
+      : 0;
+
     // Quality
-    const rejectPct = totalProduction > 0 ? parseFloat(((record.reject / totalProduction) * 100).toFixed(2)) : 0;
-    const holdPct = totalProduction > 0 ? parseFloat(((record.hold / totalProduction) * 100).toFixed(2)) : 0;
+    const reject = Number(record.reject) || 0;
+    const rejectPct = totalProduction > 0 ? parseFloat(((reject / totalProduction) * 100).toFixed(2)) : 0;
+    const hold = Number(record.hold) || 0;
+    const holdPct = totalProduction > 0 ? parseFloat(((hold / totalProduction) * 100).toFixed(2)) : 0;
+    const jhuteCutpcs = Number(record.jhuteCutpcs) || 0;
+    const jhuteCutpcsPct = totalProduction > 0 ? parseFloat(((jhuteCutpcs / totalProduction) * 100).toFixed(2)) : 0;
     
-    // Consumables
-    const needlePerKg = totalProduction > 0 ? parseFloat((record.needleBroken / totalProduction).toFixed(5)) : 0;
+    // 11. Needle Broken/KG = (Needle Broken pcs / Total Production)
+    const needleBroken = Number(record.needleBroken) || 0;
+    const needlePerKg = totalProduction > 0 ? parseFloat((needleBroken / totalProduction).toFixed(4)) : 0;
+    
+    // 11. Sinker Broken/KG = (Sinker Broken pcs / Total Production)
+    const sinkerBroken = Number(record.sinkerBroken) || 0;
+    const sinkerPerKg = totalProduction > 0 ? parseFloat((sinkerBroken / totalProduction).toFixed(4)) : 0;
     
     // Manpower
-    const absentPct = record.totalOperator > 0 ? parseFloat(((record.absent / record.totalOperator) * 100).toFixed(1)) : 0;
+    const totalOperator = Number(record.totalOperator) || 0;
+    const absent = Number(record.absent) || 0;
+    const absentPct = totalOperator > 0 ? parseFloat(((absent / totalOperator) * 100).toFixed(2)) : 0;
     
     // Performance
-    const productionLossForEfficiency = Math.max(0, record.target - totalProduction);
+    const productionLossForEff = Math.max(0, target - totalProduction);
+    const productionLossForEfficiency = productionLossForEff;
 
     return {
       ...record,
+      target,
       totalProduction,
+      sampleProd,
+      bulkProd,
+      runningMachine,
+      runningSample,
+      runningBulk,
+      targetBulk,
+      totalMachines: totalM,
       idleMachine,
+      idleMc,
       machineUtilization,
       idleMachinePct,
+      idleMcPct,
       idleProduction,
       productionPerMachine,
+      proPerMc,
       efficiency,
       capacityUtilization,
+      prodLossForSample,
+      reject,
       rejectPct,
+      hold,
       holdPct,
+      jhuteCutpcs,
+      jhuteCutpcsPct,
+      needleBroken,
       needlePerKg,
+      sinkerBroken,
+      sinkerPerKg,
+      totalOperator,
+      absent,
       absentPct,
+      productionLossForEff,
       productionLossForEfficiency
     };
   };
@@ -761,7 +846,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   // Enriched ledger state mapping live settings onto all records dynamically
   const enrichedLedger = useMemo(() => {
     return ledger.map(recalculateRecordFields);
-  }, [ledger]);
+  }, [ledger, unitConfigs]);
 
   // Filter States - Defaulting to no date range filtration applied initially
   const [filterUnit, setFilterUnit] = useState<string>('all');
@@ -789,6 +874,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
   const [creatingRecord, setCreatingRecord] = useState<LedgerRecord | null>(null);
   const [createErrors, setCreateErrors] = useState<Record<string, string>>({});
+  const [createModalTab, setCreateModalTab] = useState<'all' | 'general' | 'production' | 'machine' | 'quality' | 'consumables' | 'manpower'>('all');
 
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState<boolean>(false);
   const [deletingRecordId, setDeletingRecordId] = useState<string | null>(null);
@@ -837,7 +923,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
       return matchesUnit && matchesDate && matchesSearch;
     });
-  }, [ledger, appliedUnit, appliedFromDate, appliedToDate, globalSearch]);
+  }, [enrichedLedger, appliedUnit, appliedFromDate, appliedToDate, globalSearch]);
 
   // ----------------------------------------------------
   // SORT LOGIC
@@ -984,61 +1070,89 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   // ----------------------------------------------------
   // HANDLERS: CREATE RECORD FORM
   // ----------------------------------------------------
-  const getInitialNewRecord = (floor: string = 'EKL', date: string = '2026-07-13'): LedgerRecord => {
-    const floorsMap: Record<string, { machines: number, operators: number, target: number }> = {
-      'EKL': { machines: getTotalMachinesForFloor('EKL'), operators: 110, target: getTargetForFloor('EKL') },
-      'EFL': { machines: getTotalMachinesForFloor('EFL'), operators: 95, target: getTargetForFloor('EFL') },
-      'EFL-2': { machines: getTotalMachinesForFloor('EFL-2'), operators: 85, target: getTargetForFloor('EFL-2') },
-      'Auto Stripe': { machines: getTotalMachinesForFloor('Auto Stripe'), operators: 50, target: getTargetForFloor('Auto Stripe') },
-      'EFL-Extension': { machines: getTotalMachinesForFloor('EFL-Extension'), operators: 65, target: getTargetForFloor('EFL-Extension') },
-      'ESL-Extension': { machines: getTotalMachinesForFloor('ESL-Extension'), operators: 40, target: getTargetForFloor('ESL-Extension') },
-      'Sub-Contact': { machines: 0, operators: 0, target: 5000 },
+  const getInitialNewRecord = (floor: string = 'EKL', date: string = '2026-08-11'): LedgerRecord => {
+    const totalM = getTotalMachinesForFloor(floor);
+    const targetKg = getTargetForFloor(floor);
+    const operatorsMap: Record<string, number> = {
+      'EKL': 110,
+      'EFL': 95,
+      'EFL-2': 85,
+      'Auto Stripe': 50,
+      'EFL-Extension': 65,
+      'ESL-Extension': 40,
+      'Sub-Contact': 0,
     };
-    const fInfo = floorsMap[floor] || { machines: 40, operators: 90, target: 20000 };
+    const totalOps = operatorsMap[floor] || 90;
     
-    // Extract month and year
+    // Extract month, year, and day of week
+    const dateObj = new Date(date + 'T00:00:00');
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const derivedDay = !isNaN(dateObj.getDay()) ? dayNames[dateObj.getDay()] : 'Tuesday';
     const dateParts = date.split('-');
     const yearNum = dateParts.length === 3 ? parseInt(dateParts[0]) : 2026;
-    const monthNum = dateParts.length === 3 ? parseInt(dateParts[1]) : 7;
+    const monthNum = dateParts.length === 3 ? parseInt(dateParts[1]) : 8;
     const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    const monthName = months[monthNum - 1] || 'July';
+    const monthName = months[monthNum - 1] || 'August';
 
     const initial: LedgerRecord = {
       id: `rec-${Date.now()}`,
+      unit: floor === 'Sub-Contact' ? 'Sub-Contact' : 'In-House',
       date,
+      day: derivedDay,
       floor,
       month: monthName,
       year: yearNum,
-      target: fInfo.target,
+      target: targetKg,
       shiftA: 0,
       shiftB: 0,
       shiftC: 0,
       totalProduction: 0,
-      runningMachine: fInfo.machines,
+      targetBulk: targetKg,
+      bulkProd: 0,
+      sampleProd: 0,
+      totalMachines: totalM,
+      runningMachine: totalM,
+      runningBulk: totalM,
+      runningSample: 0,
       idleMachine: 0,
+      idleMc: 0,
       machineUtilization: 100,
       idleMachinePct: 0,
+      idleMcPct: 0,
+      prodLossForSample: 0,
       idleProduction: 0,
       efficiency: 0,
       productionPerMachine: 0,
+      proPerMc: 0,
       reject: 0,
       rejectPct: 0,
       hold: 0,
       holdPct: 0,
+      jhuteCutpcs: 0,
+      jhuteCutpcsPct: 0,
       needleBroken: 0,
       needlePerKg: 0,
       sinkerBroken: 0,
+      sinkerPerKg: 0,
       oilConsumption: 0,
-      productionLossForEfficiency: fInfo.target,
+      beltBroken: 0,
+      otherSparePartsName: '',
+      otherSparePartsQty: 0,
+      setChangePcs: 0,
+      setChange: 0,
+      productionLossForEff: 0,
+      productionLossForEfficiency: targetKg,
       capacityUtilization: 100,
-      totalOperator: fInfo.operators,
+      totalOperator: totalOps,
       absent: 0,
       absentPct: 0,
-      setChange: 0,
       remarks: '',
       productionFlatKnit: 0,
+      achievmentCircular: 0,
+      otd: 100,
       yarnIssued: 0,
-      runningFactories: 0,
+      totalRunningFactories: 0,
+      numberVehicles: 0,
       fabricReturn: 0
     };
 
@@ -1056,23 +1170,33 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
          const yearNum = parseInt(dateParts[0]);
          const monthNum = parseInt(dateParts[1]);
          const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-         updated.month = months[monthNum - 1] || 'July';
+         updated.month = months[monthNum - 1] || 'August';
          updated.year = yearNum;
+         const dObj = new Date(value + 'T00:00:00');
+         const dNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+         if (!isNaN(dObj.getDay())) {
+           updated.day = dNames[dObj.getDay()];
+         }
       }
     } else if (field === 'floor') {
-      const floorsMap: Record<string, { machines: number, operators: number, target: number }> = {
-        'EKL': { machines: getTotalMachinesForFloor('EKL'), operators: 110, target: getTargetForFloor('EKL') },
-        'EFL': { machines: getTotalMachinesForFloor('EFL'), operators: 95, target: getTargetForFloor('EFL') },
-        'EFL-2': { machines: getTotalMachinesForFloor('EFL-2'), operators: 85, target: getTargetForFloor('EFL-2') },
-        'Auto Stripe': { machines: getTotalMachinesForFloor('Auto Stripe'), operators: 50, target: getTargetForFloor('Auto Stripe') },
-        'EFL-Extension': { machines: getTotalMachinesForFloor('EFL-Extension'), operators: 65, target: getTargetForFloor('EFL-Extension') },
-        'ESL-Extension': { machines: getTotalMachinesForFloor('ESL-Extension'), operators: 40, target: getTargetForFloor('ESL-Extension') },
-        'Sub-Contact': { machines: 0, operators: 0, target: 5000 },
+      const targetKg = getTargetForFloor(value);
+      const totalM = getTotalMachinesForFloor(value);
+      const operatorsMap: Record<string, number> = {
+        'EKL': 110,
+        'EFL': 95,
+        'EFL-2': 85,
+        'Auto Stripe': 50,
+        'EFL-Extension': 65,
+        'ESL-Extension': 40,
+        'Sub-Contact': 0,
       };
-      const fInfo = floorsMap[value] || { machines: 40, operators: 90, target: 20000 };
-      updated.target = fInfo.target;
-      updated.totalOperator = fInfo.operators;
-      updated.runningMachine = fInfo.machines;
+      updated.target = targetKg;
+      updated.totalOperator = operatorsMap[value] || 90;
+      updated.totalMachines = totalM;
+      updated.runningMachine = totalM;
+      updated.runningSample = 0;
+      updated.runningBulk = totalM;
+      updated.unit = value === 'Sub-Contact' ? 'Sub-Contact' : 'In-House';
       
       // Initialize sub-contact fields if floor changes to Sub-Contact
       if (value === 'Sub-Contact') {
@@ -1081,6 +1205,34 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         updated.runningFactories = updated.runningFactories ?? 0;
         updated.fabricReturn = updated.fabricReturn ?? 0;
       }
+    }
+
+    // Auto-sum shifts into total production if not Sub-Contact
+    if (field === 'shiftA' || field === 'shiftB' || field === 'shiftC') {
+      if (updated.floor !== 'Sub-Contact') {
+        updated.totalProduction = (Number(updated.shiftA) || 0) + (Number(updated.shiftB) || 0) + (Number(updated.shiftC) || 0);
+      }
+    }
+
+    // Machine updates:
+    // If Running Sample changes, Running Bulk (MC) adjusts (Running Bulk = Running Machine - Running Sample)
+    // and Total Active Running Machine remains unchanged!
+    if (field === 'runningMachine') {
+      const rM = Number(value) || 0;
+      const rS = Number(updated.runningSample) || 0;
+      updated.runningMachine = rM;
+      updated.runningBulk = Math.max(0, rM - rS);
+    } else if (field === 'runningSample') {
+      const rS = Number(value) || 0;
+      const rM = Number(updated.runningMachine) || 0;
+      updated.runningSample = rS;
+      // Changes should be made in Running Bulk (MC) instead of changing Total Active Machine
+      updated.runningBulk = Math.max(0, rM - rS);
+    } else if (field === 'runningBulk') {
+      const rB = Number(value) || 0;
+      const rS = Number(updated.runningSample) || 0;
+      updated.runningBulk = rB;
+      updated.runningMachine = rB + rS;
     }
 
     updated = recalculateRecordFields(updated);
@@ -1119,30 +1271,27 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       return;
     }
 
-    if (isGasMode) {
-      const cleanFloor = (creatingRecord.floor || 'unit').toLowerCase().replace(/[^a-z0-9]/g, '-');
-      const tempId = `rec-${creatingRecord.date || '2026-01-01'}-${cleanFloor}-${Date.now()}`;
-      const recordWithTempId = { ...creatingRecord, id: tempId };
+    const cleanFloor = (creatingRecord.floor || 'unit').toLowerCase().replace(/[^a-z0-9]/g, '-');
+    const tempId = `rec-${creatingRecord.date || '2026-08-11'}-${cleanFloor}-${Date.now()}`;
+    const recordWithTempId: LedgerRecord = { ...creatingRecord, id: tempId };
 
-      setLedger((prev) => [recordWithTempId, ...prev]);
-      setIsCreateModalOpen(false);
-      setCreatingRecord(null);
-      triggerToast(`Production record for ${creatingRecord.floor} on ${creatingRecord.date} saved & syncing across all devices and Google Sheets.`);
+    // Update local state immediately
+    setLedger((prev) => [recordWithTempId, ...prev]);
+    setIsCreateModalOpen(false);
+    setCreatingRecord(null);
+    triggerToast(`Production entry for ${creatingRecord.floor} on ${creatingRecord.date} saved & syncing.`);
 
-      FirestoreSyncService.saveLedgerRecord(recordWithTempId, currentUser?.userName || 'Manager')
-        .catch((err: any) => {
-          console.warn("Background ledger save notice:", err);
-        });
-    } else {
-      // Add to list and Firestore
-      setLedger((prev) => [creatingRecord, ...prev]);
-      setIsCreateModalOpen(false);
-      FirestoreSyncService.saveLedgerRecord(creatingRecord, currentUser?.userName || 'Manager').catch(err => {
-        console.warn("Firestore ledger save notice:", err);
+    // 1. Sync with Firestore
+    FirestoreSyncService.saveLedgerRecord(recordWithTempId, currentUser?.userName || 'Manager')
+      .catch((err: any) => {
+        console.warn("Background ledger save notice:", err);
       });
-      setCreatingRecord(null);
-      triggerToast(`Production record for ${creatingRecord.floor} on ${creatingRecord.date} has been successfully added.`);
-    }
+
+    // 2. Sync with GAS / Google Sheets
+    GasClient.addLedgerEntry(recordWithTempId)
+      .catch((gasErr: any) => {
+        console.warn("GAS submission notice:", gasErr);
+      });
   };
 
   // ----------------------------------------------------
@@ -1168,6 +1317,39 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         updated.month = months[monthNum - 1] || 'July';
         updated.year = yearNum;
       }
+    } else if (field === 'floor') {
+      const targetKg = getTargetForFloor(value);
+      const totalM = getTotalMachinesForFloor(value);
+      updated.target = targetKg;
+      updated.totalMachines = totalM;
+    }
+
+    // Auto-sum shifts into total production if not Sub-Contact
+    if (field === 'shiftA' || field === 'shiftB' || field === 'shiftC') {
+      if (updated.floor !== 'Sub-Contact') {
+        updated.totalProduction = (Number(updated.shiftA) || 0) + (Number(updated.shiftB) || 0) + (Number(updated.shiftC) || 0);
+      }
+    }
+
+    // Machine updates:
+    // If Running Sample changes, Running Bulk (MC) adjusts (Running Bulk = Running Machine - Running Sample)
+    // and Total Active Running Machine remains unchanged!
+    if (field === 'runningMachine') {
+      const rM = Number(value) || 0;
+      const rS = Number(updated.runningSample) || 0;
+      updated.runningMachine = rM;
+      updated.runningBulk = Math.max(0, rM - rS);
+    } else if (field === 'runningSample') {
+      const rS = Number(value) || 0;
+      const rM = Number(updated.runningMachine) || 0;
+      updated.runningSample = rS;
+      // Changes should be made in Running Bulk (MC) instead of changing Total Active Machine
+      updated.runningBulk = Math.max(0, rM - rS);
+    } else if (field === 'runningBulk') {
+      const rB = Number(value) || 0;
+      const rS = Number(updated.runningSample) || 0;
+      updated.runningBulk = rB;
+      updated.runningMachine = rB + rS;
     }
 
     updated = recalculateRecordFields(updated);
@@ -1263,8 +1445,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         "Production Data", "", "", "", "", "",
         "Machine Performance Logs", "", "", "", "", "", "",
         "Quality Indices", "", "", "",
-        "Consumables Ledger", "", "", "",
-        "Efficiency Loss Projections", "",
+        "Consumables Ledger", "", "", "", "",
+        "Efficiency Loss Projections", "", "",
         "Manpower Roster", "", "",
         "Other Operational Parameters", "",
         "Sub-Contact Parameters", "", "", "", ""
@@ -1274,8 +1456,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         "Target Output (Kg)", "Shift A Output (Kg)", "Shift B Output (Kg)", "Shift C Output (Kg)", "Cumulative Yield (Kg)", "Achievement (%)",
         "Active Machines", "Idle Machines", "Utilization Rate (%)", "Idle Rate (%)", "Idle Production Lost (Kg)", "Net Efficiency (%)", "Production per Active Frame (Kg)",
         "Reject Scrap (Kg)", "Reject Rate (%)", "Hold Scrap (Kg)", "Hold Rate (%)",
-        "Needles Broken (Pcs)", "Needle Rate (Pcs/Kg)", "Sinkers Broken (Pcs)", "Lubricating Oil (Liters)",
-        "Yield Deficit vs Plan (Kg)", "Installed Capacity Ratio (%)",
+        "Needles Broken (Pcs)", "Needle Broken/KG", "Sinkers Broken (Pcs)", "Sinker Broken/KG", "Lubricating Oil (Liters)",
+        "Yield Deficit vs Plan (Kg)", "Production Loss for Sample (Kg)", "Installed Capacity Ratio (%)",
         "Roster Active Operators", "Operators Absent", "Absenteeism Rate (%)",
         "Set Changes Completed", "Shift Handover Remarks",
         "Production Flat Knit (PCS)", "Yarn Issued (Kg)", "Running Factories", "Running Machine", "Fabric Return (Kg)"
@@ -1290,8 +1472,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         r.target, r.shiftA, r.shiftB, r.shiftC, r.totalProduction, ach,
         isSC ? "" : r.runningMachine, isSC ? "" : r.idleMachine, isSC ? "" : r.machineUtilization, isSC ? "" : r.idleMachinePct, isSC ? "" : r.idleProduction, r.efficiency, r.productionPerMachine,
         r.reject, r.rejectPct, r.hold, r.holdPct,
-        r.needleBroken, r.needlePerKg, r.sinkerBroken, r.oilConsumption,
-        r.productionLossForEfficiency, r.capacityUtilization,
+        r.needleBroken, r.needlePerKg, r.sinkerBroken, r.sinkerPerKg, r.oilConsumption,
+        r.productionLossForEfficiency, r.prodLossForSample, r.capacityUtilization,
         r.totalOperator, r.absent, r.absentPct,
         r.setChange, r.remarks,
         isSC ? (r.productionFlatKnit ?? 0) : "",
@@ -1311,11 +1493,11 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       { s: { r: 0, c: 4 }, e: { r: 0, c: 9 } }, // Production Data
       { s: { r: 0, c: 10 }, e: { r: 0, c: 16 } }, // Machine Performance
       { s: { r: 0, c: 17 }, e: { r: 0, c: 20 } }, // Quality Indices
-      { s: { r: 0, c: 21 }, e: { r: 0, c: 24 } }, // Consumables
-      { s: { r: 0, c: 25 }, e: { r: 0, c: 26 } }, // Efficiency Loss
-      { s: { r: 0, c: 27 }, e: { r: 0, c: 29 } }, // Manpower Roster
-      { s: { r: 0, c: 30 }, e: { r: 0, c: 31 } }, // Other Parameters
-      { s: { r: 0, c: 32 }, e: { r: 0, c: 36 } }  // Sub-Contact Parameters
+      { s: { r: 0, c: 21 }, e: { r: 0, c: 25 } }, // Consumables
+      { s: { r: 0, c: 26 }, e: { r: 0, c: 28 } }, // Efficiency Loss
+      { s: { r: 0, c: 29 }, e: { r: 0, c: 31 } }, // Manpower Roster
+      { s: { r: 0, c: 32 }, e: { r: 0, c: 33 } }, // Other Parameters
+      { s: { r: 0, c: 34 }, e: { r: 0, c: 38 } }  // Sub-Contact Parameters
     ];
 
     // Set precise column widths to look incredibly tidy
@@ -1914,11 +2096,6 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                       {r.idleMcPct !== undefined ? `${r.idleMcPct}%` : (r.idleMachinePct !== undefined ? `${r.idleMachinePct}%` : '')}
                     </td>
                   )}
-                  {isColVisible('prodLossForSample') && (
-                    <td style={{ width: `${getColWidth('prodLossForSample')}px`, minWidth: `${getColWidth('prodLossForSample')}px`, maxWidth: `${getColWidth('prodLossForSample')}px`, ...getStickyStyle('prodLossForSample') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('prodLossForSample')}`}>
-                      {r.prodLossForSample !== undefined && r.prodLossForSample !== null ? r.prodLossForSample.toLocaleString() : ''}
-                    </td>
-                  )}
                   {isColVisible('idleProduction') && (
                     <td style={{ width: `${getColWidth('idleProduction')}px`, minWidth: `${getColWidth('idleProduction')}px`, maxWidth: `${getColWidth('idleProduction')}px`, ...getStickyStyle('idleProduction') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('idleProduction')}`}>
                       {r.idleProduction !== undefined && r.idleProduction !== null ? r.idleProduction.toLocaleString() : ''}
@@ -2012,6 +2189,11 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                   {isColVisible('productionLossForEff') && (
                     <td style={{ width: `${getColWidth('productionLossForEff')}px`, minWidth: `${getColWidth('productionLossForEff')}px`, maxWidth: `${getColWidth('productionLossForEff')}px`, ...getStickyStyle('productionLossForEff') }} className={`px-2.5 py-2 text-right font-mono whitespace-nowrap ${r.productionLossForEff && r.productionLossForEff < 0 ? 'text-green-600 font-semibold' : 'text-gray-600'} ${getStickyClass('productionLossForEff')}`}>
                       {r.productionLossForEff !== undefined ? r.productionLossForEff.toLocaleString() : (r.productionLossForEfficiency !== undefined ? r.productionLossForEfficiency.toLocaleString() : '')}
+                    </td>
+                  )}
+                  {isColVisible('prodLossForSample') && (
+                    <td style={{ width: `${getColWidth('prodLossForSample')}px`, minWidth: `${getColWidth('prodLossForSample')}px`, maxWidth: `${getColWidth('prodLossForSample')}px`, ...getStickyStyle('prodLossForSample') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('prodLossForSample')}`}>
+                      {r.prodLossForSample !== undefined && r.prodLossForSample !== null ? r.prodLossForSample.toLocaleString() : ''}
                     </td>
                   )}
                   {isColVisible('capacityUtilization') && (
@@ -2373,19 +2555,31 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                     </div>
                   </div>
 
-                  {/* Block 2: Production metrics */}
+                  {/* Block 2: Production weights */}
                   <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
                     <h4 className="font-sans text-[11px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
                       <Layers className="h-3.5 w-3.5" /> Production Weights
                     </h4>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-extrabold text-gray-500 uppercase">Target (Kg)</label>
-                      <input
-                        type="number"
-                        value={editingRecord.target}
-                        onChange={(e) => handleEditChange('target', parseFloat(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                      />
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-extrabold text-gray-500 uppercase">Target (Kg)</label>
+                        <input
+                          type="number"
+                          value={editingRecord.target}
+                          onChange={(e) => handleEditChange('target', parseFloat(e.target.value) || 0)}
+                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-extrabold text-gray-500 uppercase">Target Bulk (Kg)</label>
+                        <input
+                          type="number"
+                          readOnly
+                          value={editingRecord.targetBulk ?? 0}
+                          className="w-full rounded-lg bg-gray-100 dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-blue-700 dark:text-blue-400 outline-none cursor-not-allowed"
+                          title="Auto-calculated (Running Bulk * Avg Prod / Mc)"
+                        />
+                      </div>
                     </div>
                     <div className="grid grid-cols-3 gap-2">
                       <div className="space-y-1">
@@ -2416,24 +2610,45 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                         />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                       <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase">Total Production</label>
+                        <label className="text-[10px] font-bold text-gray-400 uppercase">Total Prod</label>
                         <input
                           type="number"
                           readOnly
                           value={editingRecord.totalProduction}
-                          className="w-full rounded-lg bg-gray-100 dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-black text-[#0F4C81] dark:text-blue-300 outline-hidden"
+                          className="w-full rounded-lg bg-gray-100 dark:bg-slate-800 px-2.5 py-1.5 text-xs font-mono font-black text-[#0F4C81] dark:text-blue-300 outline-hidden"
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase">Achievement %</label>
+                        <label className="text-[10px] font-bold text-gray-400 uppercase">Sample (Kg)</label>
                         <input
-                          type="text"
-                          readOnly
-                          value={`${editingRecord.target > 0 ? Math.round((editingRecord.totalProduction / editingRecord.target) * 100) : 0}%`}
-                          className="w-full rounded-lg bg-gray-100 dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-black text-emerald-700 dark:text-emerald-400 outline-hidden"
+                          type="number"
+                          value={editingRecord.sampleProd ?? 0}
+                          onChange={(e) => handleEditChange('sampleProd', parseFloat(e.target.value) || 0)}
+                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs font-mono font-bold text-indigo-700 dark:text-indigo-300 outline-hidden focus:border-[#0F4C81]"
+                          placeholder="0"
                         />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-gray-400 uppercase">Bulk (Kg)</label>
+                        <input
+                          type="number"
+                          readOnly
+                          value={editingRecord.bulkProd ?? 0}
+                          className="w-full rounded-lg bg-gray-100 dark:bg-slate-800 px-2.5 py-1.5 text-xs font-mono font-black text-emerald-700 dark:text-emerald-400 outline-hidden"
+                          title="Auto: Total Production - Sample Production"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 pt-1 border-t border-dashed border-gray-200 dark:border-slate-800 text-[10px]">
+                      <div className="bg-white dark:bg-slate-900/60 p-2 rounded-lg border border-gray-100 dark:border-slate-800">
+                        <span className="text-gray-400 uppercase font-bold block leading-tight mb-0.5">Capacity Util %</span>
+                        <span className="font-mono text-xs font-black text-indigo-700 dark:text-indigo-400">{editingRecord.capacityUtilization ?? 0}%</span>
+                      </div>
+                      <div className="bg-white dark:bg-slate-900/60 p-2 rounded-lg border border-gray-100 dark:border-slate-800">
+                        <span className="text-gray-400 uppercase font-bold block leading-tight mb-0.5">Prod Loss Sample</span>
+                        <span className="font-mono text-xs font-black text-amber-600 dark:text-amber-400">{editingRecord.prodLossForSample ?? 0} Kg</span>
                       </div>
                     </div>
                   </div>
@@ -2446,31 +2661,55 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                     
                     {/* Grid for Inputs & Outputs in requested sequence */}
                     <div className="space-y-3">
-                      {/* 1. Total Machine */}
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase block">Total Machine</label>
-                        <input
-                          type="number"
-                          readOnly
-                          value={getTotalMachinesForFloor(editingRecord.floor)}
-                          className="w-full rounded-lg bg-gray-100 dark:bg-slate-800/80 px-3 py-1.5 text-xs font-mono font-bold text-gray-500 dark:text-slate-400 outline-none cursor-not-allowed border border-transparent"
-                          title="Calculated from system settings"
-                        />
+                      {/* Total Machine & Running Machine */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-gray-400 uppercase block">Total Machine</label>
+                          <input
+                            type="number"
+                            readOnly
+                            value={getTotalMachinesForFloor(editingRecord.floor)}
+                            className="w-full rounded-lg bg-gray-100 dark:bg-slate-800/80 px-3 py-1.5 text-xs font-mono font-bold text-gray-500 dark:text-slate-400 outline-none cursor-not-allowed border border-transparent"
+                            title="Calculated from system settings"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-gray-400 uppercase block">Running (Total Active)</label>
+                          <input
+                            type="number"
+                            value={editingRecord.runningMachine}
+                            onChange={(e) => handleEditChange('runningMachine', parseInt(e.target.value) || 0)}
+                            className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-none focus:border-indigo-500"
+                            placeholder="Active count"
+                          />
+                        </div>
                       </div>
 
-                      {/* 2. Running Machine (Manual Entry) */}
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase block">Running Machine (Manual Entry)</label>
-                        <input
-                          type="number"
-                          value={editingRecord.runningMachine}
-                          onChange={(e) => handleEditChange('runningMachine', parseInt(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-none focus:border-indigo-500"
-                          placeholder="Enter active machine count"
-                        />
+                      {/* Running Sample & Running Bulk */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-gray-400 uppercase block">Running Sample (Mc)</label>
+                          <input
+                            type="number"
+                            value={editingRecord.runningSample ?? 0}
+                            onChange={(e) => handleEditChange('runningSample', parseInt(e.target.value) || 0)}
+                            className="w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-950/20 px-3 py-1.5 text-xs font-mono font-bold text-indigo-700 dark:text-indigo-300 outline-none focus:border-indigo-500"
+                            placeholder="0"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-gray-400 uppercase block">Running Bulk (Mc)</label>
+                          <input
+                            type="number"
+                            value={editingRecord.runningBulk ?? 0}
+                            onChange={(e) => handleEditChange('runningBulk', parseInt(e.target.value) || 0)}
+                            className="w-full rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20 px-3 py-1.5 text-xs font-mono font-bold text-emerald-700 dark:text-emerald-300 outline-none focus:border-emerald-500"
+                            placeholder="0"
+                          />
+                        </div>
                       </div>
 
-                      {/* 3. Idle machine */}
+                      {/* Idle machine */}
                       <div className="space-y-1">
                         <label className="text-[10px] font-bold text-gray-400 uppercase block">Idle machine</label>
                         <input
@@ -2482,28 +2721,28 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                         />
                       </div>
 
-                      {/* Calculations array: Utilization Rate, Production Loss, Production Efficiency */}
+                      {/* Calculations array: Utilization Rate, Efficiency, Prod Loss EFF */}
                       <div className="grid grid-cols-3 gap-2 border-t border-dashed border-gray-250 dark:border-slate-800 pt-3 text-[10px]">
-                        {/* 4. Utilization Rate */}
+                        {/* Utilization Rate */}
                         <div className="bg-white dark:bg-slate-900/60 p-2 rounded-lg border border-gray-100 dark:border-slate-800 flex flex-col justify-between">
-                          <span className="text-gray-400 uppercase font-bold block leading-tight mb-1">Utilization Rate</span>
+                          <span className="text-gray-400 uppercase font-bold block leading-tight mb-1">Utilization</span>
                           <span className="font-mono text-xs font-black text-gray-950 dark:text-white">{editingRecord.machineUtilization}%</span>
                         </div>
 
-                        {/* 5. Production Loss */}
+                        {/* Production Loss EFF */}
                         <div className="bg-white dark:bg-slate-900/60 p-2 rounded-lg border border-gray-100 dark:border-slate-800 flex flex-col justify-between">
-                          <span className="text-gray-400 uppercase font-bold block leading-tight mb-1">Production Loss</span>
-                          <span className="font-mono text-xs font-black text-amber-600 dark:text-amber-400">{editingRecord.idleProduction} Kg</span>
+                          <span className="text-gray-400 uppercase font-bold block leading-tight mb-1">Loss for EFF</span>
+                          <span className="font-mono text-xs font-black text-amber-600 dark:text-amber-400">{editingRecord.productionLossForEff ?? 0} Kg</span>
                         </div>
 
-                        {/* 6. Production Efficiency */}
+                        {/* Efficiency */}
                         <div className="bg-white dark:bg-slate-900/60 p-2 rounded-lg border border-gray-100 dark:border-slate-800 flex flex-col justify-between">
-                          <span className="text-gray-400 uppercase font-bold block leading-tight mb-1">Production Efficiency</span>
+                          <span className="text-gray-400 uppercase font-bold block leading-tight mb-1">Efficiency</span>
                           <span className="font-mono text-xs font-black text-emerald-600 dark:text-emerald-400">{editingRecord.efficiency}%</span>
                         </div>
                       </div>
 
-                      {/* 7. Set Change (Manual Entry) */}
+                      {/* Set Change (Manual Entry) */}
                       <div className="space-y-1 border-t border-dashed border-gray-250 dark:border-slate-800 pt-3">
                         <label className="text-[10px] font-bold text-gray-400 uppercase block">Set Change (Manual Entry)</label>
                         <input
@@ -2667,522 +2906,15 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         </div>
       )}
 
-      {/* 7.5. POPUP MODAL: ADD PRODUCTION RECORD */}
-      {isCreateModalOpen && creatingRecord && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
-          <div className="relative w-full max-w-4xl rounded-2xl bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            
-            <div className="flex items-center justify-between border-b border-gray-100 dark:border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <Plus className="h-5 w-5 text-[#0F4C81]" />
-                <div>
-                  <h3 className="font-sans text-sm font-black text-gray-950 dark:text-white uppercase tracking-wider">
-                    Add Production Record
-                  </h3>
-                  <p className="text-[10px] text-gray-400 uppercase font-semibold">
-                    Create a new production log entry for the ledger
-                  </p>
-                </div>
-              </div>
-              <button 
-                type="button"
-                onClick={() => { setIsCreateModalOpen(false); setCreatingRecord(null); }}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-white cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveCreate} className="space-y-4">
-              {creatingRecord.floor === 'Sub-Contact' ? (
-                /* Sub-Contact Data Entry Form */
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* General Block */}
-                  <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                    <h4 className="font-sans text-[11px] font-black text-[#0F4C81] dark:text-blue-300 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                      <Calendar className="h-3.5 w-3.5" /> General Information
-                    </h4>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold uppercase text-gray-400">Production Date</label>
-                      <input
-                        type="date"
-                        value={creatingRecord.date}
-                        onChange={(e) => handleCreateChange('date', e.target.value)}
-                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold uppercase text-gray-400">Floor Unit</label>
-                      <select
-                        value={creatingRecord.floor}
-                        onChange={(e) => handleCreateChange('floor', e.target.value)}
-                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                      >
-                        <option value="EKL">EKL</option>
-                        <option value="EFL">EFL</option>
-                        <option value="EFL-2">EFL-2</option>
-                        <option value="Auto Stripe">Auto Stripe</option>
-                        <option value="EFL-Extension">EFL-Extension</option>
-                        <option value="ESL-Extension">ESL-Extension</option>
-                        <option value="Sub-Contact">Sub-Contact</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Production Weights Block */}
-                  <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                    <h4 className="font-sans text-[11px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                      <Layers className="h-3.5 w-3.5" /> Production Weights
-                    </h4>
-                    <div className="space-y-3.5">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-extrabold text-gray-500 uppercase">Target (Kg)</label>
-                        <input
-                          type="number"
-                          value={creatingRecord.target}
-                          onChange={(e) => handleCreateChange('target', parseFloat(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-extrabold text-gray-500 uppercase">Total Production (Kg)</label>
-                        <input
-                          type="number"
-                          value={creatingRecord.totalProduction}
-                          onChange={(e) => handleCreateChange('totalProduction', parseFloat(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Secondary Sub-Contact Details Block */}
-                  <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                    <h4 className="font-sans text-[11px] font-black text-blue-700 dark:text-blue-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                      <Settings className="h-3.5 w-3.5" /> Sub-Contact Metrics
-                    </h4>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-extrabold text-gray-500 uppercase">Flat Knit (PCS)</label>
-                        <input
-                          type="number"
-                          value={creatingRecord.productionFlatKnit ?? 0}
-                          onChange={(e) => handleCreateChange('productionFlatKnit', parseInt(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-extrabold text-gray-500 uppercase">Yarn Issued (Kg)</label>
-                        <input
-                          type="number"
-                          value={creatingRecord.yarnIssued ?? 0}
-                          onChange={(e) => handleCreateChange('yarnIssued', parseFloat(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-extrabold text-gray-500 uppercase">Running Factories</label>
-                        <input
-                          type="number"
-                          value={creatingRecord.runningFactories ?? 0}
-                          onChange={(e) => handleCreateChange('runningFactories', parseInt(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-extrabold text-gray-500 uppercase">Running Machine</label>
-                        <input
-                          type="number"
-                          value={creatingRecord.runningMachine ?? 0}
-                          onChange={(e) => handleCreateChange('runningMachine', parseInt(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-extrabold text-gray-500 uppercase">Fabric Return (Kg)</label>
-                        <input
-                          type="number"
-                          value={creatingRecord.fabricReturn ?? 0}
-                          onChange={(e) => handleCreateChange('fabricReturn', parseFloat(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                        />
-                      </div>
-                    </div>
-                    <div className="mt-1 text-[10px]">
-                      <span className="text-gray-400 block uppercase font-bold">Achievement %</span>
-                      <span className="font-mono font-black text-emerald-600">
-                        {creatingRecord.target > 0 ? Math.round((creatingRecord.totalProduction / creatingRecord.target) * 100) : 0}%
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Quality & Status Metrics Block */}
-                  <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                    <h4 className="font-sans text-[11px] font-black text-red-700 dark:text-red-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                      <ShieldAlert className="h-3.5 w-3.5" /> Quality Indices & Status
-                    </h4>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-extrabold text-gray-500 uppercase">Reject (Kg)</label>
-                        <input
-                          type="number"
-                          value={creatingRecord.reject}
-                          onChange={(e) => handleCreateChange('reject', parseFloat(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-extrabold text-gray-500 uppercase">Hold (Kg)</label>
-                        <input
-                          type="number"
-                          value={creatingRecord.hold}
-                          onChange={(e) => handleCreateChange('hold', parseFloat(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 mt-1">
-                      <div className="text-[10px]">
-                        <span className="text-gray-400 block uppercase font-bold">Reject rate</span>
-                        <span className="font-mono font-black text-red-600">{creatingRecord.rejectPct}%</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-400 block uppercase font-bold">Hold rate</span>
-                        <span className="font-mono font-black text-amber-600">{creatingRecord.holdPct}%</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                /* Standard Floor Data Entry Form */
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                
-                {/* Block 1: General Info */}
-                <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                  <h4 className="font-sans text-[11px] font-black text-[#0F4C81] dark:text-blue-300 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                    <Calendar className="h-3.5 w-3.5" /> General Information
-                  </h4>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase text-gray-400">Production Date</label>
-                    <input
-                      type="date"
-                      value={creatingRecord.date}
-                      onChange={(e) => handleCreateChange('date', e.target.value)}
-                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase text-gray-400">Floor Unit</label>
-                    <select
-                      value={creatingRecord.floor}
-                      onChange={(e) => handleCreateChange('floor', e.target.value)}
-                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                    >
-                      <option value="EKL">EKL</option>
-                      <option value="EFL">EFL</option>
-                      <option value="EFL-2">EFL-2</option>
-                      <option value="Auto Stripe">Auto Stripe</option>
-                      <option value="EFL-Extension">EFL-Extension</option>
-                      <option value="ESL-Extension">ESL-Extension</option>
-                      <option value="Sub-Contact">Sub-Contact</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Block 2: Production metrics */}
-                <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                  <h4 className="font-sans text-[11px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                    <Layers className="h-3.5 w-3.5" /> Production Weights
-                  </h4>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Target (Kg)</label>
-                    <input
-                      type="number"
-                      value={creatingRecord.target}
-                      onChange={(e) => handleCreateChange('target', parseFloat(e.target.value) || 0)}
-                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                    />
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-extrabold text-gray-500 uppercase">Shift A</label>
-                      <input
-                        type="number"
-                        value={creatingRecord.shiftA}
-                        onChange={(e) => handleCreateChange('shiftA', parseFloat(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-extrabold text-gray-500 uppercase">Shift B</label>
-                      <input
-                        type="number"
-                        value={creatingRecord.shiftB}
-                        onChange={(e) => handleCreateChange('shiftB', parseFloat(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-extrabold text-gray-500 uppercase">Shift C</label>
-                      <input
-                        type="number"
-                        value={creatingRecord.shiftC}
-                        onChange={(e) => handleCreateChange('shiftC', parseFloat(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase">Total Production</label>
-                      <input
-                        type="number"
-                        readOnly
-                        value={creatingRecord.totalProduction}
-                        className="w-full rounded-lg bg-gray-100 dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-black text-[#0F4C81] dark:text-blue-300 outline-hidden"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase">Achievement %</label>
-                      <input
-                        type="text"
-                        readOnly
-                        value={`${creatingRecord.target > 0 ? Math.round((creatingRecord.totalProduction / creatingRecord.target) * 100) : 0}%`}
-                        className="w-full rounded-lg bg-gray-100 dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-black text-emerald-700 dark:text-emerald-400 outline-hidden"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Block 3: Machine Status */}
-                <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                  <h4 className="font-sans text-[11px] font-black text-indigo-700 dark:text-indigo-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                    <Cpu className="h-3.5 w-3.5" /> Machine Status
-                  </h4>
-                  
-                  {/* Grid for Inputs & Outputs in requested sequence */}
-                  <div className="space-y-3">
-                    {/* 1. Total Machine */}
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase block">Total Machine</label>
-                      <input
-                        type="number"
-                        readOnly
-                        value={getTotalMachinesForFloor(creatingRecord.floor)}
-                        className="w-full rounded-lg bg-gray-100 dark:bg-slate-800/80 px-3 py-1.5 text-xs font-mono font-bold text-gray-500 dark:text-slate-400 outline-none cursor-not-allowed border border-transparent"
-                        title="Calculated from system settings"
-                      />
-                    </div>
-
-                    {/* 2. Running Machine (Manual Entry) */}
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase block">Running Machine (Manual Entry)</label>
-                      <input
-                        type="number"
-                        value={creatingRecord.runningMachine}
-                        onChange={(e) => handleCreateChange('runningMachine', parseInt(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-none focus:border-indigo-500"
-                        placeholder="Enter active machine count"
-                      />
-                    </div>
-
-                    {/* 3. Idle machine */}
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase block">Idle machine</label>
-                      <input
-                        type="number"
-                        readOnly
-                        value={creatingRecord.idleMachine}
-                        className="w-full rounded-lg bg-gray-100 dark:bg-slate-800/80 px-3 py-1.5 text-xs font-mono font-black text-amber-600 dark:text-amber-400 outline-none cursor-not-allowed border border-transparent"
-                        title="Auto-calculated (Total - Running)"
-                      />
-                    </div>
-
-                    {/* Calculations array: Utilization Rate, Production Loss, Production Efficiency */}
-                    <div className="grid grid-cols-3 gap-2 border-t border-dashed border-gray-250 dark:border-slate-800 pt-3 text-[10px]">
-                      {/* 4. Utilization Rate */}
-                      <div className="bg-white dark:bg-slate-900/60 p-2 rounded-lg border border-gray-100 dark:border-slate-800 flex flex-col justify-between">
-                        <span className="text-gray-400 uppercase font-bold block leading-tight mb-1">Utilization Rate</span>
-                        <span className="font-mono text-xs font-black text-gray-950 dark:text-white">{creatingRecord.machineUtilization}%</span>
-                      </div>
-
-                      {/* 5. Production Loss */}
-                      <div className="bg-white dark:bg-slate-900/60 p-2 rounded-lg border border-gray-100 dark:border-slate-800 flex flex-col justify-between">
-                        <span className="text-gray-400 uppercase font-bold block leading-tight mb-1">Production Loss</span>
-                        <span className="font-mono text-xs font-black text-amber-600 dark:text-amber-400">{creatingRecord.idleProduction} Kg</span>
-                      </div>
-
-                      {/* 6. Production Efficiency */}
-                      <div className="bg-white dark:bg-slate-900/60 p-2 rounded-lg border border-gray-100 dark:border-slate-800 flex flex-col justify-between">
-                        <span className="text-gray-400 uppercase font-bold block leading-tight mb-1">Production Efficiency</span>
-                        <span className="font-mono text-xs font-black text-emerald-600 dark:text-emerald-400">{creatingRecord.efficiency}%</span>
-                      </div>
-                    </div>
-
-                    {/* 7. Set Change (Manual Entry) */}
-                    <div className="space-y-1 border-t border-dashed border-gray-250 dark:border-slate-800 pt-3">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase block">Set Change (Manual Entry)</label>
-                      <input
-                        type="number"
-                        value={creatingRecord.setChange}
-                        onChange={(e) => handleCreateChange('setChange', parseInt(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-none focus:border-indigo-500"
-                        placeholder="Enter completed set changes"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Block 4: Quality controls */}
-                <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                  <h4 className="font-sans text-[11px] font-black text-red-600 dark:text-red-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                    <ShieldAlert className="h-3.5 w-3.5" /> Quality Indices
-                  </h4>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase">Reject (Kg)</label>
-                      <input
-                        type="number"
-                        value={creatingRecord.reject}
-                        onChange={(e) => handleCreateChange('reject', parseFloat(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase">Hold (Kg)</label>
-                      <input
-                        type="number"
-                        value={creatingRecord.hold}
-                        onChange={(e) => handleCreateChange('hold', parseFloat(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-[10px]">
-                    <div>
-                      <span className="text-gray-400 block uppercase font-bold">Reject rate</span>
-                      <span className="font-mono font-black text-red-600">{creatingRecord.rejectPct}%</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-400 block uppercase font-bold">Hold rate</span>
-                      <span className="font-mono font-black text-amber-600">{creatingRecord.holdPct}%</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Block 5: Secondary Element Consumption */}
-                <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                  <h4 className="font-sans text-[11px] font-black text-orange-600 dark:text-orange-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                    <Wrench className="h-3.5 w-3.5" /> Secondary Element Consumption
-                  </h4>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase">Needle Broken</label>
-                      <input
-                        type="number"
-                        value={creatingRecord.needleBroken}
-                        onChange={(e) => handleCreateChange('needleBroken', parseInt(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase">Sinker Broken</label>
-                      <input
-                        type="number"
-                        value={creatingRecord.sinkerBroken}
-                        onChange={(e) => handleCreateChange('sinkerBroken', parseInt(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase">Oil Consumed (Liters)</label>
-                    <input
-                      type="number"
-                      value={creatingRecord.oilConsumption}
-                      onChange={(e) => handleCreateChange('oilConsumption', parseFloat(e.target.value) || 0)}
-                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                    />
-                  </div>
-                </div>
-
-                {/* Block 6: Manpower roster & Remarks */}
-                <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                  <h4 className="font-sans text-[11px] font-black text-[#0F4C81] dark:text-blue-300 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                    <Users className="h-3.5 w-3.5" /> Manpower & Other
-                  </h4>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase">Total Operators</label>
-                      <input
-                        type="number"
-                        value={creatingRecord.totalOperator}
-                        onChange={(e) => handleCreateChange('totalOperator', parseInt(e.target.value) || 1)}
-                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase">Absent Operators</label>
-                      <input
-                        type="number"
-                        value={creatingRecord.absent}
-                        onChange={(e) => handleCreateChange('absent', parseInt(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-2 text-[10px]">
-                    <span className="text-gray-400 block uppercase font-bold">Absent Rate</span>
-                    <span className="font-mono font-black text-red-600">{creatingRecord.absentPct}%</span>
-                  </div>
-                </div>
-
-              </div>)}
-
-              {/* Remarks block */}
-              <div className="space-y-1 rounded-xl border border-gray-100 dark:border-slate-800 p-4 bg-gray-50/50 dark:bg-slate-800/10">
-                <label className="text-[10px] font-black uppercase text-[#0F4C81] dark:text-blue-300 block mb-1">Shift Handover Remarks</label>
-                <textarea
-                  value={creatingRecord.remarks}
-                  onChange={(e) => handleCreateChange('remarks', e.target.value)}
-                  rows={2}
-                  className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-xs font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                  placeholder="Record minor machine updates, raw thread deliveries..."
-                />
-              </div>
-
-              {/* Display errors if any */}
-              {Object.keys(createErrors).length > 0 && (
-                <div className="rounded-xl border border-red-100 bg-red-50 p-3 text-[10px] font-bold text-red-600 space-y-0.5">
-                  {Object.values(createErrors).map((err, idx) => (
-                    <div key={idx}>• {err}</div>
-                  ))}
-                </div>
-              )}
-
-              {/* Buttons (Fully responsive layout) */}
-              <div className="flex flex-col sm:flex-row items-center justify-end gap-2 border-t border-gray-100 dark:border-slate-800 pt-4">
-                <button
-                  type="button"
-                  onClick={() => { setIsCreateModalOpen(false); setCreatingRecord(null); }}
-                  className="w-full sm:w-auto inline-flex items-center justify-center rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-gray-50 text-gray-700 dark:text-slate-200 px-5 py-2 text-xs font-bold transition-all cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="w-full sm:w-auto inline-flex items-center justify-center rounded-xl bg-[#0F4C81] hover:bg-[#0b3861] text-white px-6 py-2 text-xs font-bold transition-all shadow-sm cursor-pointer"
-                >
-                  Create Entry
-                </button>
-              </div>
-
-            </form>
-          </div>
-        </div>
-      )}
+      {/* 7.5. POPUP MODAL: ADD PRODUCTION RECORD (52 COLUMNS FULL FORM) */}
+      <AddProductionRecordModal
+        isOpen={isCreateModalOpen}
+        onClose={() => { setIsCreateModalOpen(false); setCreatingRecord(null); }}
+        record={creatingRecord}
+        onChange={handleCreateChange}
+        onSave={handleSaveCreate}
+        errors={createErrors}
+      />
 
       {/* 8. CONFIRM DIALOG: DELETE RECORD */}
       {isDeleteConfirmOpen && (

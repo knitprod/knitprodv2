@@ -77,11 +77,11 @@ export default function WelcomeBanner({ floors, onNavigate }: WelcomeBannerProps
         </div>
         <span className="text-white/25 hidden sm:inline">•</span>
         <button 
-          onClick={() => onNavigate('Production Entry')}
+          onClick={() => onNavigate('Production Ledger')}
           className="ml-auto text-blue-400 hover:text-blue-300 transition-colors inline-flex items-center gap-1 text-[11px]"
           id="welcome-quick-entry-link"
         >
-          Add New Production Roll →
+          Open Production Ledger →
         </button>
       </div>
     </div>

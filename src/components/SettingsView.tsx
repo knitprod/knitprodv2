@@ -9,24 +9,8 @@ import { GasClient } from '../lib/gasClient';
 import { FirestoreSyncService } from '../lib/firestoreSync';
 import { getBuyers, saveBuyers, addBuyer as addNewBuyerToStore, removeBuyer as removeBuyerFromStore, renameBuyerInStore, resetBuyersToDefault } from '../lib/buyerStore';
 import { getCompanyLogo, saveCompanyLogo, removeCompanyLogo } from '../lib/logoStore';
+import { UnitThresholdConfig, INITIAL_UNIT_CONFIGS, getUnitConfigs, saveUnitConfigs } from '../lib/unitStore';
 import { ActivityLog } from '../types';
-
-export interface UnitThresholdConfig {
-  id: string;
-  unitName: string;
-  productionCapacity: number;
-  avgProdPerMachine: number;
-  totalMachine: number;
-}
-
-export const INITIAL_UNIT_CONFIGS: UnitThresholdConfig[] = [
-  { id: 'unit-ekl', unitName: 'EKL', productionCapacity: 7500, totalMachine: 48, avgProdPerMachine: 156.25 },
-  { id: 'unit-efl', unitName: 'EFL', productionCapacity: 15000, totalMachine: 40, avgProdPerMachine: 375 },
-  { id: 'unit-efl2', unitName: 'EFL-2', productionCapacity: 15000, totalMachine: 35, avgProdPerMachine: 428.57 },
-  { id: 'unit-autostripe', unitName: 'Auto Stripe', productionCapacity: 12000, totalMachine: 20, avgProdPerMachine: 600 },
-  { id: 'unit-eflext', unitName: 'EFL-Extension', productionCapacity: 15000, totalMachine: 25, avgProdPerMachine: 600 },
-  { id: 'unit-eslext', unitName: 'ESL-Extension', productionCapacity: 10000, totalMachine: 16, avgProdPerMachine: 625 }
-];
 
 export default function SettingsView() {
   const [rejectThreshold, setRejectThreshold] = useState('2.5');
@@ -34,7 +18,7 @@ export default function SettingsView() {
   const [alarmEmail, setAlarmEmail] = useState('knitprod-alerts@epyllion.com');
 
   // Dynamic Units State
-  const [unitConfigs, setUnitConfigs] = useState<UnitThresholdConfig[]>(INITIAL_UNIT_CONFIGS);
+  const [unitConfigs, setUnitConfigs] = useState<UnitThresholdConfig[]>(() => getUnitConfigs());
 
   // Popup Modal States for Unit Thresholds
   const [isUnitModalOpen, setIsUnitModalOpen] = useState(false);
@@ -116,6 +100,7 @@ export default function SettingsView() {
       // Load dynamic units list if provided in Firestore / remote settings
       if (remoteSettings.unitConfigs && Array.isArray(remoteSettings.unitConfigs) && remoteSettings.unitConfigs.length > 0) {
         setUnitConfigs(remoteSettings.unitConfigs);
+        saveUnitConfigs(remoteSettings.unitConfigs);
       }
 
       if (remoteSettings.buyers) {
@@ -240,6 +225,7 @@ export default function SettingsView() {
     }
 
     setUnitConfigs(updatedUnits);
+    saveUnitConfigs(updatedUnits);
     setIsUnitModalOpen(false);
 
     // Save to Firestore and create Activity Log in Firestore
@@ -276,6 +262,7 @@ export default function SettingsView() {
 
     const updatedUnits = unitConfigs.filter(u => u.id !== unit.id);
     setUnitConfigs(updatedUnits);
+    saveUnitConfigs(updatedUnits);
 
     const settingsMap = {
       rejectThreshold,

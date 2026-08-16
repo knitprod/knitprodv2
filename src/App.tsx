@@ -54,6 +54,7 @@ import { GasClient } from './lib/gasClient';
 import { FirestoreSyncService } from './lib/firestoreSync';
 import { auth } from './lib/firebase';
 import { onAuthStateChanged, signOut, updateProfile } from 'firebase/auth';
+import { getTargetKgForUnit, getTotalMachinesForUnit, saveUnitConfigs, getUnitConfigs } from './lib/unitStore';
 
 import { FactoryFloor, ProductionEntry, ActivityLog } from './types';
 import { INITIAL_FLOORS, INITIAL_KPIS, INITIAL_ACTIVITY_LOGS } from './data';
@@ -402,23 +403,17 @@ export default function App() {
   // Core Application Database States
   const [floors, setFloors] = useState<FactoryFloor[]>(() => {
     return INITIAL_FLOORS.map((floor) => {
-      const defaults: Record<string, number> = {
-        'EKL': 7500,
-        'EFL': 15000,
-        'EFL-2': 15000,
-        'Auto Stripe': 12000,
-        'EFL-Extension': 15000,
-        'ESL-Extension': 10000,
-      };
-      const targetKg = defaults[floor.name] !== undefined ? defaults[floor.name] : floor.targetKg;
-      const totalMachines = floor.totalMachines;
-      const idleMachines = Math.max(0, totalMachines - floor.runningMachines);
+      const targetKg = getTargetKgForUnit(floor.name, floor.targetKg);
+      const totalMachines = getTotalMachinesForUnit(floor.name, floor.totalMachines);
+      const runningMachines = Math.min(floor.runningMachines, totalMachines);
+      const idleMachines = Math.max(0, totalMachines - runningMachines);
       const achievementPct = targetKg > 0 ? parseFloat(((floor.productionKg / targetKg) * 100).toFixed(1)) : 0;
       
       return {
         ...floor,
         targetKg,
         totalMachines,
+        runningMachines,
         idleMachines,
         achievementPct
       };
@@ -562,9 +557,58 @@ export default function App() {
       }
     });
 
+    // Realtime listener for System Settings (Units, Targets, Machines) in Firestore
+    const unsubscribeSettings = FirestoreSyncService.subscribeToSettings((remoteSettings) => {
+      if (remoteSettings && remoteSettings.unitConfigs && Array.isArray(remoteSettings.unitConfigs) && remoteSettings.unitConfigs.length > 0) {
+        saveUnitConfigs(remoteSettings.unitConfigs);
+        setFloors((prevFloors) =>
+          prevFloors.map((floor) => {
+            const targetKg = getTargetKgForUnit(floor.name, floor.targetKg);
+            const totalMachines = getTotalMachinesForUnit(floor.name, floor.totalMachines);
+            const runningMachines = Math.min(floor.runningMachines, totalMachines);
+            const idleMachines = Math.max(0, totalMachines - runningMachines);
+            const achievementPct = targetKg > 0 ? parseFloat(((floor.productionKg / targetKg) * 100).toFixed(1)) : 0;
+            return {
+              ...floor,
+              targetKg,
+              totalMachines,
+              runningMachines,
+              idleMachines,
+              achievementPct
+            };
+          })
+        );
+      }
+    });
+
+    const handleUnitConfigUpdate = (e: Event) => {
+      const customEv = e as CustomEvent<any[]>;
+      const configs = customEv.detail || getUnitConfigs();
+      setFloors((prevFloors) =>
+        prevFloors.map((floor) => {
+          const targetKg = getTargetKgForUnit(floor.name, floor.targetKg);
+          const totalMachines = getTotalMachinesForUnit(floor.name, floor.totalMachines);
+          const runningMachines = Math.min(floor.runningMachines, totalMachines);
+          const idleMachines = Math.max(0, totalMachines - runningMachines);
+          const achievementPct = targetKg > 0 ? parseFloat(((floor.productionKg / targetKg) * 100).toFixed(1)) : 0;
+          return {
+            ...floor,
+            targetKg,
+            totalMachines,
+            runningMachines,
+            idleMachines,
+            achievementPct
+          };
+        })
+      );
+    };
+    window.addEventListener('unit_configs_updated', handleUnitConfigUpdate);
+
     return () => {
       if (unsubscribeActivityLogs) unsubscribeActivityLogs();
       if (unsubscribeAppConfig) unsubscribeAppConfig();
+      if (unsubscribeSettings) unsubscribeSettings();
+      window.removeEventListener('unit_configs_updated', handleUnitConfigUpdate);
     };
   }, []);
 
