@@ -786,13 +786,17 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const jhuteCutpcs = Number(record.jhuteCutpcs) || 0;
     const jhuteCutpcsPct = totalProduction > 0 ? parseFloat(((jhuteCutpcs / totalProduction) * 100).toFixed(2)) : 0;
     
-    // 11. Needle Broken/KG = (Needle Broken pcs / Total Production)
+    // 11. Needle Broken/KG = (Total Production / Needle Broken pcs)
     const needleBroken = Number(record.needleBroken) || 0;
-    const needlePerKg = totalProduction > 0 ? parseFloat((needleBroken / totalProduction).toFixed(4)) : 0;
+    const needlePerKg = (needleBroken > 0 && totalProduction > 0)
+      ? parseFloat((totalProduction / needleBroken).toFixed(2))
+      : 0;
     
-    // 11. Sinker Broken/KG = (Sinker Broken pcs / Total Production)
+    // 11. Sinker Broken/KG = (Total Production / Sinker Broken pcs)
     const sinkerBroken = Number(record.sinkerBroken) || 0;
-    const sinkerPerKg = totalProduction > 0 ? parseFloat((sinkerBroken / totalProduction).toFixed(4)) : 0;
+    const sinkerPerKg = (sinkerBroken > 0 && totalProduction > 0)
+      ? parseFloat((totalProduction / sinkerBroken).toFixed(2))
+      : 0;
     
     // Manpower
     const totalOperator = Number(record.totalOperator) || 0;
@@ -1314,14 +1318,37 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         const yearNum = parseInt(dateParts[0]);
         const monthNum = parseInt(dateParts[1]);
         const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-        updated.month = months[monthNum - 1] || 'July';
+        updated.month = months[monthNum - 1] || 'August';
         updated.year = yearNum;
+        const dObj = new Date(value + 'T00:00:00');
+        const dNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        if (!isNaN(dObj.getDay())) {
+          updated.day = dNames[dObj.getDay()];
+        }
       }
     } else if (field === 'floor') {
       const targetKg = getTargetForFloor(value);
       const totalM = getTotalMachinesForFloor(value);
+      const operatorsMap: Record<string, number> = {
+        'EKL': 110,
+        'EFL': 95,
+        'EFL-2': 85,
+        'Auto Stripe': 50,
+        'EFL-Extension': 65,
+        'ESL-Extension': 40,
+        'Sub-Contact': 0,
+      };
       updated.target = targetKg;
+      updated.totalOperator = operatorsMap[value] || 90;
       updated.totalMachines = totalM;
+      updated.unit = value === 'Sub-Contact' ? 'Sub-Contact' : 'In-House';
+      
+      if (value === 'Sub-Contact') {
+        updated.productionFlatKnit = updated.productionFlatKnit ?? 0;
+        updated.yarnIssued = updated.yarnIssued ?? 0;
+        updated.runningFactories = updated.runningFactories ?? 0;
+        updated.fabricReturn = updated.fabricReturn ?? 0;
+      }
     }
 
     // Auto-sum shifts into total production if not Sub-Contact
@@ -1332,8 +1359,6 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     }
 
     // Machine updates:
-    // If Running Sample changes, Running Bulk (MC) adjusts (Running Bulk = Running Machine - Running Sample)
-    // and Total Active Running Machine remains unchanged!
     if (field === 'runningMachine') {
       const rM = Number(value) || 0;
       const rS = Number(updated.runningSample) || 0;
@@ -1343,7 +1368,6 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       const rS = Number(value) || 0;
       const rM = Number(updated.runningMachine) || 0;
       updated.runningSample = rS;
-      // Changes should be made in Running Bulk (MC) instead of changing Total Active Machine
       updated.runningBulk = Math.max(0, rM - rS);
     } else if (field === 'runningBulk') {
       const rB = Number(value) || 0;
@@ -1393,9 +1417,16 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     setEditingRecord(null);
     triggerToast(`Production record for ${recordToSave.floor} on ${recordToSave.date} updated & syncing across devices.`);
 
+    // 1. Sync with Firestore
     FirestoreSyncService.saveLedgerRecord(recordToSave, currentUser?.userName || 'Manager')
       .catch((err: any) => {
         console.warn("Background ledger update notice:", err);
+      });
+
+    // 2. Sync with Google Sheets / GAS
+    GasClient.updateLedgerEntry(recordToSave)
+      .catch((gasErr: any) => {
+        console.warn("GAS edit sync notice:", gasErr);
       });
   };
 
@@ -1423,9 +1454,16 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     setDeletingRecordId(null);
     triggerToast(`Production record for ${details} deleted & syncing across devices.`);
 
+    // 1. Sync deletion with Firestore
     FirestoreSyncService.deleteLedgerRecord(targetId)
       .catch((err: any) => {
         console.warn("Background ledger delete notice:", err);
+      });
+
+    // 2. Sync deletion with Google Sheets / GAS
+    GasClient.deleteLedgerEntry(targetId)
+      .catch((gasErr: any) => {
+        console.warn("GAS delete sync notice:", gasErr);
       });
   };
 
@@ -2345,566 +2383,18 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         </div>
       </div>
 
-      {/* 7. POPUP MODAL: EDIT PRODUCTION RECORD */}
-      {isEditModalOpen && editingRecord && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
-          <div className="relative w-full max-w-4xl rounded-2xl bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            
-            <div className="flex items-center justify-between border-b border-gray-100 dark:border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <Edit2 className="h-5 w-5 text-[#0F4C81]" />
-                <div>
-                  <h3 className="font-sans text-sm font-black text-gray-950 dark:text-white uppercase tracking-wider">
-                    Edit Production Record
-                  </h3>
-                  <p className="text-[10px] text-gray-400 uppercase font-semibold">
-                    Mutate values for {editingRecord.floor} on {editingRecord.date}
-                  </p>
-                </div>
-              </div>
-              <button 
-                onClick={() => { setIsEditModalOpen(false); setEditingRecord(null); }}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-white cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveEdit} className="space-y-4">
-              {editingRecord.floor === 'Sub-Contact' ? (
-                /* Sub-Contact Data Entry Form */
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* General Block */}
-                  <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                    <h4 className="font-sans text-[11px] font-black text-[#0F4C81] dark:text-blue-300 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                      <Calendar className="h-3.5 w-3.5" /> General Information
-                    </h4>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold uppercase text-gray-400">Production Date</label>
-                      <input
-                        type="date"
-                        value={editingRecord.date}
-                        onChange={(e) => handleEditChange('date', e.target.value)}
-                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold uppercase text-gray-400">Floor Unit</label>
-                      <input
-                        type="text"
-                        readOnly
-                        value={editingRecord.floor}
-                        className="w-full rounded-lg border border-gray-100 dark:border-slate-800 bg-gray-100 dark:bg-slate-800 px-3 py-1.5 text-xs font-black text-gray-500 tracking-wider outline-hidden"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Production Weights Block */}
-                  <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                    <h4 className="font-sans text-[11px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                      <Layers className="h-3.5 w-3.5" /> Production Weights
-                    </h4>
-                    <div className="space-y-3.5">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-extrabold text-gray-500 uppercase">Target (Kg)</label>
-                        <input
-                          type="number"
-                          value={editingRecord.target}
-                          onChange={(e) => handleEditChange('target', parseFloat(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-extrabold text-gray-500 uppercase">Total Prod (Kg)</label>
-                        <input
-                          type="number"
-                          value={editingRecord.totalProduction}
-                          onChange={(e) => handleEditChange('totalProduction', parseFloat(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase">Achievement %</label>
-                      <input
-                        type="text"
-                        readOnly
-                        value={`${editingRecord.target > 0 ? Math.round((editingRecord.totalProduction / editingRecord.target) * 100) : 0}%`}
-                        className="w-full rounded-lg bg-gray-100 dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-black text-emerald-700 dark:text-emerald-400 outline-hidden"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Quality Standards Block */}
-                  <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                    <h4 className="font-sans text-[11px] font-black text-red-600 dark:text-red-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                      <ShieldAlert className="h-3.5 w-3.5" /> Quality Indices
-                    </h4>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase">Reject (Kg)</label>
-                        <input
-                          type="number"
-                          value={editingRecord.reject}
-                          onChange={(e) => handleEditChange('reject', parseFloat(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase">Hold (Kg)</label>
-                        <input
-                          type="number"
-                          value={editingRecord.hold}
-                          onChange={(e) => handleEditChange('hold', parseFloat(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-[10px]">
-                      <div>
-                        <span className="text-gray-400 block uppercase font-bold">Reject rate</span>
-                        <span className="font-mono font-black text-red-600">{editingRecord.rejectPct}%</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-400 block uppercase font-bold">Hold rate</span>
-                        <span className="font-mono font-black text-amber-600">{editingRecord.holdPct}%</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Sub-Contact Custom Parameters Block */}
-                  <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                    <h4 className="font-sans text-[11px] font-black text-indigo-700 dark:text-indigo-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                      <Cpu className="h-3.5 w-3.5" /> Sub-Contact Parameters
-                    </h4>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase">Flat Knit (PCS)</label>
-                        <input
-                          type="number"
-                          value={editingRecord.productionFlatKnit ?? 0}
-                          onChange={(e) => handleEditChange('productionFlatKnit', parseInt(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-indigo-500"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase">Yarn Issued (Kg)</label>
-                        <input
-                          type="number"
-                          value={editingRecord.yarnIssued ?? 0}
-                          onChange={(e) => handleEditChange('yarnIssued', parseFloat(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-indigo-500"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase">Running Factories</label>
-                        <input
-                          type="number"
-                          value={editingRecord.runningFactories ?? 0}
-                          onChange={(e) => handleEditChange('runningFactories', parseInt(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-indigo-500"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase">Running Machine</label>
-                        <input
-                          type="number"
-                          value={editingRecord.runningMachine}
-                          onChange={(e) => handleEditChange('runningMachine', parseInt(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-indigo-500"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase">Fabric Return (Kg)</label>
-                      <input
-                        type="number"
-                        value={editingRecord.fabricReturn ?? 0}
-                        onChange={(e) => handleEditChange('fabricReturn', parseFloat(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-indigo-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                /* Grid sections inside popup modal */
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                  
-                  {/* Block 1: General Info */}
-                  <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                    <h4 className="font-sans text-[11px] font-black text-[#0F4C81] dark:text-blue-300 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                      <Calendar className="h-3.5 w-3.5" /> General Information
-                    </h4>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold uppercase text-gray-400">Production Date</label>
-                      <input
-                        type="date"
-                        value={editingRecord.date}
-                        onChange={(e) => handleEditChange('date', e.target.value)}
-                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold uppercase text-gray-400">Floor Unit</label>
-                      <input
-                        type="text"
-                        readOnly
-                        value={editingRecord.floor}
-                        className="w-full rounded-lg border border-gray-100 dark:border-slate-800 bg-gray-100 dark:bg-slate-800 px-3 py-1.5 text-xs font-black text-gray-500 tracking-wider outline-hidden"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Block 2: Production weights */}
-                  <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                    <h4 className="font-sans text-[11px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                      <Layers className="h-3.5 w-3.5" /> Production Weights
-                    </h4>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-extrabold text-gray-500 uppercase">Target (Kg)</label>
-                        <input
-                          type="number"
-                          value={editingRecord.target}
-                          onChange={(e) => handleEditChange('target', parseFloat(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-extrabold text-gray-500 uppercase">Target Bulk (Kg)</label>
-                        <input
-                          type="number"
-                          readOnly
-                          value={editingRecord.targetBulk ?? 0}
-                          className="w-full rounded-lg bg-gray-100 dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-blue-700 dark:text-blue-400 outline-none cursor-not-allowed"
-                          title="Auto-calculated (Running Bulk * Avg Prod / Mc)"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-extrabold text-gray-500 uppercase">Shift A</label>
-                        <input
-                          type="number"
-                          value={editingRecord.shiftA}
-                          onChange={(e) => handleEditChange('shiftA', parseFloat(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-extrabold text-gray-500 uppercase">Shift B</label>
-                        <input
-                          type="number"
-                          value={editingRecord.shiftB}
-                          onChange={(e) => handleEditChange('shiftB', parseFloat(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-extrabold text-gray-500 uppercase">Shift C</label>
-                        <input
-                          type="number"
-                          value={editingRecord.shiftC}
-                          onChange={(e) => handleEditChange('shiftC', parseFloat(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase">Total Prod</label>
-                        <input
-                          type="number"
-                          readOnly
-                          value={editingRecord.totalProduction}
-                          className="w-full rounded-lg bg-gray-100 dark:bg-slate-800 px-2.5 py-1.5 text-xs font-mono font-black text-[#0F4C81] dark:text-blue-300 outline-hidden"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase">Sample (Kg)</label>
-                        <input
-                          type="number"
-                          value={editingRecord.sampleProd ?? 0}
-                          onChange={(e) => handleEditChange('sampleProd', parseFloat(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs font-mono font-bold text-indigo-700 dark:text-indigo-300 outline-hidden focus:border-[#0F4C81]"
-                          placeholder="0"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase">Bulk (Kg)</label>
-                        <input
-                          type="number"
-                          readOnly
-                          value={editingRecord.bulkProd ?? 0}
-                          className="w-full rounded-lg bg-gray-100 dark:bg-slate-800 px-2.5 py-1.5 text-xs font-mono font-black text-emerald-700 dark:text-emerald-400 outline-hidden"
-                          title="Auto: Total Production - Sample Production"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 pt-1 border-t border-dashed border-gray-200 dark:border-slate-800 text-[10px]">
-                      <div className="bg-white dark:bg-slate-900/60 p-2 rounded-lg border border-gray-100 dark:border-slate-800">
-                        <span className="text-gray-400 uppercase font-bold block leading-tight mb-0.5">Capacity Util %</span>
-                        <span className="font-mono text-xs font-black text-indigo-700 dark:text-indigo-400">{editingRecord.capacityUtilization ?? 0}%</span>
-                      </div>
-                      <div className="bg-white dark:bg-slate-900/60 p-2 rounded-lg border border-gray-100 dark:border-slate-800">
-                        <span className="text-gray-400 uppercase font-bold block leading-tight mb-0.5">Prod Loss Sample</span>
-                        <span className="font-mono text-xs font-black text-amber-600 dark:text-amber-400">{editingRecord.prodLossForSample ?? 0} Kg</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Block 3: Machine Status */}
-                  <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                    <h4 className="font-sans text-[11px] font-black text-indigo-700 dark:text-indigo-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                      <Cpu className="h-3.5 w-3.5" /> Machine Status
-                    </h4>
-                    
-                    {/* Grid for Inputs & Outputs in requested sequence */}
-                    <div className="space-y-3">
-                      {/* Total Machine & Running Machine */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-gray-400 uppercase block">Total Machine</label>
-                          <input
-                            type="number"
-                            readOnly
-                            value={getTotalMachinesForFloor(editingRecord.floor)}
-                            className="w-full rounded-lg bg-gray-100 dark:bg-slate-800/80 px-3 py-1.5 text-xs font-mono font-bold text-gray-500 dark:text-slate-400 outline-none cursor-not-allowed border border-transparent"
-                            title="Calculated from system settings"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-gray-400 uppercase block">Running (Total Active)</label>
-                          <input
-                            type="number"
-                            value={editingRecord.runningMachine}
-                            onChange={(e) => handleEditChange('runningMachine', parseInt(e.target.value) || 0)}
-                            className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-none focus:border-indigo-500"
-                            placeholder="Active count"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Running Sample & Running Bulk */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-gray-400 uppercase block">Running Sample (Mc)</label>
-                          <input
-                            type="number"
-                            value={editingRecord.runningSample ?? 0}
-                            onChange={(e) => handleEditChange('runningSample', parseInt(e.target.value) || 0)}
-                            className="w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-950/20 px-3 py-1.5 text-xs font-mono font-bold text-indigo-700 dark:text-indigo-300 outline-none focus:border-indigo-500"
-                            placeholder="0"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-gray-400 uppercase block">Running Bulk (Mc)</label>
-                          <input
-                            type="number"
-                            value={editingRecord.runningBulk ?? 0}
-                            onChange={(e) => handleEditChange('runningBulk', parseInt(e.target.value) || 0)}
-                            className="w-full rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20 px-3 py-1.5 text-xs font-mono font-bold text-emerald-700 dark:text-emerald-300 outline-none focus:border-emerald-500"
-                            placeholder="0"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Idle machine */}
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase block">Idle machine</label>
-                        <input
-                          type="number"
-                          readOnly
-                          value={editingRecord.idleMachine}
-                          className="w-full rounded-lg bg-gray-100 dark:bg-slate-800/80 px-3 py-1.5 text-xs font-mono font-black text-amber-600 dark:text-amber-400 outline-none cursor-not-allowed border border-transparent"
-                          title="Auto-calculated (Total - Running)"
-                        />
-                      </div>
-
-                      {/* Calculations array: Utilization Rate, Efficiency, Prod Loss EFF */}
-                      <div className="grid grid-cols-3 gap-2 border-t border-dashed border-gray-250 dark:border-slate-800 pt-3 text-[10px]">
-                        {/* Utilization Rate */}
-                        <div className="bg-white dark:bg-slate-900/60 p-2 rounded-lg border border-gray-100 dark:border-slate-800 flex flex-col justify-between">
-                          <span className="text-gray-400 uppercase font-bold block leading-tight mb-1">Utilization</span>
-                          <span className="font-mono text-xs font-black text-gray-950 dark:text-white">{editingRecord.machineUtilization}%</span>
-                        </div>
-
-                        {/* Production Loss EFF */}
-                        <div className="bg-white dark:bg-slate-900/60 p-2 rounded-lg border border-gray-100 dark:border-slate-800 flex flex-col justify-between">
-                          <span className="text-gray-400 uppercase font-bold block leading-tight mb-1">Loss for EFF</span>
-                          <span className="font-mono text-xs font-black text-amber-600 dark:text-amber-400">{editingRecord.productionLossForEff ?? 0} Kg</span>
-                        </div>
-
-                        {/* Efficiency */}
-                        <div className="bg-white dark:bg-slate-900/60 p-2 rounded-lg border border-gray-100 dark:border-slate-800 flex flex-col justify-between">
-                          <span className="text-gray-400 uppercase font-bold block leading-tight mb-1">Efficiency</span>
-                          <span className="font-mono text-xs font-black text-emerald-600 dark:text-emerald-400">{editingRecord.efficiency}%</span>
-                        </div>
-                      </div>
-
-                      {/* Set Change (Manual Entry) */}
-                      <div className="space-y-1 border-t border-dashed border-gray-250 dark:border-slate-800 pt-3">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase block">Set Change (Manual Entry)</label>
-                        <input
-                          type="number"
-                          value={editingRecord.setChange}
-                          onChange={(e) => handleEditChange('setChange', parseInt(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-none focus:border-indigo-500"
-                          placeholder="Enter completed set changes"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Block 4: Quality controls */}
-                  <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                    <h4 className="font-sans text-[11px] font-black text-red-600 dark:text-red-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                      <ShieldAlert className="h-3.5 w-3.5" /> Quality Indices
-                    </h4>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase">Reject (Kg)</label>
-                        <input
-                          type="number"
-                          value={editingRecord.reject}
-                          onChange={(e) => handleEditChange('reject', parseFloat(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase">Hold (Kg)</label>
-                        <input
-                          type="number"
-                          value={editingRecord.hold}
-                          onChange={(e) => handleEditChange('hold', parseFloat(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-[10px]">
-                      <div>
-                        <span className="text-gray-400 block uppercase font-bold">Reject rate</span>
-                        <span className="font-mono font-black text-red-600">{editingRecord.rejectPct}%</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-400 block uppercase font-bold">Hold rate</span>
-                        <span className="font-mono font-black text-amber-600">{editingRecord.holdPct}%</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Block 5: Secondary Element Consumption */}
-                  <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                    <h4 className="font-sans text-[11px] font-black text-orange-600 dark:text-orange-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                      <Wrench className="h-3.5 w-3.5" /> Secondary Element Consumption
-                    </h4>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase">Needle Broken</label>
-                        <input
-                          type="number"
-                          value={editingRecord.needleBroken}
-                          onChange={(e) => handleEditChange('needleBroken', parseInt(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase">Sinker Broken</label>
-                        <input
-                          type="number"
-                          value={editingRecord.sinkerBroken}
-                          onChange={(e) => handleEditChange('sinkerBroken', parseInt(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase">Oil Consumed (Liters)</label>
-                      <input
-                        type="number"
-                        value={editingRecord.oilConsumption}
-                        onChange={(e) => handleEditChange('oilConsumption', parseFloat(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Block 6: Manpower roster */}
-                  <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3.5">
-                    <h4 className="font-sans text-[11px] font-black text-[#0F4C81] dark:text-blue-300 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1 flex items-center gap-1.5">
-                      <Users className="h-3.5 w-3.5" /> Manpower & Other
-                    </h4>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase">Total Operators</label>
-                        <input
-                          type="number"
-                          value={editingRecord.totalOperator}
-                          onChange={(e) => handleEditChange('totalOperator', parseInt(e.target.value) || 1)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase">Absent Operators</label>
-                        <input
-                          type="number"
-                          value={editingRecord.absent}
-                          onChange={(e) => handleEditChange('absent', parseInt(e.target.value) || 0)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden"
-                        />
-                      </div>
-                    </div>
-                    <div className="mt-2 text-[10px]">
-                      <span className="text-gray-400 block uppercase font-bold">Absent Rate</span>
-                      <span className="font-mono font-black text-red-600">{editingRecord.absentPct}%</span>
-                    </div>
-                  </div>
-
-                </div>
-              )}
-
-              {/* Remarks block */}
-              <div className="space-y-1 rounded-xl border border-gray-100 dark:border-slate-800 p-4 bg-gray-50/50 dark:bg-slate-800/10">
-                <label className="text-[10px] font-black uppercase text-[#0F4C81] dark:text-blue-300 block mb-1">Shift Handover Remarks</label>
-                <textarea
-                  value={editingRecord.remarks}
-                  onChange={(e) => handleEditChange('remarks', e.target.value)}
-                  rows={2}
-                  className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-xs font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                  placeholder="Record minor machine updates, raw thread deliveries..."
-                />
-              </div>
-
-              {/* Display errors if any */}
-              {Object.keys(editErrors).length > 0 && (
-                <div className="rounded-xl border border-red-100 bg-red-50 p-3 text-[10px] font-bold text-red-600 space-y-0.5">
-                  {Object.values(editErrors).map((err, idx) => (
-                    <div key={idx}>• {err}</div>
-                  ))}
-                </div>
-              )}
-
-              {/* Buttons (Fully responsive layout) */}
-              <div className="flex flex-col sm:flex-row items-center justify-end gap-2 border-t border-gray-100 dark:border-slate-800 pt-4">
-                <button
-                  type="button"
-                  onClick={() => { setIsEditModalOpen(false); setEditingRecord(null); }}
-                  className="w-full sm:w-auto inline-flex items-center justify-center rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-gray-50 text-gray-700 dark:text-slate-200 px-5 py-2 text-xs font-bold transition-all cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="w-full sm:w-auto inline-flex items-center justify-center rounded-xl bg-[#0F4C81] hover:bg-[#0b3861] text-white px-6 py-2 text-xs font-bold transition-all shadow-sm cursor-pointer"
-                >
-                  Save Changes
-                </button>
-              </div>
-
-            </form>
-          </div>
-        </div>
-      )}
+      {/* 7. POPUP MODAL: EDIT PRODUCTION RECORD (UNIFIED 52 COLUMNS FULL FORM) */}
+      <AddProductionRecordModal
+        isOpen={isEditModalOpen}
+        onClose={() => { setIsEditModalOpen(false); setEditingRecord(null); }}
+        record={editingRecord}
+        onChange={handleEditChange}
+        onSave={handleSaveEdit}
+        errors={editErrors}
+        isEdit={true}
+        title="Edit Production Record"
+        submitLabel="Save & Sync Changes"
+      />
 
       {/* 7.5. POPUP MODAL: ADD PRODUCTION RECORD (52 COLUMNS FULL FORM) */}
       <AddProductionRecordModal

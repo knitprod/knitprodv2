@@ -6,6 +6,7 @@
 import React from 'react';
 import { 
   Plus, 
+  Edit2,
   Calendar, 
   Layers, 
   Cpu, 
@@ -35,6 +36,9 @@ interface AddProductionRecordModalProps {
   onChange: (field: keyof LedgerRecord, value: any) => void;
   onSave: (e: React.FormEvent) => void;
   errors: Record<string, string>;
+  isEdit?: boolean;
+  title?: string;
+  submitLabel?: string;
 }
 
 export default function AddProductionRecordModal({
@@ -43,13 +47,12 @@ export default function AddProductionRecordModal({
   record,
   onChange,
   onSave,
-  errors
+  errors,
+  isEdit = false,
+  title,
+  submitLabel
 }: AddProductionRecordModalProps) {
-  if (!isOpen || !record) return null;
-
-  const floors = ['EKL', 'EFL', 'EFL-2', 'Auto Stripe', 'EFL-Extension', 'ESL-Extension', 'Sub-Contact'];
-
-  // Subscribe to reactive unit settings
+  // Subscribe to reactive unit settings (Hooks MUST be called unconditionally at top)
   const [unitConfigs, setUnitConfigs] = React.useState<UnitThresholdConfig[]>(() => getUnitConfigs());
 
   React.useEffect(() => {
@@ -70,6 +73,10 @@ export default function AddProductionRecordModal({
     };
   }, []);
 
+  if (!isOpen || !record) return null;
+
+  const floors = ['EKL', 'EFL', 'EFL-2', 'Auto Stripe', 'EFL-Extension', 'ESL-Extension', 'Sub-Contact'];
+
   // Current floor setting values for live preview calculation
   const currentFloor = record.floor || 'EKL';
   const unitCapacity = getProductionCapacityForUnit(currentFloor);
@@ -78,7 +85,7 @@ export default function AddProductionRecordModal({
 
   // Derived values for live display
   const totalProduction = record.floor === 'Sub-Contact'
-    ? (record.totalProduction || 0)
+    ? (record.totalProduction ?? 0)
     : ((Number(record.shiftA) || 0) + (Number(record.shiftB) || 0) + (Number(record.shiftC) || 0));
 
   const sampleProd = Number(record.sampleProd) || 0;
@@ -97,10 +104,14 @@ export default function AddProductionRecordModal({
     : 0;
 
   const needleBroken = Number(record.needleBroken) || 0;
-  const needlePerKg = totalProduction > 0 ? parseFloat((needleBroken / totalProduction).toFixed(4)) : 0;
+  const needlePerKg = needleBroken > 0 && totalProduction > 0
+    ? parseFloat((totalProduction / needleBroken).toFixed(2))
+    : 0;
 
   const sinkerBroken = Number(record.sinkerBroken) || 0;
-  const sinkerPerKg = totalProduction > 0 ? parseFloat((sinkerBroken / totalProduction).toFixed(4)) : 0;
+  const sinkerPerKg = sinkerBroken > 0 && totalProduction > 0
+    ? parseFloat((totalProduction / sinkerBroken).toFixed(2))
+    : 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/70 backdrop-blur-xs overflow-y-auto">
@@ -109,18 +120,28 @@ export default function AddProductionRecordModal({
         {/* Modal Header */}
         <div className="flex items-center justify-between gap-3 border-b border-gray-100 dark:border-slate-800 pb-3 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-blue-50 dark:bg-blue-950/50 flex items-center justify-center text-[#0F4C81] dark:text-blue-400 shrink-0">
-              <Plus className="h-5 w-5" />
+            <div className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
+              isEdit 
+                ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400' 
+                : 'bg-blue-50 dark:bg-blue-950/50 text-[#0F4C81] dark:text-blue-400'
+            }`}>
+              {isEdit ? <Edit2 className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
             </div>
             <div>
               <h3 className="font-sans text-sm sm:text-base font-black text-gray-950 dark:text-white uppercase tracking-wider flex items-center gap-2">
-                Add Production Record
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#0F4C81]/10 text-[#0F4C81] dark:bg-blue-900/40 dark:text-blue-300">
-                  Settings-Integrated Form
+                {title || (isEdit ? 'Edit Production Record' : 'Add Production Record')}
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  isEdit
+                    ? 'bg-amber-500/10 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                    : 'bg-[#0F4C81]/10 text-[#0F4C81] dark:bg-blue-900/40 dark:text-blue-300'
+                }`}>
+                  {isEdit ? 'Full Edit Mode' : 'Settings-Integrated Form'}
                 </span>
               </h3>
               <p className="text-[10px] text-gray-400 uppercase font-semibold">
-                Shift output, automated machine capacity, quality indices, consumables and manpower logs
+                {isEdit 
+                  ? `Editing complete production parameters for ${record.floor} on ${record.date}`
+                  : 'Shift output, automated machine capacity, quality indices, consumables and manpower logs'}
               </p>
             </div>
           </div>
@@ -141,13 +162,13 @@ export default function AddProductionRecordModal({
           <div className="space-y-0.5">
             <div className="text-[9px] font-bold text-gray-400 uppercase">Total Prod</div>
             <div className="text-xs font-mono font-black text-[#0F4C81] dark:text-blue-400">
-              {totalProduction.toLocaleString()} <span className="text-[9px]">Kg</span>
+              {(totalProduction ?? 0).toLocaleString()} <span className="text-[9px]">Kg</span>
             </div>
           </div>
           <div className="space-y-0.5">
             <div className="text-[9px] font-bold text-gray-400 uppercase">Bulk Prod</div>
             <div className="text-xs font-mono font-black text-emerald-600 dark:text-emerald-400">
-              {bulkProd.toLocaleString()} <span className="text-[9px]">Kg</span>
+              {(bulkProd ?? 0).toLocaleString()} <span className="text-[9px]">Kg</span>
             </div>
           </div>
           <div className="space-y-0.5">
@@ -167,7 +188,7 @@ export default function AddProductionRecordModal({
           <div className="space-y-0.5">
             <div className="text-[9px] font-bold text-gray-400 uppercase">Running Bulk</div>
             <div className="text-xs font-mono font-black text-gray-800 dark:text-slate-100">
-              {runningBulk} <span className="text-[9px] text-gray-400 font-normal">/ {totalM || record.totalMachines} MC</span>
+              {runningBulk} <span className="text-[9px] text-gray-400 font-normal">/ {totalM || record.totalMachines || 0} MC</span>
             </div>
           </div>
           <div className="space-y-0.5">
@@ -190,7 +211,7 @@ export default function AddProductionRecordModal({
               <div className="space-y-1">
                 <label className="text-[10px] font-bold uppercase text-gray-400">Floor Unit *</label>
                 <select
-                  value={record.floor}
+                  value={record.floor ?? 'EKL'}
                   onChange={(e) => onChange('floor', e.target.value)}
                   className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                 >
@@ -203,7 +224,7 @@ export default function AddProductionRecordModal({
                 <label className="text-[10px] font-bold uppercase text-gray-400">Date *</label>
                 <input
                   type="date"
-                  value={record.date}
+                  value={record.date ?? ''}
                   onChange={(e) => onChange('date', e.target.value)}
                   className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                   required
@@ -257,7 +278,7 @@ export default function AddProductionRecordModal({
                 </label>
                 <input
                   type="number"
-                  value={record.target}
+                  value={record.target ?? 0}
                   onChange={(e) => onChange('target', parseFloat(e.target.value) || 0)}
                   className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                 />
@@ -269,7 +290,7 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Shift A (Kg)</label>
                     <input
                       type="number"
-                      value={record.shiftA}
+                      value={record.shiftA ?? 0}
                       onChange={(e) => onChange('shiftA', parseFloat(e.target.value) || 0)}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
@@ -278,7 +299,7 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Shift B (Kg)</label>
                     <input
                       type="number"
-                      value={record.shiftB}
+                      value={record.shiftB ?? 0}
                       onChange={(e) => onChange('shiftB', parseFloat(e.target.value) || 0)}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
@@ -287,7 +308,7 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Shift C (Kg)</label>
                     <input
                       type="number"
-                      value={record.shiftC}
+                      value={record.shiftC ?? 0}
                       onChange={(e) => onChange('shiftC', parseFloat(e.target.value) || 0)}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
@@ -301,7 +322,7 @@ export default function AddProductionRecordModal({
                 </label>
                 <input
                   type="number"
-                  value={record.totalProduction}
+                  value={record.totalProduction ?? 0}
                   onChange={(e) => onChange('totalProduction', parseFloat(e.target.value) || 0)}
                   readOnly={record.floor !== 'Sub-Contact'}
                   className={`w-full rounded-lg border px-3 py-1.5 text-xs font-mono font-bold outline-hidden ${
@@ -377,7 +398,7 @@ export default function AddProductionRecordModal({
                 <label className="text-[10px] font-extrabold text-gray-500 uppercase">Running Machine (Total Active)</label>
                 <input
                   type="number"
-                  value={record.runningMachine}
+                  value={record.runningMachine ?? 0}
                   onChange={(e) => onChange('runningMachine', parseInt(e.target.value) || 0)}
                   className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                 />
@@ -408,7 +429,7 @@ export default function AddProductionRecordModal({
                 <label className="text-[10px] font-extrabold text-gray-500 uppercase">Idle Machines (Auto)</label>
                 <input
                   type="number"
-                  value={record.idleMachine}
+                  value={record.idleMachine ?? 0}
                   readOnly
                   className="w-full rounded-lg border border-gray-100 dark:border-slate-800 bg-gray-100/70 dark:bg-slate-800/50 px-3 py-1.5 text-xs font-mono font-bold text-gray-600 dark:text-slate-300 outline-hidden"
                 />
@@ -489,7 +510,7 @@ export default function AddProductionRecordModal({
                 <label className="text-[10px] font-extrabold text-gray-500 uppercase">Reject (Kg)</label>
                 <input
                   type="number"
-                  value={record.reject}
+                  value={record.reject ?? 0}
                   onChange={(e) => onChange('reject', parseFloat(e.target.value) || 0)}
                   className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                 />
@@ -507,7 +528,7 @@ export default function AddProductionRecordModal({
                 <label className="text-[10px] font-extrabold text-gray-500 uppercase">Hold (Kg)</label>
                 <input
                   type="number"
-                  value={record.hold}
+                  value={record.hold ?? 0}
                   onChange={(e) => onChange('hold', parseFloat(e.target.value) || 0)}
                   className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                 />
@@ -561,7 +582,7 @@ export default function AddProductionRecordModal({
                 <label className="text-[10px] font-extrabold text-gray-500 uppercase">Needle Broken (Pcs)</label>
                 <input
                   type="number"
-                  value={record.needleBroken}
+                  value={record.needleBroken ?? 0}
                   onChange={(e) => onChange('needleBroken', parseInt(e.target.value) || 0)}
                   className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                 />
@@ -569,7 +590,7 @@ export default function AddProductionRecordModal({
               <div className="space-y-1">
                 <label className="text-[10px] font-extrabold text-gray-500 uppercase flex items-center justify-between">
                   <span>Needle Broken/KG</span>
-                  <span className="text-[8px] text-purple-600 dark:text-purple-400 font-normal">(Pcs / Total Prod)</span>
+                  <span className="text-[8px] text-purple-600 dark:text-purple-400 font-normal">(Total Prod / PCS)</span>
                 </label>
                 <input
                   type="number"
@@ -582,7 +603,7 @@ export default function AddProductionRecordModal({
                 <label className="text-[10px] font-extrabold text-gray-500 uppercase">Sinker Broken (Pcs)</label>
                 <input
                   type="number"
-                  value={record.sinkerBroken}
+                  value={record.sinkerBroken ?? 0}
                   onChange={(e) => onChange('sinkerBroken', parseInt(e.target.value) || 0)}
                   className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                 />
@@ -590,7 +611,7 @@ export default function AddProductionRecordModal({
               <div className="space-y-1">
                 <label className="text-[10px] font-extrabold text-gray-500 uppercase flex items-center justify-between">
                   <span>Sinker Broken/KG</span>
-                  <span className="text-[8px] text-purple-600 dark:text-purple-400 font-normal">(Pcs / Total Prod)</span>
+                  <span className="text-[8px] text-purple-600 dark:text-purple-400 font-normal">(Total Prod / PCS)</span>
                 </label>
                 <input
                   type="number"
@@ -603,7 +624,7 @@ export default function AddProductionRecordModal({
                 <label className="text-[10px] font-extrabold text-gray-500 uppercase">Oil Consumption (Ltr)</label>
                 <input
                   type="number"
-                  value={record.oilConsumption}
+                  value={record.oilConsumption ?? 0}
                   onChange={(e) => onChange('oilConsumption', parseFloat(e.target.value) || 0)}
                   className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                 />
@@ -649,7 +670,7 @@ export default function AddProductionRecordModal({
                 <label className="text-[10px] font-extrabold text-gray-500 uppercase">Total Operators</label>
                 <input
                   type="number"
-                  value={record.totalOperator}
+                  value={record.totalOperator ?? 0}
                   onChange={(e) => onChange('totalOperator', parseInt(e.target.value) || 0)}
                   className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                 />
@@ -658,7 +679,7 @@ export default function AddProductionRecordModal({
                 <label className="text-[10px] font-extrabold text-gray-500 uppercase">Absent Count</label>
                 <input
                   type="number"
-                  value={record.absent}
+                  value={record.absent ?? 0}
                   onChange={(e) => onChange('absent', parseInt(e.target.value) || 0)}
                   className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                 />
@@ -726,7 +747,7 @@ export default function AddProductionRecordModal({
               Shift Handover Remarks & Production Notes
             </label>
             <textarea
-              value={record.remarks}
+              value={record.remarks ?? ''}
               onChange={(e) => onChange('remarks', e.target.value)}
               rows={2}
               className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-xs font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
@@ -754,9 +775,13 @@ export default function AddProductionRecordModal({
             </button>
             <button
               type="submit"
-              className="w-full sm:w-auto inline-flex items-center justify-center rounded-xl bg-[#0F4C81] hover:bg-[#0b3861] text-white px-6 py-2 text-xs font-bold transition-all shadow-sm cursor-pointer"
+              className={`w-full sm:w-auto inline-flex items-center justify-center rounded-xl px-6 py-2 text-xs font-bold transition-all shadow-sm cursor-pointer text-white ${
+                isEdit
+                  ? 'bg-amber-600 hover:bg-amber-700'
+                  : 'bg-[#0F4C81] hover:bg-[#0b3861]'
+              }`}
             >
-              Create Entry
+              {submitLabel || (isEdit ? 'Update & Save Record' : 'Create Entry')}
             </button>
           </div>
 

@@ -157,6 +157,7 @@ function normalizeHeaderName(headerStr) {
   if (str === "year" || str === "calyear") return "year";
   if (str === "month" || str === "calmonth") return "month";
   if (str === "date" || str === "entrydate" || str === "productiondate") return "date";
+  if (str === "day" || str === "dayofweek" || str === "weekday") return "day";
   if (str === "floor" || str === "floorname" || str === "factoryfloor") return "floor";
   if (str === "target" || str === "targettotal" || str === "totaltarget" || str === "targetkg") return "target";
   if (str === "shifta" || str === "shift1") return "shiftA";
@@ -166,6 +167,7 @@ function normalizeHeaderName(headerStr) {
   if (str === "targetbulk" || str === "targetbulkkg" || str === "bulktarget") return "targetBulk";
   if (str === "bulkprod" || str === "bulkproduction" || str === "bulkproductionkg") return "bulkProd";
   if (str === "sampleprod" || str === "sampleproduction" || str === "sampleproductionkg") return "sampleProd";
+  if (str === "totalmachines" || str === "totalmc" || str === "totalmachinesallocated" || str === "allocatedmachines") return "totalMachines";
   if (str === "runningbulk" || str === "runningbulkmc") return "runningBulk";
   if (str === "runningsample" || str === "runningsamplemc") return "runningSample";
   if (str === "runningmachine" || str === "runningmc" || str === "totalrunningmachine" || str === "activemachines") return "runningMachine";
@@ -344,8 +346,8 @@ function initializeDatabase() {
   if (!ledgerSheet) {
     ledgerSheet = ss.insertSheet("Production Ledger");
     const ledgerHeaders = [
-      "id", "unit", "year", "month", "date", "floor", "target", "shiftA", "shiftB", "shiftC", 
-      "totalProduction", "targetBulk", "bulkProd", "sampleProd", "runningBulk", "runningSample", 
+      "id", "unit", "year", "month", "date", "day", "floor", "target", "shiftA", "shiftB", "shiftC", 
+      "totalProduction", "targetBulk", "bulkProd", "sampleProd", "totalMachines", "runningBulk", "runningSample", 
       "runningMachine", "idleMc", "machineUtilization", "idleMcPct", "idleProduction", "efficiency", 
       "proPerMc", "reject", "rejectPct", "hold", "holdPct", "jhuteCutpcs", "jhuteCutpcsPct", 
       "needleBroken", "needlePerKg", "sinkerBroken", "sinkerPerKg", "oilConsumption", "beltBroken", 
@@ -389,7 +391,24 @@ function getOrderPlanSheetInternal() {
   return ss.getSheetByName("Order Plan & Status") || ss.getSheetByName("Order_Plans");
 }
 
+function formatDateCell(val, ss) {
+  if (!val) return "";
+  if (val instanceof Date) {
+    try {
+      var tz = ss ? ss.getSpreadsheetTimeZone() : Session.getScriptTimeZone();
+      return Utilities.formatDate(val, tz || "GMT+6", "yyyy-MM-dd");
+    } catch (e) {
+      var year = val.getFullYear();
+      var month = ("0" + (val.getMonth() + 1)).slice(-2);
+      var day = ("0" + val.getDate()).slice(-2);
+      return year + "-" + month + "-" + day;
+    }
+  }
+  return val;
+}
+
 function handleGetOrderPlans(e) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = getOrderPlanSheetInternal();
   if (!sheet) {
     return makeResponse({ success: true, data: [] });
@@ -410,7 +429,7 @@ function handleGetOrderPlans(e) {
     for (let j = 0; j < normalizedHeaders.length; j++) {
       let val = row[j];
       if (val instanceof Date) {
-        val = val.toISOString().split('T')[0];
+        val = formatDateCell(val, ss);
       }
       const propKey = normalizedHeaders[j] || ("col_" + j);
       item[propKey] = val;
@@ -582,6 +601,7 @@ function getYarnSheetInternal() {
 }
 
 function handleGetYarnAllocations(e) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = getYarnSheetInternal();
   if (!sheet) {
     return makeResponse({ success: true, data: [] });
@@ -602,7 +622,7 @@ function handleGetYarnAllocations(e) {
     for (let j = 0; j < normalizedHeaders.length; j++) {
       let val = row[j];
       if (val instanceof Date) {
-        val = val.toISOString().split('T')[0];
+        val = formatDateCell(val, ss);
       }
       const propKey = normalizedHeaders[j] || ("col_" + j);
       item[propKey] = val;
@@ -773,6 +793,7 @@ function getLedgerSheetInternal() {
 }
 
 function handleGetLedgerRecords(e) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = getLedgerSheetInternal();
   if (!sheet) {
     return makeResponse({ success: true, data: [] });
@@ -793,7 +814,7 @@ function handleGetLedgerRecords(e) {
     for (let j = 0; j < normalizedHeaders.length; j++) {
       let val = row[j];
       if (val instanceof Date) {
-        val = val.toISOString().split('T')[0];
+        val = formatDateCell(val, ss);
       }
       const propKey = normalizedHeaders[j] || ("col_" + j);
       item[propKey] = val;
@@ -829,8 +850,8 @@ function handleSaveLedgerRecords(payload) {
   records = records.filter(function(r) { return r && typeof r === "object"; });
 
   const defaultHeaders = [
-    "id", "unit", "year", "month", "date", "floor", "target", "shiftA", "shiftB", "shiftC", 
-    "totalProduction", "targetBulk", "bulkProd", "sampleProd", "runningBulk", "runningSample", 
+    "id", "unit", "year", "month", "date", "day", "floor", "target", "shiftA", "shiftB", "shiftC", 
+    "totalProduction", "targetBulk", "bulkProd", "sampleProd", "totalMachines", "runningBulk", "runningSample", 
     "runningMachine", "idleMc", "machineUtilization", "idleMcPct", "idleProduction", "efficiency", 
     "proPerMc", "reject", "rejectPct", "hold", "holdPct", "jhuteCutpcs", "jhuteCutpcsPct", 
     "needleBroken", "needlePerKg", "sinkerBroken", "sinkerPerKg", "oilConsumption", "beltBroken", 
@@ -846,8 +867,24 @@ function handleSaveLedgerRecords(payload) {
     data = [defaultHeaders];
   }
 
-  const rawHeaders = data[0];
-  const normHeaders = rawHeaders.map(function(h) { return normalizeHeaderName(h); });
+  let rawHeaders = data[0].map(function(h) { return h ? h.toString().trim() : ""; });
+  let normHeaders = rawHeaders.map(function(h) { return normalizeHeaderName(h); });
+
+  // Auto-expand sheet headers if any default headers are missing in Google Sheet
+  var missingHeaders = [];
+  defaultHeaders.forEach(function(dh) {
+    var normDh = normalizeHeaderName(dh);
+    if (normHeaders.indexOf(normDh) === -1) {
+      missingHeaders.push(dh);
+    }
+  });
+
+  if (missingHeaders.length > 0) {
+    var currentLastCol = sheet.getLastColumn();
+    sheet.getRange(1, currentLastCol + 1, 1, missingHeaders.length).setValues([missingHeaders]);
+    rawHeaders = rawHeaders.concat(missingHeaders);
+    normHeaders = rawHeaders.map(function(h) { return normalizeHeaderName(h); });
+  }
 
   const isReplace = payload.replace === true || payload.mode === "replace" || (payload.data && payload.data.replace === true);
 
@@ -866,11 +903,7 @@ function handleSaveLedgerRecords(payload) {
       return normHeaders.map(function(h, colIdx) {
         if (h === "id") return recId;
         const origHeader = rawHeaders[colIdx];
-        let val = rec[h];
-        if (val === undefined || val === null) val = rec[origHeader];
-        if (val === undefined || val === null) return "";
-        if (typeof val === "object") return JSON.stringify(val);
-        return val;
+        return extractLedgerColumnValue(rec, h, origHeader);
       });
     });
 
@@ -898,11 +931,7 @@ function handleSaveLedgerRecords(payload) {
     const newRow = normHeaders.map(function(h, colIdx) {
       if (h === "id") return recId;
       const origHeader = rawHeaders[colIdx];
-      let val = rec[h];
-      if (val === undefined || val === null) val = rec[origHeader];
-      if (val === undefined || val === null) return "";
-      if (typeof val === "object") return JSON.stringify(val);
-      return val;
+      return extractLedgerColumnValue(rec, h, origHeader);
     });
 
     if (existingMap[recId]) {
@@ -924,6 +953,39 @@ function handleSaveLedgerRecords(payload) {
     count: records.length,
     id: records[0] ? records[0].id : null
   });
+}
+
+function extractLedgerColumnValue(rec, normKey, origHeader) {
+  if (!rec || typeof rec !== "object") return "";
+  
+  var val = rec[normKey];
+  if (val === undefined || val === null || val === "") {
+    if (origHeader && rec[origHeader] !== undefined && rec[origHeader] !== null) {
+      val = rec[origHeader];
+    }
+  }
+
+  // Alias & alternate naming lookups
+  if (val === undefined || val === null || val === "") {
+    if (normKey === "idleMc") val = rec.idleMachine;
+    else if (normKey === "idleMcPct") val = rec.idleMachinePct;
+    else if (normKey === "proPerMc") val = rec.productionPerMachine;
+    else if (normKey === "setChangePcs") val = rec.setChange;
+    else if (normKey === "productionLossForEff") val = rec.productionLossForEfficiency;
+    else if (normKey === "totalRunningFactories") val = rec.runningFactories;
+    else if (normKey === "achievmentCircular") val = rec.achievementCircular;
+    else if (normKey === "day" && rec.date) {
+      try {
+        var d = new Date(rec.date);
+        var days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+        if (!isNaN(d.getDay())) val = days[d.getDay()];
+      } catch (e) {}
+    }
+  }
+
+  if (val === undefined || val === null) return "";
+  if (typeof val === "object") return JSON.stringify(val);
+  return val;
 }
 
 function handleDeleteLedgerRecord(payload) {
