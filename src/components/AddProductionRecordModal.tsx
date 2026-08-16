@@ -28,6 +28,8 @@ import {
   UnitThresholdConfig
 } from '../lib/unitStore';
 import { FirestoreSyncService } from '../lib/firestoreSync';
+import { UserRecord } from './UserManagementView';
+import { ShieldCheck, Lock } from 'lucide-react';
 
 interface AddProductionRecordModalProps {
   isOpen: boolean;
@@ -39,6 +41,8 @@ interface AddProductionRecordModalProps {
   isEdit?: boolean;
   title?: string;
   submitLabel?: string;
+  allowedFloors?: string[];
+  currentUser?: UserRecord | null;
 }
 
 export default function AddProductionRecordModal({
@@ -50,7 +54,9 @@ export default function AddProductionRecordModal({
   errors,
   isEdit = false,
   title,
-  submitLabel
+  submitLabel,
+  allowedFloors,
+  currentUser
 }: AddProductionRecordModalProps) {
   // Subscribe to reactive unit settings (Hooks MUST be called unconditionally at top)
   const [unitConfigs, setUnitConfigs] = React.useState<UnitThresholdConfig[]>(() => getUnitConfigs());
@@ -75,7 +81,13 @@ export default function AddProductionRecordModal({
 
   if (!isOpen || !record) return null;
 
-  const floors = ['EKL', 'EFL', 'EFL-2', 'Auto Stripe', 'EFL-Extension', 'ESL-Extension', 'Sub-Contact'];
+  const allFloors = ['EKL', 'EFL', 'EFL-2', 'Auto Stripe', 'EFL-Extension', 'ESL-Extension', 'Sub-Contact'];
+  const isAdmin = currentUser?.userType === 'Admin';
+  
+  // Filter floors by user assigned units if not admin
+  const floors = (allowedFloors && allowedFloors.length > 0)
+    ? allFloors.filter(f => allowedFloors.some(af => af.toLowerCase().replace(/[-\s_]/g, '') === f.toLowerCase().replace(/[-\s_]/g, '')))
+    : (isAdmin ? allFloors : (record.floor ? [record.floor] : allFloors));
 
   // Current floor setting values for live preview calculation
   const currentFloor = record.floor || 'EKL';
@@ -209,9 +221,21 @@ export default function AddProductionRecordModal({
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
               <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase text-gray-400">Floor Unit *</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold uppercase text-gray-400">Floor Unit *</label>
+                  {!isAdmin && allowedFloors && allowedFloors.length > 0 && (
+                    <span className="inline-flex items-center gap-1 text-[9px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded">
+                      <ShieldCheck className="h-2.5 w-2.5" /> Assigned
+                    </span>
+                  )}
+                  {isAdmin && (
+                    <span className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded">
+                      Admin
+                    </span>
+                  )}
+                </div>
                 <select
-                  value={record.floor ?? 'EKL'}
+                  value={record.floor ?? (floors[0] || 'EKL')}
                   onChange={(e) => onChange('floor', e.target.value)}
                   className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                 >
@@ -219,6 +243,11 @@ export default function AddProductionRecordModal({
                     <option key={fl} value={fl}>{fl}</option>
                   ))}
                 </select>
+                {floors.length === 1 && !isAdmin && (
+                  <p className="text-[9px] text-gray-500 dark:text-slate-400 italic">
+                    Restricted to your assigned floor: {floors[0]}
+                  </p>
+                )}
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-bold uppercase text-gray-400">Date *</label>

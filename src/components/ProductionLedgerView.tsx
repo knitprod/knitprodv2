@@ -44,6 +44,10 @@ import { GasClient } from '../lib/gasClient';
 import { FirestoreSyncService } from '../lib/firestoreSync';
 import AddProductionRecordModal from './AddProductionRecordModal';
 import { 
+  getUserAllowedFloorsForEntry, 
+  isUserAuthorizedForFloor 
+} from '../lib/userPermissions';
+import { 
   getTargetKgForUnit, 
   getTotalMachinesForUnit, 
   getAvgProdPerMachineForUnit, 
@@ -289,48 +293,49 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       month: 'August',
       date: '2026-08-11',
       floor: 'EKL',
-      target: 5863,
-      shiftA: 1836,
-      shiftB: 1630,
-      shiftC: 1502,
-      totalProduction: 4968,
-      targetBulk: 5520,
-      bulkProd: 4672,
-      sampleProd: 296,
-      runningBulk: 24,
-      runningSample: 3,
-      idleMc: 2,
-      machineUtilization: 83,
-      idleMcPct: 7,
+      target: 12550,
+      shiftA: 3200,
+      shiftB: 3190,
+      shiftC: 3200,
+      totalProduction: 9590,
+      targetBulk: 11500,
+      bulkProd: 9250,
+      sampleProd: 340,
+      runningBulk: 42,
+      runningSample: 4,
+      idleMc: 12,
+      machineUtilization: 79.3,
+      idleMcPct: 20.7,
       prodLossForSample: 0,
-      idleProduction: 289,
-      efficiency: 90,
-      proPerMc: 207.00,
-      reject: 0,
-      rejectPct: 0,
-      hold: 114.58,
-      holdPct: 2.31,
+      idleProduction: 2960,
+      efficiency: 76.4,
+      proPerMc: 208.48,
+      reject: 14,
+      rejectPct: 0.15,
+      hold: 87,
+      holdPct: 0.91,
       jhuteCutpcs: 0,
       jhuteCutpcsPct: 0,
-      needleBroken: 123,
-      needlePerKg: 40.4,
+      needleBroken: 58,
+      needlePerKg: 165.34,
       sinkerBroken: 0,
       sinkerPerKg: 0,
-      oilConsumption: 9,
+      oilConsumption: 12,
       beltBroken: 0,
       otherSparePartsName: '',
       otherSparePartsQty: 0,
       setChangePcs: 0,
-      productionLossForEff: -43943.86,
-      capacityUtilization: 78.24,
-      totalOperator: 44,
-      absent: 1,
-      absentPct: 2.27,
+      productionLossForEff: -2960,
+      capacityUtilization: 76.4,
+      totalOperator: 98,
+      absent: 4,
+      absentPct: 4.1,
       remarks: '',
-      idleMachine: 2,
-      idleMachinePct: 7,
-      productionPerMachine: 207.00,
-      productionLossForEfficiency: -43943.86,
+      runningMachine: 46,
+      idleMachine: 12,
+      idleMachinePct: 20.7,
+      productionPerMachine: 208.48,
+      productionLossForEfficiency: -2960,
     },
     {
       id: 'rec-2026-08-11-auto-stripe',
@@ -338,49 +343,50 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       year: 2026,
       month: 'August',
       date: '2026-08-11',
-      floor: 'Auto-Stripe',
-      target: 773,
-      shiftA: 159,
-      shiftB: 137,
-      shiftC: 217,
-      totalProduction: 513,
-      targetBulk: 720,
-      bulkProd: 466,
-      sampleProd: 47,
-      runningBulk: 6,
-      runningSample: 1,
-      idleMc: 3,
-      machineUtilization: 60,
-      idleMcPct: 30,
+      floor: 'Auto Stripe',
+      target: 0,
+      shiftA: 0,
+      shiftB: 0,
+      shiftC: 0,
+      totalProduction: 0,
+      targetBulk: 0,
+      bulkProd: 0,
+      sampleProd: 0,
+      runningBulk: 0,
+      runningSample: 0,
+      idleMc: 0,
+      machineUtilization: 0,
+      idleMcPct: 0,
       prodLossForSample: 0,
-      idleProduction: 30.67,
-      efficiency: 61,
-      proPerMc: 85.50,
+      idleProduction: 0,
+      efficiency: 0,
+      proPerMc: 0,
       reject: 0,
       rejectPct: 0,
-      hold: 87,
-      holdPct: 16.96,
+      hold: 0,
+      holdPct: 0,
       jhuteCutpcs: 0,
       jhuteCutpcsPct: 0,
-      needleBroken: 30,
-      needlePerKg: 17.1,
-      sinkerBroken: 2,
-      sinkerPerKg: 256.50,
-      oilConsumption: 3.2,
+      needleBroken: 0,
+      needlePerKg: 0,
+      sinkerBroken: 0,
+      sinkerPerKg: 0,
+      oilConsumption: 0,
       beltBroken: 0,
       otherSparePartsName: '',
       otherSparePartsQty: 0,
       setChangePcs: 0,
-      productionLossForEff: -8063,
-      capacityUtilization: 51.30,
-      totalOperator: 17,
+      productionLossForEff: 0,
+      capacityUtilization: 0,
+      totalOperator: 0,
       absent: 0,
       absentPct: 0,
       remarks: '',
-      idleMachine: 3,
-      idleMachinePct: 30,
-      productionPerMachine: 85.50,
-      productionLossForEfficiency: -8063,
+      runningMachine: 0,
+      idleMachine: 0,
+      idleMachinePct: 0,
+      productionPerMachine: 0,
+      productionLossForEfficiency: 0,
     },
     {
       id: 'rec-2026-08-11-efl',
@@ -400,12 +406,12 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       runningBulk: 45,
       runningSample: 6,
       idleMc: 15,
-      machineUtilization: 68,
-      idleMcPct: 23,
+      machineUtilization: 77.3,
+      idleMcPct: 22.7,
       prodLossForSample: 0,
       idleProduction: 948,
-      efficiency: 89,
-      proPerMc: 211.33,
+      efficiency: 67.7,
+      proPerMc: 186.47,
       reject: 13,
       rejectPct: 0.14,
       hold: 77,
@@ -421,16 +427,17 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       otherSparePartsName: '',
       otherSparePartsQty: 0,
       setChangePcs: 0,
-      productionLossForEff: -45050.61,
-      capacityUtilization: 58.92,
+      productionLossForEff: -4543,
+      capacityUtilization: 67.7,
       totalOperator: 96,
       absent: 4,
-      absentPct: 4.17,
+      absentPct: 4.2,
       remarks: '',
+      runningMachine: 51,
       idleMachine: 15,
-      idleMachinePct: 23,
-      productionPerMachine: 211.33,
-      productionLossForEfficiency: -45050.61,
+      idleMachinePct: 22.7,
+      productionPerMachine: 186.47,
+      productionLossForEfficiency: -4543,
     },
     {
       id: 'rec-2026-08-11-efl-2',
@@ -447,23 +454,23 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       targetBulk: 8960,
       bulkProd: 5376,
       sampleProd: 136,
-      runningBulk: 32,
+      runningBulk: 31,
       runningSample: 3,
-      idleMc: 8,
-      machineUtilization: 81,
-      idleMcPct: 19,
+      idleMc: 9,
+      machineUtilization: 79.1,
+      idleMcPct: 20.9,
       prodLossForSample: 0,
-      idleProduction: 368,
-      efficiency: 60,
-      proPerMc: 172.25,
-      reject: 0,
-      rejectPct: 0,
-      hold: 94.34,
-      holdPct: 1.75,
+      idleProduction: 3115,
+      efficiency: 63.9,
+      proPerMc: 162.12,
+      reject: 10,
+      rejectPct: 0.18,
+      hold: 55,
+      holdPct: 1.00,
       jhuteCutpcs: 14.6,
       jhuteCutpcsPct: 0,
       needleBroken: 37,
-      needlePerKg: 149.0,
+      needlePerKg: 148.97,
       sinkerBroken: 0,
       sinkerPerKg: 0,
       oilConsumption: 15,
@@ -471,16 +478,17 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       otherSparePartsName: '',
       otherSparePartsQty: 0,
       setChangePcs: 0,
-      productionLossForEff: 5548,
-      capacityUtilization: 44.74,
-      totalOperator: 63,
-      absent: 1,
-      absentPct: 1.59,
+      productionLossForEff: 3115,
+      capacityUtilization: 63.9,
+      totalOperator: 60,
+      absent: 3,
+      absentPct: 5.0,
       remarks: 'power problem 4.13hours',
-      idleMachine: 8,
-      idleMachinePct: 19,
-      productionPerMachine: 172.25,
-      productionLossForEfficiency: 5548,
+      runningMachine: 34,
+      idleMachine: 9,
+      idleMachinePct: 20.9,
+      productionPerMachine: 162.12,
+      productionLossForEfficiency: 3115,
     }
   ];
 
@@ -886,6 +894,12 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   // Success Notification banner
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // User assigned floors for data entry (Admins have access to all floors)
+  const allowedEntryFloors = useMemo(() => {
+    return getUserAllowedFloorsForEntry(currentUser);
+  }, [currentUser]);
+  const canUserEnterRecords = isAdmin || allowedEntryFloors.length > 0;
+
   // Role check - Only Admin users can delete records
   const userHasDeletePermission = isAdmin;
 
@@ -1012,8 +1026,36 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   const floorSummaries = useMemo(() => {
     const floorsList = ['EKL', 'EFL', 'EFL-2', 'Auto Stripe', 'EFL-Extension', 'ESL-Extension', 'Sub-Contact'];
     
+    const isFloorMatch = (recordFloor: string, targetFloor: string) => {
+      if (!recordFloor || !targetFloor) return false;
+      const r = recordFloor.trim().toLowerCase().replace(/[-\s_]/g, '');
+      const t = targetFloor.trim().toLowerCase().replace(/[-\s_]/g, '');
+      if (r === t) return true;
+      if ((r === 'extension' || r === 'eflextension') && (t === 'extension' || t === 'eflextension')) return true;
+      if (r === 'autostripe' && t === 'autostripe') return true;
+      return false;
+    };
+
+    const getFloorDateStatus = (dateStr: string) => {
+      if (!dateStr) return { isLive: false, label: 'No Data' };
+      
+      const cleanDate = dateStr.trim();
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+      
+      if (cleanDate === yesterdayStr || cleanDate === todayStr) {
+        return { isLive: true, label: 'Live' };
+      }
+      
+      return { isLive: false, label: formatDateFriendly(cleanDate) };
+    };
+
     return floorsList.map((floorName) => {
-      const floorRows = filteredRecords.filter((r) => r.floor === floorName);
+      const floorRows = filteredRecords.filter((r) => isFloorMatch(r.floor, floorName));
       
       const target = floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
       const production = floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0);
@@ -1031,7 +1073,14 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       const totalOperator = floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalOperator)) ? 0 : Number(r.totalOperator || 0)), 0);
       const absentPct = totalOperator > 0 ? parseFloat(((absent / totalOperator) * 100).toFixed(1)) : 0;
 
-      const lastUpdated = floorRows.length > 0 ? 'Verified' : 'N/A';
+      // Find latest production update date for this floor
+      const matchingFloorRecords = floorRows.length > 0 ? floorRows : enrichedLedger.filter((r) => isFloorMatch(r.floor, floorName));
+      const validDates = matchingFloorRecords
+        .map((r) => (r.date ? r.date.trim() : ''))
+        .filter(Boolean)
+        .sort((a, b) => b.localeCompare(a));
+      const latestDate = validDates[0] || '';
+      const dateStatus = getFloorDateStatus(latestDate);
 
       return {
         name: floorName,
@@ -1045,10 +1094,11 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         absent,
         totalOperator,
         absentPct,
-        lastUpdated
+        lastUpdated: latestDate ? formatDateFriendly(latestDate) : 'N/A',
+        dateStatus
       };
     });
-  }, [filteredRecords]);
+  }, [filteredRecords, enrichedLedger]);
 
   // ----------------------------------------------------
   // HANDLERS: FILTER ACTIONS
@@ -1253,6 +1303,15 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     if (!creatingRecord.floor) errors.floor = "Floor / Unit is required.";
     if (creatingRecord.target <= 0) errors.target = "Target quantity must be positive.";
     
+    // User Restriction: Verify unit assignment
+    if (!isUserAuthorizedForFloor(currentUser, creatingRecord.floor)) {
+      const allowedStr = allowedEntryFloors.length > 0 ? allowedEntryFloors.join(', ') : 'None';
+      errors.floor = `Access Restricted: You are only authorized to enter data for: ${allowedStr}`;
+      setCreateErrors(errors);
+      triggerToast(`Access Denied: You are not assigned to unit ${creatingRecord.floor}.`);
+      return;
+    }
+    
     if (creatingRecord.floor !== 'Sub-Contact') {
       if (creatingRecord.shiftA < 0) errors.shiftA = "Value cannot be negative.";
       if (creatingRecord.shiftB < 0) errors.shiftB = "Value cannot be negative.";
@@ -1302,6 +1361,11 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   // HANDLERS: EDIT RECORD FORM
   // ----------------------------------------------------
   const handleOpenEdit = (record: LedgerRecord) => {
+    if (!isUserAuthorizedForFloor(currentUser, record.floor)) {
+      const allowedStr = allowedEntryFloors.length > 0 ? allowedEntryFloors.join(', ') : 'None';
+      triggerToast(`Access Denied: You are not assigned to unit ${record.floor}. You can only edit records for your assigned unit(s): ${allowedStr}.`);
+      return;
+    }
     setEditingRecord({ ...record });
     setEditErrors({});
     setIsEditModalOpen(true);
@@ -1388,6 +1452,15 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const errors: Record<string, string> = {};
     if (!editingRecord.date) errors.date = "Production date is required.";
     if (editingRecord.target <= 0) errors.target = "Target quantity must be positive.";
+    
+    // User Restriction: Verify unit assignment
+    if (!isUserAuthorizedForFloor(currentUser, editingRecord.floor)) {
+      const allowedStr = allowedEntryFloors.length > 0 ? allowedEntryFloors.join(', ') : 'None';
+      errors.floor = `Access Restricted: You are only authorized to modify data for: ${allowedStr}`;
+      setEditErrors(errors);
+      triggerToast(`Access Denied: You cannot modify records for unit ${editingRecord.floor}.`);
+      return;
+    }
     
     if (editingRecord.floor !== 'Sub-Contact') {
       if (editingRecord.shiftA < 0) errors.shiftA = "Value cannot be negative.";
@@ -1826,9 +1899,20 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
               <div className="border-t border-gray-50 dark:border-slate-800 pt-2 mt-3 flex items-center justify-between text-[10px] font-bold text-gray-400">
                 <span>Database Allocation: Online</span>
-                <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                  <CheckCircle2 className="h-3 w-3" /> Fully Synced
-                </span>
+                {f.dateStatus.isLive ? (
+                  <span className="inline-flex items-center gap-1.5 font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200/50 dark:border-emerald-800/40">
+                    <span className="relative flex h-1.5 w-1.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                    </span>
+                    Live
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/80 px-2 py-0.5 rounded-md">
+                    <Calendar className="h-2.5 w-2.5 text-slate-400" />
+                    {f.dateStatus.label}
+                  </span>
+                )}
               </div>
             </div>
           ))}
