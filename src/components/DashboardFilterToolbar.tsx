@@ -35,6 +35,7 @@ export interface FilterState {
 }
 
 const UNITS = [
+  { id: 'all', name: 'All Units', longName: 'All Factory Units (Consolidated)' },
   { id: 'EKL', name: 'EKL', longName: 'Epyllion Knitting Ltd (Main Floor)' },
   { id: 'EFL', name: 'EFL', longName: 'Epyllion Fabrics Ltd (Floor 1)' },
   { id: 'EFL-2', name: 'EFL-2', longName: 'Epyllion Fabrics Ltd (Floor 2)' },

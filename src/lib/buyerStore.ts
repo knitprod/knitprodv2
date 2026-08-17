@@ -25,9 +25,7 @@ export const DEFAULT_BUYERS: string[] = [
   'Bonds',
   'RAW-ASOS',
   'Lands End',
-  'Obey',
-  'BESTSELLER',
-  'Australian Open'
+  'Obey'
 ];
 
 let memoryBuyers: string[] = [...DEFAULT_BUYERS];

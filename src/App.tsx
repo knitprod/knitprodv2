@@ -55,6 +55,7 @@ import { FirestoreSyncService } from './lib/firestoreSync';
 import { auth } from './lib/firebase';
 import { onAuthStateChanged, signOut, updateProfile } from 'firebase/auth';
 import { getTargetKgForUnit, getTotalMachinesForUnit, saveUnitConfigs, getUnitConfigs } from './lib/unitStore';
+import { saveBuyers } from './lib/buyerStore';
 
 import { FactoryFloor, ProductionEntry, ActivityLog } from './types';
 import { INITIAL_FLOORS, INITIAL_KPIS, INITIAL_ACTIVITY_LOGS } from './data';
@@ -557,27 +558,37 @@ export default function App() {
       }
     });
 
-    // Realtime listener for System Settings (Units, Targets, Machines) in Firestore
+    // Realtime listener for System Settings (Units, Targets, Machines, Buyers) in Firestore
     const unsubscribeSettings = FirestoreSyncService.subscribeToSettings((remoteSettings) => {
-      if (remoteSettings && remoteSettings.unitConfigs && Array.isArray(remoteSettings.unitConfigs) && remoteSettings.unitConfigs.length > 0) {
-        saveUnitConfigs(remoteSettings.unitConfigs);
-        setFloors((prevFloors) =>
-          prevFloors.map((floor) => {
-            const targetKg = getTargetKgForUnit(floor.name, floor.targetKg);
-            const totalMachines = getTotalMachinesForUnit(floor.name, floor.totalMachines);
-            const runningMachines = Math.min(floor.runningMachines, totalMachines);
-            const idleMachines = Math.max(0, totalMachines - runningMachines);
-            const achievementPct = targetKg > 0 ? parseFloat(((floor.productionKg / targetKg) * 100).toFixed(1)) : 0;
-            return {
-              ...floor,
-              targetKg,
-              totalMachines,
-              runningMachines,
-              idleMachines,
-              achievementPct
-            };
-          })
-        );
+      if (remoteSettings) {
+        if (remoteSettings.buyers) {
+          const list = Array.isArray(remoteSettings.buyers)
+            ? remoteSettings.buyers
+            : String(remoteSettings.buyers).split(',').map((s: string) => s.trim()).filter(Boolean);
+          if (list.length > 0) {
+            saveBuyers(list);
+          }
+        }
+        if (remoteSettings.unitConfigs && Array.isArray(remoteSettings.unitConfigs) && remoteSettings.unitConfigs.length > 0) {
+          saveUnitConfigs(remoteSettings.unitConfigs);
+          setFloors((prevFloors) =>
+            prevFloors.map((floor) => {
+              const targetKg = getTargetKgForUnit(floor.name, floor.targetKg);
+              const totalMachines = getTotalMachinesForUnit(floor.name, floor.totalMachines);
+              const runningMachines = Math.min(floor.runningMachines, totalMachines);
+              const idleMachines = Math.max(0, totalMachines - runningMachines);
+              const achievementPct = targetKg > 0 ? parseFloat(((floor.productionKg / targetKg) * 100).toFixed(1)) : 0;
+              return {
+                ...floor,
+                targetKg,
+                totalMachines,
+                runningMachines,
+                idleMachines,
+                achievementPct
+              };
+            })
+          );
+        }
       }
     });
 

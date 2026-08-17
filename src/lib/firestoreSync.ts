@@ -415,6 +415,30 @@ export class FirestoreSyncService {
     }
   }
 
+  static async batchSaveLedgerRecords(records: LedgerRecord[], operatorName?: string): Promise<void> {
+    try {
+      if (!records || records.length === 0) return;
+      const CHUNK_SIZE = 300;
+      for (let i = 0; i < records.length; i += CHUNK_SIZE) {
+        const chunk = records.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(db);
+        chunk.forEach(rec => {
+          const docId = rec.id || `ledger-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+          const docRef = doc(db, COLLECTIONS.LEDGER_RECORDS, docId);
+          batch.set(docRef, {
+            ...rec,
+            id: docId,
+            operatorName: operatorName || 'Manager',
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+        });
+        await batch.commit();
+      }
+    } catch (e) {
+      console.warn('batchSaveLedgerRecords firestore notice:', e);
+    }
+  }
+
   static async deleteLedgerRecord(recordId: string): Promise<void> {
     try {
       if (!recordId) return;

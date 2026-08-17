@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { GasClient } from '../lib/gasClient';
 import { FirestoreSyncService } from '../lib/firestoreSync';
-import { getBuyers } from '../lib/buyerStore';
+import { getBuyers, saveBuyers } from '../lib/buyerStore';
+import { getUnitConfigs, UnitThresholdConfig } from '../lib/unitStore';
 import { 
   Users, 
   UserPlus, 
@@ -379,7 +380,32 @@ export default function UserManagementView() {
   // Dynamic Buyers list state from central store
   const [buyersList, setBuyersList] = useState<string[]>(() => getBuyers());
 
+  // Dynamic Factory Units list state from central store / settings
+  const [unitsList, setUnitsList] = useState<string[]>(() => {
+    const configs = getUnitConfigs();
+    return configs.length > 0 ? configs.map(u => u.unitName) : AVAILABLE_UNITS;
+  });
+
   useEffect(() => {
+    // 1. Subscribe to Firestore settings for real-time buyers and units synchronization
+    const unsubscribeSettings = FirestoreSyncService.subscribeToSettings((remoteSettings) => {
+      if (remoteSettings) {
+        if (remoteSettings.buyers) {
+          const list = Array.isArray(remoteSettings.buyers)
+            ? remoteSettings.buyers
+            : String(remoteSettings.buyers).split(',').map((s: string) => s.trim()).filter(Boolean);
+          if (list.length > 0) {
+            setBuyersList(list);
+            saveBuyers(list);
+          }
+        }
+        if (remoteSettings.unitConfigs && Array.isArray(remoteSettings.unitConfigs) && remoteSettings.unitConfigs.length > 0) {
+          setUnitsList(remoteSettings.unitConfigs.map((u: UnitThresholdConfig) => u.unitName));
+        }
+      }
+    });
+
+    // 2. Listen to custom event for buyers
     const handleBuyersUpdate = (e: Event) => {
       const customEv = e as CustomEvent<any>;
       if (customEv.detail && Array.isArray(customEv.detail)) {
@@ -391,7 +417,22 @@ export default function UserManagementView() {
       }
     };
     window.addEventListener('buyers_updated', handleBuyersUpdate);
-    return () => window.removeEventListener('buyers_updated', handleBuyersUpdate);
+
+    // 3. Listen to custom event for units
+    const handleUnitsUpdate = (e: Event) => {
+      const customEv = e as CustomEvent<any>;
+      const configs = customEv.detail || getUnitConfigs();
+      if (configs && Array.isArray(configs) && configs.length > 0) {
+        setUnitsList(configs.map((u: UnitThresholdConfig) => u.unitName));
+      }
+    };
+    window.addEventListener('unit_configs_updated', handleUnitsUpdate);
+
+    return () => {
+      if (unsubscribeSettings) unsubscribeSettings();
+      window.removeEventListener('buyers_updated', handleBuyersUpdate);
+      window.removeEventListener('unit_configs_updated', handleUnitsUpdate);
+    };
   }, []);
 
   // Form Password eyes
@@ -672,7 +713,7 @@ export default function UserManagementView() {
     }
 
     // Tab 2 Validation: Access & Permissions
-    if (formAssignedUnits.length === 0) {
+    if (formAssignedUnits.length === 0 && formType !== 'Admin') {
       errors[2] = "Please assign at least one manufacturing unit.";
     } else if (formAllowedTabs.length === 0) {
       errors[2] = "Please select at least one allowed tab/view.";
@@ -721,6 +762,11 @@ export default function UserManagementView() {
 
     const timestamp = getFormattedDateTime();
 
+    // Determine computed permission: Admin is always Read / Write; if any tab (such as Production Ledger) is granted Full Access, user has Read / Write access
+    const hasFullAccess = Object.values(formTabPermissions).some(p => p === 'Full Access') || formTabPermissions['Production Ledger'] === 'Full Access';
+    const computedPermission = formType === 'Admin' ? 'Read / Write' : (hasFullAccess ? 'Read / Write' : formPermission);
+    const effectiveUnits = formAssignedUnits.length > 0 ? [...formAssignedUnits] : (formType === 'Admin' ? [...unitsList] : [...unitsList]);
+
     if (popupMode === 'add') {
       const newUser: UserRecord = {
         id: `usr-${Date.now()}`,
@@ -730,9 +776,9 @@ export default function UserManagementView() {
         uid: formUid.trim().toUpperCase(),
         password: formPassword,
         department: formDepartment,
-        assignedUnits: [...formAssignedUnits],
+        assignedUnits: effectiveUnits,
         assignedBuyers: [...formAssignedBuyers],
-        permission: formPermission,
+        permission: computedPermission,
         status: formStatus,
         lastUpdated: timestamp,
         allowedTabs: Array.from(new Set(formAllowedTabs)),
@@ -758,9 +804,9 @@ export default function UserManagementView() {
         uid: formUid.trim().toUpperCase(),
         password: formPassword,
         department: formDepartment,
-        assignedUnits: [...formAssignedUnits],
+        assignedUnits: effectiveUnits,
         assignedBuyers: [...formAssignedBuyers],
-        permission: formPermission,
+        permission: computedPermission,
         status: formStatus,
         lastUpdated: timestamp,
         allowedTabs: Array.from(new Set(formAllowedTabs)),
@@ -905,7 +951,7 @@ export default function UserManagementView() {
   };
 
   // Form unit list filtering
-  const filteredAvailableUnitsInForm = AVAILABLE_UNITS.filter(unit => 
+  const filteredAvailableUnitsInForm = unitsList.filter(unit => 
     unit.toLowerCase().includes(unitSearchQuery.toLowerCase())
   );
 
@@ -1648,9 +1694,28 @@ export default function UserManagementView() {
 
                   {/* Searchable Multi-Select Units */}
                   <div className="space-y-2" ref={unitDropdownRef}>
-                    <label className="block text-[11px] font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider">
-                      Assigned Units <span className="text-red-500">*</span>
-                    </label>
+                    <div className="flex items-center justify-between">
+                      <label className="block text-[11px] font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+                        Assigned Units <span className="text-red-500">*</span>
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setFormAssignedUnits([...unitsList])}
+                          className="text-[10px] font-bold text-[#0F4C81] dark:text-sky-400 hover:underline uppercase cursor-pointer"
+                        >
+                          Select All
+                        </button>
+                        <span className="text-slate-300">|</span>
+                        <button
+                          type="button"
+                          onClick={() => setFormAssignedUnits([])}
+                          className="text-[10px] font-bold text-red-600 dark:text-red-400 hover:underline uppercase cursor-pointer"
+                        >
+                          Deselect All
+                        </button>
+                      </div>
+                    </div>
 
                     {/* Chips container */}
                     <div className="flex flex-wrap gap-1.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 min-h-[48px]">
@@ -1873,6 +1938,9 @@ export default function UserManagementView() {
                               setFormAllowedTabs(prev => [...prev, tab]);
                             }
                             setFormTabPermissions(prev => ({ ...prev, [tab]: newLevel }));
+                            if (newLevel === 'Full Access') {
+                              setFormPermission('Read / Write');
+                            }
                           }
                         };
 

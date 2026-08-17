@@ -1243,7 +1243,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                 />
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:flex xl:flex-wrap items-center gap-2 w-full lg:w-auto">
                 <SearchableSelect
                   value={teamLeaderFilter}
                   onChange={setTeamLeaderFilter}
@@ -1304,7 +1304,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                       setKnitEndSelect('All');
                       setOtdFilter('All');
                     }}
-                    className="px-3 py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                    className="px-3 py-2 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs w-full sm:w-auto"
                     title="Clear all active filters"
                   >
                     <X className="h-3.5 w-3.5" />

@@ -32,10 +32,23 @@ export const normalizeFloorKey = (floor: string): string => {
 };
 
 /**
+ * Checks if a user has full write/edit access for a specific tab
+ */
+export const hasUserWritePermissionForTab = (user: UserRecord | null | undefined, tabName: string): boolean => {
+  if (!user) return false;
+  if (user.userType === 'Admin') return true;
+  if (user.tabPermissions && user.tabPermissions[tabName] === 'Full Access') return true;
+  if (user.tabPermissions && user.tabPermissions[tabName] === 'View Only') return false;
+  if (user.tabPermissions && user.tabPermissions[tabName] === 'No Access') return false;
+  return user.permission === 'Read / Write';
+};
+
+/**
  * Returns the list of floor names a user is permitted to enter or modify data for.
  * - Admin users have access to ALL factory floors.
- * - Users with 'Read' or 'Hide' permissions have NO write access (empty list).
- * - General users with 'Read / Write' can ONLY enter data for their assignedUnits.
+ * - Users with 'Full Access' on 'Production Ledger' or 'Read / Write' permission can enter/edit data.
+ * - If assignedUnits is specified, they can enter data for those assigned units.
+ * - If assignedUnits is empty/unrestricted, they have access to all factory floors.
  */
 export const getUserAllowedFloorsForEntry = (user: UserRecord | null | undefined): string[] => {
   if (!user) return [];
@@ -43,27 +56,33 @@ export const getUserAllowedFloorsForEntry = (user: UserRecord | null | undefined
     return [...ALL_FACTORY_FLOORS];
   }
   
-  // If user permission is 'Read' or 'Hide', user cannot enter or edit data
-  if (user.permission && user.permission !== 'Read / Write') {
+  // Check write access via tabPermissions or top-level permission
+  const hasWriteAccess = hasUserWritePermissionForTab(user, 'Production Ledger') || user.permission === 'Read / Write';
+  if (!hasWriteAccess) {
     return [];
   }
   
   if (!user.assignedUnits || !Array.isArray(user.assignedUnits) || user.assignedUnits.length === 0) {
-    return [];
+    // If user has write access but no specific floor restriction was assigned, grant access to all factory floors
+    return [...ALL_FACTORY_FLOORS];
   }
   
   const assignedNorm = user.assignedUnits.map(normalizeFloorKey);
+  if (assignedNorm.includes('all') || assignedNorm.includes('allunits')) {
+    return [...ALL_FACTORY_FLOORS];
+  }
+
   const matched: string[] = ALL_FACTORY_FLOORS.filter(fl => assignedNorm.includes(normalizeFloorKey(fl)));
   
   // If user has other custom unit names, include them
   user.assignedUnits.forEach(u => {
     const norm = normalizeFloorKey(u);
-    if (!matched.includes(norm) && norm) {
+    if (!matched.includes(norm) && norm && norm !== 'all' && norm !== 'allunits') {
       matched.push(norm);
     }
   });
   
-  return matched;
+  return matched.length > 0 ? matched : [...ALL_FACTORY_FLOORS];
 };
 
 /**
@@ -72,7 +91,9 @@ export const getUserAllowedFloorsForEntry = (user: UserRecord | null | undefined
 export const isUserAuthorizedForFloor = (user: UserRecord | null | undefined, floor: string): boolean => {
   if (!user) return false;
   if (user.userType === 'Admin') return true;
-  if (user.permission && user.permission !== 'Read / Write') return false;
+  
+  const hasWriteAccess = hasUserWritePermissionForTab(user, 'Production Ledger') || user.permission === 'Read / Write';
+  if (!hasWriteAccess) return false;
   
   const allowed = getUserAllowedFloorsForEntry(user);
   const targetNorm = normalizeFloorKey(floor);

@@ -36,16 +36,20 @@ import {
   ShieldAlert,
   ArrowRight,
   Plus,
-  RefreshCw
+  RefreshCw,
+  Upload,
+  FileSpreadsheet
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { LedgerRecord } from '../types';
 import { GasClient } from '../lib/gasClient';
 import { FirestoreSyncService } from '../lib/firestoreSync';
 import AddProductionRecordModal from './AddProductionRecordModal';
+import UploadLedgerExcelModal, { APP_LEDGER_COLUMNS } from './UploadLedgerExcelModal';
 import { 
   getUserAllowedFloorsForEntry, 
-  isUserAuthorizedForFloor 
+  isUserAuthorizedForFloor,
+  hasUserWritePermissionForTab
 } from '../lib/userPermissions';
 import { 
   getTargetKgForUnit, 
@@ -714,6 +718,16 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     return getTargetKgForUnit(floorName, 15000);
   };
 
+  // Helper to format yesterday's date as default YYYY-MM-DD
+  const getYesterdayDateString = (): string => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
   // Helper to centralize all production, quality, manpower, and machine formulas
   const recalculateRecordFields = (record: LedgerRecord): LedgerRecord => {
     const floorName = record.floor || 'EKL';
@@ -736,7 +750,57 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     // 5. Bulk PROD (KG) = Total Production - Sample Production
     const bulkProd = Math.max(0, totalProduction - sampleProd);
 
-    // Active & Running machines
+    // Sub-Contact specific calculations
+    if (isSubContact) {
+      const achievmentCircular = target > 0 ? parseFloat(((totalProduction / target) * 100).toFixed(2)) : 0;
+      const runningMachine = Number(record.runningMachine) || 0;
+      const totalRunningFactories = Number(record.totalRunningFactories ?? record.runningFactories) || 0;
+      const runningFactories = totalRunningFactories;
+      const productionFlatKnit = Number(record.productionFlatKnit) || 0;
+      const yarnIssued = Number(record.yarnIssued) || 0;
+      const fabricReturn = Number(record.fabricReturn) || 0;
+
+      const hold = Number(record.hold) || 0;
+      const holdPct = totalProduction > 0 ? parseFloat(((hold / totalProduction) * 100).toFixed(2)) : 0;
+      const reject = Number(record.reject) || 0;
+      const rejectPct = totalProduction > 0 ? parseFloat(((reject / totalProduction) * 100).toFixed(2)) : 0;
+      const jhuteCutpcs = Number(record.jhuteCutpcs) || 0;
+      const jhuteCutpcsPct = totalProduction > 0 ? parseFloat(((jhuteCutpcs / totalProduction) * 100).toFixed(2)) : 0;
+
+      const totalOperator = Number(record.totalOperator) || 0;
+      const absent = Number(record.absent) || 0;
+      const absentPct = totalOperator > 0 ? parseFloat(((absent / totalOperator) * 100).toFixed(2)) : 0;
+      const otd = record.otd !== undefined ? record.otd : 100;
+
+      return {
+        ...record,
+        unit: 'Sub-Contact',
+        target,
+        totalProduction,
+        sampleProd,
+        bulkProd,
+        achievmentCircular,
+        efficiency: achievmentCircular,
+        runningMachine,
+        totalRunningFactories,
+        runningFactories,
+        productionFlatKnit,
+        yarnIssued,
+        fabricReturn,
+        hold,
+        holdPct,
+        reject,
+        rejectPct,
+        jhuteCutpcs,
+        jhuteCutpcsPct,
+        totalOperator,
+        absent,
+        absentPct,
+        otd
+      };
+    }
+
+    // Active & Running machines (In-House)
     const runningMachine = Number(record.runningMachine) || 0;
     const runningSample = Number(record.runningSample) || 0;
 
@@ -891,23 +955,55 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState<boolean>(false);
   const [deletingRecordId, setDeletingRecordId] = useState<string | null>(null);
 
+  // Upload Excel modal state (Admin only)
+  const [isUploadExcelModalOpen, setIsUploadExcelModalOpen] = useState<boolean>(false);
+
   // Success Notification banner
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  // User assigned floors for data entry (Admins have access to all floors)
-  const allowedEntryFloors = useMemo(() => {
-    return getUserAllowedFloorsForEntry(currentUser);
-  }, [currentUser]);
-  const canUserEnterRecords = isAdmin || allowedEntryFloors.length > 0;
-
-  // Role check - Only Admin users can delete records
-  const userHasDeletePermission = isAdmin;
 
   // Trigger brief alert notification
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 4000);
   };
+
+  // Handler for Excel bulk import
+  const handleImportExcelComplete = async (importedRecords: LedgerRecord[], mode: 'append' | 'replace') => {
+    try {
+      if (mode === 'replace') {
+        setLedger(importedRecords);
+      } else {
+        // Append & Merge: Map existing records by unique key (date + floor), overwrite matching or append new
+        setLedger(prev => {
+          const map = new Map<string, LedgerRecord>();
+          prev.forEach(r => {
+            const key = `${r.date}_${r.floor}`.toLowerCase();
+            map.set(key, r);
+          });
+          importedRecords.forEach(r => {
+            const key = `${r.date}_${r.floor}`.toLowerCase();
+            map.set(key, r);
+          });
+          return Array.from(map.values());
+        });
+      }
+
+      // Batch save to Firestore in background
+      await FirestoreSyncService.batchSaveLedgerRecords(importedRecords, currentUser?.userName || 'Admin');
+
+      triggerToast(`Successfully imported and synchronized ${importedRecords.length} production record(s) via Excel.`);
+    } catch (err: any) {
+      console.error('Error processing Excel import:', err);
+      triggerToast(`Import notice: ${err.message || 'Records imported with partial sync'}`);
+    }
+  };
+  const allowedEntryFloors = useMemo(() => {
+    return getUserAllowedFloorsForEntry(currentUser);
+  }, [currentUser]);
+  const canUserEnterRecords = isAdmin || hasUserWritePermissionForTab(currentUser, 'Production Ledger') || (currentUser?.permission === 'Read / Write') || allowedEntryFloors.length > 0;
+
+  // Role check - Only Admin users can delete records
+  const userHasDeletePermission = isAdmin;
 
   // ----------------------------------------------------
   // FILTER BEHAVIOR & ROW QUERY COMPUTATION
@@ -1124,7 +1220,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   // ----------------------------------------------------
   // HANDLERS: CREATE RECORD FORM
   // ----------------------------------------------------
-  const getInitialNewRecord = (floor: string = 'EKL', date: string = '2026-08-11'): LedgerRecord => {
+  const getInitialNewRecord = (floor: string = 'EKL', date?: string): LedgerRecord => {
+    const defaultDate = date || getYesterdayDateString();
     const totalM = getTotalMachinesForFloor(floor);
     const targetKg = getTargetForFloor(floor);
     const operatorsMap: Record<string, number> = {
@@ -1139,10 +1236,10 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const totalOps = operatorsMap[floor] || 90;
     
     // Extract month, year, and day of week
-    const dateObj = new Date(date + 'T00:00:00');
+    const dateObj = new Date(defaultDate + 'T00:00:00');
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const derivedDay = !isNaN(dateObj.getDay()) ? dayNames[dateObj.getDay()] : 'Tuesday';
-    const dateParts = date.split('-');
+    const dateParts = defaultDate.split('-');
     const yearNum = dateParts.length === 3 ? parseInt(dateParts[0]) : 2026;
     const monthNum = dateParts.length === 3 ? parseInt(dateParts[1]) : 8;
     const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -1151,7 +1248,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const initial: LedgerRecord = {
       id: `rec-${Date.now()}`,
       unit: floor === 'Sub-Contact' ? 'Sub-Contact' : 'In-House',
-      date,
+      date: defaultDate,
       day: derivedDay,
       floor,
       month: monthName,
@@ -1541,7 +1638,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   };
 
   // ----------------------------------------------------
-  // HANDLERS: EXPORT EXCEL
+  // HANDLERS: EXPORT EXCEL (1:1 MATCH WITH 51 APP HEADERS)
   // ----------------------------------------------------
   const handleExportExcel = () => {
     if (filteredRecords.length === 0) {
@@ -1549,81 +1646,71 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       return;
     }
 
-    // Double row header configuration
-    const headers = [
-      [
-        "General Information", "", "", "",
-        "Production Data", "", "", "", "", "",
-        "Machine Performance Logs", "", "", "", "", "", "",
-        "Quality Indices", "", "", "",
-        "Consumables Ledger", "", "", "", "",
-        "Efficiency Loss Projections", "", "",
-        "Manpower Roster", "", "",
-        "Other Operational Parameters", "",
-        "Sub-Contact Parameters", "", "", "", ""
-      ],
-      [
-        "Calendar Year", "Month Name", "Date (DD MMM YYYY)", "Floor / Unit",
-        "Target Output (Kg)", "Shift A Output (Kg)", "Shift B Output (Kg)", "Shift C Output (Kg)", "Cumulative Yield (Kg)", "Achievement (%)",
-        "Active Machines", "Idle Machines", "Utilization Rate (%)", "Idle Rate (%)", "Idle Production Lost (Kg)", "Net Efficiency (%)", "Production per Active Frame (Kg)",
-        "Reject Scrap (Kg)", "Reject Rate (%)", "Hold Scrap (Kg)", "Hold Rate (%)",
-        "Needles Broken (Pcs)", "Needle Broken/KG", "Sinkers Broken (Pcs)", "Sinker Broken/KG", "Lubricating Oil (Liters)",
-        "Yield Deficit vs Plan (Kg)", "Production Loss for Sample (Kg)", "Installed Capacity Ratio (%)",
-        "Roster Active Operators", "Operators Absent", "Absenteeism Rate (%)",
-        "Set Changes Completed", "Shift Handover Remarks",
-        "Production Flat Knit (PCS)", "Yarn Issued (Kg)", "Running Factories", "Running Machine", "Fabric Return (Kg)"
-      ]
-    ];
+    // Row 1: The exact 51 App Headers matching application columns
+    const headerRow = APP_LEDGER_COLUMNS.map(col => col.label);
 
     const rows = filteredRecords.map(r => {
-      const ach = r.target > 0 ? parseFloat(((r.totalProduction / r.target) * 100).toFixed(1)) : 0;
-      const isSC = r.floor === 'Sub-Contact';
+      const isSC = r.floor === 'Sub-Contact' || r.unit === 'Sub-Contact';
       return [
-        r.year, r.month, formatDateFriendly(r.date), r.floor,
-        r.target, r.shiftA, r.shiftB, r.shiftC, r.totalProduction, ach,
-        isSC ? "" : r.runningMachine, isSC ? "" : r.idleMachine, isSC ? "" : r.machineUtilization, isSC ? "" : r.idleMachinePct, isSC ? "" : r.idleProduction, r.efficiency, r.productionPerMachine,
-        r.reject, r.rejectPct, r.hold, r.holdPct,
-        r.needleBroken, r.needlePerKg, r.sinkerBroken, r.sinkerPerKg, r.oilConsumption,
-        r.productionLossForEfficiency, r.prodLossForSample, r.capacityUtilization,
-        r.totalOperator, r.absent, r.absentPct,
-        r.setChange, r.remarks,
-        isSC ? (r.productionFlatKnit ?? 0) : "",
-        isSC ? (r.yarnIssued ?? 0) : "",
-        isSC ? (r.runningFactories ?? 0) : "",
-        isSC ? (r.runningMachine ?? 0) : "",
-        isSC ? (r.fabricReturn ?? 0) : ""
+        r.unit || (isSC ? 'Sub-Contact' : 'In-House'),      // Unit
+        r.year,                                             // Year
+        r.month,                                            // Month
+        r.date,                                             // Date
+        r.floor,                                            // Floor
+        r.target,                                           // Target Total
+        r.shiftA,                                           // Shift A
+        r.shiftB,                                           // Shift B
+        r.shiftC,                                           // Shift C
+        r.totalProduction,                                  // Total Production
+        r.targetBulk ?? r.target,                           // Target Bulk
+        r.bulkProd ?? r.totalProduction,                    // Bulk Prod.
+        r.sampleProd ?? 0,                                  // Sample Prod.
+        r.runningBulk ?? 0,                                 // Running Bulk
+        r.runningSample ?? 0,                               // Running Sample
+        r.idleMc ?? 0,                                      // Idle Mc
+        r.machineUtilization ?? 0,                          // Machine Utilization
+        r.idleMcPct ?? 0,                                   // Idle Mc %
+        r.idleProduction ?? 0,                              // Idle Production
+        r.efficiency ?? 0,                                  // Efficiency
+        r.proPerMc ?? 0,                                    // Pro Per Mc
+        r.reject ?? 0,                                      // Reject
+        r.rejectPct ?? 0,                                   // Reject%
+        r.hold ?? 0,                                        // Hold
+        r.holdPct ?? 0,                                     // Hold%
+        r.jhuteCutpcs ?? 0,                                 // Jhute/Cutpcs
+        r.jhuteCutpcsPct ?? 0,                              // Jhute/Cutpcs%
+        r.needleBroken ?? 0,                                // Needle Broken
+        r.needlePerKg ?? 0,                                 // Needle Broken/KG
+        r.sinkerBroken ?? 0,                                // Sinker Broken
+        r.sinkerPerKg ?? 0,                                 // Sinker Broken/KG
+        r.oilConsumption ?? 0,                              // Oil Consumption
+        r.beltBroken ?? 0,                                  // Belt Broken
+        r.otherSparePartsName || '',                        // Other Spare parts Name
+        r.otherSparePartsQty ?? 0,                          // Other Spare parts QTY
+        r.setChange ?? 0,                                   // Set Change(Pcs)
+        r.productionLossForEff ?? 0,                        // Production Loss For Eff
+        r.prodLossForSample ?? 0,                           // Production Loss for Sample
+        r.capacityUtilization ?? 0,                         // Capacity Utilization
+        r.totalOperator ?? 0,                               // Total Operator
+        r.absent ?? 0,                                      // Absent
+        r.absentPct ?? 0,                                   // Absent %
+        r.productionFlatKnit ?? 0,                          // Production-Flat Knit
+        r.achievmentCircular ?? 0,                          // Achievment-Circular
+        r.otd ?? '',                                        // OTD
+        r.yarnIssued ?? 0,                                  // Yarn Issued
+        r.totalRunningFactories ?? 0,                       // Total Running Factories
+        r.runningMachine ?? 0,                              // Running Machine
+        r.numberVehicles ?? 0,                              // Number Vehicles
+        r.fabricReturn ?? 0,                                // Fabric Return
+        r.remarks || ''                                     // Remarks
       ];
     });
 
-    const worksheetData = [...headers, ...rows];
+    const worksheetData = [headerRow, ...rows];
     const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
 
-    // Merge group category headers
-    worksheet['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }, // General Information
-      { s: { r: 0, c: 4 }, e: { r: 0, c: 9 } }, // Production Data
-      { s: { r: 0, c: 10 }, e: { r: 0, c: 16 } }, // Machine Performance
-      { s: { r: 0, c: 17 }, e: { r: 0, c: 20 } }, // Quality Indices
-      { s: { r: 0, c: 21 }, e: { r: 0, c: 25 } }, // Consumables
-      { s: { r: 0, c: 26 }, e: { r: 0, c: 28 } }, // Efficiency Loss
-      { s: { r: 0, c: 29 }, e: { r: 0, c: 31 } }, // Manpower Roster
-      { s: { r: 0, c: 32 }, e: { r: 0, c: 33 } }, // Other Parameters
-      { s: { r: 0, c: 34 }, e: { r: 0, c: 38 } }  // Sub-Contact Parameters
-    ];
-
     // Set precise column widths to look incredibly tidy
-    const colWidths = [
-      { wch: 8 }, { wch: 12 }, { wch: 15 }, { wch: 18 },
-      { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 16 },
-      { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 14 }, { wch: 18 }, { wch: 16 }, { wch: 22 },
-      { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
-      { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 },
-      { wch: 24 }, { wch: 24 },
-      { wch: 18 }, { wch: 14 }, { wch: 14 },
-      { wch: 14 }, { wch: 35 },
-      { wch: 22 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }
-    ];
-    worksheet['!cols'] = colWidths;
+    worksheet['!cols'] = APP_LEDGER_COLUMNS.map(c => ({ wch: Math.max(c.label.length + 4, 12) }));
 
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Production Ledger");
@@ -1642,7 +1729,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     }
 
     XLSX.writeFile(workbook, filename);
-    triggerToast(`Successfully generated and dispatched Excel sheet: ${filename}`);
+    triggerToast(`Successfully exported ${filteredRecords.length} records with 51 matching App Headers: ${filename}`);
   };
 
 
@@ -1667,24 +1754,44 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {isGasMode && (
               <button
                 onClick={loadGasLedger}
                 disabled={isSyncing}
-                className="flex items-center gap-1.5 px-3 py-1 text-xs font-bold text-blue-700 bg-blue-50 dark:text-blue-300 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-lg hover:bg-blue-100/50 dark:hover:bg-blue-900/40 disabled:opacity-50 transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 dark:text-blue-300 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-lg hover:bg-blue-100/50 dark:hover:bg-blue-900/40 disabled:opacity-50 transition-colors cursor-pointer"
                 title="Synchronize ledger with Google Sheets"
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
                 <span>{isSyncing ? 'Syncing...' : 'Sync Google Sheet'}</span>
               </button>
             )}
-            <span className="text-[10px] font-black uppercase bg-[#0F4C81]/15 text-[#0F4C81] dark:text-blue-300 dark:bg-blue-950/40 px-3 py-1 rounded-full border border-[#0F4C81]/20">
-              {isGasMode ? 'Database: Google Sheets (Live)' : 'Database: Local Mock DB'}
-            </span>
-            <span className="text-[10px] font-black uppercase bg-[#0F4C81]/15 text-[#0F4C81] dark:text-blue-300 dark:bg-blue-950/40 px-3 py-1 rounded-full border border-[#0F4C81]/20">
-              Role: Sr. Production Manager
-            </span>
+
+            {/* 1. Upload Excel File Button - ONLY ADMIN USER CAN SEE AND USE */}
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setIsUploadExcelModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors cursor-pointer shadow-2xs"
+                title="Upload Excel File to import production records (Admin Only)"
+                id="upload-excel-btn"
+              >
+                <Upload className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span>Upload Excel File</span>
+              </button>
+            )}
+
+            {/* 2. Download Excel File Button */}
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700/80 transition-colors cursor-pointer shadow-2xs"
+              title="Download Excel File (.xlsx)"
+              id="download-excel-header-btn"
+            >
+              <Download className="h-3.5 w-3.5 text-[#0F4C81] dark:text-sky-400" />
+              <span>Download Excel File</span>
+            </button>
           </div>
         </div>
       </div>
@@ -2040,16 +2147,6 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
             >
               <Plus className="h-4 w-4" />
               <span>Add Production Entry</span>
-            </button>
-
-            {/* Export To Excel Button */}
-            <button
-              onClick={handleExportExcel}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#16A34A] hover:bg-[#11823b] text-white px-4 py-2 text-xs font-bold transition-all shadow-xs cursor-pointer"
-              id="export-excel-btn"
-            >
-              <Download className="h-4 w-4" />
-              <span>Export Excel</span>
             </button>
 
             <ColumnCustomizerDropdown
@@ -2554,6 +2651,16 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
             </div>
           </div>
         </div>
+      )}
+
+      {/* 8.5. POPUP MODAL: UPLOAD EXCEL FILE (ADMIN ONLY) */}
+      {isAdmin && (
+        <UploadLedgerExcelModal
+          isOpen={isUploadExcelModalOpen}
+          onClose={() => setIsUploadExcelModalOpen(false)}
+          onImportComplete={handleImportExcelComplete}
+          existingCount={ledger.length}
+        />
       )}
 
     </div>
