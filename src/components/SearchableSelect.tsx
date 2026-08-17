@@ -74,34 +74,34 @@ export default function SearchableSelect({
   const isSelected = value !== 'All' && value !== '';
 
   return (
-    <div className={`relative inline-block ${className}`} ref={containerRef}>
+    <div className={`relative inline-block max-w-full ${className}`} ref={containerRef}>
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all cursor-pointer select-none ${
+        className={`w-full flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition-all cursor-pointer select-none ${
           isSelected
             ? 'border-blue-500 bg-blue-50/80 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 shadow-2xs'
             : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
         }`}
       >
-        <span className="truncate max-w-[180px]">{displayLabel}</span>
+        <span className="truncate max-w-[160px] sm:max-w-[180px]">{displayLabel}</span>
         {isSelected && (
           <span
             onClick={(e) => {
               e.stopPropagation();
               onChange('All');
             }}
-            className="p-0.5 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800 text-blue-600 dark:text-blue-300"
+            className="p-0.5 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800 text-blue-600 dark:text-blue-300 shrink-0"
             title="Clear filter"
           >
             <X className="h-3 w-3" />
           </span>
         )}
-        <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`h-3.5 w-3.5 text-slate-400 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 mt-1 z-50 w-64 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+        <div className="absolute left-0 mt-1 z-50 w-64 max-w-[calc(100vw-32px)] rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
           {/* Search Header */}
           <div className="p-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
             <div className="relative">
