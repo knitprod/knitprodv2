@@ -1333,38 +1333,43 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
           </div>
 
           {/* Action Row: Column Customizer and Reset */}
-          <div className="flex items-center gap-2 w-full">
-            <div className="flex-1">
-              <ColumnCustomizerDropdown
-                tableId="yarn_allocation"
-                columns={YARN_ALLOCATION_COLUMNS}
-                hiddenColumns={hiddenColumns}
-                onToggleColumn={toggleColumn}
-                onResetColumns={resetColumns}
-                isFrozen={isFrozen}
-                freezeCount={freezeCount}
-                onToggleFreeze={toggleFreeze}
-                onSetFreezeCount={setFreezeCount}
-              />
-            </div>
+          <div className="w-full">
+            <label className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1 lg:hidden">
+              Table View
+            </label>
+            <div className="flex items-center gap-2 w-full">
+              <div className="flex-1">
+                <ColumnCustomizerDropdown
+                  tableId="yarn_allocation"
+                  columns={YARN_ALLOCATION_COLUMNS}
+                  hiddenColumns={hiddenColumns}
+                  onToggleColumn={toggleColumn}
+                  onResetColumns={resetColumns}
+                  isFrozen={isFrozen}
+                  freezeCount={freezeCount}
+                  onToggleFreeze={toggleFreeze}
+                  onSetFreezeCount={setFreezeCount}
+                />
+              </div>
 
-            {(yarnSearchQuery !== '' || yarnBuyerFilter !== 'All' || yarnFabricFilter !== 'All' || yarnSpinnerFilter !== 'All') && (
-              <button
-                type="button"
-                onClick={() => {
-                  setYarnSearchQuery('');
-                  setYarnBuyerFilter('All');
-                  setYarnFabricFilter('All');
-                  setYarnSpinnerFilter('All');
-                  setCurrentPage(1);
-                }}
-                className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 transition-all cursor-pointer whitespace-nowrap shadow-2xs"
-                title="Reset all active filters"
-              >
-                <X className="h-3.5 w-3.5" />
-                <span>Reset</span>
-              </button>
-            )}
+              {(yarnSearchQuery !== '' || yarnBuyerFilter !== 'All' || yarnFabricFilter !== 'All' || yarnSpinnerFilter !== 'All') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setYarnSearchQuery('');
+                    setYarnBuyerFilter('All');
+                    setYarnFabricFilter('All');
+                    setYarnSpinnerFilter('All');
+                    setCurrentPage(1);
+                  }}
+                  className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 transition-all cursor-pointer whitespace-nowrap shadow-2xs shrink-0"
+                  title="Reset all active filters"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  <span>Reset</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

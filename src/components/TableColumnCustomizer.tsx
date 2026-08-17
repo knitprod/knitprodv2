@@ -298,19 +298,19 @@ export function FreezePanesButton({
           ) : (
             <PinOff className="h-3.5 w-3.5 text-slate-400" />
           )}
-          <span className="hidden sm:inline">Freeze Panes</span>
+          <span className="inline">Freeze</span>
           <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
             isFrozen
               ? 'bg-blue-600 text-white'
               : 'bg-slate-200 dark:bg-slate-800 text-slate-500'
           }`}>
-            {isFrozen ? `${freezeCount} Col` : 'OFF'}
+            {isFrozen ? `${freezeCount}` : 'OFF'}
           </span>
         </button>
 
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="px-1.5 py-2 border-l border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+          className="px-2 py-2 border-l border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
           title="Configure Freeze Pane columns"
         >
           <ChevronDown className="h-3.5 w-3.5" />
@@ -318,49 +318,52 @@ export function FreezePanesButton({
       </div>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-64 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2.5 shadow-xl z-50 animate-fade-in space-y-1">
-          <div className="px-2 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-            <span className="flex items-center gap-1">
-              <Snowflake className="h-3 w-3 text-blue-500" /> Freeze Options
-            </span>
-            <span className="text-[9px] text-blue-600 dark:text-blue-400 font-bold">
-              {isFrozen ? 'Active' : 'Disabled'}
-            </span>
-          </div>
+        <>
+          <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-2xs sm:hidden" onClick={() => setIsOpen(false)} />
+          <div className="fixed inset-x-4 top-24 max-w-sm mx-auto sm:max-w-none sm:mx-0 sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-64 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 shadow-2xl z-50 animate-fade-in space-y-2">
+            <div className="px-1 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <span className="flex items-center gap-1">
+                <Snowflake className="h-3 w-3 text-blue-500" /> Freeze Options
+              </span>
+              <span className="text-[9px] text-blue-600 dark:text-blue-400 font-bold">
+                {isFrozen ? 'Active' : 'Disabled'}
+              </span>
+            </div>
 
-          <button
-            onClick={() => {
-              onToggleFreeze();
-              setIsOpen(false);
-            }}
-            className="flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-          >
-            <span>{isFrozen ? 'Unfreeze Panes' : 'Freeze First Columns'}</span>
-            {isFrozen ? <PinOff className="h-3.5 w-3.5 text-amber-500" /> : <Pin className="h-3.5 w-3.5 text-blue-600" />}
-          </button>
+            <button
+              onClick={() => {
+                onToggleFreeze();
+                setIsOpen(false);
+              }}
+              className="flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <span>{isFrozen ? 'Unfreeze Panes' : 'Freeze First Columns'}</span>
+              {isFrozen ? <PinOff className="h-3.5 w-3.5 text-amber-500" /> : <Pin className="h-3.5 w-3.5 text-blue-600" />}
+            </button>
 
-          <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
-            <span className="block px-2 py-1 text-[10px] font-bold text-slate-400">Freeze Column Count:</span>
-            <div className="grid grid-cols-5 gap-1 px-1">
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].slice(0, maxFreezeCount).map((count) => (
-                <button
-                  key={count}
-                  onClick={() => {
-                    onSetFreezeCount(count);
-                    setIsOpen(false);
-                  }}
-                  className={`py-1 rounded-lg text-xs font-black transition-all cursor-pointer text-center ${
-                    isFrozen && freezeCount === count
-                      ? 'bg-blue-600 text-white shadow-2xs'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-blue-50 dark:hover:bg-blue-950/50'
-                  }`}
-                >
-                  {count} Col
-                </button>
-              ))}
+            <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
+              <span className="block px-1 py-1 text-[10px] font-bold text-slate-400">Freeze Column Count:</span>
+              <div className="grid grid-cols-5 gap-1.5 px-0.5">
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].slice(0, maxFreezeCount).map((count) => (
+                  <button
+                    key={count}
+                    onClick={() => {
+                      onSetFreezeCount(count);
+                      setIsOpen(false);
+                    }}
+                    className={`py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer text-center ${
+                      isFrozen && freezeCount === count
+                        ? 'bg-blue-600 text-white shadow-2xs'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-blue-50 dark:hover:bg-blue-950/50'
+                    }`}
+                  >
+                    {count}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
@@ -390,6 +393,19 @@ export function ColumnCustomizerDropdown({
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // Mobile detection
+  const [isMobileScreen, setIsMobileScreen] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') return window.innerWidth < 768;
+    return false;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleResize = () => setIsMobileScreen(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -403,10 +419,10 @@ export function ColumnCustomizerDropdown({
   const hiddenCount = hiddenColumns.length;
 
   return (
-    <div className="relative inline-block text-left" ref={dropdownRef}>
+    <div className="relative inline-block text-left w-full sm:w-auto" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition-all cursor-pointer shadow-2xs ${
+        className={`w-full sm:w-auto flex items-center justify-between sm:justify-start gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition-all cursor-pointer shadow-2xs ${
           hiddenCount > 0
             ? 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200'
             : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
@@ -414,103 +430,134 @@ export function ColumnCustomizerDropdown({
         title="Customizer: Hide/Show or resize table columns"
         id={`col-customizer-btn-${tableId}`}
       >
-        <Columns className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-        <span className="hidden sm:inline">Columns</span>
-        {hiddenCount > 0 && (
-          <span className="rounded-full bg-amber-500 text-white px-1.5 py-0.2 text-[10px] font-black">
+        <div className="flex items-center gap-1.5">
+          <Columns className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+          <span className="font-bold">Columns</span>
+        </div>
+        {hiddenCount > 0 ? (
+          <span className="rounded-full bg-amber-500 text-white px-2 py-0.5 text-[10px] font-black">
             {hiddenCount} Hidden
+          </span>
+        ) : (
+          <span className="rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 text-[10px] font-bold">
+            {columns.length} Total
           </span>
         )}
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-64 max-w-[calc(100vw-32px)] rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-3 shadow-2xl z-50 animate-fade-in space-y-2">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-            <span className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5">
-              <Columns className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-              Column Customizer
-            </span>
-            <button
-              onClick={onResetColumns}
-              className="flex items-center gap-1 text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-            >
-              <RotateCcw className="h-3 w-3" />
-              Reset All
-            </button>
-          </div>
+        <>
+          {/* Mobile backdrop */}
+          <div
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-2xs sm:hidden"
+            onClick={() => setIsOpen(false)}
+          />
 
-          {onToggleFreeze && (
-            <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1">
-                  <Pin className="h-3 w-3 text-blue-600" /> Freeze Left Panes
-                </span>
+          {/* Popover / Mobile Dialog */}
+          <div className="fixed inset-x-4 top-20 max-w-sm mx-auto sm:max-w-none sm:mx-0 sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-72 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 shadow-2xl z-50 animate-fade-in space-y-2.5 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800 shrink-0">
+              <span className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                <Columns className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                Column Customizer
+              </span>
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={onToggleFreeze}
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-black cursor-pointer transition-colors ${
-                    isFrozen
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-                  }`}
+                  onClick={onResetColumns}
+                  className="flex items-center gap-1 text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
                 >
-                  {isFrozen ? 'ON' : 'OFF'}
+                  <RotateCcw className="h-3 w-3" />
+                  Reset All
+                </button>
+                <button
+                  onClick={() => setIsOpen(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 sm:hidden cursor-pointer"
+                  title="Close"
+                >
+                  <span className="text-xs font-bold">✕</span>
                 </button>
               </div>
-              {isFrozen && onSetFreezeCount && (
-                <div className="flex flex-wrap items-center gap-1 text-[10px]">
-                  <span className="text-slate-500 font-medium w-full sm:w-auto">Frozen cols:</span>
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
-                    <button
-                      key={num}
-                      onClick={() => onSetFreezeCount(num)}
-                      className={`h-5 w-5 rounded font-black text-[10px] transition-all cursor-pointer ${
-                        freezeCount === num
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-                      }`}
-                    >
-                      {num}
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
-          )}
 
-          <div className="max-h-60 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
-            {columns.map((col) => {
-              if (col.alwaysVisible) return null;
-              const isHidden = hiddenColumns.includes(col.id);
-
-              return (
-                <button
-                  key={col.id}
-                  onClick={() => onToggleColumn(col.id)}
-                  className={`flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left text-xs font-medium transition-colors cursor-pointer ${
-                    isHidden
-                      ? 'bg-slate-50 dark:bg-slate-800/40 text-slate-400 dark:text-slate-500 line-through'
-                      : 'text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  <span className="truncate pr-2">{col.label}</span>
-                  <div className="shrink-0">
-                    {isHidden ? (
-                      <EyeOff className="h-3.5 w-3.5 text-slate-400" />
-                    ) : (
-                      <div className="flex h-4 w-4 items-center justify-center rounded-md bg-blue-600 text-white">
-                        <Check className="h-3 w-3" />
-                      </div>
-                    )}
+            {/* Desktop Freeze toggle (Hidden on mobile where freeze is disabled) */}
+            {!isMobileScreen && onToggleFreeze && (
+              <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 space-y-1.5 shrink-0">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1">
+                    <Pin className="h-3 w-3 text-blue-600" /> Freeze Left Panes
+                  </span>
+                  <button
+                    onClick={onToggleFreeze}
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-black cursor-pointer transition-colors ${
+                      isFrozen
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    {isFrozen ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+                {isFrozen && onSetFreezeCount && (
+                  <div className="flex flex-wrap items-center gap-1 text-[10px]">
+                    <span className="text-slate-500 font-medium w-full sm:w-auto">Frozen cols:</span>
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+                      <button
+                        key={num}
+                        onClick={() => onSetFreezeCount(num)}
+                        className={`h-5 w-5 rounded font-black text-[10px] transition-all cursor-pointer ${
+                          freezeCount === num
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                        }`}
+                      >
+                        {num}
+                      </button>
+                    ))}
                   </div>
-                </button>
-              );
-            })}
-          </div>
+                )}
+              </div>
+            )}
 
-          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400 text-center font-medium">
-            Drag right edge of header cells to resize columns
+            {isMobileScreen && (
+              <div className="px-2.5 py-1.5 rounded-lg bg-blue-50/60 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900/40 text-[10px] text-blue-700 dark:text-blue-300 font-medium">
+                💡 Horizontal scroll is enabled for mobile. Toggle column visibility below:
+              </div>
+            )}
+
+            <div className="overflow-y-auto space-y-1 pr-1 custom-scrollbar flex-1 max-h-64">
+              {columns.map((col) => {
+                if (col.alwaysVisible) return null;
+                const isHidden = hiddenColumns.includes(col.id);
+
+                return (
+                  <button
+                    key={col.id}
+                    onClick={() => onToggleColumn(col.id)}
+                    className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-xs font-semibold transition-colors cursor-pointer ${
+                      isHidden
+                        ? 'bg-slate-50 dark:bg-slate-800/40 text-slate-400 dark:text-slate-500 line-through'
+                        : 'text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    <span className="truncate pr-2">{col.label}</span>
+                    <div className="shrink-0">
+                      {isHidden ? (
+                        <EyeOff className="h-3.5 w-3.5 text-slate-400" />
+                      ) : (
+                        <div className="flex h-4 w-4 items-center justify-center rounded-md bg-blue-600 text-white">
+                          <Check className="h-3 w-3" />
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400 text-center font-medium shrink-0">
+              Drag right edge of header cells on desktop to resize
+            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
