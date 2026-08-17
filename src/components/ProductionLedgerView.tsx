@@ -2021,12 +2021,22 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
             {/* Add Production Entry Button */}
             <button
               onClick={() => {
-                setCreatingRecord(getInitialNewRecord());
+                if (!canUserEnterRecords) {
+                  triggerToast("Access Denied: You do not have permission to add production records. Please contact an Administrator.");
+                  return;
+                }
+                const initialFloor = allowedEntryFloors[0] || 'EKL';
+                setCreatingRecord(getInitialNewRecord(initialFloor));
                 setCreateErrors({});
                 setIsCreateModalOpen(true);
               }}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#0F4C81] hover:bg-[#0b3861] text-white px-4 py-2 text-xs font-bold transition-all shadow-xs cursor-pointer"
+              className={`w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold transition-all shadow-xs cursor-pointer ${
+                canUserEnterRecords
+                  ? 'bg-[#0F4C81] hover:bg-[#0b3861] text-white'
+                  : 'bg-gray-200 dark:bg-slate-800 text-gray-400 dark:text-slate-500 cursor-not-allowed'
+              }`}
               id="add-production-entry-btn"
+              title={canUserEnterRecords ? 'Add new production log for your assigned floor' : 'No entry permissions assigned'}
             >
               <Plus className="h-4 w-4" />
               <span>Add Production Entry</span>
@@ -2387,13 +2397,26 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                   {/* Sticky right actions cell */}
                   <td className="px-3 py-2 text-center whitespace-nowrap sticky right-0 bg-white dark:bg-slate-900 z-10">
                     <div className="flex items-center justify-center gap-1.5">
-                      <button
-                        onClick={() => handleOpenEdit(r)}
-                        className="inline-flex items-center justify-center h-7 w-7 rounded-lg text-[#0F4C81] hover:bg-[#0F4C81]/10 dark:text-blue-400 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
-                        title="Edit entry details"
-                      >
-                        <Edit2 className="h-3.5 w-3.5" />
-                      </button>
+                      {isUserAuthorizedForFloor(currentUser, r.floor) ? (
+                        <button
+                          onClick={() => handleOpenEdit(r)}
+                          className="inline-flex items-center justify-center h-7 w-7 rounded-lg text-[#0F4C81] hover:bg-[#0F4C81]/10 dark:text-blue-400 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
+                          title="Edit entry details"
+                        >
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            const allowedStr = allowedEntryFloors.length > 0 ? allowedEntryFloors.join(', ') : 'None';
+                            triggerToast(`Access Restricted: You can view ${r.floor} data, but you are only permitted to enter/edit records for: ${allowedStr}.`);
+                          }}
+                          className="inline-flex items-center justify-center h-7 w-7 rounded-lg text-gray-400 dark:text-slate-500 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                          title={`View Only: Assigned to ${allowedEntryFloors.join(', ') || 'None'}`}
+                        >
+                          <Lock className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                       {isAdmin && (
                         <button
                           onClick={() => handleOpenDelete(r.id)}
@@ -2478,6 +2501,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         isEdit={true}
         title="Edit Production Record"
         submitLabel="Save & Sync Changes"
+        allowedFloors={allowedEntryFloors}
+        currentUser={currentUser}
       />
 
       {/* 7.5. POPUP MODAL: ADD PRODUCTION RECORD (52 COLUMNS FULL FORM) */}
@@ -2488,6 +2513,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         onChange={handleCreateChange}
         onSave={handleSaveCreate}
         errors={createErrors}
+        allowedFloors={allowedEntryFloors}
+        currentUser={currentUser}
       />
 
       {/* 8. CONFIRM DIALOG: DELETE RECORD */}

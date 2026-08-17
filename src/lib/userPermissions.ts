@@ -5,7 +5,7 @@
 
 import { UserRecord } from '../components/UserManagementView';
 
-export const ALL_FACTORY_FLOORS = [
+export const ALL_FACTORY_FLOORS: string[] = [
   'EKL',
   'EFL',
   'EFL-2',
@@ -13,7 +13,7 @@ export const ALL_FACTORY_FLOORS = [
   'EFL-Extension',
   'ESL-Extension',
   'Sub-Contact'
-] as const;
+];
 
 /**
  * Normalizes floor names across spelling / hyphen variations
@@ -53,7 +53,7 @@ export const getUserAllowedFloorsForEntry = (user: UserRecord | null | undefined
   }
   
   const assignedNorm = user.assignedUnits.map(normalizeFloorKey);
-  const matched = ALL_FACTORY_FLOORS.filter(fl => assignedNorm.includes(normalizeFloorKey(fl)));
+  const matched: string[] = ALL_FACTORY_FLOORS.filter(fl => assignedNorm.includes(normalizeFloorKey(fl)));
   
   // If user has other custom unit names, include them
   user.assignedUnits.forEach(u => {

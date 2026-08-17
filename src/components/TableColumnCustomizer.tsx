@@ -61,6 +61,23 @@ export function useTableColumns(
     }
   });
 
+  // Mobile detection - Freeze panes must be disabled in mobile view mode to avoid freezing mobile navigation
+  const [isMobile, setIsMobile] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth < 768;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Save to localStorage
   useEffect(() => {
     try {
@@ -141,9 +158,12 @@ export function useTableColumns(
     [columnWidths]
   );
 
+  // Freeze panes are strictly active only when enabled AND NOT on mobile devices
+  const effectiveIsFrozen = isFrozen && !isMobile;
+
   // Compute sticky positions for frozen columns
   const stickyLefts = useMemo(() => {
-    if (!isFrozen || freezeCount <= 0) return {};
+    if (!effectiveIsFrozen || freezeCount <= 0) return {};
     const visibleCols = columns.filter((col) => !hiddenColumns.includes(col.id));
     const lefts: Record<string, number> = {};
     let currentLeft = 0;
@@ -155,20 +175,20 @@ export function useTableColumns(
       currentLeft += width;
     }
     return lefts;
-  }, [columns, hiddenColumns, columnWidths, isFrozen, freezeCount]);
+  }, [columns, hiddenColumns, columnWidths, effectiveIsFrozen, freezeCount]);
 
   const lastFrozenColId = useMemo(() => {
-    if (!isFrozen || freezeCount <= 0) return null;
+    if (!effectiveIsFrozen || freezeCount <= 0) return null;
     const visibleCols = columns.filter((col) => !hiddenColumns.includes(col.id));
     const count = Math.min(freezeCount, visibleCols.length);
     return count > 0 ? visibleCols[count - 1]?.id || null : null;
-  }, [columns, hiddenColumns, isFrozen, freezeCount]);
+  }, [columns, hiddenColumns, effectiveIsFrozen, freezeCount]);
 
   const isColFrozen = useCallback(
     (colId: string) => {
-      return isFrozen && colId in stickyLefts;
+      return effectiveIsFrozen && colId in stickyLefts;
     },
-    [isFrozen, stickyLefts]
+    [effectiveIsFrozen, stickyLefts]
   );
 
   const getStickyLeft = useCallback(
@@ -180,7 +200,7 @@ export function useTableColumns(
 
   const getStickyStyle = useCallback(
     (colId: string, isHeader: boolean = false) => {
-      if (!isFrozen || !(colId in stickyLefts)) {
+      if (!effectiveIsFrozen || !(colId in stickyLefts)) {
         return {};
       }
       return {
@@ -189,12 +209,12 @@ export function useTableColumns(
         zIndex: isHeader ? 40 : 20,
       };
     },
-    [isFrozen, stickyLefts]
+    [effectiveIsFrozen, stickyLefts]
   );
 
   const getStickyClass = useCallback(
     (colId: string, isHeader: boolean = false) => {
-      if (!isFrozen || !(colId in stickyLefts)) {
+      if (!effectiveIsFrozen || !(colId in stickyLefts)) {
         return '';
       }
       const isLast = colId === lastFrozenColId;
@@ -208,13 +228,15 @@ export function useTableColumns(
         return `sticky bg-white dark:bg-slate-900 group-hover:bg-slate-100 dark:group-hover:bg-slate-800 z-20${borderClass}`;
       }
     },
-    [isFrozen, stickyLefts, lastFrozenColId]
+    [effectiveIsFrozen, stickyLefts, lastFrozenColId]
   );
 
   return {
     hiddenColumns,
     columnWidths,
     isFrozen,
+    effectiveIsFrozen,
+    isMobile,
     freezeCount,
     toggleFreeze,
     setFreezeCount,
