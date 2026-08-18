@@ -824,10 +824,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const idleMachinePct = totalM > 0 ? parseFloat(((idleMachine / totalM) * 100).toFixed(1)) : 0;
     const idleMcPct = idleMachinePct;
     
-    // Idle Production
-    const idleProduction = (idleMachine > 0 && target > 0 && totalM > 0)
-      ? parseFloat(((totalProduction / idleMachine) * (totalM / target)).toFixed(2))
-      : 0;
+    // Idle Production = Avg Prod. / Machine (Kg) * Idle MC
+    const idleProduction = idleMachine > 0 ? parseFloat((idleMachine * avgProdPerMc).toFixed(2)) : 0;
     
     // Production/Machine
     const productionPerMachine = runningMachine > 0 ? parseFloat((totalProduction / runningMachine).toFixed(2)) : 0;
