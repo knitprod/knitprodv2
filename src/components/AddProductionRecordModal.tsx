@@ -15,7 +15,8 @@ import {
   Users, 
   X,
   TrendingUp,
-  Calculator
+  Calculator,
+  Truck
 } from 'lucide-react';
 import { LedgerRecord } from '../types';
 import { 
@@ -150,6 +151,13 @@ export default function AddProductionRecordModal({
   const absent = Number(record.absent) || 0;
   const absentPct = totalOperator > 0 ? parseFloat(((absent / totalOperator) * 100).toFixed(2)) : 0;
 
+  // 8. Sub-Contact Achievment-Circular live calculation
+  const subTarget = Number(record.target) || 0;
+  const autoAchievment = subTarget > 0 ? parseFloat(((totalProduction / subTarget) * 100).toFixed(2)) : 0;
+  const achievmentCircular = record.achievmentCircular !== undefined && record.achievmentCircular !== null
+    ? Number(record.achievmentCircular)
+    : autoAchievment;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/70 backdrop-blur-xs overflow-y-auto">
       <div className="relative w-full max-w-5xl rounded-2xl bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 p-4 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] flex flex-col">
@@ -203,35 +211,42 @@ export default function AddProductionRecordModal({
             </div>
           </div>
           <div className="space-y-0.5">
+            <div className="text-[9px] font-bold text-gray-400 uppercase">Target Total</div>
+            <div className="text-xs font-mono font-black text-indigo-600 dark:text-indigo-400">
+              {((isSubContact ? subTarget : (Number(record.target) || 0)) ?? 0).toLocaleString()} <span className="text-[9px]">Kg</span>
+            </div>
+          </div>
+          <div className="space-y-0.5">
+            <div className="text-[9px] font-bold text-gray-400 uppercase">Sample Prod</div>
+            <div className="text-xs font-mono font-black text-amber-600 dark:text-amber-400">
+              {(sampleProd ?? 0).toLocaleString()} <span className="text-[9px]">Kg</span>
+            </div>
+          </div>
+          <div className="space-y-0.5">
             <div className="text-[9px] font-bold text-gray-400 uppercase">Bulk Prod</div>
             <div className="text-xs font-mono font-black text-emerald-600 dark:text-emerald-400">
               {(bulkProd ?? 0).toLocaleString()} <span className="text-[9px]">Kg</span>
             </div>
           </div>
           <div className="space-y-0.5">
-            <div className="text-[9px] font-bold text-gray-400 uppercase">Efficiency</div>
+            <div className="text-[9px] font-bold text-gray-400 uppercase">
+              {isSubContact ? 'Achievment %' : 'Efficiency'}
+            </div>
             <div className={`text-xs font-mono font-black ${
-              efficiency >= 90 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'
+              (isSubContact ? achievmentCircular : efficiency) >= 90 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'
             }`}>
-              {efficiency}%
+              {isSubContact ? achievmentCircular : efficiency}%
             </div>
           </div>
           <div className="space-y-0.5">
-            <div className="text-[9px] font-bold text-gray-400 uppercase">Capacity Util</div>
-            <div className="text-xs font-mono font-black text-indigo-600 dark:text-indigo-400">
-              {capacityUtilization}%
+            <div className="text-[9px] font-bold text-gray-400 uppercase">
+              {isSubContact ? 'Running Mills' : 'Running Bulk'}
             </div>
-          </div>
-          <div className="space-y-0.5">
-            <div className="text-[9px] font-bold text-gray-400 uppercase">Running Bulk</div>
             <div className="text-xs font-mono font-black text-gray-800 dark:text-slate-100">
-              {runningBulk} <span className="text-[9px] text-gray-400 font-normal">/ {totalM || record.totalMachines || 0} MC</span>
-            </div>
-          </div>
-          <div className="space-y-0.5">
-            <div className="text-[9px] font-bold text-gray-400 uppercase">Attendance</div>
-            <div className="text-xs font-mono font-black text-teal-600 dark:text-teal-400">
-              {Math.max(0, (record.totalOperator || 0) - (record.absent || 0))} <span className="text-[9px] text-gray-400 font-normal">/ {record.totalOperator || 0}</span>
+              {isSubContact 
+                ? (record.totalRunningFactories ?? record.runningFactories ?? 0)
+                : `${runningBulk} / ${totalM || record.totalMachines || 0}`}
+              <span className="text-[9px] text-gray-400 font-normal"> {isSubContact ? 'Mills' : 'MC'}</span>
             </div>
           </div>
         </div>
@@ -745,16 +760,17 @@ export default function AddProductionRecordModal({
             </>
           ) : (
             /* ========================================================================= */
-            /* SUB-CONTACT SPECIFIC FIELDS */
+            /* SUB-CONTACT SPECIFIC FIELDS (Strict 23 Columns) */
             /* ========================================================================= */
             <>
+              {/* SECTION 2: SUB-CONTRACT PRODUCTION & OUTPUT */}
               <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3">
                 <h4 className="font-sans text-[11px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1.5 flex items-center gap-1.5">
-                  <Layers className="h-3.5 w-3.5" /> 2. Sub-Contract Production & Quality
+                  <Layers className="h-3.5 w-3.5" /> 2. Sub-Contract Targets & Production Weights
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Target Total</label>
+                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Target Total (Kg)</label>
                     <input
                       type="number"
                       value={record.target ?? 0}
@@ -768,7 +784,28 @@ export default function AddProductionRecordModal({
                       type="number"
                       value={record.totalProduction ?? 0}
                       onChange={(e) => onChange('totalProduction', parseFloat(e.target.value) || 0)}
+                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-[#0F4C81] dark:text-blue-400 outline-hidden focus:border-[#0F4C81]"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Sample Prod. (Kg)</label>
+                    <input
+                      type="number"
+                      value={record.sampleProd ?? 0}
+                      onChange={(e) => onChange('sampleProd', parseFloat(e.target.value) || 0)}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold text-gray-500 uppercase flex items-center justify-between">
+                      <span>Bulk Prod. (Kg)</span>
+                      <span className="text-[9px] text-gray-400 lowercase font-normal">auto</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={record.bulkProd ?? bulkProd}
+                      readOnly
+                      className="w-full rounded-lg border border-gray-100 dark:border-slate-800 bg-gray-100/70 dark:bg-slate-800/50 px-3 py-1.5 text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400 outline-hidden"
                     />
                   </div>
                   <div className="space-y-1">
@@ -781,12 +818,15 @@ export default function AddProductionRecordModal({
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Achievment-Circular %</label>
+                    <label className="text-[10px] font-extrabold text-gray-500 uppercase flex items-center justify-between">
+                      <span>Achievment-Circular %</span>
+                      <span className="text-[9px] text-gray-400 lowercase font-normal">auto</span>
+                    </label>
                     <input
                       type="number"
-                      value={record.achievmentCircular ?? 0}
+                      value={record.achievmentCircular ?? achievmentCircular}
                       onChange={(e) => onChange('achievmentCircular', parseFloat(e.target.value) || 0)}
-                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
+                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
                   <div className="space-y-1">
@@ -796,14 +836,16 @@ export default function AddProductionRecordModal({
                       value={record.otd ?? '100'}
                       onChange={(e) => onChange('otd', e.target.value)}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
+                      placeholder="e.g. 100 or 98.5%"
                     />
                   </div>
                 </div>
               </div>
 
+              {/* SECTION 3: SUB-CONTRACT LOGISTICS & OUTSIDE MILLS */}
               <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3">
-                <h4 className="font-sans text-[11px] font-black text-teal-700 dark:text-teal-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1.5 flex items-center gap-1.5">
-                  <Users className="h-3.5 w-3.5" /> 3. Sub-Contract Logistics & Outside Mills
+                <h4 className="font-sans text-[11px] font-black text-indigo-700 dark:text-indigo-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1.5 flex items-center gap-1.5">
+                  <Truck className="h-3.5 w-3.5" /> 3. Sub-Contract Logistics, Factories & Machines
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
                   <div className="space-y-1">
@@ -849,6 +891,117 @@ export default function AddProductionRecordModal({
                       value={record.fabricReturn ?? 0}
                       onChange={(e) => onChange('fabricReturn', parseFloat(e.target.value) || 0)}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 4: SUB-CONTRACT QUALITY & DEFECTS */}
+              <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3">
+                <h4 className="font-sans text-[11px] font-black text-rose-700 dark:text-rose-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1.5 flex items-center gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5" /> 4. Sub-Contract Quality, Hold, Reject & Jhute
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Hold (Kg)</label>
+                    <input
+                      type="number"
+                      value={record.hold ?? 0}
+                      onChange={(e) => onChange('hold', parseFloat(e.target.value) || 0)}
+                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-amber-600 dark:text-amber-400 outline-hidden focus:border-[#0F4C81]"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold text-gray-500 uppercase flex items-center justify-between">
+                      <span>Hold%</span>
+                      <span className="text-[9px] text-gray-400 lowercase font-normal">auto</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={record.holdPct ?? holdPct}
+                      readOnly
+                      className="w-full rounded-lg border border-gray-100 dark:border-slate-800 bg-gray-100/70 dark:bg-slate-800/50 px-3 py-1.5 text-xs font-mono font-bold text-amber-600 dark:text-amber-400 outline-hidden"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Reject (Kg)</label>
+                    <input
+                      type="number"
+                      value={record.reject ?? 0}
+                      onChange={(e) => onChange('reject', parseFloat(e.target.value) || 0)}
+                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-rose-600 dark:text-rose-400 outline-hidden focus:border-[#0F4C81]"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold text-gray-500 uppercase flex items-center justify-between">
+                      <span>Reject%</span>
+                      <span className="text-[9px] text-gray-400 lowercase font-normal">auto</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={record.rejectPct ?? rejectPct}
+                      readOnly
+                      className="w-full rounded-lg border border-gray-100 dark:border-slate-800 bg-gray-100/70 dark:bg-slate-800/50 px-3 py-1.5 text-xs font-mono font-bold text-rose-600 dark:text-rose-400 outline-hidden"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Jhute/Cut Pcs (Kg)</label>
+                    <input
+                      type="number"
+                      value={record.jhuteCutpcs ?? 0}
+                      onChange={(e) => onChange('jhuteCutpcs', parseFloat(e.target.value) || 0)}
+                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-orange-600 dark:text-orange-400 outline-hidden focus:border-[#0F4C81]"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold text-gray-500 uppercase flex items-center justify-between">
+                      <span>Jhute/Cut Pcs%</span>
+                      <span className="text-[9px] text-gray-400 lowercase font-normal">auto</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={record.jhuteCutpcsPct ?? jhuteCutpcsPct}
+                      readOnly
+                      className="w-full rounded-lg border border-gray-100 dark:border-slate-800 bg-gray-100/70 dark:bg-slate-800/50 px-3 py-1.5 text-xs font-mono font-bold text-orange-600 dark:text-orange-400 outline-hidden"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 5: SUB-CONTRACT MANPOWER ROSTER */}
+              <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3">
+                <h4 className="font-sans text-[11px] font-black text-teal-700 dark:text-teal-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1.5 flex items-center gap-1.5">
+                  <Users className="h-3.5 w-3.5" /> 5. Manpower & Attendance
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Total Manpower</label>
+                    <input
+                      type="number"
+                      value={record.totalOperator ?? 0}
+                      onChange={(e) => onChange('totalOperator', parseInt(e.target.value) || 0)}
+                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Absent</label>
+                    <input
+                      type="number"
+                      value={record.absent ?? 0}
+                      onChange={(e) => onChange('absent', parseInt(e.target.value) || 0)}
+                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold text-gray-500 uppercase flex items-center justify-between">
+                      <span>Absent %</span>
+                      <span className="text-[9px] text-gray-400 lowercase font-normal">auto</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={record.absentPct ?? absentPct}
+                      readOnly
+                      className="w-full rounded-lg border border-gray-100 dark:border-slate-800 bg-gray-100/70 dark:bg-slate-800/50 px-3 py-1.5 text-xs font-mono font-bold text-teal-600 dark:text-teal-400 outline-hidden"
                     />
                   </div>
                 </div>

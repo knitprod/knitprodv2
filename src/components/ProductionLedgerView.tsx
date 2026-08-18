@@ -731,7 +731,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   // Helper to centralize all production, quality, manpower, and machine formulas
   const recalculateRecordFields = (record: LedgerRecord): LedgerRecord => {
     const floorName = record.floor || 'EKL';
-    const isSubContact = floorName === 'Sub-Contact';
+    const isSubContact = floorName === 'Sub-Contact' || record.unit === 'Sub-Contact';
     
     // 3. Target KG from settings panel unit by unit
     const target = record.target > 0 ? record.target : getTargetForFloor(floorName);
@@ -741,7 +741,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     
     // Total production
     const totalProduction = isSubContact 
-      ? (record.totalProduction ?? 0) 
+      ? (Number(record.totalProduction) || 0) 
       : ((Number(record.shiftA) || 0) + (Number(record.shiftB) || 0) + (Number(record.shiftC) || 0));
     
     // Sample production
@@ -750,12 +750,13 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     // 5. Bulk PROD (KG) = Total Production - Sample Production
     const bulkProd = Math.max(0, totalProduction - sampleProd);
 
-    // Sub-Contact specific calculations
+    // Sub-Contact specific calculations (Strictly Sub-Contact columns only, no In-House pollution)
     if (isSubContact) {
       const achievmentCircular = target > 0 ? parseFloat(((totalProduction / target) * 100).toFixed(2)) : 0;
       const runningMachine = Number(record.runningMachine) || 0;
       const totalRunningFactories = Number(record.totalRunningFactories ?? record.runningFactories) || 0;
       const runningFactories = totalRunningFactories;
+      const numberVehicles = Number(record.numberVehicles) || 0;
       const productionFlatKnit = Number(record.productionFlatKnit) || 0;
       const yarnIssued = Number(record.yarnIssued) || 0;
       const fabricReturn = Number(record.fabricReturn) || 0;
@@ -776,14 +777,30 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         ...record,
         unit: 'Sub-Contact',
         target,
+        shiftA: undefined,
+        shiftB: undefined,
+        shiftC: undefined,
+        targetBulk: undefined,
         totalProduction,
         sampleProd,
         bulkProd,
         achievmentCircular,
         efficiency: achievmentCircular,
         runningMachine,
+        runningBulk: undefined,
+        runningSample: undefined,
+        idleMc: undefined,
+        idleMachine: undefined,
+        idleProduction: undefined,
+        machineUtilization: undefined,
+        idleMcPct: undefined,
+        idleMachinePct: undefined,
+        prodLossForSample: undefined,
+        proPerMc: undefined,
+        productionPerMachine: undefined,
         totalRunningFactories,
         runningFactories,
+        numberVehicles,
         productionFlatKnit,
         yarnIssued,
         fabricReturn,
@@ -793,6 +810,19 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         rejectPct,
         jhuteCutpcs,
         jhuteCutpcsPct,
+        needleBroken: undefined,
+        needlePerKg: undefined,
+        sinkerBroken: undefined,
+        sinkerPerKg: undefined,
+        oilConsumption: undefined,
+        beltBroken: undefined,
+        otherSparePartsName: undefined,
+        otherSparePartsQty: undefined,
+        setChange: undefined,
+        setChangePcs: undefined,
+        productionLossForEff: undefined,
+        productionLossForEfficiency: undefined,
+        capacityUtilization: undefined,
         totalOperator,
         absent,
         absentPct,
@@ -968,28 +998,35 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   // Handler for Excel bulk import
   const handleImportExcelComplete = async (importedRecords: LedgerRecord[], mode: 'append' | 'replace') => {
     try {
+      let combined: LedgerRecord[] = [];
       if (mode === 'replace') {
-        setLedger(importedRecords);
+        combined = importedRecords;
       } else {
         // Append & Merge: Map existing records by unique key (date + floor), overwrite matching or append new
-        setLedger(prev => {
-          const map = new Map<string, LedgerRecord>();
-          prev.forEach(r => {
-            const key = `${r.date}_${r.floor}`.toLowerCase();
-            map.set(key, r);
-          });
-          importedRecords.forEach(r => {
-            const key = `${r.date}_${r.floor}`.toLowerCase();
-            map.set(key, r);
-          });
-          return Array.from(map.values());
+        const map = new Map<string, LedgerRecord>();
+        ledger.forEach(r => {
+          const key = `${r.date}_${r.floor}`.toLowerCase();
+          map.set(key, r);
         });
+        importedRecords.forEach(r => {
+          const key = `${r.date}_${r.floor}`.toLowerCase();
+          map.set(key, r);
+        });
+        combined = Array.from(map.values());
       }
 
-      // Batch save to Firestore in background
-      await FirestoreSyncService.batchSaveLedgerRecords(importedRecords, currentUser?.userName || 'Admin');
+      setLedger(combined);
 
-      triggerToast(`Successfully imported and synchronized ${importedRecords.length} production record(s) via Excel.`);
+      // 1. Batch save to Firestore for real-time sync across devices
+      await FirestoreSyncService.batchSaveLedgerRecords(combined, currentUser?.userName || 'Admin');
+
+      // 2. Save to Server DB cache so refresh never loses data
+      await GasClient.saveServerDb({ ledger: combined });
+
+      // 3. Batch sync with Google Sheets (GAS)
+      await GasClient.saveLedgerRecords(combined, mode === 'replace');
+
+      triggerToast(`Successfully imported and synchronized ${importedRecords.length} production record(s) via Excel to Google Sheets & Database.`);
     } catch (err: any) {
       console.error('Error processing Excel import:', err);
       triggerToast(`Import notice: ${err.message || 'Records imported with partial sync'}`);
@@ -1243,56 +1280,57 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     const monthName = months[monthNum - 1] || 'August';
 
+    const isSub = floor === 'Sub-Contact';
     const initial: LedgerRecord = {
       id: `rec-${Date.now()}`,
-      unit: floor === 'Sub-Contact' ? 'Sub-Contact' : 'In-House',
+      unit: isSub ? 'Sub-Contact' : 'In-House',
       date: defaultDate,
       day: derivedDay,
       floor,
       month: monthName,
       year: yearNum,
       target: targetKg,
-      shiftA: 0,
-      shiftB: 0,
-      shiftC: 0,
+      shiftA: isSub ? undefined : 0,
+      shiftB: isSub ? undefined : 0,
+      shiftC: isSub ? undefined : 0,
       totalProduction: 0,
-      targetBulk: targetKg,
+      targetBulk: isSub ? undefined : targetKg,
       bulkProd: 0,
       sampleProd: 0,
-      totalMachines: totalM,
-      runningMachine: totalM,
-      runningBulk: totalM,
-      runningSample: 0,
-      idleMachine: 0,
-      idleMc: 0,
-      machineUtilization: 100,
-      idleMachinePct: 0,
-      idleMcPct: 0,
-      prodLossForSample: 0,
-      idleProduction: 0,
+      totalMachines: isSub ? undefined : totalM,
+      runningMachine: isSub ? 0 : totalM,
+      runningBulk: isSub ? undefined : totalM,
+      runningSample: isSub ? undefined : 0,
+      idleMachine: isSub ? undefined : 0,
+      idleMc: isSub ? undefined : 0,
+      machineUtilization: isSub ? undefined : 100,
+      idleMachinePct: isSub ? undefined : 0,
+      idleMcPct: isSub ? undefined : 0,
+      prodLossForSample: isSub ? undefined : 0,
+      idleProduction: isSub ? undefined : 0,
       efficiency: 0,
-      productionPerMachine: 0,
-      proPerMc: 0,
+      productionPerMachine: isSub ? undefined : 0,
+      proPerMc: isSub ? undefined : 0,
       reject: 0,
       rejectPct: 0,
       hold: 0,
       holdPct: 0,
       jhuteCutpcs: 0,
       jhuteCutpcsPct: 0,
-      needleBroken: 0,
-      needlePerKg: 0,
-      sinkerBroken: 0,
-      sinkerPerKg: 0,
-      oilConsumption: 0,
-      beltBroken: 0,
-      otherSparePartsName: '',
-      otherSparePartsQty: 0,
-      setChangePcs: 0,
-      setChange: 0,
-      productionLossForEff: 0,
-      productionLossForEfficiency: targetKg,
-      capacityUtilization: 100,
-      totalOperator: totalOps,
+      needleBroken: isSub ? undefined : 0,
+      needlePerKg: isSub ? undefined : 0,
+      sinkerBroken: isSub ? undefined : 0,
+      sinkerPerKg: isSub ? undefined : 0,
+      oilConsumption: isSub ? undefined : 0,
+      beltBroken: isSub ? undefined : 0,
+      otherSparePartsName: isSub ? undefined : '',
+      otherSparePartsQty: isSub ? undefined : 0,
+      setChangePcs: isSub ? undefined : 0,
+      setChange: isSub ? undefined : 0,
+      productionLossForEff: isSub ? undefined : 0,
+      productionLossForEfficiency: isSub ? undefined : targetKg,
+      capacityUtilization: isSub ? undefined : 100,
+      totalOperator: isSub ? 0 : totalOps,
       absent: 0,
       absentPct: 0,
       remarks: '',
@@ -1301,6 +1339,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       otd: 100,
       yarnIssued: 0,
       totalRunningFactories: 0,
+      runningFactories: 0,
       numberVehicles: 0,
       fabricReturn: 0
     };
@@ -1328,6 +1367,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
          }
       }
     } else if (field === 'floor') {
+      const isSub = value === 'Sub-Contact';
       const targetKg = getTargetForFloor(value);
       const totalM = getTotalMachinesForFloor(value);
       const operatorsMap: Record<string, number> = {
@@ -1340,48 +1380,60 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         'Sub-Contact': 0,
       };
       updated.target = targetKg;
-      updated.totalOperator = operatorsMap[value] || 90;
-      updated.totalMachines = totalM;
-      updated.runningMachine = totalM;
-      updated.runningSample = 0;
-      updated.runningBulk = totalM;
-      updated.unit = value === 'Sub-Contact' ? 'Sub-Contact' : 'In-House';
+      updated.totalOperator = operatorsMap[value] || (isSub ? 0 : 90);
+      updated.totalMachines = isSub ? undefined : totalM;
+      updated.runningMachine = isSub ? (updated.runningMachine || 0) : totalM;
+      updated.runningSample = isSub ? undefined : 0;
+      updated.runningBulk = isSub ? undefined : totalM;
+      updated.unit = isSub ? 'Sub-Contact' : 'In-House';
       
       // Initialize sub-contact fields if floor changes to Sub-Contact
-      if (value === 'Sub-Contact') {
+      if (isSub) {
+        updated.shiftA = undefined;
+        updated.shiftB = undefined;
+        updated.shiftC = undefined;
+        updated.targetBulk = undefined;
         updated.productionFlatKnit = updated.productionFlatKnit ?? 0;
         updated.yarnIssued = updated.yarnIssued ?? 0;
         updated.runningFactories = updated.runningFactories ?? 0;
+        updated.totalRunningFactories = updated.totalRunningFactories ?? 0;
         updated.fabricReturn = updated.fabricReturn ?? 0;
       }
     }
 
     // Auto-sum shifts into total production if not Sub-Contact
     if (field === 'shiftA' || field === 'shiftB' || field === 'shiftC') {
-      if (updated.floor !== 'Sub-Contact') {
+      if (updated.floor !== 'Sub-Contact' && updated.unit !== 'Sub-Contact') {
         updated.totalProduction = (Number(updated.shiftA) || 0) + (Number(updated.shiftB) || 0) + (Number(updated.shiftC) || 0);
       }
     }
 
     // Machine updates:
-    // If Running Sample changes, Running Bulk (MC) adjusts (Running Bulk = Running Machine - Running Sample)
-    // and Total Active Running Machine remains unchanged!
-    if (field === 'runningMachine') {
-      const rM = Number(value) || 0;
-      const rS = Number(updated.runningSample) || 0;
-      updated.runningMachine = rM;
-      updated.runningBulk = Math.max(0, rM - rS);
-    } else if (field === 'runningSample') {
-      const rS = Number(value) || 0;
-      const rM = Number(updated.runningMachine) || 0;
-      updated.runningSample = rS;
-      // Changes should be made in Running Bulk (MC) instead of changing Total Active Machine
-      updated.runningBulk = Math.max(0, rM - rS);
-    } else if (field === 'runningBulk') {
-      const rB = Number(value) || 0;
-      const rS = Number(updated.runningSample) || 0;
-      updated.runningBulk = rB;
-      updated.runningMachine = rB + rS;
+    const isSubContactFloor = updated.floor === 'Sub-Contact' || updated.unit === 'Sub-Contact';
+    if (isSubContactFloor) {
+      if (field === 'runningMachine') {
+        updated.runningMachine = Number(value) || 0;
+        updated.runningBulk = undefined;
+        updated.runningSample = undefined;
+      }
+    } else {
+      if (field === 'runningMachine') {
+        const rM = Number(value) || 0;
+        const rS = Number(updated.runningSample) || 0;
+        updated.runningMachine = rM;
+        updated.runningBulk = Math.max(0, rM - rS);
+      } else if (field === 'runningSample') {
+        const rS = Number(value) || 0;
+        const rM = Number(updated.runningMachine) || 0;
+        updated.runningSample = rS;
+        // Changes should be made in Running Bulk (MC) instead of changing Total Active Machine
+        updated.runningBulk = Math.max(0, rM - rS);
+      } else if (field === 'runningBulk') {
+        const rB = Number(value) || 0;
+        const rS = Number(updated.runningSample) || 0;
+        updated.runningBulk = rB;
+        updated.runningMachine = rB + rS;
+      }
     }
 
     updated = recalculateRecordFields(updated);
@@ -1486,6 +1538,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         }
       }
     } else if (field === 'floor') {
+      const isSub = value === 'Sub-Contact';
       const targetKg = getTargetForFloor(value);
       const totalM = getTotalMachinesForFloor(value);
       const operatorsMap: Record<string, number> = {
@@ -1498,41 +1551,57 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         'Sub-Contact': 0,
       };
       updated.target = targetKg;
-      updated.totalOperator = operatorsMap[value] || 90;
-      updated.totalMachines = totalM;
-      updated.unit = value === 'Sub-Contact' ? 'Sub-Contact' : 'In-House';
+      updated.totalOperator = operatorsMap[value] || (isSub ? 0 : 90);
+      updated.totalMachines = isSub ? undefined : totalM;
+      updated.unit = isSub ? 'Sub-Contact' : 'In-House';
       
-      if (value === 'Sub-Contact') {
+      if (isSub) {
+        updated.shiftA = undefined;
+        updated.shiftB = undefined;
+        updated.shiftC = undefined;
+        updated.targetBulk = undefined;
+        updated.runningBulk = undefined;
+        updated.runningSample = undefined;
         updated.productionFlatKnit = updated.productionFlatKnit ?? 0;
         updated.yarnIssued = updated.yarnIssued ?? 0;
         updated.runningFactories = updated.runningFactories ?? 0;
+        updated.totalRunningFactories = updated.totalRunningFactories ?? 0;
         updated.fabricReturn = updated.fabricReturn ?? 0;
       }
     }
 
     // Auto-sum shifts into total production if not Sub-Contact
     if (field === 'shiftA' || field === 'shiftB' || field === 'shiftC') {
-      if (updated.floor !== 'Sub-Contact') {
+      if (updated.floor !== 'Sub-Contact' && updated.unit !== 'Sub-Contact') {
         updated.totalProduction = (Number(updated.shiftA) || 0) + (Number(updated.shiftB) || 0) + (Number(updated.shiftC) || 0);
       }
     }
 
     // Machine updates:
-    if (field === 'runningMachine') {
-      const rM = Number(value) || 0;
-      const rS = Number(updated.runningSample) || 0;
-      updated.runningMachine = rM;
-      updated.runningBulk = Math.max(0, rM - rS);
-    } else if (field === 'runningSample') {
-      const rS = Number(value) || 0;
-      const rM = Number(updated.runningMachine) || 0;
-      updated.runningSample = rS;
-      updated.runningBulk = Math.max(0, rM - rS);
-    } else if (field === 'runningBulk') {
-      const rB = Number(value) || 0;
-      const rS = Number(updated.runningSample) || 0;
-      updated.runningBulk = rB;
-      updated.runningMachine = rB + rS;
+    const isSubContactFloor = updated.floor === 'Sub-Contact' || updated.unit === 'Sub-Contact';
+    if (isSubContactFloor) {
+      if (field === 'runningMachine') {
+        updated.runningMachine = Number(value) || 0;
+        updated.runningBulk = undefined;
+        updated.runningSample = undefined;
+      }
+    } else {
+      if (field === 'runningMachine') {
+        const rM = Number(value) || 0;
+        const rS = Number(updated.runningSample) || 0;
+        updated.runningMachine = rM;
+        updated.runningBulk = Math.max(0, rM - rS);
+      } else if (field === 'runningSample') {
+        const rS = Number(value) || 0;
+        const rM = Number(updated.runningMachine) || 0;
+        updated.runningSample = rS;
+        updated.runningBulk = Math.max(0, rM - rS);
+      } else if (field === 'runningBulk') {
+        const rB = Number(value) || 0;
+        const rS = Number(updated.runningSample) || 0;
+        updated.runningBulk = rB;
+        updated.runningMachine = rB + rS;
+      }
     }
 
     updated = recalculateRecordFields(updated);

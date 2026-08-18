@@ -639,39 +639,66 @@ export class GasClient {
   }
 
   static async addLedgerEntry(record: Partial<LedgerRecord> & { id: string; date: string; floor: string; totalProduction: number }): Promise<string> {
+    const isSubContact = (record.floor || '').trim().toLowerCase().includes('sub-contact') || record.unit === 'Sub-Contact';
+    
     const fullRecord: LedgerRecord = {
       id: record.id,
       date: record.date,
       floor: record.floor,
-      month: record.month || 'July',
+      month: record.month || 'August',
       year: record.year || 2026,
       target: record.target || 0,
-      shiftA: record.shiftA || 0,
-      shiftB: record.shiftB || 0,
-      shiftC: record.shiftC || 0,
-      totalProduction: record.totalProduction,
-      runningMachine: record.runningMachine || 0,
-      idleMachine: record.idleMachine || 0,
-      machineUtilization: record.machineUtilization || 0,
-      idleMachinePct: record.idleMachinePct || 0,
-      idleProduction: record.idleProduction || 0,
-      efficiency: record.efficiency || 0,
-      productionPerMachine: record.productionPerMachine || 0,
-      reject: record.reject || 0,
-      rejectPct: record.rejectPct || 0,
-      hold: record.hold || 0,
-      holdPct: record.holdPct || 0,
-      needleBroken: record.needleBroken || 0,
-      needlePerKg: record.needlePerKg || 0,
-      sinkerBroken: record.sinkerBroken || 0,
-      oilConsumption: record.oilConsumption || 0,
-      productionLossForEfficiency: record.productionLossForEfficiency || 0,
-      capacityUtilization: record.capacityUtilization || 0,
-      totalOperator: record.totalOperator || 0,
-      absent: record.absent || 0,
-      absentPct: record.absentPct || 0,
-      setChange: record.setChange || 0,
-      remarks: record.remarks || ''
+      unit: isSubContact ? 'Sub-Contact' : 'In-House',
+      shiftA: isSubContact ? undefined : (record.shiftA ?? 0),
+      shiftB: isSubContact ? undefined : (record.shiftB ?? 0),
+      shiftC: isSubContact ? undefined : (record.shiftC ?? 0),
+      totalProduction: record.totalProduction ?? 0,
+      targetBulk: isSubContact ? undefined : record.targetBulk,
+      bulkProd: record.bulkProd,
+      sampleProd: record.sampleProd,
+      runningMachine: record.runningMachine ?? 0,
+      runningBulk: isSubContact ? undefined : record.runningBulk,
+      runningSample: isSubContact ? undefined : record.runningSample,
+      idleMachine: isSubContact ? undefined : record.idleMachine,
+      idleMc: isSubContact ? undefined : record.idleMc,
+      machineUtilization: isSubContact ? undefined : record.machineUtilization,
+      idleMachinePct: isSubContact ? undefined : record.idleMachinePct,
+      idleMcPct: isSubContact ? undefined : record.idleMcPct,
+      idleProduction: isSubContact ? undefined : record.idleProduction,
+      efficiency: record.efficiency,
+      productionPerMachine: isSubContact ? undefined : record.productionPerMachine,
+      proPerMc: isSubContact ? undefined : record.proPerMc,
+      reject: record.reject ?? 0,
+      rejectPct: record.rejectPct ?? 0,
+      hold: record.hold ?? 0,
+      holdPct: record.holdPct ?? 0,
+      jhuteCutpcs: record.jhuteCutpcs,
+      jhuteCutpcsPct: record.jhuteCutpcsPct,
+      needleBroken: isSubContact ? undefined : record.needleBroken,
+      needlePerKg: isSubContact ? undefined : record.needlePerKg,
+      sinkerBroken: isSubContact ? undefined : record.sinkerBroken,
+      sinkerPerKg: isSubContact ? undefined : record.sinkerPerKg,
+      oilConsumption: isSubContact ? undefined : record.oilConsumption,
+      beltBroken: isSubContact ? undefined : record.beltBroken,
+      otherSparePartsName: isSubContact ? undefined : record.otherSparePartsName,
+      otherSparePartsQty: isSubContact ? undefined : record.otherSparePartsQty,
+      setChange: isSubContact ? undefined : record.setChange,
+      setChangePcs: isSubContact ? undefined : record.setChangePcs,
+      productionLossForEff: isSubContact ? undefined : record.productionLossForEff,
+      productionLossForEfficiency: isSubContact ? undefined : record.productionLossForEfficiency,
+      capacityUtilization: isSubContact ? undefined : record.capacityUtilization,
+      totalOperator: record.totalOperator ?? 0,
+      absent: record.absent ?? 0,
+      absentPct: record.absentPct ?? 0,
+      remarks: record.remarks || '',
+      productionFlatKnit: record.productionFlatKnit,
+      achievmentCircular: record.achievmentCircular,
+      otd: record.otd,
+      yarnIssued: record.yarnIssued,
+      totalRunningFactories: record.totalRunningFactories ?? record.runningFactories,
+      runningFactories: record.runningFactories ?? record.totalRunningFactories,
+      numberVehicles: record.numberVehicles,
+      fabricReturn: record.fabricReturn
     };
 
     if (this.getDatabaseMode() === 'mock' && !this.getWebAppUrl()) {
@@ -684,6 +711,34 @@ export class GasClient {
     }
 
     return res.data.id;
+  }
+
+  static async saveLedgerRecords(records: LedgerRecord[], replace: boolean = false): Promise<void> {
+    await this.saveServerDb({ ledger: records });
+
+    if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
+      try {
+        const BATCH_SIZE = 500;
+        if (records.length <= BATCH_SIZE) {
+          const res = await this.request<any>('ledger/save', 'POST', { records, replace });
+          if (res && res.success === false) {
+            console.warn("GAS save ledger batch notice:", res.message);
+          }
+        } else {
+          for (let i = 0; i < records.length; i += BATCH_SIZE) {
+            const chunk = records.slice(i, i + BATCH_SIZE);
+            const isFirstChunk = (i === 0);
+            const chunkReplace = isFirstChunk ? replace : false;
+            const res = await this.request<any>('ledger/save', 'POST', { records: chunk, replace: chunkReplace });
+            if (res && res.success === false) {
+              console.warn(`GAS batch save ledger chunk ${Math.floor(i / BATCH_SIZE) + 1} notice:`, res.message);
+            }
+          }
+        }
+      } catch (e: any) {
+        console.warn("GAS save ledger batch notice:", e);
+      }
+    }
   }
 
   static async saveLedgerRecord(record: LedgerRecord): Promise<string> {
