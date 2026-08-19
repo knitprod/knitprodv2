@@ -135,7 +135,7 @@ export default async function handler(req: any, res: any) {
           'Accept': 'application/json'
         },
         body: typeof payload === 'string' ? payload : JSON.stringify(payload),
-        signal: AbortSignal.timeout(12000)
+        signal: AbortSignal.timeout(45000)
       });
 
       const contentType = response.headers.get('content-type') || '';
