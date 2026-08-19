@@ -324,27 +324,12 @@ export class FirestoreSyncService {
 
       let totalSynced = 0;
 
-      // 1. Pull Production Entries from Google Sheets & write to Firestore
-      try {
-        const prodEntries = await GasClient.fetchProductionList({}, true);
-        if (prodEntries && prodEntries.length > 0) {
-          for (const entry of prodEntries) {
-            await this.saveProductionEntry(entry);
-            totalSynced++;
-          }
-        }
-      } catch (e) {
-        console.warn('Reconcile production entries notice:', e);
-      }
-
-      // 2. Pull Ledger Records from Google Sheets & write to Firestore
+      // 1. Pull Ledger Records from Google Sheets & write to Firestore in batch chunks
       try {
         const ledgerRecords = await GasClient.fetchLedgerList(true);
         if (ledgerRecords && ledgerRecords.length > 0) {
-          for (const rec of ledgerRecords) {
-            await this.saveLedgerRecord(rec);
-            totalSynced++;
-          }
+          await this.batchSaveLedgerRecords(ledgerRecords, 'Sheet Sync');
+          totalSynced += ledgerRecords.length;
         }
       } catch (e) {
         console.warn('Reconcile ledger records notice:', e);
@@ -353,7 +338,7 @@ export class FirestoreSyncService {
       return {
         syncedCount: totalSynced,
         conflictsCount: 0,
-        message: `Successfully pulled & synchronized ${totalSynced} production & ledger records from Google Sheet.`
+        message: `Successfully synchronized ${totalSynced} records from Google Sheets.`
       };
     } catch (err: any) {
       console.error('reconcileSheetsAndFirestore error:', err);

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { UserRecord } from './UserManagementView';
 import { useTableColumns, ColumnCustomizerDropdown, ResizableTh, ColumnDef } from './TableColumnCustomizer';
 import { 
@@ -44,6 +44,7 @@ import * as XLSX from 'xlsx';
 import { LedgerRecord } from '../types';
 import { GasClient } from '../lib/gasClient';
 import { FirestoreSyncService } from '../lib/firestoreSync';
+import { useGlobalData } from '../context/GlobalDataContext';
 import AddProductionRecordModal from './AddProductionRecordModal';
 import UploadLedgerExcelModal, { APP_LEDGER_COLUMNS } from './UploadLedgerExcelModal';
 import { 
@@ -599,14 +600,28 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     getStickyLeft,
     lastFrozenColId,
   } = useTableColumns('production_ledger', currentUser?.uid || 'guest', PRODUCTION_LEDGER_COLUMNS, 4);
+  const {
+    ledger: globalLedger,
+    refreshAll,
+    saveLedgerRecord: globalSaveLedgerRecord,
+    deleteLedgerRecord: globalDeleteLedgerRecord,
+    bulkSaveLedgerRecords: globalBulkSaveLedgerRecords
+  } = useGlobalData();
+
   const [isGasMode, setIsGasMode] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [ledgerGasError, setLedgerGasError] = useState<string | null>(null);
 
   // Master database state
   const [ledger, setLedgerRaw] = useState<LedgerRecord[]>(() => {
-    return generateInitialLedger();
+    return (globalLedger && globalLedger.length > 0) ? globalLedger : generateInitialLedger();
   });
+
+  useEffect(() => {
+    if (globalLedger && globalLedger.length > 0) {
+      setLedger(globalLedger);
+    }
+  }, [globalLedger]);
 
   const setLedger = (value: LedgerRecord[] | ((prev: LedgerRecord[]) => LedgerRecord[])) => {
     setLedgerRaw((prev) => {
@@ -618,14 +633,14 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   const loadGasLedger = async (forceRefresh: boolean = false) => {
     try {
       setLedgerGasError(null);
-      const records = await GasClient.fetchLedgerList(forceRefresh);
-      if (records && Array.isArray(records) && records.length > 0) {
-        setLedger(records);
-      }
+      setIsSyncing(true);
+      await refreshAll(forceRefresh);
     } catch (e: any) {
       console.warn("Failed to load GAS ledger in background:", e);
       const errMsg = e.message || "Failed to load from Google Sheets.";
       setLedgerGasError(errMsg);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -2297,7 +2312,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
             <tbody className="divide-y divide-gray-100 dark:divide-slate-800 text-[11px] text-gray-700 dark:text-slate-300 font-semibold">
               {paginatedRecords.map((r, index) => (
                 <tr
-                  key={r.id}
+                  key={r.id ? `${r.id}-${index}` : `rec-${index}`}
                   className={`hover:bg-blue-50/40 dark:hover:bg-slate-800/40 transition-colors divide-x divide-gray-100 dark:divide-slate-800 ${
                     index % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-gray-50/30 dark:bg-slate-900/50'
                   }`}

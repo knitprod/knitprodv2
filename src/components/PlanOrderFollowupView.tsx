@@ -11,6 +11,7 @@ import { UserRecord } from './UserManagementView';
 import { formatDisplayDate } from './YarnAllocationView';
 import SearchableSelect from './SearchableSelect';
 import { useTableColumns, ColumnCustomizerDropdown, ResizableTh, ColumnDef } from './TableColumnCustomizer';
+import { useGlobalData } from '../context/GlobalDataContext';
 import { 
   ClipboardList, 
   Target, 
@@ -546,7 +547,22 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     lastFrozenColId,
   } = useTableColumns('plan_order_followup', currentUser?.uid || 'guest', PLAN_ORDER_COLUMNS, 5);
 
-  const [orders, setOrders] = useState<OrderPlan[]>(INITIAL_ORDERS);
+  const {
+    orderPlans: globalOrders,
+    yarnAllocations: globalYarn,
+    refreshAll,
+    saveOrderPlan: globalSaveOrderPlan,
+    deleteOrderPlan: globalDeleteOrderPlan,
+    saveYarnAllocation: globalSaveYarnAllocation,
+    deleteYarnAllocation: globalDeleteYarnAllocation
+  } = useGlobalData();
+
+  const [orders, setOrders] = useState<OrderPlan[]>(globalOrders || INITIAL_ORDERS);
+  useEffect(() => {
+    if (globalOrders && globalOrders.length > 0) {
+      setOrders(globalOrders);
+    }
+  }, [globalOrders]);
   const [activeSubTab, setActiveSubTab] = useState<'team_leader' | 'buyer' | 'summary' | 'delivery'>(
     initialSubTab || 'team_leader'
   );
@@ -602,7 +618,12 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   const [editKnitTeamLeaders, setEditKnitTeamLeaders] = useState('');
 
   // Yarn Allocation state & filters
-  const [yarnAllocations, setYarnAllocations] = useState<YarnAllocationRecord[]>(INITIAL_YARN_ALLOCATIONS);
+  const [yarnAllocations, setYarnAllocations] = useState<YarnAllocationRecord[]>(globalYarn || INITIAL_YARN_ALLOCATIONS);
+  useEffect(() => {
+    if (globalYarn && globalYarn.length > 0) {
+      setYarnAllocations(globalYarn);
+    }
+  }, [globalYarn]);
   const [yarnSearchQuery, setYarnSearchQuery] = useState('');
   const [yarnBuyerFilter, setYarnBuyerFilter] = useState('All');
   const [yarnFabricFilter, setYarnFabricFilter] = useState('All');
@@ -708,10 +729,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
 
   const loadYarnAllocations = async (forceRefresh: boolean = false) => {
     try {
-      const remoteData = await GasClient.fetchYarnAllocations(forceRefresh);
-      if (remoteData && remoteData.length > 0) {
-        setYarnAllocations(remoteData as YarnAllocationRecord[]);
-      }
+      await refreshAll(forceRefresh);
     } catch (err) {
       console.warn("Could not load yarn allocations in PlanOrderFollowupView:", err);
     }
@@ -720,46 +738,23 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   const loadOrders = async (forceRefresh: boolean = false) => {
     setIsSyncing(true);
     try {
-      const sheetsOrders = await GasClient.fetchOrderPlans(forceRefresh);
-      if (sheetsOrders && sheetsOrders.length > 0) {
-        setOrders(sheetsOrders);
-      } else {
-        setOrders(prev => prev.length > 0 ? prev : INITIAL_ORDERS);
-      }
+      await refreshAll(forceRefresh);
     } catch (err) {
       console.warn("Could not load order plans from server/GAS:", err);
-      setOrders(prev => prev.length > 0 ? prev : INITIAL_ORDERS);
     } finally {
       setIsSyncing(false);
     }
   };
 
-  // Load cached order plans and yarn allocations on mount and listen for real-time Firestore sync & manual events
+  // Sync with global store; listener for real-time Firestore sync & manual events
   useEffect(() => {
-    loadOrders(false);
-    loadYarnAllocations(false);
-
-    // Real-time Firestore listener for order plan & yarn allocation updates across devices
-    const unsubscribe = FirestoreSyncService.subscribeToSettings((settings) => {
-      if (settings && (settings.last_order_plan_updated || settings.master_order_upload_info)) {
-        loadOrders(true);
-      }
-      if (settings && (settings.last_yarn_allocation_updated || settings.master_yarn_upload_info)) {
-        loadYarnAllocations(true);
-      }
-    });
-
-    const handleSync = () => {
-      loadOrders(true);
-      loadYarnAllocations(true);
-    };
-    window.addEventListener('gas_data_synced', handleSync);
-
-    return () => {
-      unsubscribe();
-      window.removeEventListener('gas_data_synced', handleSync);
-    };
-  }, []);
+    if (globalOrders && globalOrders.length > 0) {
+      setOrders(globalOrders);
+    }
+    if (globalYarn && globalYarn.length > 0) {
+      setYarnAllocations(globalYarn);
+    }
+  }, [globalOrders, globalYarn]);
 
   // Pagination state (default 100 per page for fast performance)
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -2118,12 +2113,12 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                       </td>
                     </tr>
                   ) : (
-                    paginatedOrders.map(ord => {
+                    paginatedOrders.map((ord, ordIdx) => {
                       const startVar = calculateDateVariance(ord.knitStart, ord.aKnitStart);
                       const endVar = calculateDateVariance(ord.knitEnd, ord.lastProductionDate);
 
                       return (
-                        <tr key={ord.id} className="group hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors">
+                        <tr key={ord.id ? `${ord.id}-${ordIdx}` : `ord-${ordIdx}`} className="group hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors">
                           {isColVisible('planMonth') && (
                             <td style={{ width: `${getColWidth('planMonth')}px`, minWidth: `${getColWidth('planMonth')}px`, maxWidth: `${getColWidth('planMonth')}px`, ...getStickyStyle('planMonth') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap ${getStickyClass('planMonth')}`}>
                               <span className="px-2.5 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-[11px] inline-block">

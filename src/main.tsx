@@ -1,6 +1,7 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
+import { GlobalDataProvider } from './context/GlobalDataContext';
 import './index.css';
 
 // Purge any legacy sensitive auth tokens or session keys from browser storage
@@ -17,8 +18,11 @@ if (typeof window !== 'undefined') {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <GlobalDataProvider>
+      <App />
+    </GlobalDataProvider>
   </StrictMode>,
 );
+
 
 

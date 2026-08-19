@@ -392,7 +392,7 @@ export default function UploadLedgerExcelModal({
             const isSubContact = targetFloor.toLowerCase().includes('sub-contact') || String(getVal(row, 'unit') || '').toLowerCase().includes('sub-contact');
 
             const record: LedgerRecord = {
-              id: `imported-${dateStr}-${targetFloor.replace(/\s+/g, '-').toLowerCase()}-${Math.random().toString(36).substring(2, 7)}`,
+              id: `imported-${dateStr}-${targetFloor.replace(/\s+/g, '-').toLowerCase()}-${r}-${Date.now()}`,
               unit: isSubContact ? 'Sub-Contact' : 'In-House',
               year: cleanNum(getVal(row, 'year')) || year,
               month: String(getVal(row, 'month') || monthName).trim() || monthName,

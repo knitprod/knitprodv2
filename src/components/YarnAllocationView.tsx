@@ -26,6 +26,7 @@ import { UserRecord } from './UserManagementView';
 import { useTableColumns, ColumnCustomizerDropdown, ResizableTh, ColumnDef } from './TableColumnCustomizer';
 import { GasClient } from '../lib/gasClient';
 import { FirestoreSyncService } from '../lib/firestoreSync';
+import { useGlobalData } from '../context/GlobalDataContext';
 
 export interface MasterUploadInfo {
   lastUploadedAt: string | null;
@@ -387,7 +388,20 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     lastFrozenColId,
   } = useTableColumns('yarn_allocation', currentUser?.uid || 'guest', YARN_ALLOCATION_COLUMNS, 4);
 
-  const [yarnAllocations, setYarnAllocations] = useState<YarnAllocationRecord[]>(INITIAL_YARN_ALLOCATIONS);
+  const {
+    yarnAllocations: globalYarn,
+    refreshAll,
+    saveYarnAllocation: globalSaveYarnAllocation,
+    deleteYarnAllocation: globalDeleteYarnAllocation,
+    bulkSaveYarnAllocations: globalBulkSaveYarnAllocations
+  } = useGlobalData();
+
+  const [yarnAllocations, setYarnAllocations] = useState<YarnAllocationRecord[]>(globalYarn || INITIAL_YARN_ALLOCATIONS);
+  useEffect(() => {
+    if (globalYarn && globalYarn.length > 0) {
+      setYarnAllocations(globalYarn);
+    }
+  }, [globalYarn]);
   const [yarnSearchQuery, setYarnSearchQuery] = useState('');
   const [yarnBuyerFilter, setYarnBuyerFilter] = useState('All');
   const [yarnFabricFilter, setYarnFabricFilter] = useState('All');
@@ -1453,8 +1467,8 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
                   </td>
                 </tr>
               ) : (
-                paginatedYarnAllocations.map((row) => (
-                  <tr key={row.id} className="group hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors">
+                paginatedYarnAllocations.map((row, rowIdx) => (
+                  <tr key={row.id ? `${row.id}-${rowIdx}` : `yarn-${rowIdx}`} className="group hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors">
                     {isColVisible('actualRequisitionDate') && (
                       <td style={{ width: `${getColWidth('actualRequisitionDate')}px`, minWidth: `${getColWidth('actualRequisitionDate')}px`, maxWidth: `${getColWidth('actualRequisitionDate')}px`, ...getStickyStyle('actualRequisitionDate') }} className={`px-3.5 py-3 border-r border-slate-100 dark:border-slate-800/80 font-bold text-slate-900 dark:text-white ${isWrapText ? 'whitespace-normal break-words py-2.5 align-top overflow-hidden' : 'whitespace-nowrap overflow-hidden text-ellipsis align-middle'} ${getStickyClass('actualRequisitionDate')}`}>
                         {formatDisplayDate(row.actualRequisitionDate)}

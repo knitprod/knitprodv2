@@ -178,4 +178,30 @@ export interface OrderPlan extends SyncMetadata {
   knitTeamLeaders: string;
 }
 
+export interface YarnAllocationRecord extends SyncMetadata {
+  id: string;
+  actualRequisitionDate: string;
+  buyer: string;
+  orderNumber: string;
+  fabricsType: string;
+  fabricShade: string;
+  fabricGsm: number | string;
+  yarnRequired: string;
+  lotRef: string;
+  allocatedYarn: string;
+  lotNo: string;
+  spinnersName: string;
+  allocationStatus: string;
+  yarnStockStatus: string;
+  yarnDeliveryStatus: string;
+  proposedAllocationDate: string;
+  allocationDateRange: string;
+  allocationNo: string;
+  yarnRqQty: number;
+  allocatedQty: number;
+  balance: number;
+  remarks: string;
+}
+
+
 

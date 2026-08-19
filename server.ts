@@ -84,7 +84,7 @@ function saveConfig(newConfig: Partial<{ gasWebAppUrl: string; databaseMode: 'ga
         let content = fs.readFileSync(serverPath, 'utf-8');
         const serverRegex = /(const DEFAULT_GAS_URL\s*=\s*)(['"])([\s\S]*?)\2;/g;
         if (serverRegex.test(content)) {
-          content = content.replace(serverRegex, `const DEFAULT_GAS_URL = '${newUrl}';`);
+          content = content.replace(serverRegex, `const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbz6M8NmfDjG9GKdmkFMHggR6MGQwRU6Q42-hpd_gxEfbTQsjRL86mI_NavdqJB8Blzl/exec';`);
           fs.writeFileSync(serverPath, content, 'utf-8');
         }
       } catch (e) {
@@ -281,8 +281,36 @@ app.post('/api/db', (req, res) => {
   res.json({ success: true, db: updated });
 });
 
-// Proxy to Google Apps Script REST API with high performance caching & 10s timeouts
-app.all('/api/gas-proxy', async (req, res) => {
+// Helper to query individual GAS endpoints with timeout
+async function fetchGasEndpoint(baseUrl: string, action: string, queryParams: Record<string, any>, timeoutMs: number = 35000) {
+  try {
+    const urlObj = new URL(baseUrl);
+    urlObj.searchParams.set('action', action);
+    for (const [key, val] of Object.entries(queryParams)) {
+      if (key !== 'url' && key !== 'refresh' && key !== 'action') {
+        urlObj.searchParams.set(key, String(val));
+      }
+    }
+    const response = await fetch(urlObj.toString(), {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+    if (!response.ok) return null;
+    const text = await response.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
+  } catch (e) {
+    return null;
+  }
+}
+
+// Proxy to Google Apps Script REST API with high performance caching & edge headers
+const gasProxyHandler = async (req: express.Request, res: express.Response) => {
   const config = loadConfig();
   
   try {
@@ -314,15 +342,11 @@ app.all('/api/gas-proxy', async (req, res) => {
     }
 
     if (req.method === 'GET') {
-      const urlObj = new URL(trimmedUrl);
-      for (const [key, val] of Object.entries(req.query)) {
-        if (key !== 'url' && key !== 'refresh') {
-          urlObj.searchParams.append(key, String(val));
-        }
-      }
+      res.setHeader('Cache-Control', 'public, s-maxage=12, stale-while-revalidate=30');
 
-      const cacheKey = urlObj.toString();
+      const action = String(req.query.action || 'all');
       const forceRefresh = req.query.refresh === 'true';
+      const cacheKey = `${trimmedUrl}_${action}_${JSON.stringify(req.query)}`;
       const now = Date.now();
       const cached = gasProxyCache.get(cacheKey);
 
@@ -331,28 +355,67 @@ app.all('/api/gas-proxy', async (req, res) => {
         return res.json(cached.data);
       }
 
+      // Handle 'all' or 'bulk' action with fallback to concurrent multi-endpoint fetching
+      if (action === 'all' || action === 'bulk') {
+        // 1. Try direct action=all
+        const directAllRes = await fetchGasEndpoint(trimmedUrl, 'all', req.query, 12000);
+        if (directAllRes && directAllRes.success && directAllRes.data && (directAllRes.data.orderPlans || directAllRes.data.orders)) {
+          gasProxyCache.set(cacheKey, { timestamp: now, data: directAllRes });
+          return res.json(directAllRes);
+        }
+
+        // 2. Fallback: Fetch orders/list, yarn/list, and ledger/list concurrently in parallel
+        const [ordersRes, yarnRes, ledgerRes] = await Promise.allSettled([
+          fetchGasEndpoint(trimmedUrl, 'orders/list', req.query, 35000),
+          fetchGasEndpoint(trimmedUrl, 'yarn/list', req.query, 35000),
+          fetchGasEndpoint(trimmedUrl, 'ledger/list', req.query, 35000),
+        ]);
+
+        const ordersData = ordersRes.status === 'fulfilled' && ordersRes.value?.data ? ordersRes.value.data : [];
+        const yarnData = yarnRes.status === 'fulfilled' && yarnRes.value?.data ? yarnRes.value.data : [];
+        const ledgerData = ledgerRes.status === 'fulfilled' && ledgerRes.value?.data ? ledgerRes.value.data : [];
+
+        const combinedPayload = {
+          success: true,
+          data: {
+            orderPlans: ordersData,
+            yarnAllocations: yarnData,
+            ledger: ledgerData,
+            totalOrders: ordersData.length,
+            totalYarn: yarnData.length,
+            totalLedger: ledgerData.length
+          }
+        };
+
+        if (ordersData.length > 0 || yarnData.length > 0 || ledgerData.length > 0) {
+          gasProxyCache.set(cacheKey, { timestamp: now, data: combinedPayload });
+        }
+
+        return res.json(combinedPayload);
+      }
+
+      // Single endpoint direct fetch (e.g. orders/list, yarn/list, ledger/list, health)
       try {
+        const urlObj = new URL(trimmedUrl);
+        urlObj.searchParams.set('action', action);
+        for (const [key, val] of Object.entries(req.query)) {
+          if (key !== 'url' && key !== 'refresh' && key !== 'action') {
+            urlObj.searchParams.set(key, String(val));
+          }
+        }
+
         const response = await fetch(urlObj.toString(), {
           method: 'GET',
           headers: { 'Accept': 'application/json' },
           redirect: 'follow',
-          signal: AbortSignal.timeout(25000) // 25-second timeout for GAS execution & cold starts
+          signal: AbortSignal.timeout(35000)
         });
 
         if (!response.ok) {
-          let hint = '';
-          if (response.status === 404) {
-            hint = ' (404 Not Found: Ensure URL ends in "/exec", not "/dev").';
-          } else if (response.status === 401 || response.status === 403) {
-            hint = ' (Access Denied: Set "Who has access" to "Anyone" in Google Apps Script).';
-          }
-          if (cached) {
-            // Serve stale cache on error
-            return res.json(cached.data);
-          }
+          if (cached) return res.json(cached.data);
           return res.status(response.status).json({
             success: false,
-            message: `Google Apps Script returned HTTP status ${response.status}${hint}`
+            message: `Google Apps Script returned HTTP status ${response.status}`
           });
         }
 
@@ -368,19 +431,15 @@ app.all('/api/gas-proxy', async (req, res) => {
           return res.json({ success: false, message: 'Invalid JSON response from Apps Script', raw: text });
         }
       } catch (fetchErr: any) {
-        // If fetch timed out or failed, serve cached data immediately if available
-        if (cached) {
-          return res.json(cached.data);
-        }
-        const isTimeout = fetchErr.name === 'TimeoutError' || fetchErr.message?.includes('timeout') || fetchErr.message?.includes('aborted');
+        if (cached) return res.json(cached.data);
         return res.json({
           success: false,
-          message: isTimeout 
-            ? 'Google Apps Script request timed out due to slow response or cold start. Please try again.'
-            : (fetchErr.message || 'Error connecting to Google Apps Script')
+          message: fetchErr.message || 'Error connecting to Google Apps Script'
         });
       }
     } else if (req.method === 'POST') {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+
       // Invalidate GET cache on write operations so next reads get fresh data
       gasProxyCache.clear();
 
@@ -395,7 +454,7 @@ app.all('/api/gas-proxy', async (req, res) => {
           },
           body: JSON.stringify(postBody),
           redirect: 'follow',
-          signal: AbortSignal.timeout(90000) // 90-second timeout for batch mutations
+          signal: AbortSignal.timeout(15000) // 15-second timeout for batch mutations
         });
 
         if (!response.ok) {
@@ -440,7 +499,10 @@ app.all('/api/gas-proxy', async (req, res) => {
         : (err.message || 'Error communicating with Google Apps Script')
     });
   }
-});
+};
+
+app.all('/api/sheets', gasProxyHandler);
+app.all('/api/gas-proxy', gasProxyHandler);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });

@@ -15,6 +15,7 @@ import { FirestoreSyncService } from './firestoreSync';
 export class GasClient {
   private static syncListeners: Array<(isSyncing: boolean) => void> = [];
   private static activeSyncCount = 0;
+  private static syncSafetyTimer: any = null;
 
   static onSyncStateChange(listener: (isSyncing: boolean) => void): () => void {
     this.syncListeners.push(listener);
@@ -30,6 +31,16 @@ export class GasClient {
   private static startSyncNotification() {
     this.activeSyncCount++;
     const isSyncing = this.activeSyncCount > 0;
+    
+    // Clear existing safety timer and start a new 35s timeout to prevent perpetual spinning
+    if (this.syncSafetyTimer) clearTimeout(this.syncSafetyTimer);
+    this.syncSafetyTimer = setTimeout(() => {
+      if (this.activeSyncCount > 0) {
+        this.activeSyncCount = 0;
+        this.syncListeners.forEach(listener => listener(false));
+      }
+    }, 35000);
+
     Promise.resolve().then(() => {
       this.syncListeners.forEach(listener => listener(isSyncing));
     });
@@ -37,6 +48,10 @@ export class GasClient {
 
   private static stopSyncNotification() {
     this.activeSyncCount = Math.max(0, this.activeSyncCount - 1);
+    if (this.activeSyncCount === 0 && this.syncSafetyTimer) {
+      clearTimeout(this.syncSafetyTimer);
+      this.syncSafetyTimer = null;
+    }
     const isSyncing = this.activeSyncCount > 0;
     Promise.resolve().then(() => {
       this.syncListeners.forEach(listener => listener(isSyncing));
@@ -47,7 +62,14 @@ export class GasClient {
     if (isSyncing) {
       this.startSyncNotification();
     } else {
-      this.stopSyncNotification();
+      this.activeSyncCount = 0;
+      if (this.syncSafetyTimer) {
+        clearTimeout(this.syncSafetyTimer);
+        this.syncSafetyTimer = null;
+      }
+      Promise.resolve().then(() => {
+        this.syncListeners.forEach(listener => listener(false));
+      });
     }
   }
 
@@ -325,7 +347,9 @@ export class GasClient {
                 }
               });
             }
-            response = await fetch(`/api/gas-proxy?${queryParams.toString()}`);
+            response = await fetch(`/api/sheets?${queryParams.toString()}`, {
+              signal: AbortSignal.timeout(35000)
+            });
           } else {
             const postPayload: any = {
               action: action,
@@ -338,12 +362,15 @@ export class GasClient {
               replace: bodyData?.replace,
               orderPlans: bodyData?.orderPlans,
               yarnAllocations: bodyData?.yarnAllocations,
+              ledger: bodyData?.ledger || bodyData?.records,
               url: webAppUrl
             };
-            response = await fetch('/api/gas-proxy', {
+            response = await fetch('/api/sheets', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(postPayload)
+              body: JSON.stringify(postPayload),
+              keepalive: true,
+              signal: AbortSignal.timeout(35000)
             });
           }
 
@@ -750,8 +777,15 @@ export class GasClient {
     }
   }
 
-  static async fetchLedgerRecords(filterUnit?: string): Promise<LedgerRecord[]> {
-    return await this.fetchLedgerList();
+  static async fetchLedgerRecords(forceRefreshOrFilterUnit?: boolean | string, filterUnit?: string): Promise<LedgerRecord[]> {
+    const forceRefresh = typeof forceRefreshOrFilterUnit === 'boolean' ? forceRefreshOrFilterUnit : false;
+    const records = await this.fetchLedgerList(forceRefresh);
+    const unitFilter = typeof forceRefreshOrFilterUnit === 'string' ? forceRefreshOrFilterUnit : filterUnit;
+    if (unitFilter && unitFilter.trim()) {
+      const lower = unitFilter.trim().toLowerCase();
+      return records.filter(r => (r.unit || '').toLowerCase().includes(lower) || (r.floor || '').toLowerCase().includes(lower));
+    }
+    return records;
   }
 
   static async updateLedgerEntry(record: LedgerRecord): Promise<boolean> {
