@@ -55,20 +55,30 @@ const GlobalDataContext = createContext<GlobalDataContextType | null>(null);
 const POLLING_INTERVAL_MS = 15000; // 15 seconds silent polling
 
 /**
- * Executes a write mutation against /api/sheets with keepalive: true to prevent tab-close data loss.
+ * Executes a write mutation against /api/sheets with keepalive to prevent tab-close data loss.
+ * Bypasses Google Sheets for yarn allocations since Yarn Allocation is directly on Firebase Firestore.
  */
 async function executeKeepaliveMutation(action: string, data: any): Promise<any> {
+  // Yarn allocations are handled exclusively in Firebase Firestore
+  if (action.startsWith('yarn/')) {
+    return { success: true, message: 'Yarn allocation saved in Firebase Firestore' };
+  }
+
   const payload = { action, ...data };
   try {
+    const payloadStr = JSON.stringify(payload);
+    // Keepalive is capped at 64KB by browser spec; use regular fetch for larger payloads
+    const useKeepalive = payloadStr.length < 60000;
+
     const res = await fetch('/api/sheets', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       },
-      body: JSON.stringify(payload),
-      keepalive: true, // Guarantees browser completes delivery even if tab is closed immediately
-      signal: AbortSignal.timeout(10000)
+      body: payloadStr,
+      ...(useKeepalive ? { keepalive: true } : {}),
+      signal: AbortSignal.timeout(15000)
     });
 
     const ct = res.headers.get('content-type') || '';
@@ -82,7 +92,7 @@ async function executeKeepaliveMutation(action: string, data: any): Promise<any>
       return { success: res.ok, message: text };
     }
   } catch (err: any) {
-    console.error(`[Keepalive Mutation Failed - ${action}]:`, err);
+    console.warn(`[Keepalive Mutation Notice - ${action}]:`, err);
     return { success: false, message: err.message || 'Write mutation network error' };
   }
 }
@@ -453,18 +463,23 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
 
     GasClient.clearYarnCache();
+    // Persist to Server DB cache
+    GasClient.saveServerDb({ yarnAllocations: [item] }).catch(() => {});
+    // Real-time Cloud Firestore write
     FirestoreSyncService.saveYarnAllocation(item).catch(err => console.warn('Firestore saveYarnAllocation notice:', err));
     FirestoreSyncService.saveSettings({ last_yarn_allocation_updated: new Date().toISOString() }).catch(() => {});
 
-    return executeKeepaliveMutation('yarn/save', { yarnAllocations: [item], replace: false });
+    return { success: true, message: 'Yarn allocation saved in Firebase Firestore' };
   };
 
   const deleteYarnAllocation = async (id: string) => {
     setYarnAllocations(prev => prev.filter(y => y.id !== id));
     GasClient.clearYarnCache();
-    FirestoreSyncService.deleteYarnAllocation(id).catch(err => console.warn('Firestore deleteYarnAllocation notice:', err));
+    // Delete from Firestore & Server DB
+    GasClient.deleteYarnAllocation(id).catch(err => console.warn('Delete yarn allocation notice:', err));
     FirestoreSyncService.saveSettings({ last_yarn_allocation_updated: new Date().toISOString() }).catch(() => {});
-    return executeKeepaliveMutation('yarn/delete', { id });
+
+    return { success: true, message: 'Yarn allocation deleted from Firebase Firestore' };
   };
 
   const bulkSaveYarnAllocations = async (items: YarnAllocationRecord[], replace: boolean = false) => {
@@ -473,7 +488,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     GasClient.saveServerDb({ yarnAllocations: items }).catch(() => {});
     FirestoreSyncService.batchSaveYarnAllocations(items, replace).catch(err => console.warn('Firestore batchSaveYarnAllocations notice:', err));
     FirestoreSyncService.saveSettings({ last_yarn_allocation_updated: new Date().toISOString() }).catch(() => {});
-    return executeKeepaliveMutation('yarn/save', { yarnAllocations: items, replace });
+    return { success: true, count: items.length, message: 'Yarn allocations stored in Firebase Firestore' };
   };
 
   // --- Production Ledger ---

@@ -84,6 +84,7 @@ const COLLECTIONS = {
   USERS: 'users',
   ORDER_PLANS: 'order_plans',
   YARN_ALLOCATIONS: 'yarn_allocations',
+  YARN_STORE: 'yarn_allocations_store',
   SETTINGS: 'settings',
   ACTIVITY_LOGS: 'activity_logs',
   SYNC_CONFLICTS: 'sync_conflicts',
@@ -156,19 +157,72 @@ export class FirestoreSyncService {
   }
 
   /**
-   * Subscribe to Yarn Allocations with Realtime onSnapshot listener
+   * Subscribe to Yarn Allocations with Realtime onSnapshot listener from Firebase Firestore
    */
   static subscribeToYarnAllocations(callback: (allocations: YarnAllocationRecord[]) => void) {
     try {
-      const colRef = collection(db, COLLECTIONS.YARN_ALLOCATIONS);
-      return onSnapshot(colRef, (snapshot) => {
-        const allocations: YarnAllocationRecord[] = [];
-        snapshot.forEach((docSnap) => {
-          allocations.push({ id: docSnap.id, ...docSnap.data() } as YarnAllocationRecord);
-        });
-        callback(allocations);
+      // 1. Listen to real-time metadata doc on yarn_allocations_store
+      const metaDocRef = doc(db, COLLECTIONS.YARN_STORE, 'meta');
+      
+      const loadAllChunks = async () => {
+        try {
+          const storeCol = collection(db, COLLECTIONS.YARN_STORE);
+          const chunkDocs = await getDocs(storeCol);
+          const allYarn: YarnAllocationRecord[] = [];
+          
+          chunkDocs.forEach((d) => {
+            if (d.id.startsWith('chunk_')) {
+              const data = d.data();
+              if (data && Array.isArray(data.items)) {
+                allYarn.push(...data.items);
+              }
+            }
+          });
+
+          if (allYarn.length > 0) {
+            callback(allYarn);
+            return;
+          }
+
+          // Check individual docs collection as fallback
+          const colRef = collection(db, COLLECTIONS.YARN_ALLOCATIONS);
+          const snap = await getDocs(colRef);
+          if (!snap.empty) {
+            const list: YarnAllocationRecord[] = [];
+            snap.forEach(ds => list.push({ id: ds.id, ...ds.data() } as YarnAllocationRecord));
+            if (list.length > 0) {
+              callback(list);
+              return;
+            }
+          }
+
+          // If Firestore is empty on initial run, fetch from server persistent DB and seed Firestore
+          try {
+            const serverRes = await fetch('/api/db');
+            if (serverRes.ok) {
+              const serverJson = await serverRes.json();
+              if (serverJson && Array.isArray(serverJson.yarnAllocations) && serverJson.yarnAllocations.length > 0) {
+                callback(serverJson.yarnAllocations);
+                // Seed Firestore in the background
+                FirestoreSyncService.batchSaveYarnAllocations(serverJson.yarnAllocations, false).catch(() => {});
+              }
+            }
+          } catch (e) {}
+        } catch (err) {
+          console.warn('loadAllChunks error in subscribeToYarnAllocations:', err);
+        }
+      };
+
+      // Initial immediate fetch
+      loadAllChunks();
+
+      // Realtime listener on meta doc
+      return onSnapshot(metaDocRef, (metaSnap) => {
+        if (metaSnap.exists()) {
+          loadAllChunks();
+        }
       }, (error) => {
-        console.warn('Firestore yarn allocations snapshot error:', error);
+        console.warn('Firestore yarn store metadata snapshot warning:', error);
       });
     } catch (err) {
       console.warn('subscribeToYarnAllocations init error:', err);
@@ -527,6 +581,14 @@ export class FirestoreSyncService {
         id: item.id || docId,
         updatedAt: new Date().toISOString()
       }, { merge: true });
+
+      // Signal update on store meta
+      const metaDocRef = doc(db, COLLECTIONS.YARN_STORE, 'meta');
+      await setDoc(metaDocRef, {
+        updatedAt: new Date().toISOString(),
+        version: Date.now(),
+        lastAction: 'single_update'
+      }, { merge: true });
     } catch (e) {
       console.warn('saveYarnAllocation firestore notice:', e);
     }
@@ -536,46 +598,55 @@ export class FirestoreSyncService {
     try {
       if (!items || items.length === 0) return;
 
-      // If replacing dataset, clear old items in batches first
-      if (replace) {
-        try {
-          const colRef = collection(db, COLLECTIONS.YARN_ALLOCATIONS);
-          const oldDocsSnap = await getDocs(colRef);
-          if (!oldDocsSnap.empty) {
-            const deleteBatch = writeBatch(db);
-            let count = 0;
-            for (const d of oldDocsSnap.docs) {
-              deleteBatch.delete(d.ref);
-              count++;
-              if (count >= 400) {
-                await deleteBatch.commit();
-                count = 0;
-              }
-            }
-            if (count > 0) {
-              await deleteBatch.commit();
-            }
-          }
-        } catch (delErr) {
-          console.warn('Yarn allocation replace cleanup notice:', delErr);
-        }
+      const CHUNK_SIZE = 500;
+      const chunkCount = Math.ceil(items.length / CHUNK_SIZE);
+
+      // Write chunk documents to YARN_STORE
+      for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+        const chunkIndex = Math.floor(i / CHUNK_SIZE);
+        const chunkItems = items.slice(i, i + CHUNK_SIZE);
+        const chunkDocRef = doc(db, COLLECTIONS.YARN_STORE, `chunk_${chunkIndex}`);
+        await setDoc(chunkDocRef, {
+          chunkIndex,
+          items: chunkItems,
+          updatedAt: new Date().toISOString()
+        });
       }
 
-      const CHUNK_SIZE = 250;
-      for (let i = 0; i < items.length; i += CHUNK_SIZE) {
-        const chunk = items.slice(i, i + CHUNK_SIZE);
-        const batch = writeBatch(db);
-        chunk.forEach(item => {
-          const docId = sanitizeDocId(item.id || `yarn-${item.orderNumber}-${item.fabricShade}-${item.yarnRequired || ''}-${item.lotNo || ''}`, 'yarn');
-          const docRef = doc(db, COLLECTIONS.YARN_ALLOCATIONS, docId);
-          batch.set(docRef, {
-            ...item,
-            id: item.id || docId,
-            updatedAt: new Date().toISOString()
-          }, { merge: true });
-        });
-        await batch.commit();
+      // If replacing, delete extra obsolete chunks
+      if (replace) {
+        try {
+          const storeCol = collection(db, COLLECTIONS.YARN_STORE);
+          const currentDocs = await getDocs(storeCol);
+          currentDocs.forEach(d => {
+            if (d.id.startsWith('chunk_')) {
+              const idx = parseInt(d.id.replace('chunk_', ''), 10);
+              if (idx >= chunkCount) {
+                deleteDoc(d.ref).catch(() => {});
+              }
+            }
+          });
+        } catch (delErr) {}
       }
+
+      // Update meta doc to notify all devices in real time
+      const metaDocRef = doc(db, COLLECTIONS.YARN_STORE, 'meta');
+      await setDoc(metaDocRef, {
+        updatedAt: new Date().toISOString(),
+        version: Date.now(),
+        totalRecords: items.length,
+        chunkCount: chunkCount
+      });
+
+      // Also persist to server local DB
+      try {
+        await fetch('/api/db', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ yarnAllocations: items })
+        });
+      } catch (e) {}
+
     } catch (e) {
       console.warn('batchSaveYarnAllocations firestore notice:', e);
     }
@@ -587,6 +658,13 @@ export class FirestoreSyncService {
       const docId = sanitizeDocId(id, 'yarn');
       const docRef = doc(db, COLLECTIONS.YARN_ALLOCATIONS, docId);
       await deleteDoc(docRef);
+
+      const metaDocRef = doc(db, COLLECTIONS.YARN_STORE, 'meta');
+      await setDoc(metaDocRef, {
+        updatedAt: new Date().toISOString(),
+        version: Date.now(),
+        lastAction: 'delete'
+      }, { merge: true });
     } catch (e) {
       console.warn('deleteYarnAllocation firestore notice:', e);
     }
@@ -594,13 +672,42 @@ export class FirestoreSyncService {
 
   static async fetchYarnAllocations(): Promise<YarnAllocationRecord[]> {
     try {
+      // 1. Fetch from chunked store
+      const storeCol = collection(db, COLLECTIONS.YARN_STORE);
+      const chunkDocs = await getDocs(storeCol);
+      const allYarn: YarnAllocationRecord[] = [];
+      
+      chunkDocs.forEach((d) => {
+        if (d.id.startsWith('chunk_')) {
+          const data = d.data();
+          if (data && Array.isArray(data.items)) {
+            allYarn.push(...data.items);
+          }
+        }
+      });
+
+      if (allYarn.length > 0) {
+        return allYarn;
+      }
+
+      // 2. Fetch from individual docs
       const colRef = collection(db, COLLECTIONS.YARN_ALLOCATIONS);
       const snapshot = await getDocs(colRef);
       const list: YarnAllocationRecord[] = [];
       snapshot.forEach(docSnap => {
         list.push({ id: docSnap.id, ...docSnap.data() } as YarnAllocationRecord);
       });
-      return list;
+      if (list.length > 0) return list;
+
+      // 3. Fallback to server DB
+      const serverRes = await fetch('/api/db');
+      if (serverRes.ok) {
+        const serverJson = await serverRes.json();
+        if (serverJson && Array.isArray(serverJson.yarnAllocations) && serverJson.yarnAllocations.length > 0) {
+          return serverJson.yarnAllocations;
+        }
+      }
+      return [];
     } catch (err) {
       console.warn('fetchYarnAllocations from firestore notice:', err);
       return [];

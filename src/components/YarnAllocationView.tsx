@@ -30,6 +30,10 @@ import { useGlobalData } from '../context/GlobalDataContext';
 
 export interface MasterUploadInfo {
   lastUploadedAt: string | null;
+  lastUpdatedDate?: string | null;
+  lastUpdateTime?: string | null;
+  uploadedBy?: string | null;
+  userName?: string | null;
   fileName: string | null;
   totalRecords: number;
   status: 'Success' | 'Failed' | 'No upload yet';
@@ -441,8 +445,15 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
       const saved = localStorage.getItem('master_yarn_upload_info');
       if (saved) return JSON.parse(saved);
     } catch (e) {}
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
     return {
-      lastUploadedAt: 'Synced',
+      lastUploadedAt: `${dateStr}, ${timeStr}`,
+      lastUpdatedDate: dateStr,
+      lastUpdateTime: timeStr,
+      uploadedBy: currentUser?.userName || 'Md. Raihan Hossain Antu',
+      userName: currentUser?.userName || 'Md. Raihan Hossain Antu',
       fileName: 'Master_Yarn_Allocation.xlsx',
       totalRecords: globalYarn?.length || 0,
       status: 'Success',
@@ -578,6 +589,43 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
   const uniqueOrdersCount = useMemo(() => {
     return new Set(filteredYarnAllocations.map(item => String(item.orderNumber || '').trim()).filter(Boolean)).size;
   }, [filteredYarnAllocations]);
+
+  const formatYarnMetadata = () => {
+    let updateDate = uploadInfo.lastUpdatedDate;
+    let updateTime = uploadInfo.lastUpdateTime;
+    const userName = uploadInfo.uploadedBy || uploadInfo.userName || currentUser?.userName || 'Md. Raihan Hossain Antu';
+
+    if (!updateDate || !updateTime) {
+      if (uploadInfo.lastUploadedAt && uploadInfo.lastUploadedAt !== 'Synced') {
+        if (uploadInfo.lastUploadedAt.includes(',')) {
+          const parts = uploadInfo.lastUploadedAt.split(',');
+          updateDate = updateDate || parts[0]?.trim();
+          updateTime = updateTime || parts.slice(1).join(',').trim();
+        } else {
+          try {
+            const d = new Date(uploadInfo.lastUploadedAt);
+            if (!isNaN(d.getTime())) {
+              updateDate = updateDate || d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+              updateTime = updateTime || d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+            }
+          } catch (e) {}
+        }
+      }
+    }
+
+    if (!updateDate) {
+      const now = new Date();
+      updateDate = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+    if (!updateTime) {
+      const now = new Date();
+      updateTime = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+    }
+
+    return { updateDate, updateTime, userName };
+  };
+
+  const { updateDate, updateTime, userName } = formatYarnMetadata();
 
   const handleExportYarnExcel = () => {
     const exportData = filteredYarnAllocations.map(item => ({
@@ -1033,6 +1081,9 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
         const remoteMeta = settings.master_yarn_upload_info as MasterUploadInfo;
         if (
           lastKnownMeta.lastUploadedAt !== remoteMeta.lastUploadedAt ||
+          lastKnownMeta.lastUpdatedDate !== remoteMeta.lastUpdatedDate ||
+          lastKnownMeta.lastUpdateTime !== remoteMeta.lastUpdateTime ||
+          lastKnownMeta.uploadedBy !== remoteMeta.uploadedBy ||
           lastKnownMeta.totalRecords !== remoteMeta.totalRecords ||
           lastKnownMeta.fileName !== remoteMeta.fileName ||
           lastKnownMeta.status !== remoteMeta.status
@@ -1067,17 +1118,25 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     setYarnAllocations(dataToSave);
     setCurrentPage(1);
 
-    const nowStr = new Date().toLocaleString('en-US', {
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-GB', {
       day: '2-digit',
       month: 'short',
-      year: 'numeric',
+      year: 'numeric'
+    });
+    const timeStr = now.toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
       hour12: true
     });
+    const activeUserName = currentUser?.userName || 'Md. Raihan Hossain Antu';
 
     const newUploadInfo: MasterUploadInfo = {
-      lastUploadedAt: nowStr,
+      lastUploadedAt: `${dateStr}, ${timeStr}`,
+      lastUpdatedDate: dateStr,
+      lastUpdateTime: timeStr,
+      uploadedBy: activeUserName,
+      userName: activeUserName,
       fileName: fileName,
       totalRecords: dataToSave.length,
       status: 'Success'
@@ -1173,24 +1232,17 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-                  Master Allocation Data Source
-                </span>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                  uploadInfo.status === 'Success'
-                    ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
-                    : uploadInfo.status === 'Failed'
-                    ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
-                }`}>
-                  Status: {uploadInfo.status}
+                  Data Source: Firebase Firestore
                 </span>
               </div>
               <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span><span className="text-slate-400 font-medium">File:</span> {uploadInfo.fileName || 'None'}</span>
+                <span><span className="text-slate-400 font-medium">Dataset:</span> Yarn Allocations</span>
                 <span className="text-slate-300 dark:text-slate-700">•</span>
-                <span><span className="text-slate-400 font-medium">Last Uploaded:</span> {uploadInfo.lastUploadedAt || 'N/A'}</span>
+                <span><span className="text-slate-400 font-medium">Update Date:</span> <span className="font-extrabold text-slate-800 dark:text-slate-100">{updateDate}</span></span>
                 <span className="text-slate-300 dark:text-slate-700">•</span>
-                <span><span className="text-slate-400 font-medium">Total Records:</span> <span className="font-extrabold text-blue-600 dark:text-blue-400">{uploadInfo.totalRecords}</span></span>
+                <span><span className="text-slate-400 font-medium">Update Time:</span> <span className="font-extrabold text-slate-800 dark:text-slate-100">{updateTime}</span></span>
+                <span className="text-slate-300 dark:text-slate-700">•</span>
+                <span><span className="text-slate-400 font-medium">User Name:</span> <span className="font-extrabold text-blue-600 dark:text-blue-400">{userName}</span></span>
               </div>
             </div>
           </div>

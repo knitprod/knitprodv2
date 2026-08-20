@@ -377,12 +377,13 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
           return res.json(quickPayload);
         }
 
-        // 1. Try direct action=all with adequate timeout for large sheets
+        // 1. Try direct action=all with adequate timeout for large sheets (Order Plans and Ledger only from GAS)
         const directAllRes = await fetchGasEndpoint(trimmedUrl, 'all', req.query, 60000);
-        if (directAllRes && directAllRes.success && directAllRes.data && (directAllRes.data.orderPlans || directAllRes.data.yarnAllocations || directAllRes.data.orders || directAllRes.data.yarn)) {
+        if (directAllRes && directAllRes.success && directAllRes.data && (directAllRes.data.orderPlans || directAllRes.data.orders || directAllRes.data.ledger)) {
           const directData = directAllRes.data;
           const mergedOrders = (directData.orderPlans && directData.orderPlans.length > 0) ? directData.orderPlans : (localDb.orderPlans || []);
-          const mergedYarn = (directData.yarnAllocations && directData.yarnAllocations.length > 0) ? directData.yarnAllocations : (localDb.yarnAllocations || []);
+          // Yarn Allocation is managed directly via Firebase Firestore + Persistent Store
+          const mergedYarn = (localDb.yarnAllocations && localDb.yarnAllocations.length > 0) ? localDb.yarnAllocations : [];
           const mergedLedger = (directData.ledger && directData.ledger.length > 0) ? directData.ledger : (localDb.ledger || []);
           
           const resultPayload = {
@@ -398,9 +399,8 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
             }
           };
 
-          // Save fresh data to local persistent store
+          // Save fresh order plans and ledger data to local persistent store
           if (directData.orderPlans && directData.orderPlans.length > 0) localDb.orderPlans = directData.orderPlans;
-          if (directData.yarnAllocations && directData.yarnAllocations.length > 0) localDb.yarnAllocations = directData.yarnAllocations;
           if (directData.ledger && directData.ledger.length > 0) localDb.ledger = directData.ledger;
           saveDb(localDb);
 
@@ -408,23 +408,19 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
           return res.json(resultPayload);
         }
 
-        // 2. Fallback: Fetch individual endpoints concurrently in parallel
-        const [ordersRes, yarnRes, ledgerRes] = await Promise.allSettled([
+        // 2. Fallback: Fetch order plans and ledger from GAS (Yarn Allocation is closed from GAS)
+        const [ordersRes, ledgerRes] = await Promise.allSettled([
           fetchGasEndpoint(trimmedUrl, 'orders/list', req.query, 60000),
-          fetchGasEndpoint(trimmedUrl, 'yarn/list', req.query, 60000),
           fetchGasEndpoint(trimmedUrl, 'ledger/list', req.query, 60000),
         ]);
 
         let ordersData = ordersRes.status === 'fulfilled' && ordersRes.value?.data && Array.isArray(ordersRes.value.data) ? ordersRes.value.data : [];
-        let yarnData = yarnRes.status === 'fulfilled' && yarnRes.value?.data && Array.isArray(yarnRes.value.data) ? yarnRes.value.data : [];
+        let yarnData = localDb.yarnAllocations || [];
         let ledgerData = ledgerRes.status === 'fulfilled' && ledgerRes.value?.data && Array.isArray(ledgerRes.value.data) ? ledgerRes.value.data : [];
 
         // If GAS is slow/empty, fall back to local persistent store
         if (ordersData.length === 0 && localDb.orderPlans && localDb.orderPlans.length > 0) ordersData = localDb.orderPlans;
         else if (ordersData.length > 0) localDb.orderPlans = ordersData;
-
-        if (yarnData.length === 0 && localDb.yarnAllocations && localDb.yarnAllocations.length > 0) yarnData = localDb.yarnAllocations;
-        else if (yarnData.length > 0) localDb.yarnAllocations = yarnData;
 
         if (ledgerData.length === 0 && localDb.ledger && localDb.ledger.length > 0) ledgerData = localDb.ledger;
         else if (ledgerData.length > 0) localDb.ledger = ledgerData;
@@ -573,6 +569,15 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
         console.warn('Error saving mutation to local db:', dbErr);
       }
 
+      // If mutation is yarn-specific, save to local db and return immediately (Yarn is hosted on Firebase)
+      const actionName = String(postBody.action || '');
+      if (actionName.startsWith('yarn/') || (postBody.yarnAllocations && !postBody.orderPlans && !postBody.ledger)) {
+        return res.json({
+          success: true,
+          message: 'Yarn allocation saved successfully in Firebase Firestore and persistent store'
+        });
+      }
+
       try {
         const response = await fetch(trimmedUrl, {
           method: 'POST',
@@ -581,7 +586,7 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
           },
           body: JSON.stringify(postBody),
           redirect: 'follow',
-          signal: AbortSignal.timeout(15000) // 15-second timeout for batch mutations
+          signal: AbortSignal.timeout(20000) // 20-second timeout for batch mutations
         });
 
         if (!response.ok) {

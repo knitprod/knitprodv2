@@ -617,8 +617,11 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   const [editKnitEndRemarks, setEditKnitEndRemarks] = useState('');
   const [editKnitTeamLeaders, setEditKnitTeamLeaders] = useState('');
 
-  // Yarn Allocation state & filters
-  const [yarnAllocations, setYarnAllocations] = useState<YarnAllocationRecord[]>(globalYarn || INITIAL_YARN_ALLOCATIONS);
+  // Yarn Allocation state & filters (Powered by Firebase Firestore)
+  const [yarnAllocations, setYarnAllocations] = useState<YarnAllocationRecord[]>(() => {
+    if (globalYarn && globalYarn.length > 0) return globalYarn;
+    return [];
+  });
   useEffect(() => {
     if (globalYarn && globalYarn.length > 0) {
       setYarnAllocations(globalYarn);

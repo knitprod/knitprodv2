@@ -76,9 +76,9 @@ export class GasClient {
   static DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbxFWAAfakjwAFV9V4AdZr6WvXOBXfWO3yAHSJkxSKxyTgOeSqW04d2sewbbtFRxd2Cn/exec';
 
   private static getInitialUrl(): string {
+    // Purge any hazardous storage in localStorage
     try {
-      const stored = localStorage.getItem('gas_web_app_url');
-      if (stored && stored.trim()) return stored.trim();
+      localStorage.removeItem('gas_web_app_url');
     } catch (e) {}
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GAS_WEB_APP_URL) {
       return import.meta.env.VITE_GAS_WEB_APP_URL.trim();
@@ -234,13 +234,13 @@ export class GasClient {
   }
 
   /**
-   * Sets the Google Apps Script Web App URL
+   * Sets the Google Apps Script Web App URL (in-memory only, never in localStorage)
    */
   static setWebAppUrl(url: string) {
     const trimmed = url.trim();
     this.memoryWebAppUrl = trimmed;
     try {
-      localStorage.setItem('gas_web_app_url', trimmed);
+      localStorage.removeItem('gas_web_app_url');
     } catch (e) {}
   }
 
@@ -1346,7 +1346,8 @@ export class GasClient {
   }
 
   // ==========================================================
-  // YARN ALLOCATION CRUD
+  // YARN ALLOCATION CRUD (Connected to Firebase Firestore)
+  // Google Sheet connection closed for Yarn Allocations
   // ==========================================================
   static async fetchYarnAllocations(forceRefresh: boolean = false): Promise<any[]> {
     if (!forceRefresh && this.cachedYarnAllocations && this.cachedYarnAllocations.length > 0) {
@@ -1354,33 +1355,26 @@ export class GasClient {
     }
 
     let result: any[] = [];
-    if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
-      try {
-        const queryParams: any = {};
-        if (forceRefresh) queryParams.refresh = 'true';
-        const res = await this.request<any[]>('yarn/list', 'GET', queryParams);
-        if (res.success && res.data && Array.isArray(res.data) && res.data.length > 0) {
-          result = res.data.map((item: any, idx: number) => this.normalizeYarnObject(item, idx));
-        }
-      } catch (e) {
-        console.warn("GAS fetch yarn allocations notice:", e);
+    
+    // 1. Primary: Fetch directly from Firebase Firestore
+    try {
+      const firestoreYarn = await FirestoreSyncService.fetchYarnAllocations();
+      if (firestoreYarn && Array.isArray(firestoreYarn) && firestoreYarn.length > 0) {
+        result = firestoreYarn.map((item: any, idx: number) => this.normalizeYarnObject(item, idx));
       }
-    }
-    if (!result.length) {
-      const db = await this.fetchServerDb();
-      if (db && db.yarnAllocations && Array.isArray(db.yarnAllocations) && db.yarnAllocations.length > 0) {
-        result = db.yarnAllocations.map((item: any, idx: number) => this.normalizeYarnObject(item, idx));
-      }
+    } catch (err) {
+      console.warn("Firestore fetch yarn allocations notice:", err);
     }
 
+    // 2. Secondary: Fetch from Server Persistent DB
     if (!result.length) {
       try {
-        const firestoreYarn = await FirestoreSyncService.fetchYarnAllocations();
-        if (firestoreYarn && Array.isArray(firestoreYarn) && firestoreYarn.length > 0) {
-          result = firestoreYarn.map((item: any, idx: number) => this.normalizeYarnObject(item, idx));
+        const db = await this.fetchServerDb();
+        if (db && db.yarnAllocations && Array.isArray(db.yarnAllocations) && db.yarnAllocations.length > 0) {
+          result = db.yarnAllocations.map((item: any, idx: number) => this.normalizeYarnObject(item, idx));
         }
-      } catch (err) {
-        console.warn("Firestore fetch yarn allocations fallback notice:", err);
+      } catch (e) {
+        console.warn("Server DB fetch yarn allocations notice:", e);
       }
     }
 
@@ -1399,54 +1393,40 @@ export class GasClient {
       if (saved) uploadInfoMeta = JSON.parse(saved);
     } catch (e) {}
 
-    await this.saveServerDb({ 
-      yarnAllocations,
-      ...(uploadInfoMeta ? { master_yarn_upload_info: uploadInfoMeta } : {})
-    });
-
-    // Also broadcast to Firestore for immediate multi-device visibility
+    // 1. Direct Cloud Persistence in Firebase Firestore
     try {
       await FirestoreSyncService.batchSaveYarnAllocations(yarnAllocations, replace);
     } catch (fsErr) {
       console.warn("Firestore batchSaveYarnAllocations sync notice:", fsErr);
     }
 
-    if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
-      try {
-        const BATCH_SIZE = 1000;
-        if (yarnAllocations.length <= BATCH_SIZE) {
-          const res = await this.request<any>('yarn/save', 'POST', { yarnAllocations, replace });
-          if (res && res.success === false) {
-            console.warn("GAS save yarn allocations notice:", res.message);
-          }
-        } else {
-          for (let i = 0; i < yarnAllocations.length; i += BATCH_SIZE) {
-            const chunk = yarnAllocations.slice(i, i + BATCH_SIZE);
-            const isFirstChunk = (i === 0);
-            const chunkReplace = isFirstChunk ? replace : false;
-            const res = await this.request<any>('yarn/save', 'POST', { yarnAllocations: chunk, replace: chunkReplace });
-            if (res && res.success === false) {
-              console.warn(`GAS batch save yarn allocations chunk ${Math.floor(i / BATCH_SIZE) + 1} notice:`, res.message);
-            }
-          }
-        }
-      } catch (e: any) {
-        console.warn("GAS save yarn allocations notice:", e);
-      }
-    }
+    // 2. Server Persistent DB Cache
+    await this.saveServerDb({ 
+      yarnAllocations,
+      ...(uploadInfoMeta ? { master_yarn_upload_info: uploadInfoMeta } : {})
+    });
   }
 
   static async deleteYarnAllocation(id: string): Promise<void> {
     if (this.cachedYarnAllocations) {
       this.cachedYarnAllocations = this.cachedYarnAllocations.filter((y: any) => y.id !== id);
     }
-    if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
-      try {
-        await this.request('yarn/delete', 'POST', { id });
-      } catch (e) {
-        console.warn("GAS delete yarn allocation notice:", e);
-      }
+
+    // 1. Delete from Firebase Firestore
+    try {
+      await FirestoreSyncService.deleteYarnAllocation(id);
+    } catch (fsErr) {
+      console.warn("Firestore deleteYarnAllocation notice:", fsErr);
     }
+
+    // 2. Update Server DB
+    try {
+      const db = await this.fetchServerDb();
+      if (db && db.yarnAllocations) {
+        db.yarnAllocations = db.yarnAllocations.filter((y: any) => y.id !== id);
+        await this.saveServerDb({ yarnAllocations: db.yarnAllocations });
+      }
+    } catch (e) {}
   }
 
   // ==========================================================
