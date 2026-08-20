@@ -163,7 +163,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const url = forceRefresh ? '/api/sheets?action=all&refresh=true' : '/api/sheets?action=all';
       const res = await fetch(url, {
         headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(35000)
+        signal: AbortSignal.timeout(60000)
       });
 
       let loadedSuccessfully = false;
@@ -278,7 +278,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // Background silent poll without showing full-screen loaders
       fetch('/api/sheets?action=all', {
         headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(6000)
+        signal: AbortSignal.timeout(25000)
       })
         .then(res => res.json())
         .then(json => {
@@ -286,16 +286,26 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             const { orderPlans: rOrders, yarnAllocations: rYarn, ledger: rLedger } = json.data;
             if (Array.isArray(rOrders) && rOrders.length > 0) {
               const cleanOrders = deduplicateWithUniqueIds(rOrders, 'ord');
-              setOrderPlans(prev => JSON.stringify(prev) !== JSON.stringify(cleanOrders) ? cleanOrders : prev);
+              setOrderPlans(prev => {
+                if (prev.length !== cleanOrders.length || JSON.stringify(prev) !== JSON.stringify(cleanOrders)) {
+                  return cleanOrders;
+                }
+                return prev;
+              });
             }
             if (Array.isArray(rYarn) && rYarn.length > 0) {
               const cleanYarn = deduplicateWithUniqueIds(rYarn, 'yarn');
-              setYarnAllocations(prev => JSON.stringify(prev) !== JSON.stringify(cleanYarn) ? cleanYarn : prev);
+              setYarnAllocations(prev => {
+                if (prev.length !== cleanYarn.length || JSON.stringify(prev) !== JSON.stringify(cleanYarn)) {
+                  return cleanYarn;
+                }
+                return prev;
+              });
             }
             if (Array.isArray(rLedger) && rLedger.length > 0) {
               const cleanLedger = deduplicateWithUniqueIds(rLedger, 'rec');
               setLedger(prev => {
-                if (JSON.stringify(prev) !== JSON.stringify(cleanLedger)) {
+                if (prev.length !== cleanLedger.length || JSON.stringify(prev) !== JSON.stringify(cleanLedger)) {
                   setFloors(fl => recalculateFloorsFromLedger(fl, cleanLedger));
                   return cleanLedger;
                 }
@@ -321,9 +331,12 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // Instant real-time Firestore onSnapshot listeners across all devices
     const unsubOrders = FirestoreSyncService.subscribeToOrderPlans((remotePlans) => {
       if (Array.isArray(remotePlans) && remotePlans.length > 0) {
-        const clean = deduplicateWithUniqueIds(remotePlans, 'ord');
         setOrderPlans(prev => {
-          if (JSON.stringify(prev) !== JSON.stringify(clean)) {
+          if (prev.length > 50 && remotePlans.length < 20) {
+            return prev;
+          }
+          const clean = deduplicateWithUniqueIds(remotePlans, 'ord');
+          if (clean.length !== prev.length || JSON.stringify(prev) !== JSON.stringify(clean)) {
             return clean;
           }
           return prev;
@@ -333,9 +346,12 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     const unsubYarn = FirestoreSyncService.subscribeToYarnAllocations((remoteYarn) => {
       if (Array.isArray(remoteYarn) && remoteYarn.length > 0) {
-        const clean = deduplicateWithUniqueIds(remoteYarn, 'yarn');
         setYarnAllocations(prev => {
-          if (JSON.stringify(prev) !== JSON.stringify(clean)) {
+          if (prev.length > 50 && remoteYarn.length < 20) {
+            return prev;
+          }
+          const clean = deduplicateWithUniqueIds(remoteYarn, 'yarn');
+          if (clean.length !== prev.length || JSON.stringify(prev) !== JSON.stringify(clean)) {
             return clean;
           }
           return prev;
@@ -436,6 +452,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return [item, ...prev];
     });
 
+    GasClient.clearYarnCache();
     FirestoreSyncService.saveYarnAllocation(item).catch(err => console.warn('Firestore saveYarnAllocation notice:', err));
     FirestoreSyncService.saveSettings({ last_yarn_allocation_updated: new Date().toISOString() }).catch(() => {});
 
@@ -444,6 +461,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const deleteYarnAllocation = async (id: string) => {
     setYarnAllocations(prev => prev.filter(y => y.id !== id));
+    GasClient.clearYarnCache();
     FirestoreSyncService.deleteYarnAllocation(id).catch(err => console.warn('Firestore deleteYarnAllocation notice:', err));
     FirestoreSyncService.saveSettings({ last_yarn_allocation_updated: new Date().toISOString() }).catch(() => {});
     return executeKeepaliveMutation('yarn/delete', { id });
@@ -451,6 +469,8 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const bulkSaveYarnAllocations = async (items: YarnAllocationRecord[], replace: boolean = false) => {
     setYarnAllocations(prev => replace ? items : [...items, ...prev.filter(p => !items.some(i => i.id === p.id))]);
+    GasClient.clearYarnCache();
+    GasClient.saveServerDb({ yarnAllocations: items }).catch(() => {});
     FirestoreSyncService.batchSaveYarnAllocations(items, replace).catch(err => console.warn('Firestore batchSaveYarnAllocations notice:', err));
     FirestoreSyncService.saveSettings({ last_yarn_allocation_updated: new Date().toISOString() }).catch(() => {});
     return executeKeepaliveMutation('yarn/save', { yarnAllocations: items, replace });

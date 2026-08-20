@@ -282,7 +282,7 @@ app.post('/api/db', (req, res) => {
 });
 
 // Helper to query individual GAS endpoints with timeout
-async function fetchGasEndpoint(baseUrl: string, action: string, queryParams: Record<string, any>, timeoutMs: number = 35000) {
+async function fetchGasEndpoint(baseUrl: string, action: string, queryParams: Record<string, any>, timeoutMs: number = 90000) {
   try {
     const urlObj = new URL(baseUrl);
     urlObj.searchParams.set('action', action);
@@ -342,7 +342,7 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
     }
 
     if (req.method === 'GET') {
-      res.setHeader('Cache-Control', 'public, s-maxage=12, stale-while-revalidate=30');
+      res.setHeader('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
 
       const action = String(req.query.action || 'all');
       const forceRefresh = req.query.refresh === 'true';
@@ -357,23 +357,79 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
 
       // Handle 'all' or 'bulk' action with fallback to concurrent multi-endpoint fetching
       if (action === 'all' || action === 'bulk') {
-        // 1. Try direct action=all
-        const directAllRes = await fetchGasEndpoint(trimmedUrl, 'all', req.query, 12000);
-        if (directAllRes && directAllRes.success && directAllRes.data && (directAllRes.data.orderPlans || directAllRes.data.orders)) {
-          gasProxyCache.set(cacheKey, { timestamp: now, data: directAllRes });
-          return res.json(directAllRes);
+        const localDb = loadDb();
+        const hasLocalData = (localDb.orderPlans?.length > 0 || localDb.yarnAllocations?.length > 0 || localDb.ledger?.length > 0);
+
+        // If not force refresh and we have local database data, serve instantly
+        if (!forceRefresh && hasLocalData) {
+          const quickPayload = {
+            success: true,
+            data: {
+              orderPlans: localDb.orderPlans || [],
+              yarnAllocations: localDb.yarnAllocations || [],
+              ledger: localDb.ledger || [],
+              totalOrders: (localDb.orderPlans || []).length,
+              totalYarn: (localDb.yarnAllocations || []).length,
+              totalLedger: (localDb.ledger || []).length,
+            }
+          };
+          gasProxyCache.set(cacheKey, { timestamp: now, data: quickPayload });
+          return res.json(quickPayload);
         }
 
-        // 2. Fallback: Fetch orders/list, yarn/list, and ledger/list concurrently in parallel
+        // 1. Try direct action=all with adequate timeout for large sheets
+        const directAllRes = await fetchGasEndpoint(trimmedUrl, 'all', req.query, 60000);
+        if (directAllRes && directAllRes.success && directAllRes.data && (directAllRes.data.orderPlans || directAllRes.data.yarnAllocations || directAllRes.data.orders || directAllRes.data.yarn)) {
+          const directData = directAllRes.data;
+          const mergedOrders = (directData.orderPlans && directData.orderPlans.length > 0) ? directData.orderPlans : (localDb.orderPlans || []);
+          const mergedYarn = (directData.yarnAllocations && directData.yarnAllocations.length > 0) ? directData.yarnAllocations : (localDb.yarnAllocations || []);
+          const mergedLedger = (directData.ledger && directData.ledger.length > 0) ? directData.ledger : (localDb.ledger || []);
+          
+          const resultPayload = {
+            success: true,
+            data: {
+              ...directData,
+              orderPlans: mergedOrders,
+              yarnAllocations: mergedYarn,
+              ledger: mergedLedger,
+              totalOrders: mergedOrders.length,
+              totalYarn: mergedYarn.length,
+              totalLedger: mergedLedger.length
+            }
+          };
+
+          // Save fresh data to local persistent store
+          if (directData.orderPlans && directData.orderPlans.length > 0) localDb.orderPlans = directData.orderPlans;
+          if (directData.yarnAllocations && directData.yarnAllocations.length > 0) localDb.yarnAllocations = directData.yarnAllocations;
+          if (directData.ledger && directData.ledger.length > 0) localDb.ledger = directData.ledger;
+          saveDb(localDb);
+
+          gasProxyCache.set(cacheKey, { timestamp: now, data: resultPayload });
+          return res.json(resultPayload);
+        }
+
+        // 2. Fallback: Fetch individual endpoints concurrently in parallel
         const [ordersRes, yarnRes, ledgerRes] = await Promise.allSettled([
-          fetchGasEndpoint(trimmedUrl, 'orders/list', req.query, 35000),
-          fetchGasEndpoint(trimmedUrl, 'yarn/list', req.query, 35000),
-          fetchGasEndpoint(trimmedUrl, 'ledger/list', req.query, 35000),
+          fetchGasEndpoint(trimmedUrl, 'orders/list', req.query, 60000),
+          fetchGasEndpoint(trimmedUrl, 'yarn/list', req.query, 60000),
+          fetchGasEndpoint(trimmedUrl, 'ledger/list', req.query, 60000),
         ]);
 
-        const ordersData = ordersRes.status === 'fulfilled' && ordersRes.value?.data ? ordersRes.value.data : [];
-        const yarnData = yarnRes.status === 'fulfilled' && yarnRes.value?.data ? yarnRes.value.data : [];
-        const ledgerData = ledgerRes.status === 'fulfilled' && ledgerRes.value?.data ? ledgerRes.value.data : [];
+        let ordersData = ordersRes.status === 'fulfilled' && ordersRes.value?.data && Array.isArray(ordersRes.value.data) ? ordersRes.value.data : [];
+        let yarnData = yarnRes.status === 'fulfilled' && yarnRes.value?.data && Array.isArray(yarnRes.value.data) ? yarnRes.value.data : [];
+        let ledgerData = ledgerRes.status === 'fulfilled' && ledgerRes.value?.data && Array.isArray(ledgerRes.value.data) ? ledgerRes.value.data : [];
+
+        // If GAS is slow/empty, fall back to local persistent store
+        if (ordersData.length === 0 && localDb.orderPlans && localDb.orderPlans.length > 0) ordersData = localDb.orderPlans;
+        else if (ordersData.length > 0) localDb.orderPlans = ordersData;
+
+        if (yarnData.length === 0 && localDb.yarnAllocations && localDb.yarnAllocations.length > 0) yarnData = localDb.yarnAllocations;
+        else if (yarnData.length > 0) localDb.yarnAllocations = yarnData;
+
+        if (ledgerData.length === 0 && localDb.ledger && localDb.ledger.length > 0) ledgerData = localDb.ledger;
+        else if (ledgerData.length > 0) localDb.ledger = ledgerData;
+
+        saveDb(localDb);
 
         const combinedPayload = {
           success: true,
@@ -395,6 +451,19 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
       }
 
       // Single endpoint direct fetch (e.g. orders/list, yarn/list, ledger/list, health)
+      if (!forceRefresh) {
+        const localDb = loadDb();
+        if (action.includes('yarn') && localDb.yarnAllocations && localDb.yarnAllocations.length > 0) {
+          return res.json({ success: true, count: localDb.yarnAllocations.length, data: localDb.yarnAllocations });
+        }
+        if (action.includes('order') && localDb.orderPlans && localDb.orderPlans.length > 0) {
+          return res.json({ success: true, count: localDb.orderPlans.length, data: localDb.orderPlans });
+        }
+        if (action.includes('ledger') && localDb.ledger && localDb.ledger.length > 0) {
+          return res.json({ success: true, count: localDb.ledger.length, data: localDb.ledger });
+        }
+      }
+
       try {
         const urlObj = new URL(trimmedUrl);
         urlObj.searchParams.set('action', action);
@@ -408,10 +477,17 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
           method: 'GET',
           headers: { 'Accept': 'application/json' },
           redirect: 'follow',
-          signal: AbortSignal.timeout(35000)
+          signal: AbortSignal.timeout(60000)
         });
 
         if (!response.ok) {
+          const localDb = loadDb();
+          if (action.includes('yarn') && localDb.yarnAllocations?.length) {
+            return res.json({ success: true, data: localDb.yarnAllocations });
+          }
+          if (action.includes('order') && localDb.orderPlans?.length) {
+            return res.json({ success: true, data: localDb.orderPlans });
+          }
           if (cached) return res.json(cached.data);
           return res.status(response.status).json({
             success: false,
@@ -424,6 +500,15 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
           const json = JSON.parse(text);
           if (json && json.success !== false) {
             gasProxyCache.set(cacheKey, { timestamp: now, data: json });
+            // Save to local database
+            const localDb = loadDb();
+            if (action.includes('yarn') && Array.isArray(json.data) && json.data.length > 0) {
+              localDb.yarnAllocations = json.data;
+              saveDb(localDb);
+            } else if (action.includes('order') && Array.isArray(json.data) && json.data.length > 0) {
+              localDb.orderPlans = json.data;
+              saveDb(localDb);
+            }
           }
           return res.json(json);
         } catch (e) {
@@ -431,6 +516,13 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
           return res.json({ success: false, message: 'Invalid JSON response from Apps Script', raw: text });
         }
       } catch (fetchErr: any) {
+        const localDb = loadDb();
+        if (action.includes('yarn') && localDb.yarnAllocations?.length) {
+          return res.json({ success: true, data: localDb.yarnAllocations });
+        }
+        if (action.includes('order') && localDb.orderPlans?.length) {
+          return res.json({ success: true, data: localDb.orderPlans });
+        }
         if (cached) return res.json(cached.data);
         return res.json({
           success: false,
@@ -445,6 +537,41 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
 
       const postBody = { ...req.body };
       delete postBody.url;
+
+      // Immediately save mutation to local persistent database
+      try {
+        const localDb = loadDb();
+        if (postBody.yarnAllocations && Array.isArray(postBody.yarnAllocations)) {
+          if (postBody.replace) {
+            localDb.yarnAllocations = postBody.yarnAllocations;
+          } else {
+            const existingMap = new Map((localDb.yarnAllocations || []).map((y: any) => [y.id, y]));
+            postBody.yarnAllocations.forEach((y: any) => existingMap.set(y.id, y));
+            localDb.yarnAllocations = Array.from(existingMap.values());
+          }
+        }
+        if (postBody.orderPlans && Array.isArray(postBody.orderPlans)) {
+          if (postBody.replace) {
+            localDb.orderPlans = postBody.orderPlans;
+          } else {
+            const existingMap = new Map((localDb.orderPlans || []).map((o: any) => [o.id, o]));
+            postBody.orderPlans.forEach((o: any) => existingMap.set(o.id, o));
+            localDb.orderPlans = Array.from(existingMap.values());
+          }
+        }
+        if (postBody.ledger && Array.isArray(postBody.ledger)) {
+          if (postBody.replace) {
+            localDb.ledger = postBody.ledger;
+          } else {
+            const existingMap = new Map((localDb.ledger || []).map((l: any) => [l.id, l]));
+            postBody.ledger.forEach((l: any) => existingMap.set(l.id, l));
+            localDb.ledger = Array.from(existingMap.values());
+          }
+        }
+        saveDb(localDb);
+      } catch (dbErr) {
+        console.warn('Error saving mutation to local db:', dbErr);
+      }
 
       try {
         const response = await fetch(trimmedUrl, {

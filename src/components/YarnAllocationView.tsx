@@ -396,10 +396,18 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     bulkSaveYarnAllocations: globalBulkSaveYarnAllocations
   } = useGlobalData();
 
-  const [yarnAllocations, setYarnAllocations] = useState<YarnAllocationRecord[]>(globalYarn || INITIAL_YARN_ALLOCATIONS);
+  const [yarnAllocations, setYarnAllocations] = useState<YarnAllocationRecord[]>(() => {
+    if (globalYarn && globalYarn.length > 0) return globalYarn;
+    return [];
+  });
+
   useEffect(() => {
     if (globalYarn && globalYarn.length > 0) {
       setYarnAllocations(globalYarn);
+      setUploadInfo(prev => ({
+        ...prev,
+        totalRecords: globalYarn.length
+      }));
     }
   }, [globalYarn]);
   const [yarnSearchQuery, setYarnSearchQuery] = useState('');
@@ -434,9 +442,9 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
       if (saved) return JSON.parse(saved);
     } catch (e) {}
     return {
-      lastUploadedAt: '01-Aug-2026, 10:30 AM',
+      lastUploadedAt: 'Synced',
       fileName: 'Master_Yarn_Allocation.xlsx',
-      totalRecords: INITIAL_YARN_ALLOCATIONS.length,
+      totalRecords: globalYarn?.length || 0,
       status: 'Success',
     };
   });
@@ -454,30 +462,35 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
 
   const [isLoadingSaved, setIsLoadingSaved] = useState(false);
 
-  // Load saved yarn allocations from server database on mount
+  // Load saved yarn allocations from server database on mount if global context is still empty
   useEffect(() => {
     let isMounted = true;
-    setIsLoadingSaved(true);
-    GasClient.fetchYarnAllocations()
-      .then(data => {
-        if (isMounted && data && Array.isArray(data) && data.length > 0) {
-          setYarnAllocations(data);
-        }
-      })
-      .catch(err => {
-        console.warn("Failed to load saved yarn allocations:", err);
-      })
-      .finally(() => {
-        if (isMounted) setIsLoadingSaved(false);
-      });
+    if (!globalYarn || globalYarn.length === 0) {
+      setIsLoadingSaved(true);
+      GasClient.fetchYarnAllocations()
+        .then(data => {
+          if (isMounted && data && Array.isArray(data) && data.length > 0) {
+            setYarnAllocations(data);
+          }
+        })
+        .catch(err => {
+          console.warn("Failed to load saved yarn allocations:", err);
+        })
+        .finally(() => {
+          if (isMounted) setIsLoadingSaved(false);
+        });
+    }
 
     return () => { isMounted = false; };
-  }, []);
+  }, [globalYarn]);
 
-  // User-based Buyer Access Restriction
+  // User-based Buyer Access Restriction (Only restrict if non-admin and assigned buyers explicitly configured)
   const userAssignedBuyers = useMemo(() => {
-    if (currentUser && currentUser.assignedBuyers && Array.isArray(currentUser.assignedBuyers) && currentUser.assignedBuyers.length > 0) {
-      return currentUser.assignedBuyers;
+    if (!currentUser || currentUser.userType === 'Admin') return null;
+    if (currentUser.assignedBuyers && Array.isArray(currentUser.assignedBuyers) && currentUser.assignedBuyers.length > 0) {
+      const trimmed = currentUser.assignedBuyers.map(b => b.trim().toLowerCase()).filter(Boolean);
+      if (trimmed.includes('all') || trimmed.length === 0) return null;
+      return trimmed;
     }
     return null;
   }, [currentUser]);
@@ -490,7 +503,12 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
   const uniqueBuyers = useMemo(() => {
     const set = new Set(
       yarnAllocations
-        .filter(a => !userAssignedBuyers || userAssignedBuyers.includes(a.buyer))
+        .filter(a => {
+          if (!userAssignedBuyers) return true;
+          if (!a.buyer) return false;
+          const bNorm = a.buyer.trim().toLowerCase();
+          return userAssignedBuyers.some(ub => ub === bNorm || bNorm.includes(ub) || ub.includes(bNorm));
+        })
         .map(a => a.buyer)
         .filter(Boolean)
     );
@@ -510,8 +528,10 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
 
     return yarnAllocations.filter(item => {
       // User-based Buyer Access Restriction
-      if (userAssignedBuyers && !userAssignedBuyers.includes(item.buyer)) {
-        return false;
+      if (userAssignedBuyers && item.buyer) {
+        const itemBuyerNorm = item.buyer.trim().toLowerCase();
+        const isAllowed = userAssignedBuyers.some(ub => ub === itemBuyerNorm || itemBuyerNorm.includes(ub) || ub.includes(itemBuyerNorm));
+        if (!isAllowed) return false;
       }
 
       const matchesBuyer = yarnBuyerFilter === 'All' || item.buyer === yarnBuyerFilter;
@@ -972,15 +992,12 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
   useEffect(() => {
     const fetchAllocations = (force: boolean = false) => {
       GasClient.fetchYarnAllocations(force).then((remoteData) => {
-        if (remoteData && remoteData.length > 0) {
+        if (remoteData && Array.isArray(remoteData) && remoteData.length > 0) {
           setYarnAllocations(remoteData as YarnAllocationRecord[]);
           setUploadInfo(prev => ({
             ...prev,
             totalRecords: remoteData.length
           }));
-        } else if (!force) {
-          // Save initial seed yarn allocations to Google Sheets / GasClient
-          GasClient.saveYarnAllocations(INITIAL_YARN_ALLOCATIONS).catch(() => {});
         }
       }).catch((err) => {
         console.warn("Could not load yarn allocations from Google Sheets:", err);

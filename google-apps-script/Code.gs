@@ -429,11 +429,10 @@ function normalizeHeaderName(headerStr) {
   return raw;
 }
 
-function formatDateCell(val, ss) {
+function formatDateCell(val, tz) {
   if (!val) return "";
   if (val instanceof Date) {
     try {
-      var tz = ss ? ss.getSpreadsheetTimeZone() : Session.getScriptTimeZone();
       return Utilities.formatDate(val, tz || "GMT+6", "yyyy-MM-dd");
     } catch (e) {
       var year = val.getFullYear();
@@ -447,18 +446,31 @@ function formatDateCell(val, ss) {
 
 function getSheetCaseInsensitive(ss, candidateNames) {
   if (!ss) ss = SpreadsheetApp.getActiveSpreadsheet();
+  // 1. Direct exact sheet name lookup
   for (var c = 0; c < candidateNames.length; c++) {
     var s = ss.getSheetByName(candidateNames[c]);
     if (s) return s;
   }
-  // Try case-insensitive / whitespace-trimmed matching
+  // 2. Exact normalized lookup (case-insensitive & trimmed)
   var sheets = ss.getSheets();
-  for (var i = 0; i < sheets.length; i++) {
-    var name = sheets[i].getName().trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-    for (var j = 0; j < candidateNames.length; j++) {
-      var cand = candidateNames[j].trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-      if (name === cand || name.indexOf(cand) >= 0 || cand.indexOf(name) >= 0) {
+  for (var j = 0; j < candidateNames.length; j++) {
+    var cand = candidateNames[j].trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    for (var i = 0; i < sheets.length; i++) {
+      var name = sheets[i].getName().trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (name === cand) {
         return sheets[i];
+      }
+    }
+  }
+  // 3. Substring match only if candidate is at least 4 characters long and starts with candidate
+  for (var j = 0; j < candidateNames.length; j++) {
+    var cand = candidateNames[j].trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (cand.length >= 4) {
+      for (var i = 0; i < sheets.length; i++) {
+        var name = sheets[i].getName().trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (name.indexOf(cand) === 0 || cand.indexOf(name) === 0) {
+          return sheets[i];
+        }
       }
     }
   }
@@ -481,6 +493,11 @@ function getOrderPlansInternal(ss) {
   var data = sheet.getDataRange().getValues();
   if (!data || data.length < 2) return [];
 
+  var tz = "GMT+6";
+  try {
+    tz = (ss && ss.getSpreadsheetTimeZone()) || Session.getScriptTimeZone() || "GMT+6";
+  } catch (e) {}
+
   var rawHeaders = data[0];
   var normalizedHeaders = rawHeaders.map(function(h) { return normalizeHeaderName(h); });
   var orderPlans = [];
@@ -491,7 +508,7 @@ function getOrderPlansInternal(ss) {
     for (var j = 0; j < normalizedHeaders.length; j++) {
       var val = row[j];
       if (val instanceof Date) {
-        val = formatDateCell(val, ss);
+        val = formatDateCell(val, tz);
       }
       var propKey = normalizedHeaders[j] || ("col_" + j);
       item[propKey] = val;
@@ -702,6 +719,11 @@ function getYarnAllocationsInternal(ss) {
   var data = sheet.getDataRange().getValues();
   if (!data || data.length < 2) return [];
 
+  var tz = "GMT+6";
+  try {
+    tz = (ss && ss.getSpreadsheetTimeZone()) || Session.getScriptTimeZone() || "GMT+6";
+  } catch (e) {}
+
   var rawHeaders = data[0];
   var normalizedHeaders = rawHeaders.map(function(h) { return normalizeHeaderName(h); });
   var yarnAllocations = [];
@@ -712,7 +734,7 @@ function getYarnAllocationsInternal(ss) {
     for (var j = 0; j < normalizedHeaders.length; j++) {
       var val = row[j];
       if (val instanceof Date) {
-        val = formatDateCell(val, ss);
+        val = formatDateCell(val, tz);
       }
       var propKey = normalizedHeaders[j] || ("col_" + j);
       item[propKey] = val;
@@ -933,6 +955,11 @@ function getLedgerRecordsInternal(ss) {
   var data = sheet.getDataRange().getValues();
   if (!data || data.length < 2) return [];
 
+  var tz = "GMT+6";
+  try {
+    tz = (ss && ss.getSpreadsheetTimeZone()) || Session.getScriptTimeZone() || "GMT+6";
+  } catch (e) {}
+
   var rawHeaders = data[0];
   var normalizedHeaders = rawHeaders.map(function(h) { return normalizeHeaderName(h); });
   var ledgerRecords = [];
@@ -943,7 +970,7 @@ function getLedgerRecordsInternal(ss) {
     for (var j = 0; j < normalizedHeaders.length; j++) {
       var val = row[j];
       if (val instanceof Date) {
-        val = formatDateCell(val, ss);
+        val = formatDateCell(val, tz);
       }
       var propKey = normalizedHeaders[j] || ("col_" + j);
       item[propKey] = val;

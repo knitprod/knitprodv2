@@ -73,7 +73,7 @@ export class GasClient {
     }
   }
 
-  static DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbz6M8NmfDjG9GKdmkFMHggR6MGQwRU6Q42-hpd_gxEfbTQsjRL86mI_NavdqJB8Blzl/exec';
+  static DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbxFWAAfakjwAFV9V4AdZr6WvXOBXfWO3yAHSJkxSKxyTgOeSqW04d2sewbbtFRxd2Cn/exec';
 
   private static getInitialUrl(): string {
     try {
@@ -1337,6 +1337,14 @@ export class GasClient {
     }
   }
 
+  static clearYarnCache() {
+    this.cachedYarnAllocations = null;
+  }
+
+  static clearOrderCache() {
+    this.cachedOrderPlans = null;
+  }
+
   // ==========================================================
   // YARN ALLOCATION CRUD
   // ==========================================================
@@ -1360,8 +1368,19 @@ export class GasClient {
     }
     if (!result.length) {
       const db = await this.fetchServerDb();
-      if (db && db.yarnAllocations && Array.isArray(db.yarnAllocations)) {
+      if (db && db.yarnAllocations && Array.isArray(db.yarnAllocations) && db.yarnAllocations.length > 0) {
         result = db.yarnAllocations.map((item: any, idx: number) => this.normalizeYarnObject(item, idx));
+      }
+    }
+
+    if (!result.length) {
+      try {
+        const firestoreYarn = await FirestoreSyncService.fetchYarnAllocations();
+        if (firestoreYarn && Array.isArray(firestoreYarn) && firestoreYarn.length > 0) {
+          result = firestoreYarn.map((item: any, idx: number) => this.normalizeYarnObject(item, idx));
+        }
+      } catch (err) {
+        console.warn("Firestore fetch yarn allocations fallback notice:", err);
       }
     }
 
@@ -1372,13 +1391,7 @@ export class GasClient {
   }
 
   static async saveYarnAllocations(yarnAllocations: any[], replace: boolean = false): Promise<void> {
-    if (replace || !this.cachedYarnAllocations) {
-      this.cachedYarnAllocations = yarnAllocations;
-    } else {
-      const existingMap = new Map((this.cachedYarnAllocations || []).map((y: any) => [y.id, y]));
-      yarnAllocations.forEach((y: any) => existingMap.set(y.id, y));
-      this.cachedYarnAllocations = Array.from(existingMap.values());
-    }
+    this.cachedYarnAllocations = replace ? yarnAllocations : [...yarnAllocations, ...(this.cachedYarnAllocations || []).filter((y: any) => !yarnAllocations.some((n: any) => n.id === y.id))];
 
     let uploadInfoMeta = null;
     try {
@@ -1390,6 +1403,13 @@ export class GasClient {
       yarnAllocations,
       ...(uploadInfoMeta ? { master_yarn_upload_info: uploadInfoMeta } : {})
     });
+
+    // Also broadcast to Firestore for immediate multi-device visibility
+    try {
+      await FirestoreSyncService.batchSaveYarnAllocations(yarnAllocations, replace);
+    } catch (fsErr) {
+      console.warn("Firestore batchSaveYarnAllocations sync notice:", fsErr);
+    }
 
     if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
       try {
