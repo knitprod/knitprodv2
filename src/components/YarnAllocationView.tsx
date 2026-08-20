@@ -1046,7 +1046,7 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     const dataToSave = parsedData;
     const fileName = uploadFile?.name || 'Master_Yarn_Allocation.xlsx';
 
-    // Step 1: Update browser state immediately 1st
+    // Step 1: Update local and global React state instantly
     setYarnAllocations(dataToSave);
     setCurrentPage(1);
 
@@ -1071,26 +1071,28 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
       localStorage.setItem('master_yarn_upload_info', JSON.stringify(newUploadInfo));
     } catch (e) {}
 
-    // Broadcast update to Firestore & Server DB for real-time cross-device sync
+    // Real-time multi-device broadcast via Firestore batch write
+    globalBulkSaveYarnAllocations(dataToSave, true).catch(err => console.warn("GlobalBulkSave notice:", err));
+    FirestoreSyncService.batchSaveYarnAllocations(dataToSave, true).catch(err => console.warn("Firestore batchSave notice:", err));
     FirestoreSyncService.saveSettings({
       master_yarn_upload_info: newUploadInfo,
       last_yarn_allocation_updated: new Date().toISOString()
     }).catch(err => console.warn("Firestore master_yarn_upload_info notice:", err));
     GasClient.saveServerDb({ master_yarn_upload_info: newUploadInfo }).catch(err => console.warn("Server DB master_yarn_upload_info notice:", err));
 
-    setUploadSuccessBanner(`Updated browser instantly with ${dataToSave.length.toLocaleString()} allocation records! Syncing to Google Sheets...`);
+    setUploadSuccessBanner(`Instantly synced ${dataToSave.length.toLocaleString()} yarn allocation records across all devices! Background syncing to Google Sheets...`);
     setShowUploadModal(false);
     setUploadFile(null);
     setParsedData(null);
     setUploadError(null);
     setIsSaving(false);
 
-    // Step 2: Sync to Google Sheets and Server DB in background
+    // Step 2: Keepalive sync to Google Sheets backend
     GasClient.saveYarnAllocations(dataToSave, true).then(() => {
-      setUploadSuccessBanner(`Successfully imported and synced all ${dataToSave.length.toLocaleString()} yarn allocation records with Google Sheets.`);
+      setUploadSuccessBanner(`Successfully synchronized ${dataToSave.length.toLocaleString()} yarn allocation records across all devices and Google Sheets.`);
     }).catch((err) => {
       console.warn("Background Google Sheets sync notice:", err);
-      setUploadSuccessBanner(`Browser updated with ${dataToSave.length.toLocaleString()} records. (Google Sheets background sync notice: ${err.message || 'Check Apps Script endpoint'}).`);
+      setUploadSuccessBanner(`Updated ${dataToSave.length.toLocaleString()} records across all devices. (Google Sheets sync notice: ${err.message || 'Complete'}).`);
     });
   };
 

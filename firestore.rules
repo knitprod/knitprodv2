@@ -13,6 +13,9 @@ service cloud.firestore {
     match /order_plans/{planId} {
       allow read, write: if true;
     }
+    match /yarn_allocations/{yarnId} {
+      allow read, write: if true;
+    }
     match /settings/{settingId} {
       allow read, write: if true;
     }

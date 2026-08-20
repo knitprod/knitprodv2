@@ -75,6 +75,28 @@
       },
       "required": ["id"]
     },
+    "yarn_allocations": {
+      "title": "Yarn Allocations",
+      "description": "Master yarn allocation matrix and requirements",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderNumber": { "type": "string" },
+        "buyer": { "type": "string" },
+        "fabricShade": { "type": "string" },
+        "fabricsType": { "type": "string" },
+        "yarnRequired": { "type": "string" },
+        "allocatedYarn": { "type": "string" },
+        "lotNo": { "type": "string" },
+        "spinnersName": { "type": "string" },
+        "yarnRqQty": { "type": "number" },
+        "allocatedQty": { "type": "number" },
+        "balance": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "orderNumber"]
+    },
     "settings": {
       "title": "System Settings",
       "description": "Global application configuration",

@@ -19,7 +19,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { GasClient } from './gasClient';
-import { ProductionEntry, LedgerRecord, ActivityLog, SyncConflictLog, OrderPlan } from '../types';
+import { ProductionEntry, LedgerRecord, ActivityLog, SyncConflictLog, OrderPlan, YarnAllocationRecord } from '../types';
 
 export enum OperationType {
   CREATE = 'create',
@@ -69,6 +69,14 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   throw new Error(JSON.stringify(errInfo));
 }
 
+function sanitizeDocId(rawId: string | number | undefined | null, prefix: string): string {
+  if (!rawId) {
+    return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  }
+  const clean = String(rawId).trim().replace(/[/\\#?%]/g, '_');
+  return clean || `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+}
+
 // Firestore Collection Names
 const COLLECTIONS = {
   PRODUCTION_ENTRIES: 'production_entries',
@@ -85,17 +93,87 @@ export class FirestoreSyncService {
   private static isSyncing = false;
 
   /**
-   * Subscribe to Production Entries - Disconnected (Local Offline Mode)
+   * Subscribe to Production Entries with Realtime onSnapshot listener
    */
   static subscribeToProductionEntries(callback: (entries: ProductionEntry[]) => void) {
-    return () => {};
+    try {
+      const colRef = collection(db, COLLECTIONS.PRODUCTION_ENTRIES);
+      return onSnapshot(colRef, (snapshot) => {
+        const entries: ProductionEntry[] = [];
+        snapshot.forEach((docSnap) => {
+          entries.push({ id: docSnap.id, ...docSnap.data() } as ProductionEntry);
+        });
+        callback(entries);
+      }, (error) => {
+        console.warn('Firestore production entries snapshot error:', error);
+      });
+    } catch (err) {
+      console.warn('subscribeToProductionEntries init error:', err);
+      return () => {};
+    }
   }
 
   /**
-   * Subscribe to Ledger Records - Disconnected (Local Offline Mode)
+   * Subscribe to Ledger Records with Realtime onSnapshot listener
    */
   static subscribeToLedgerRecords(callback: (records: LedgerRecord[]) => void) {
-    return () => {};
+    try {
+      const colRef = collection(db, COLLECTIONS.LEDGER_RECORDS);
+      return onSnapshot(colRef, (snapshot) => {
+        const records: LedgerRecord[] = [];
+        snapshot.forEach((docSnap) => {
+          records.push({ id: docSnap.id, ...docSnap.data() } as LedgerRecord);
+        });
+        callback(records);
+      }, (error) => {
+        console.warn('Firestore ledger records snapshot error:', error);
+      });
+    } catch (err) {
+      console.warn('subscribeToLedgerRecords init error:', err);
+      return () => {};
+    }
+  }
+
+  /**
+   * Subscribe to Order Plans with Realtime onSnapshot listener
+   */
+  static subscribeToOrderPlans(callback: (plans: OrderPlan[]) => void) {
+    try {
+      const colRef = collection(db, COLLECTIONS.ORDER_PLANS);
+      return onSnapshot(colRef, (snapshot) => {
+        const plans: OrderPlan[] = [];
+        snapshot.forEach((docSnap) => {
+          plans.push({ id: docSnap.id, ...docSnap.data() } as OrderPlan);
+        });
+        callback(plans);
+      }, (error) => {
+        console.warn('Firestore order plans snapshot error:', error);
+      });
+    } catch (err) {
+      console.warn('subscribeToOrderPlans init error:', err);
+      return () => {};
+    }
+  }
+
+  /**
+   * Subscribe to Yarn Allocations with Realtime onSnapshot listener
+   */
+  static subscribeToYarnAllocations(callback: (allocations: YarnAllocationRecord[]) => void) {
+    try {
+      const colRef = collection(db, COLLECTIONS.YARN_ALLOCATIONS);
+      return onSnapshot(colRef, (snapshot) => {
+        const allocations: YarnAllocationRecord[] = [];
+        snapshot.forEach((docSnap) => {
+          allocations.push({ id: docSnap.id, ...docSnap.data() } as YarnAllocationRecord);
+        });
+        callback(allocations);
+      }, (error) => {
+        console.warn('Firestore yarn allocations snapshot error:', error);
+      });
+    } catch (err) {
+      console.warn('subscribeToYarnAllocations init error:', err);
+      return () => {};
+    }
   }
 
   /**
@@ -162,17 +240,23 @@ export class FirestoreSyncService {
   }
 
   /**
-   * Subscribe to Sync Conflicts - Disconnected (Local Offline Mode)
+   * Subscribe to Sync Conflicts in Firestore
    */
   static subscribeToConflicts(callback: (conflicts: SyncConflictLog[]) => void) {
-    return () => {};
-  }
-
-  /**
-   * Subscribe to Order Plans - Disconnected (Local Offline Mode)
-   */
-  static subscribeToOrderPlans(callback: (plans: OrderPlan[]) => void) {
-    return () => {};
+    try {
+      const colRef = collection(db, COLLECTIONS.SYNC_CONFLICTS);
+      return onSnapshot(colRef, (snapshot) => {
+        const list: SyncConflictLog[] = [];
+        snapshot.forEach((docSnap) => {
+          list.push({ id: docSnap.id, ...docSnap.data() } as SyncConflictLog);
+        });
+        callback(list);
+      }, (error) => {
+        console.warn('Firestore conflicts snapshot error:', error);
+      });
+    } catch (err) {
+      return () => {};
+    }
   }
 
   /**
@@ -431,6 +515,173 @@ export class FirestoreSyncService {
       await deleteDoc(docRef);
     } catch (e) {
       console.warn('deleteLedgerRecord firestore notice:', e);
+    }
+  }
+
+  static async saveYarnAllocation(item: YarnAllocationRecord): Promise<void> {
+    try {
+      const docId = sanitizeDocId(item.id || `yarn-${item.orderNumber}-${item.fabricShade}-${item.yarnRequired || ''}-${item.lotNo || ''}`, 'yarn');
+      const docRef = doc(db, COLLECTIONS.YARN_ALLOCATIONS, docId);
+      await setDoc(docRef, {
+        ...item,
+        id: item.id || docId,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (e) {
+      console.warn('saveYarnAllocation firestore notice:', e);
+    }
+  }
+
+  static async batchSaveYarnAllocations(items: YarnAllocationRecord[], replace: boolean = false): Promise<void> {
+    try {
+      if (!items || items.length === 0) return;
+
+      // If replacing dataset, clear old items in batches first
+      if (replace) {
+        try {
+          const colRef = collection(db, COLLECTIONS.YARN_ALLOCATIONS);
+          const oldDocsSnap = await getDocs(colRef);
+          if (!oldDocsSnap.empty) {
+            const deleteBatch = writeBatch(db);
+            let count = 0;
+            for (const d of oldDocsSnap.docs) {
+              deleteBatch.delete(d.ref);
+              count++;
+              if (count >= 400) {
+                await deleteBatch.commit();
+                count = 0;
+              }
+            }
+            if (count > 0) {
+              await deleteBatch.commit();
+            }
+          }
+        } catch (delErr) {
+          console.warn('Yarn allocation replace cleanup notice:', delErr);
+        }
+      }
+
+      const CHUNK_SIZE = 250;
+      for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+        const chunk = items.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(db);
+        chunk.forEach(item => {
+          const docId = sanitizeDocId(item.id || `yarn-${item.orderNumber}-${item.fabricShade}-${item.yarnRequired || ''}-${item.lotNo || ''}`, 'yarn');
+          const docRef = doc(db, COLLECTIONS.YARN_ALLOCATIONS, docId);
+          batch.set(docRef, {
+            ...item,
+            id: item.id || docId,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+        });
+        await batch.commit();
+      }
+    } catch (e) {
+      console.warn('batchSaveYarnAllocations firestore notice:', e);
+    }
+  }
+
+  static async deleteYarnAllocation(id: string): Promise<void> {
+    try {
+      if (!id) return;
+      const docId = sanitizeDocId(id, 'yarn');
+      const docRef = doc(db, COLLECTIONS.YARN_ALLOCATIONS, docId);
+      await deleteDoc(docRef);
+    } catch (e) {
+      console.warn('deleteYarnAllocation firestore notice:', e);
+    }
+  }
+
+  static async fetchYarnAllocations(): Promise<YarnAllocationRecord[]> {
+    try {
+      const colRef = collection(db, COLLECTIONS.YARN_ALLOCATIONS);
+      const snapshot = await getDocs(colRef);
+      const list: YarnAllocationRecord[] = [];
+      snapshot.forEach(docSnap => {
+        list.push({ id: docSnap.id, ...docSnap.data() } as YarnAllocationRecord);
+      });
+      return list;
+    } catch (err) {
+      console.warn('fetchYarnAllocations from firestore notice:', err);
+      return [];
+    }
+  }
+
+  static async batchSaveOrderPlans(plans: OrderPlan[], replace: boolean = false): Promise<void> {
+    try {
+      if (!plans || plans.length === 0) return;
+
+      if (replace) {
+        try {
+          const colRef = collection(db, COLLECTIONS.ORDER_PLANS);
+          const oldDocsSnap = await getDocs(colRef);
+          if (!oldDocsSnap.empty) {
+            const deleteBatch = writeBatch(db);
+            let count = 0;
+            for (const d of oldDocsSnap.docs) {
+              deleteBatch.delete(d.ref);
+              count++;
+              if (count >= 400) {
+                await deleteBatch.commit();
+                count = 0;
+              }
+            }
+            if (count > 0) {
+              await deleteBatch.commit();
+            }
+          }
+        } catch (delErr) {
+          console.warn('Order plans replace cleanup notice:', delErr);
+        }
+      }
+
+      const CHUNK_SIZE = 250;
+      for (let i = 0; i < plans.length; i += CHUNK_SIZE) {
+        const chunk = plans.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(db);
+        chunk.forEach(plan => {
+          const docId = sanitizeDocId(plan.id || plan.ewo, 'plan');
+          const docRef = doc(db, COLLECTIONS.ORDER_PLANS, docId);
+          batch.set(docRef, {
+            ...plan,
+            id: plan.id || docId,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+        });
+        await batch.commit();
+      }
+    } catch (e) {
+      console.warn('batchSaveOrderPlans firestore notice:', e);
+    }
+  }
+
+  static async fetchOrderPlans(): Promise<OrderPlan[]> {
+    try {
+      const colRef = collection(db, COLLECTIONS.ORDER_PLANS);
+      const snapshot = await getDocs(colRef);
+      const list: OrderPlan[] = [];
+      snapshot.forEach(docSnap => {
+        list.push({ id: docSnap.id, ...docSnap.data() } as OrderPlan);
+      });
+      return list;
+    } catch (err) {
+      console.warn('fetchOrderPlans from firestore notice:', err);
+      return [];
+    }
+  }
+
+  static async fetchLedgerRecords(): Promise<LedgerRecord[]> {
+    try {
+      const colRef = collection(db, COLLECTIONS.LEDGER_RECORDS);
+      const snapshot = await getDocs(colRef);
+      const list: LedgerRecord[] = [];
+      snapshot.forEach(docSnap => {
+        list.push({ id: docSnap.id, ...docSnap.data() } as LedgerRecord);
+      });
+      return list;
+    } catch (err) {
+      console.warn('fetchLedgerRecords from firestore notice:', err);
+      return [];
     }
   }
 

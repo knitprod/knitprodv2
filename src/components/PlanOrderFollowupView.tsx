@@ -968,7 +968,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
 
     const updated = [newEntry, ...orders];
     setOrders(updated);
-    GasClient.saveOrderPlans([newEntry]).catch(err => console.warn('GAS order plan save warning:', err));
+    globalSaveOrderPlan(newEntry).catch(err => console.warn('Global save order plan warning:', err));
     setShowAddModal(false);
     setFormEwo('');
     setFormColor('');
@@ -1029,7 +1029,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
 
     const updatedList = orders.map(o => o.id === editingOrder.id ? updatedOrder : o);
     setOrders(updatedList);
-    GasClient.saveOrderPlans([updatedOrder]).catch(err => console.warn('GAS order plan edit save warning:', err));
+    globalSaveOrderPlan(updatedOrder).catch(err => console.warn('Global save order plan warning:', err));
     setShowEditModal(false);
     setEditingOrder(null);
   };
@@ -1039,7 +1039,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       const updated = orders.filter(o => o.id !== id);
       setOrders(updated);
       try {
-        await GasClient.deleteOrderPlan(id);
+        await globalDeleteOrderPlan(id);
       } catch (err) {
         console.warn("Error deleting order plan:", err);
       }
@@ -2999,6 +2999,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                 } else {
                   setYarnAllocations(prev => [record, ...prev]);
                 }
+                globalSaveYarnAllocation(record).catch(err => console.warn('Global save yarn allocation warning:', err));
 
                 setShowAddYarnModal(false);
                 setShowEditYarnModal(false);
