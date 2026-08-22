@@ -332,20 +332,24 @@ export default function AddProductionRecordModal({
                     <Layers className="h-3.5 w-3.5" /> 2. Production Weights & Shift Output
                   </span>
                   <span className="text-[9px] font-bold text-gray-400 lowercase">
-                    target total loaded from unit settings
+                    Target Total (Customizable)
                   </span>
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="space-y-1">
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase flex items-center justify-between">
-                      <span>Target Total</span>
-                      <span className="text-[8px] text-blue-600 dark:text-blue-400 font-normal">Settings</span>
+                      <span>Target Total (Kg) *</span>
+                      <span className="text-[8px] text-blue-600 dark:text-blue-400 font-normal">Editable</span>
                     </label>
                     <input
                       type="number"
-                      value={record.target ?? 0}
-                      onChange={(e) => onChange('target', parseFloat(e.target.value) || 0)}
+                      value={record.target === 0 || record.target === undefined ? (record.target === 0 ? 0 : '') : record.target}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('target', val === '' ? 0 : (parseFloat(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
+                      placeholder="e.g. 15000"
                     />
                   </div>
                   <div className="space-y-1">
@@ -770,12 +774,19 @@ export default function AddProductionRecordModal({
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Target Total (Kg)</label>
+                    <label className="text-[10px] font-extrabold text-gray-500 uppercase flex items-center justify-between">
+                      <span>Target Total (Kg) *</span>
+                      <span className="text-[8px] text-blue-600 dark:text-blue-400 font-normal">Editable</span>
+                    </label>
                     <input
                       type="number"
-                      value={record.target ?? 0}
-                      onChange={(e) => onChange('target', parseFloat(e.target.value) || 0)}
+                      value={record.target === 0 || record.target === undefined ? (record.target === 0 ? 0 : '') : record.target}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('target', val === '' ? 0 : (parseFloat(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
+                      placeholder="e.g. 25000"
                     />
                   </div>
                   <div className="space-y-1">

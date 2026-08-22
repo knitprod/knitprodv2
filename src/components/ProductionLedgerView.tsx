@@ -748,8 +748,10 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const floorName = record.floor || 'EKL';
     const isSubContact = floorName === 'Sub-Contact' || record.unit === 'Sub-Contact';
     
-    // 3. Target KG from settings panel unit by unit
-    const target = record.target > 0 ? record.target : getTargetForFloor(floorName);
+    // 3. Target KG: Respect user-defined target quantity (even 0 / updated custom targets), only default if undefined/null
+    const target = (record.target !== undefined && record.target !== null && !isNaN(Number(record.target)))
+      ? Number(record.target)
+      : getTargetForFloor(floorName);
 
     // 6. Total Machine from settings panel
     const totalM = getTotalMachinesForFloor(floorName);
