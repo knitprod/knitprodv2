@@ -194,45 +194,36 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
         </div>
       )}
 
-      {/* Direct Push Synchronization Operational Banner */}
-      <div className="rounded-2xl border border-blue-900/40 dark:border-blue-800 bg-slate-900 p-6 text-white shadow-lg space-y-4">
+      {/* Master Data Synchronization Operational Banner */}
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 text-slate-800 dark:text-white shadow-sm space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1">
-            <div className="flex items-center gap-2 text-xs font-bold text-sky-400 uppercase tracking-wider">
-              <Database className="h-4 w-4 text-emerald-400" />
-              <span>Firebase Firestore Active: User Management, Authentication & Settings</span>
+            <div className="flex items-center gap-2 text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
+              <Database className="h-4 w-4 text-emerald-500" />
+              <span>Enterprise Synchronization & Data Security</span>
             </div>
-            <h3 className="text-lg font-black text-white">
-              Firebase Connection Active for Settings & User Security
+            <h3 className="text-lg font-black text-slate-900 dark:text-white">
+              Google Sheets Master Synchronization & In-Memory State
             </h3>
-            <p className="text-xs text-slate-300 leading-relaxed max-w-2xl">
-              User credentials, user roles, and system settings are managed live via <strong>Firebase Firestore & Auth</strong>. All passwords and user directories have been completely purged from browser cache (localStorage) for enterprise security.
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed max-w-2xl">
+              Factory operations, order planning, yarn allocations, and ledger records sync securely with Google Sheets and secure in-memory server state. Sensitive connection parameters are kept safe and never stored in plain browser storage.
             </p>
           </div>
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
-            <div className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-950/80 text-emerald-300 font-black text-xs uppercase tracking-wider border border-emerald-800">
-              <CheckCircle className="h-4 w-4 text-emerald-400" />
-              <span>Firebase Security Active</span>
+            <div className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 font-black text-xs uppercase tracking-wider border border-emerald-200 dark:border-emerald-800">
+              <CheckCircle className="h-4 w-4 text-emerald-500" />
+              <span>Security Protected</span>
             </div>
           </div>
         </div>
 
         {syncNotice && (
-          <div className="p-3.5 rounded-xl bg-white/10 border border-white/20 text-xs font-semibold text-slate-200 flex items-center gap-2 animate-fade-in">
-            <CheckCircle className="h-4 w-4 text-emerald-400 shrink-0" />
+          <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold text-emerald-800 dark:text-emerald-200 flex items-center gap-2 animate-fade-in">
+            <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0" />
             <span>{syncNotice}</span>
           </div>
         )}
-
-        <div className="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-between text-[11px] font-medium text-slate-400">
-          <span>
-            Database Status: <strong className="text-emerald-400">Connected to Firebase (Users & System Settings)</strong>
-          </span>
-          <span className="text-slate-400">
-            • Browser cache credential storage disabled
-          </span>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

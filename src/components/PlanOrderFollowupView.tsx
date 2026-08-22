@@ -785,9 +785,10 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       }
 
       const q = searchQuery.toLowerCase();
+      const orderNumStr = (ord.ewo || (ord as any).orderNumber || (ord as any).orderNo || '').toString().toLowerCase();
       const matchesSearch = 
         !q ||
-        ord.ewo.toLowerCase().includes(q) ||
+        orderNumStr.includes(q) ||
         ord.buyer.toLowerCase().includes(q) ||
         ord.color.toLowerCase().includes(q) ||
         ord.planMonth.toLowerCase().includes(q) ||
@@ -2143,7 +2144,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                           {isColVisible('ewo') && (
                             <td style={{ width: `${getColWidth('ewo')}px`, minWidth: `${getColWidth('ewo')}px`, maxWidth: `${getColWidth('ewo')}px`, ...getStickyStyle('ewo') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-center ${getStickyClass('ewo')}`}>
                               <span className="font-mono font-bold text-xs bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-2.5 py-1 rounded-lg border border-slate-200/60 dark:border-slate-700/60 inline-block shadow-2xs">
-                                {ord.ewo}
+                                {ord.ewo || (ord as any).orderNumber || (ord as any).orderNo || (ord as any).bookingNo || '-'}
                               </span>
                             </td>
                           )}

@@ -1224,12 +1224,15 @@ export class GasClient {
       return '';
     };
 
+    const ewoVal = String(getVal('ewo', 'EWO', 'EWO #', 'Order Number', 'orderNumber', 'orderNo', 'Order No', 'Order #', 'Order_Number', 'Booking No', 'Booking #', 'Fabric Booking No') || '').trim();
+
     return {
       id: String(getVal('id', 'ID') || `ord-${index + 1}`).trim(),
       planMonth: String(getVal('planMonth', 'Plan Month', 'Month') || '').trim(),
       planType: String(getVal('planType', 'Plan Type', 'Type') || 'Confirm').trim(),
-      ewo: String(getVal('ewo', 'EWO', 'EWO #', 'Order Number') || '').trim(),
-      buyer: String(getVal('buyer', 'Buyer') || '').trim(),
+      ewo: ewoVal,
+      orderNumber: ewoVal,
+      buyer: String(getVal('buyer', 'Buyer', 'Buyer Name') || '').trim(),
       color: String(getVal('color', 'Color', 'Shade') || '').trim(),
       knitStart: GasClient.formatDateValue(getVal('knitStart', 'Knit Start', 'Knit Start Date')),
       knitEnd: GasClient.formatDateValue(getVal('knitEnd', 'Knit End', 'Knit End Date')),

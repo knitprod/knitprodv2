@@ -56,14 +56,8 @@ const POLLING_INTERVAL_MS = 15000; // 15 seconds silent polling
 
 /**
  * Executes a write mutation against /api/sheets with keepalive to prevent tab-close data loss.
- * Bypasses Google Sheets for yarn allocations since Yarn Allocation is directly on Firebase Firestore.
  */
 async function executeKeepaliveMutation(action: string, data: any): Promise<any> {
-  // Yarn allocations are handled exclusively in Firebase Firestore
-  if (action.startsWith('yarn/')) {
-    return { success: true, message: 'Yarn allocation saved in Firebase Firestore' };
-  }
-
   const payload = { action, ...data };
   try {
     const payloadStr = JSON.stringify(payload);
@@ -463,32 +457,22 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
 
     GasClient.clearYarnCache();
-    // Persist to Server DB cache
     GasClient.saveServerDb({ yarnAllocations: [item] }).catch(() => {});
-    // Real-time Cloud Firestore write
-    FirestoreSyncService.saveYarnAllocation(item).catch(err => console.warn('Firestore saveYarnAllocation notice:', err));
-    FirestoreSyncService.saveSettings({ last_yarn_allocation_updated: new Date().toISOString() }).catch(() => {});
-
-    return { success: true, message: 'Yarn allocation saved in Firebase Firestore' };
+    return executeKeepaliveMutation('yarn/save', { yarnAllocations: [item], replace: false });
   };
 
   const deleteYarnAllocation = async (id: string) => {
     setYarnAllocations(prev => prev.filter(y => y.id !== id));
     GasClient.clearYarnCache();
-    // Delete from Firestore & Server DB
     GasClient.deleteYarnAllocation(id).catch(err => console.warn('Delete yarn allocation notice:', err));
-    FirestoreSyncService.saveSettings({ last_yarn_allocation_updated: new Date().toISOString() }).catch(() => {});
-
-    return { success: true, message: 'Yarn allocation deleted from Firebase Firestore' };
+    return executeKeepaliveMutation('yarn/delete', { id });
   };
 
   const bulkSaveYarnAllocations = async (items: YarnAllocationRecord[], replace: boolean = false) => {
     setYarnAllocations(prev => replace ? items : [...items, ...prev.filter(p => !items.some(i => i.id === p.id))]);
     GasClient.clearYarnCache();
     GasClient.saveServerDb({ yarnAllocations: items }).catch(() => {});
-    FirestoreSyncService.batchSaveYarnAllocations(items, replace).catch(err => console.warn('Firestore batchSaveYarnAllocations notice:', err));
-    FirestoreSyncService.saveSettings({ last_yarn_allocation_updated: new Date().toISOString() }).catch(() => {});
-    return { success: true, count: items.length, message: 'Yarn allocations stored in Firebase Firestore' };
+    return executeKeepaliveMutation('yarn/save', { yarnAllocations: items, replace });
   };
 
   // --- Production Ledger ---

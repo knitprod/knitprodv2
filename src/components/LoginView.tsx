@@ -93,7 +93,6 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [userRoster, setUserRoster] = useState<UserRecord[]>(DEFAULT_USERS);
-  const [activeTab, setActiveTab] = useState<'form' | 'demo'>('form');
 
   // Load user directory directly from Firebase Firestore
   useEffect(() => {
@@ -231,41 +230,6 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
     }
   };
 
-  const handleQuickLogin = async (user: UserRecord) => {
-    if (user.status === 'Inactive') {
-      setError(`Account for ${user.userName} is currently set to Inactive. Modify status in User Management first.`);
-      return;
-    }
-    setUid(user.uid);
-    setPassword(user.password || 'Password@2026');
-    setError(null);
-    setSuccess(`Welcome back, ${user.userName}! Authenticating session with Firebase...`);
-    setLoading(true);
-
-    try {
-      await setPersistence(auth, browserLocalPersistence);
-      let fbUser = auth.currentUser;
-      if (!fbUser) {
-        const cred = await signInAnonymously(auth);
-        fbUser = cred.user;
-      }
-      if (fbUser) {
-        await updateProfile(fbUser, { displayName: user.uid.trim().toUpperCase() });
-      }
-      await fetch('/api/auth/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uid: user.uid.trim().toUpperCase() })
-      }).catch(() => {});
-    } catch (authErr) {
-      console.warn("Firebase Auth persistence sync warning:", authErr);
-    }
-
-    setTimeout(() => {
-      onLoginSuccess(user);
-    }, 400);
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-[#0B132B] px-4 py-12 relative overflow-hidden transition-colors duration-300">
       
@@ -330,37 +294,14 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
               SYSTEM PORTAL v1.0 • EPYLLION KNITEX LTD.
             </div>
           </div>
-        </div>
-
-        {/* Right Side: Interactive Login Form & Account Switcher */}
+        </div>        {/* Right Side: Interactive Login Form */}
         <div className="lg:col-span-7 p-6 sm:p-10 flex flex-col justify-between bg-white dark:bg-[#111A34]">
           <div>
-            {/* Tab selection header */}
+            {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 mb-6">
-              <div className="flex gap-4">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('form')}
-                  className={`text-sm font-black pb-3 transition-all relative cursor-pointer uppercase tracking-wider ${
-                    activeTab === 'form' 
-                      ? 'text-[#0F4C81] dark:text-sky-400 border-b-2 border-[#0F4C81] dark:border-sky-400' 
-                      : 'text-gray-400 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-200'
-                  }`}
-                >
-                  Credential Login
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('demo')}
-                  className={`text-sm font-black pb-3 transition-all relative cursor-pointer uppercase tracking-wider ${
-                    activeTab === 'demo' 
-                      ? 'text-[#0F4C81] dark:text-sky-400 border-b-2 border-[#0F4C81] dark:border-sky-400' 
-                      : 'text-gray-400 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-200'
-                  }`}
-                >
-                  Demo Directory ({userRoster.length})
-                </button>
-              </div>
+              <span className="text-xs font-black uppercase tracking-wider text-[#0F4C81] dark:text-sky-400">
+                Authorized Personnel Login
+              </span>
               <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold px-2 py-0.5 rounded">
                 SECURE SSL
               </span>
@@ -393,158 +334,93 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
               </div>
             )}
 
-            {activeTab === 'form' ? (
-              /* Credential Form tab */
-              <form onSubmit={handleLoginSubmit} className="space-y-4">
-                <div className="space-y-1">
-                  <h2 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">
-                    Sign In to Your Workspace
-                  </h2>
-                  <p className="text-xs text-gray-400 dark:text-slate-400 font-medium">
-                    Please use your active factory UID and password credentials.
-                  </p>
-                </div>
+            {/* Credential Form */}
+            <form onSubmit={handleLoginSubmit} className="space-y-4">
+              <div className="space-y-1">
+                <h2 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">
+                  Sign In to Your Workspace
+                </h2>
+                <p className="text-xs text-gray-400 dark:text-slate-400 font-medium">
+                  Please use your active factory UID and password credentials.
+                </p>
+              </div>
 
-                {/* UID Input */}
-                <div className="space-y-1.5 pt-2">
-                  <label className="block text-[10px] font-black text-gray-400 dark:text-slate-400 uppercase tracking-wider">
-                    LOGIN UNIQUE ID (UID) *
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
-                      <User className="h-4 w-4" />
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="e.g. EKL001"
-                      value={uid}
-                      onChange={(e) => setUid(e.target.value)}
-                      className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 py-2.5 pl-10 pr-3.5 text-xs font-bold text-slate-800 dark:text-slate-100 transition-all focus:border-[#0F4C81] focus:bg-white dark:focus:bg-slate-900 focus:outline-hidden uppercase"
-                      disabled={loading}
-                    />
+              {/* UID Input */}
+              <div className="space-y-1.5 pt-2">
+                <label className="block text-[10px] font-black text-gray-400 dark:text-slate-400 uppercase tracking-wider">
+                  LOGIN UNIQUE ID (UID) *
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                    <User className="h-4 w-4" />
                   </div>
-                </div>
-
-                {/* Password Input */}
-                <div className="space-y-1.5">
-                  <div className="flex justify-between items-center">
-                    <label className="block text-[10px] font-black text-gray-400 dark:text-slate-400 uppercase tracking-wider">
-                      PASSWORD *
-                    </label>
-                    <span className="text-[10px] text-[#0F4C81] dark:text-sky-400 hover:underline cursor-pointer font-bold uppercase">
-                      Forgot Password?
-                    </span>
-                  </div>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
-                      <Lock className="h-4 w-4" />
-                    </div>
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      placeholder="••••••••"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 py-2.5 pl-10 pr-10 text-xs font-bold text-slate-800 dark:text-slate-100 transition-all focus:border-[#0F4C81] focus:bg-white dark:focus:bg-slate-900 focus:outline-hidden"
-                      disabled={loading}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-200 cursor-pointer"
-                    >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Submit button with full feedback & pulse styling */}
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className={`w-full inline-flex items-center justify-center gap-2.5 rounded-xl text-white py-3 px-4 text-xs font-black uppercase tracking-wider transition-all shadow-md active:scale-98 disabled:cursor-not-allowed pt-2.5 pb-2.5 cursor-pointer mt-4 relative overflow-hidden ${
-                    loading 
-                      ? 'bg-slate-600 dark:bg-slate-800 border border-slate-500/30' 
-                      : 'bg-[#0F4C81] hover:bg-[#0b3b64]'
-                  }`}
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin text-sky-400 shrink-0" />
-                      <span className="animate-pulse tracking-widest text-slate-100">Verifying Credentials...</span>
-                      <span className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-[#0F4C81] via-sky-400 to-[#0F4C81] animate-pulse w-full" />
-                    </>
-                  ) : (
-                    <>
-                      <span>Secure Authorize Portal</span>
-                      <ChevronRight className="h-4 w-4" />
-                    </>
-                  )}
-                </button>
-              </form>
-            ) : (
-              /* Demo Switcher Tab */
-              <div className="space-y-4">
-                <div className="space-y-1">
-                  <h2 className="text-lg font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-                    <Users className="h-5 w-5 text-[#0F4C81]" />
-                    <span>Active Directory Simulation</span>
-                  </h2>
-                  <p className="text-xs text-gray-400 dark:text-slate-400 font-medium">
-                    Evaluate system views under different authorization privileges. Click any active profile below to auto-fill.
-                  </p>
-                </div>
-
-                {/* Profiles grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[300px] overflow-y-auto pr-1">
-                  {userRoster.map(user => (
-                    <div
-                      key={user.id}
-                      onClick={() => handleQuickLogin(user)}
-                      className={`p-3 rounded-xl border text-left cursor-pointer transition-all hover:shadow-md flex flex-col justify-between gap-2 group relative overflow-hidden ${
-                        user.status === 'Inactive'
-                          ? 'border-red-100 bg-red-50/20 opacity-60 cursor-not-allowed dark:border-red-950/20'
-                          : 'border-slate-100 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/40 hover:border-blue-300 dark:hover:border-sky-800'
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center justify-between gap-1.5">
-                          <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${
-                            user.userType === 'Admin'
-                              ? 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400'
-                              : 'bg-blue-100 dark:bg-blue-950 text-[#0F4C81] dark:text-sky-400'
-                          }`}>
-                            {user.userType}
-                          </span>
-                          <span className="font-mono text-[9px] font-bold text-gray-400 group-hover:text-[#0F4C81] dark:group-hover:text-sky-400">
-                            {user.uid}
-                          </span>
-                        </div>
-                        <h4 className="font-black text-slate-950 dark:text-slate-100 text-xs mt-1.5 truncate">
-                          {user.userName}
-                        </h4>
-                        <span className="block text-[10px] text-gray-500 dark:text-slate-400 truncate">
-                          {user.designation} • {user.department}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center justify-between border-t border-slate-200/50 dark:border-slate-800/50 pt-2 mt-1">
-                        <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded-sm ${
-                          user.permission === 'Read / Write' ? 'bg-emerald-50 dark:bg-emerald-950/30 text-[#16A34A]' :
-                          user.permission === 'Read' ? 'bg-blue-50 dark:bg-sky-950/30 text-[#0F4C81]' : 'bg-gray-100 dark:bg-slate-800 text-gray-500'
-                        }`}>
-                          Perms: {user.permission}
-                        </span>
-                        
-                        <span className="text-[9px] font-bold text-gray-400 group-hover:underline flex items-center gap-0.5">
-                          Use UID
-                          <ChevronRight className="h-2.5 w-2.5" />
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+                  <input
+                    type="text"
+                    placeholder="e.g. EKL001"
+                    value={uid}
+                    onChange={(e) => setUid(e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 py-2.5 pl-10 pr-3.5 text-xs font-bold text-slate-800 dark:text-slate-100 transition-all focus:border-[#0F4C81] focus:bg-white dark:focus:bg-slate-900 focus:outline-hidden uppercase"
+                    disabled={loading}
+                  />
                 </div>
               </div>
-            )}
+
+              {/* Password Input */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="block text-[10px] font-black text-gray-400 dark:text-slate-400 uppercase tracking-wider">
+                    PASSWORD *
+                  </label>
+                  <span className="text-[10px] text-[#0F4C81] dark:text-sky-400 hover:underline cursor-pointer font-bold uppercase">
+                    Forgot Password?
+                  </span>
+                </div>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                    <Lock className="h-4 w-4" />
+                  </div>
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 py-2.5 pl-10 pr-10 text-xs font-bold text-slate-800 dark:text-slate-100 transition-all focus:border-[#0F4C81] focus:bg-white dark:focus:bg-slate-900 focus:outline-hidden"
+                    disabled={loading}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:text-slate-400 dark:hover:text-slate-200 cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Submit button with full feedback & pulse styling */}
+              <button
+                type="submit"
+                disabled={loading}
+                className={`w-full inline-flex items-center justify-center gap-2.5 rounded-xl text-white py-3 px-4 text-xs font-black uppercase tracking-wider transition-all shadow-md active:scale-98 disabled:cursor-not-allowed pt-2.5 pb-2.5 cursor-pointer mt-4 relative overflow-hidden ${
+                  loading 
+                    ? 'bg-slate-600 dark:bg-slate-800 border border-slate-500/30' 
+                    : 'bg-[#0F4C81] hover:bg-[#0b3b64]'
+                }`}
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin text-sky-400 shrink-0" />
+                    <span className="animate-pulse tracking-widest text-slate-100">Verifying Credentials...</span>
+                    <span className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-[#0F4C81] via-sky-400 to-[#0F4C81] animate-pulse w-full" />
+                  </>
+                ) : (
+                  <>
+                    <span>Secure Authorize Portal</span>
+                    <ChevronRight className="h-4 w-4" />
+                  </>
+                )}
+              </button>
+            </form>
           </div>
 
           {/* Institutional Compliance Disclaimer */}

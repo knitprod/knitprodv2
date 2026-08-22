@@ -1058,9 +1058,6 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     GasClient.fetchServerDb().then((db) => {
       if (db && db.master_yarn_upload_info) {
         setUploadInfo(db.master_yarn_upload_info);
-        try {
-          localStorage.setItem('master_yarn_upload_info', JSON.stringify(db.master_yarn_upload_info));
-        } catch (e) {}
       }
     }).catch(() => {});
 
@@ -1068,9 +1065,6 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     FirestoreSyncService.fetchSettings().then((settings) => {
       if (settings && settings.master_yarn_upload_info) {
         setUploadInfo(settings.master_yarn_upload_info);
-        try {
-          localStorage.setItem('master_yarn_upload_info', JSON.stringify(settings.master_yarn_upload_info));
-        } catch (e) {}
       }
     }).catch(err => console.warn('Could not fetch initial master_yarn_upload_info from Firestore:', err));
 
@@ -1143,18 +1137,14 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     };
 
     setUploadInfo(newUploadInfo);
-    try {
-      localStorage.setItem('master_yarn_upload_info', JSON.stringify(newUploadInfo));
-    } catch (e) {}
 
-    // Real-time multi-device broadcast via Firestore batch write
+    // Save and sync yarn allocations to Server DB and Google Sheets
     globalBulkSaveYarnAllocations(dataToSave, true).catch(err => console.warn("GlobalBulkSave notice:", err));
-    FirestoreSyncService.batchSaveYarnAllocations(dataToSave, true).catch(err => console.warn("Firestore batchSave notice:", err));
     FirestoreSyncService.saveSettings({
       master_yarn_upload_info: newUploadInfo,
       last_yarn_allocation_updated: new Date().toISOString()
     }).catch(err => console.warn("Firestore master_yarn_upload_info notice:", err));
-    GasClient.saveServerDb({ master_yarn_upload_info: newUploadInfo }).catch(err => console.warn("Server DB master_yarn_upload_info notice:", err));
+    GasClient.saveServerDb({ master_yarn_upload_info: newUploadInfo, yarnAllocations: dataToSave }).catch(err => console.warn("Server DB master_yarn_upload_info notice:", err));
 
     setUploadSuccessBanner(`Instantly synced ${dataToSave.length.toLocaleString()} yarn allocation records across all devices! Background syncing to Google Sheets...`);
     setShowUploadModal(false);
@@ -1216,33 +1206,46 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
         </div>
       </div>
 
-      {/* MASTER UPLOAD INFORMATION STATUS BAR */}
+      {/* YARN ALLOCATION UPDATE STATUS BANNER */}
       <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <div className={`h-10 w-10 rounded-xl flex items-center justify-center font-bold shrink-0 ${
+          <div className="flex items-center gap-3.5">
+            <div className={`h-11 w-11 rounded-xl flex items-center justify-center font-bold shrink-0 ${
               uploadInfo.status === 'Success'
                 ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200/80 dark:border-emerald-800'
                 : uploadInfo.status === 'Failed'
                 ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border border-rose-200/80 dark:border-rose-800'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                : 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200/80 dark:border-blue-800'
             }`}>
               <UploadCloud className="h-5 w-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-                  Data Source: Firebase Firestore
-                </span>
-              </div>
+              <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 block">
+                Yarn Allocation Sync Status
+              </span>
               <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span><span className="text-slate-400 font-medium">Dataset:</span> Yarn Allocations</span>
+                <span>
+                  <span className="text-slate-400 font-medium">Update Time:</span>{' '}
+                  <span className="font-black text-slate-900 dark:text-white font-mono">{updateTime}</span>
+                </span>
                 <span className="text-slate-300 dark:text-slate-700">•</span>
-                <span><span className="text-slate-400 font-medium">Update Date:</span> <span className="font-extrabold text-slate-800 dark:text-slate-100">{updateDate}</span></span>
+                <span>
+                  <span className="text-slate-400 font-medium">Update Date:</span>{' '}
+                  <span className="font-black text-slate-900 dark:text-white">{updateDate}</span>
+                </span>
                 <span className="text-slate-300 dark:text-slate-700">•</span>
-                <span><span className="text-slate-400 font-medium">Update Time:</span> <span className="font-extrabold text-slate-800 dark:text-slate-100">{updateTime}</span></span>
-                <span className="text-slate-300 dark:text-slate-700">•</span>
-                <span><span className="text-slate-400 font-medium">User Name:</span> <span className="font-extrabold text-blue-600 dark:text-blue-400">{userName}</span></span>
+                <span>
+                  <span className="text-slate-400 font-medium">User Name:</span>{' '}
+                  <span className="font-black text-blue-600 dark:text-sky-400">{userName}</span>
+                </span>
+                {uploadInfo.totalRecords ? (
+                  <>
+                    <span className="text-slate-300 dark:text-slate-700">•</span>
+                    <span className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-md font-bold">
+                      {uploadInfo.totalRecords} Records
+                    </span>
+                  </>
+                ) : null}
               </div>
             </div>
           </div>
