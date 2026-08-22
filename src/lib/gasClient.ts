@@ -269,11 +269,13 @@ export class GasClient {
    */
   static async saveServerDb(partial: any): Promise<void> {
     try {
+      const payloadStr = JSON.stringify(partial);
+      const useKeepalive = payloadStr.length < 60000;
       await fetch('/api/db', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(partial),
-        keepalive: true
+        body: payloadStr,
+        ...(useKeepalive ? { keepalive: true } : {})
       });
     } catch (err) {
       console.warn("Could not save server DB (will retry on next sync):", err);
@@ -368,12 +370,14 @@ export class GasClient {
               ledger: bodyData?.ledger || bodyData?.records,
               url: webAppUrl
             };
+            const payloadStr = JSON.stringify(postPayload);
+            const useKeepalive = payloadStr.length < 60000;
             response = await fetch('/api/sheets', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(postPayload),
-              keepalive: true,
-              signal: AbortSignal.timeout(35000)
+              body: payloadStr,
+              ...(useKeepalive ? { keepalive: true } : {}),
+              signal: AbortSignal.timeout(60000)
             });
           }
 

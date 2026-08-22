@@ -20,7 +20,8 @@ import {
   FileText,
   Shield,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  RefreshCw
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
 import { useTableColumns, ColumnCustomizerDropdown, ResizableTh, ColumnDef } from './TableColumnCustomizer';
@@ -468,6 +469,7 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
   const [parsedData, setParsedData] = useState<YarnAllocationRecord[] | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccessBanner, setUploadSuccessBanner] = useState<string | null>(null);
+  const [isSyncingToSheet, setIsSyncingToSheet] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -679,15 +681,17 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
         try {
           const data = new Uint8Array(evt.target?.result as ArrayBuffer);
           const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-          const firstSheetName = workbook.SheetNames[0];
-          if (!firstSheetName) {
-            const errMsg = 'No sheets found in the uploaded file.';
-            setUploadError(errMsg);
-            setIsParsing(false);
-            return;
+          // 1. Inspect all sheets to select the one with the most records (handles multi-sheet workbooks)
+          let worksheet = workbook.Sheets[workbook.SheetNames[0]];
+          let rawMatrix: any[][] = [];
+          for (const sName of workbook.SheetNames) {
+            const sheet = workbook.Sheets[sName];
+            const matrix = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, defval: '' });
+            if (matrix && matrix.length > rawMatrix.length) {
+              rawMatrix = matrix;
+              worksheet = sheet;
+            }
           }
-          const worksheet = workbook.Sheets[firstSheetName];
-          const rawMatrix = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, defval: '' });
 
           if (!rawMatrix || rawMatrix.length === 0) {
             const errMsg = 'The uploaded Excel sheet is empty.';
@@ -696,12 +700,16 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
             return;
           }
 
-          // Find actual header row by scanning top 15 rows for matching header keywords
+          // 2. Find actual header row by scanning top 35 rows for matching header keywords
           let headerRowIndex = 0;
           let maxMatches = 0;
-          const headerKeywords = ['booking', 'yarn', 'buyer', 'alloc', 'shade', 'gsm', 'count', 'lot', 'spinner', 'req', 'qty', 'balance', 'date', 'type'];
+          const headerKeywords = [
+            'booking', 'order', 'yarn', 'buyer', 'alloc', 'shade', 'color', 'colour', 
+            'gsm', 'count', 'lot', 'spinner', 'req', 'rq', 'qty', 'balance', 'date', 
+            'type', 'fabrics', 'status', 'delivery', 'stock', 'mill', 'brand', 'spec'
+          ];
 
-          for (let r = 0; r < Math.min(15, rawMatrix.length); r++) {
+          for (let r = 0; r < Math.min(35, rawMatrix.length); r++) {
             const rowArr = rawMatrix[r];
             if (!Array.isArray(rowArr)) continue;
             let matches = 0;
@@ -771,8 +779,8 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
           };
 
           const colMap = {
-            orderNumber: findHeaderKey(['fabric booking no', 'fabric booking number', 'fabric booking #', 'order number', 'order no', 'order #', 'booking no', 'booking number', 'booking #', 'booking', 'ewo', 'ewo no', 'ewo number', 'job no', 'po no', 'style no', 'fabric booking']),
-            fabricsType: findHeaderKey(['fabrics type', 'fabric type', 'fabrics name', 'fabric name', 'fabric description', 'fabric desc', 'fabric details', 'fabric', 'fabrics']),
+            orderNumber: findHeaderKey(['fabric booking no', 'fabric booking number', 'fabric booking #', 'order number', 'order no', 'order #', 'booking no', 'booking number', 'booking #', 'booking', 'fbn', 'f.b.n', 'ewo', 'ewo no', 'ewo number', 'job no', 'po no', 'style no', 'style', 'fabric booking']),
+            fabricsType: findHeaderKey(['fabrics type', 'fabric type', 'fabrics name', 'fabric name', 'fabric description', 'fabric desc', 'fabric details', 'fabric', 'fabrics', 'item name', 'item desc']),
             fabricShade: findHeaderKey(['fabric shade', 'shade name', 'shade no', 'shade', 'color name', 'color no', 'color', 'colour', 'garment color', 'pantone']),
             fabricGsm: findHeaderKey(['fabric gsm', 'finished gsm', 'fin gsm', 'fin. gsm', 'f.gsm', 'f gsm', 'fgsm', 'fabric_gsm', 'gsm (g/m2)', 'gsm (g/m²)', 'gsm/oz', 'req gsm', 'target gsm', 'gsm/weight', 'fabric gsm (g/m2)', 'gsm']),
             yarnRequired: findHeaderKey(['yarn category', 'yarn required', 'yarn requirement', 'yarn description', 'as per fr', 'as per f.r', 'yarn cat', 'category', 'yarn details', 'required yarn', 'yarn spec', 'yarn count required']),
@@ -801,13 +809,13 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
             existingRange: findHeaderKey(['allocation sart date to end date', 'allocation start date to end date', 'allocation date range', 'date range', 'alloc date range']),
           };
 
-          // Robust fallback checks for Fabric GSM and Yarn RQ Qty if not matched by standard aliases
+          // Robust fallback checks for Booking / Order Number
           if (!colMap.orderNumber) {
             const ordHeader = headers.find(h => {
               const l = h.toLowerCase();
-              return l.includes('booking') || l.includes('order') || l.includes('ewo') || l.includes('job') || l.includes('po');
-            });
-            if (ordHeader) colMap.orderNumber = ordHeader;
+              return l.includes('booking') || l.includes('order') || l.includes('ewo') || l.includes('job') || l.includes('po') || l.includes('fbn');
+            }) || headers[0] || '';
+            colMap.orderNumber = ordHeader;
           }
 
           if (!colMap.yarnRequired && colMap.allocatedYarn) {
@@ -833,40 +841,6 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
               return l.includes('qty') && !l.includes('alloc') && !l.includes('bal');
             });
             if (rqHeader) colMap.yarnRqQty = rqHeader;
-          }
-
-          // Validate required source columns (order number / booking is essential)
-          const missingCols: string[] = [];
-          if (!colMap.orderNumber) missingCols.push('Fabric Booking No / Order Number');
-
-          if (missingCols.length > 0) {
-            const errMsg = `Import Cancelled: Missing required column(s) in uploaded file: ${missingCols.join(', ')}. Please upload a valid Master Yarn Allocation file.`;
-            setUploadError(errMsg);
-            setIsParsing(false);
-
-            const nowStr = new Date().toLocaleString('en-US', {
-              day: '2-digit',
-              month: 'short',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true
-            });
-            const failMeta: MasterUploadInfo = {
-              lastUploadedAt: nowStr,
-              fileName: file.name,
-              totalRecords: 0,
-              status: 'Failed',
-              errorMessage: errMsg,
-            };
-            setUploadInfo(failMeta);
-            try {
-              localStorage.setItem('master_yarn_upload_info', JSON.stringify(failMeta));
-            } catch (e) {}
-            FirestoreSyncService.saveSettings({ master_yarn_upload_info: failMeta }).catch(() => {});
-            GasClient.saveServerDb({ master_yarn_upload_info: failMeta }).catch(() => {});
-
-            return;
           }
 
           // Map and group rows cleanly without quadratic searches
@@ -895,6 +869,8 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
             existingDateRanges: string[];
           }>();
 
+          let lastSeenOrderNumber = '';
+
           for (let r = headerRowIndex + 1; r < rawMatrix.length; r++) {
             const rowArr = rawMatrix[r];
             if (!Array.isArray(rowArr) || rowArr.every(c => c === '' || c === null || c === undefined)) continue;
@@ -914,7 +890,16 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
               return isNaN(parsed) ? 0 : parsed;
             };
 
-            const orderNumber = String(colMap.orderNumber ? rowObj[colMap.orderNumber] : '').trim();
+            let rawOrder = String(colMap.orderNumber ? rowObj[colMap.orderNumber] : '').trim();
+            if (rawOrder) {
+              lastSeenOrderNumber = rawOrder;
+            } else if (lastSeenOrderNumber) {
+              rawOrder = lastSeenOrderNumber;
+            } else {
+              rawOrder = `ORD-${r + 1}`;
+            }
+
+            const orderNumber = rawOrder;
             const fabricsType = String(colMap.fabricsType ? rowObj[colMap.fabricsType] : '').trim();
             const fabricShade = String(colMap.fabricShade ? rowObj[colMap.fabricShade] : '').trim();
             
@@ -1119,9 +1104,17 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     const dataToSave = parsedData;
     const fileName = uploadFile?.name || 'Master_Yarn_Allocation.xlsx';
 
-    // Step 1: Update local and global React state instantly
+    // ========================================================
+    // STEP 1: LOAD THE BROWSER 1ST (INSTANT UI & LOCAL CACHE)
+    // ========================================================
     setYarnAllocations(dataToSave);
     setCurrentPage(1);
+    GasClient.clearYarnCache();
+
+    // Update GlobalDataContext synchronously in memory
+    globalBulkSaveYarnAllocations(dataToSave, true).catch(err => {
+      console.warn("Global data context update notice:", err);
+    });
 
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-GB', {
@@ -1148,29 +1141,39 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     };
 
     setUploadInfo(newUploadInfo);
+    try {
+      localStorage.setItem('master_yarn_upload_info', JSON.stringify(newUploadInfo));
+    } catch (e) {}
 
-    // Save and sync yarn allocations to Server DB and Google Sheets
-    globalBulkSaveYarnAllocations(dataToSave, true).catch(err => console.warn("GlobalBulkSave notice:", err));
+    // Save immediately to persistent server DB cache & Firestore metadata
+    GasClient.saveServerDb({ master_yarn_upload_info: newUploadInfo, yarnAllocations: dataToSave }).catch(err => console.warn("Server DB notice:", err));
     FirestoreSyncService.saveSettings({
       master_yarn_upload_info: newUploadInfo,
       last_yarn_allocation_updated: new Date().toISOString()
-    }).catch(err => console.warn("Firestore master_yarn_upload_info notice:", err));
-    GasClient.saveServerDb({ master_yarn_upload_info: newUploadInfo, yarnAllocations: dataToSave }).catch(err => console.warn("Server DB master_yarn_upload_info notice:", err));
+    }).catch(err => console.warn("Firestore notice:", err));
 
-    setUploadSuccessBanner(`Instantly synced ${dataToSave.length.toLocaleString()} yarn allocation records across all devices! Background syncing to Google Sheets...`);
+    // Close upload modal immediately so user can interact with the newly loaded records in the browser
     setShowUploadModal(false);
     setUploadFile(null);
     setParsedData(null);
     setUploadError(null);
     setIsSaving(false);
+    setIsSyncingToSheet(true);
+    setUploadSuccessBanner(`Loaded ${dataToSave.length.toLocaleString()} records in Browser. Uploading to Google Sheet in background...`);
 
-    // Step 2: Keepalive sync to Google Sheets backend
-    GasClient.saveYarnAllocations(dataToSave, true).then(() => {
-      setUploadSuccessBanner(`Successfully synchronized ${dataToSave.length.toLocaleString()} yarn allocation records across all devices and Google Sheets.`);
-    }).catch((err) => {
-      console.warn("Background Google Sheets sync notice:", err);
-      setUploadSuccessBanner(`Updated ${dataToSave.length.toLocaleString()} records across all devices. (Google Sheets sync notice: ${err.message || 'Complete'}).`);
-    });
+    // ========================================================
+    // STEP 2: UPLOAD DATA IN GOOGLE SHEET (BACKGROUND ASYNC)
+    // ========================================================
+    GasClient.saveYarnAllocations(dataToSave, true)
+      .then(() => {
+        setIsSyncingToSheet(false);
+        setUploadSuccessBanner(`Google Sheet Synchronized: Successfully uploaded ${dataToSave.length.toLocaleString()} records to Google Sheet.`);
+      })
+      .catch((err) => {
+        setIsSyncingToSheet(false);
+        console.warn("Background Google Sheets sync notice:", err);
+        setUploadSuccessBanner(`Loaded ${dataToSave.length.toLocaleString()} records in Browser. (Google Sheet sync note: ${err.message || 'Saved locally'}).`);
+      });
   };
 
   return (
@@ -1268,16 +1271,26 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
         </div>
       </div>
 
-      {/* SUCCESS BANNER */}
+      {/* SYNC / SUCCESS BANNER */}
       {uploadSuccessBanner && (
-        <div className="flex items-center justify-between rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 p-3.5 text-xs text-emerald-800 dark:text-emerald-200 shadow-xs">
-          <div className="flex items-center gap-2">
-            <CheckCircle className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+        <div className={`flex items-center justify-between rounded-xl border p-3.5 text-xs shadow-xs transition-all ${
+          isSyncingToSheet
+            ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200'
+            : 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
+        }`}>
+          <div className="flex items-center gap-2.5">
+            {isSyncingToSheet ? (
+              <RefreshCw className="h-4 w-4 text-blue-600 dark:text-blue-400 animate-spin shrink-0" />
+            ) : (
+              <CheckCircle className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            )}
             <span className="font-bold">{uploadSuccessBanner}</span>
           </div>
-          <button onClick={() => setUploadSuccessBanner(null)} className="p-1 hover:bg-emerald-100 dark:hover:bg-emerald-900 rounded-lg cursor-pointer">
-            <X className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-          </button>
+          {!isSyncingToSheet && (
+            <button onClick={() => setUploadSuccessBanner(null)} className="p-1 hover:bg-emerald-100 dark:hover:bg-emerald-900 rounded-lg cursor-pointer">
+              <X className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            </button>
+          )}
         </div>
       )}
 

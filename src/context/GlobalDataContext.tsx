@@ -72,7 +72,7 @@ async function executeKeepaliveMutation(action: string, data: any): Promise<any>
       },
       body: payloadStr,
       ...(useKeepalive ? { keepalive: true } : {}),
-      signal: AbortSignal.timeout(15000)
+      signal: AbortSignal.timeout(60000)
     });
 
     const ct = res.headers.get('content-type') || '';
