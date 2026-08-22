@@ -11,10 +11,7 @@ import {
   ShieldAlert,
   Building2,
   Users,
-  Loader2,
-  HelpCircle,
-  KeyRound,
-  X
+  Loader2
 } from 'lucide-react';
 import { UserRecord, INITIAL_USERS } from './UserManagementView';
 import { GasClient } from '../lib/gasClient';
@@ -40,7 +37,6 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [userRoster, setUserRoster] = useState<UserRecord[]>(INITIAL_USERS);
-  const [showCredentialsModal, setShowCredentialsModal] = useState(false);
 
   // Load user directory directly from Firebase Firestore or local persistent DB
   useEffect(() => {
@@ -66,7 +62,7 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
 
     const inputIdentifier = uid.trim();
     if (!inputIdentifier) {
-      setError("Please enter your unique Login ID (UID) or registered name.");
+      setError("Please enter your unique Login ID (UID).");
       return;
     }
     if (!password) {
@@ -83,13 +79,12 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
 
       const cleanInput = inputIdentifier.toUpperCase();
 
-      // Find by exact UID first, then by partial/full Name match
+      // Find by exact UID first, then by matching user name
       let match = currentRoster.find(
         (user: any) => user.uid && user.uid.toString().trim().toUpperCase() === cleanInput
       );
 
       if (!match) {
-        // Match by user name or nickname (e.g. "RAIHAN" matches "Md. Raihan Hossain Antu")
         match = currentRoster.find((user: any) => {
           const uName = (user.userName || '').toString().toUpperCase();
           const uId = (user.id || '').toString().toUpperCase();
@@ -98,7 +93,7 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
       }
 
       if (!match) {
-        setError(`Access Denied: UID or Name "${inputIdentifier}" was not found in the Factory User Directory. Please use your official Factory UID (e.g. EKL001 for Md. Raihan Hossain Antu).`);
+        setError(`Access Denied: UID "${inputIdentifier}" was not found in the User Directory.`);
         setLoading(false);
         return;
       }
@@ -111,7 +106,7 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
 
       // Check password
       if (match.password && match.password !== password) {
-        setError(`Access Denied: Invalid password for ${match.userName} (UID: ${match.uid}). If this is a default account, try the standard factory password: "${match.password}".`);
+        setError("Access Denied: Invalid credentials provided. Please check your password.");
         setLoading(false);
         return;
       }
@@ -160,7 +155,7 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
           return;
         }
         if (match.password && match.password !== password) {
-          setError(`Access Denied: Invalid password. Default password is "${match.password}".`);
+          setError("Access Denied: Invalid credentials provided. Please check your password.");
           setLoading(false);
           return;
         }
@@ -172,16 +167,9 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
         return;
       }
 
-      setError(`Authentication Error: Unable to verify credentials. Please check your UID.`);
+      setError("Authentication Error: Unable to verify credentials. Please check your UID.");
       setLoading(false);
     }
-  };
-
-  const handleSelectDemoUser = (user: UserRecord) => {
-    setUid(user.uid);
-    setPassword(user.password || 'Password@2026');
-    setShowCredentialsModal(false);
-    setError(null);
   };
 
   return (
@@ -258,15 +246,9 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
               <span className="text-xs font-black uppercase tracking-wider text-[#0F4C81] dark:text-sky-400">
                 Authorized Personnel Login
               </span>
-              <button
-                type="button"
-                onClick={() => setShowCredentialsModal(true)}
-                className="text-[11px] text-[#0F4C81] dark:text-sky-400 hover:text-[#0b3b64] dark:hover:text-sky-300 font-bold flex items-center gap-1.5 px-2 py-1 rounded-lg bg-sky-50 dark:bg-sky-950/50 border border-sky-200 dark:border-sky-800/60 cursor-pointer transition-colors"
-                title="View default authorized personnel list"
-              >
-                <KeyRound className="h-3.5 w-3.5" />
-                <span>View Authorized Accounts</span>
-              </button>
+              <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold px-2 py-0.5 rounded">
+                SECURE SSL
+              </span>
             </div>
 
             {/* Error, Inactivity & Success Alert Bars */}
@@ -303,14 +285,14 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
                   Sign In to Your Workspace
                 </h2>
                 <p className="text-xs text-gray-400 dark:text-slate-400 font-medium">
-                  Use your Factory UID (e.g. <strong className="text-slate-700 dark:text-slate-300">EKL001</strong>) or your registered name.
+                  Please enter your factory UID and password credentials.
                 </p>
               </div>
 
               {/* UID Input */}
               <div className="space-y-1.5 pt-2">
                 <label className="block text-[10px] font-black text-gray-400 dark:text-slate-400 uppercase tracking-wider">
-                  LOGIN UNIQUE ID (UID) OR NAME *
+                  LOGIN UNIQUE ID (UID) *
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
@@ -318,7 +300,7 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
                   </div>
                   <input
                     type="text"
-                    placeholder="e.g. EKL001 or Raihan"
+                    placeholder="e.g. EKL001"
                     value={uid}
                     onChange={(e) => setUid(e.target.value)}
                     className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 py-2.5 pl-10 pr-3.5 text-xs font-bold text-slate-800 dark:text-slate-100 transition-all focus:border-[#0F4C81] focus:bg-white dark:focus:bg-slate-900 focus:outline-hidden uppercase"
@@ -333,13 +315,9 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
                   <label className="block text-[10px] font-black text-gray-400 dark:text-slate-400 uppercase tracking-wider">
                     PASSWORD *
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => setShowCredentialsModal(true)}
-                    className="text-[10px] text-[#0F4C81] dark:text-sky-400 hover:underline cursor-pointer font-bold uppercase"
-                  >
-                    Forgot Password?
-                  </button>
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase cursor-default">
+                    Contact Admin For Reset
+                  </span>
                 </div>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
@@ -400,81 +378,6 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
         </div>
 
       </div>
-
-      {/* Authorized Accounts & Credentials Modal */}
-      {showCredentialsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
-          <div className="bg-white dark:bg-[#111A34] rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[85vh]">
-            
-            {/* Modal Header */}
-            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
-              <div className="flex items-center gap-2">
-                <KeyRound className="h-4 w-4 text-[#0F4C81] dark:text-sky-400" />
-                <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
-                  Authorized Factory Accounts
-                </h3>
-              </div>
-              <button
-                onClick={() => setShowCredentialsModal(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Modal Content */}
-            <div className="p-4 overflow-y-auto space-y-3 divide-y divide-slate-100 dark:divide-slate-800/60 text-xs">
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 pb-2">
-                Click <strong>"Auto-Fill"</strong> on any registered user below to sign in instantly with their factory credentials:
-              </p>
-
-              {(userRoster.length > 0 ? userRoster : INITIAL_USERS).map((usr) => (
-                <div key={usr.id || usr.uid} className="pt-3 first:pt-0 flex items-center justify-between gap-3">
-                  <div className="space-y-0.5 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-black text-slate-900 dark:text-white truncate">
-                        {usr.userName}
-                      </span>
-                      <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase ${
-                        usr.userType === 'Admin' 
-                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
-                          : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                      }`}>
-                        {usr.userType}
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-2">
-                      <span>UID: <strong className="text-[#0F4C81] dark:text-sky-400 font-mono font-bold">{usr.uid}</strong></span>
-                      <span>•</span>
-                      <span>Password: <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono text-[10px]">{usr.password || 'Password@2026'}</code></span>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => handleSelectDemoUser(usr)}
-                    className="shrink-0 px-2.5 py-1.5 rounded-lg bg-[#0F4C81] hover:bg-[#0b3b64] text-white font-bold text-[10px] uppercase tracking-wider transition-colors cursor-pointer"
-                  >
-                    Auto-Fill
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="p-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setShowCredentialsModal(false)}
-                className="px-4 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white rounded-lg"
-              >
-                Close
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
 
     </div>
   );
