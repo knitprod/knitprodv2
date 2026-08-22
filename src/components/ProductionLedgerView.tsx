@@ -633,8 +633,10 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   const loadGasLedger = async (forceRefresh: boolean = false) => {
     try {
       setLedgerGasError(null);
-      setIsSyncing(true);
-      await refreshAll(forceRefresh);
+      if (forceRefresh || !globalLedger || globalLedger.length === 0) {
+        setIsSyncing(true);
+        await refreshAll(forceRefresh);
+      }
     } catch (e: any) {
       console.warn("Failed to load GAS ledger in background:", e);
       const errMsg = e.message || "Failed to load from Google Sheets.";
@@ -670,7 +672,10 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
       if (activeMode === 'gas' && activeUrl) {
         setIsGasMode(true);
-        loadGasLedger(false);
+        // Only fetch if globalLedger is currently empty
+        if (!globalLedger || globalLedger.length === 0) {
+          loadGasLedger(false);
+        }
       } else {
         // Fallback: sync with central server DB
         const db = await GasClient.fetchServerDb();
@@ -684,7 +689,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const handleSync = () => loadGasLedger(true);
     window.addEventListener('gas_data_synced', handleSync);
     return () => window.removeEventListener('gas_data_synced', handleSync);
-  }, []);
+  }, [globalLedger?.length]);
 
   // 3. Debounced server DB backup to prevent mobile main-thread lag
   React.useEffect(() => {

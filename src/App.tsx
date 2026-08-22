@@ -496,6 +496,8 @@ export default function App() {
         setActivityLogs(activityRes);
       }
       setGasSyncError(null);
+      // Notify all components that live Google Sheets sync is complete
+      window.dispatchEvent(new Event('gas_data_synced'));
     } catch (err: any) {
       console.error("Failed to fetch live GAS REST API data in background:", err);
       setGasSyncError(err.message || String(err));
@@ -987,35 +989,6 @@ export default function App() {
         currentUser={currentUser}
         onManualSync={handleManualSync}
       />
-
-      {/* Firestore Quota Exceeded Friendly System Notification Banner */}
-      {isFirestoreQuotaExceeded && !dismissQuotaBanner && (
-        <div className="w-full bg-amber-500/10 border-b border-amber-500/30 px-4 py-2 text-xs text-amber-800 dark:text-amber-300 flex items-center justify-between gap-4 sticky top-16 z-30 backdrop-blur-md">
-          <div className="flex items-center gap-2">
-            <span className="flex h-2 w-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
-            <span className="font-medium">
-              Firebase Free Daily Write limit reached. System is operating seamlessly using Server Local DB & Google Sheets persistence.
-            </span>
-          </div>
-          <div className="flex items-center gap-3 shrink-0">
-            <a
-              href="https://console.firebase.google.com/project/gen-lang-client-0538168382/firestore/databases/ai-studio-epyllionknitexlt-52272a1a-3da9-4fb0-9f0d-7b27c4e625d8/data?openUpgradeDialog=true"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline font-semibold hover:text-amber-900 dark:hover:text-amber-200"
-            >
-              Upgrade Firebase
-            </a>
-            <button
-              onClick={() => setDismissQuotaBanner(true)}
-              className="text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-100 font-bold px-1.5 py-0.5 rounded text-xs"
-              title="Dismiss notice"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Sync Status Banner Notification */}
       {syncBannerMessage && (

@@ -145,12 +145,42 @@ function deduplicateWithUniqueIds<T extends { id?: string }>(items: T[], prefix:
 }
 
 export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [orderPlans, setOrderPlans] = useState<OrderPlan[]>([]);
-  const [yarnAllocations, setYarnAllocations] = useState<YarnAllocationRecord[]>([]);
-  const [ledger, setLedger] = useState<LedgerRecord[]>([]);
+  const [orderPlans, setOrderPlans] = useState<OrderPlan[]>(() => {
+    try {
+      const cached = localStorage.getItem('cached_order_plans');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
+
+  const [yarnAllocations, setYarnAllocations] = useState<YarnAllocationRecord[]>(() => {
+    try {
+      const cached = localStorage.getItem('cached_yarn_allocations');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
+
+  const [ledger, setLedger] = useState<LedgerRecord[]>(() => {
+    try {
+      const cached = localStorage.getItem('cached_production_ledger');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
+
   const [floors, setFloors] = useState<FactoryFloor[]>(INITIAL_FLOORS);
   
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -158,8 +188,17 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const isInitialMount = useRef<boolean>(true);
   const lastSettingsSyncRef = useRef<string | null>(null);
 
+  // Helper to persist datasets to localStorage for instant startup
+  const persistCache = (orders?: OrderPlan[], yarn?: YarnAllocationRecord[], ledgers?: LedgerRecord[]) => {
+    try {
+      if (orders && orders.length > 0) localStorage.setItem('cached_order_plans', JSON.stringify(orders));
+      if (yarn && yarn.length > 0) localStorage.setItem('cached_yarn_allocations', JSON.stringify(yarn));
+      if (ledgers && ledgers.length > 0) localStorage.setItem('cached_production_ledger', JSON.stringify(ledgers));
+    } catch (e) {}
+  };
+
   /**
-   * Bulk Fetch All Datasets from /api/sheets in ONE single network request.
+   * Bulk Fetch All Datasets from /api/sheets or GAS in ONE parallel sync window (< 45s).
    */
   const refreshAll = useCallback(async (forceRefresh: boolean = false) => {
     setIsSyncing(true);
@@ -167,31 +206,37 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const url = forceRefresh ? '/api/sheets?action=all&refresh=true' : '/api/sheets?action=all';
       const res = await fetch(url, {
         headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(60000)
-      });
+        signal: AbortSignal.timeout(40000)
+      }).catch(() => null);
 
       let loadedSuccessfully = false;
 
-      if (res.ok) {
-        const json = await res.json();
+      if (res && res.ok) {
+        const json = await res.json().catch(() => null);
         if (json && json.success && json.data) {
           const remoteOrders = json.data.orderPlans || json.data.orders;
           const remoteYarn = json.data.yarnAllocations || json.data.yarn;
           const remoteLedger = json.data.ledger || json.data.records;
           const remoteFloors = json.data.floors;
 
+          let cleanOrders: OrderPlan[] | undefined;
+          let cleanYarn: YarnAllocationRecord[] | undefined;
+          let cleanLedger: LedgerRecord[] | undefined;
+
           if (Array.isArray(remoteOrders) && remoteOrders.length > 0) {
-            setOrderPlans(deduplicateWithUniqueIds(remoteOrders, 'ord'));
+            cleanOrders = deduplicateWithUniqueIds(remoteOrders, 'ord');
+            setOrderPlans(cleanOrders);
             loadedSuccessfully = true;
           }
           if (Array.isArray(remoteYarn) && remoteYarn.length > 0) {
-            setYarnAllocations(deduplicateWithUniqueIds(remoteYarn, 'yarn'));
+            cleanYarn = deduplicateWithUniqueIds(remoteYarn, 'yarn');
+            setYarnAllocations(cleanYarn);
             loadedSuccessfully = true;
           }
           if (Array.isArray(remoteLedger) && remoteLedger.length > 0) {
-            const cleanLedger = deduplicateWithUniqueIds(remoteLedger, 'rec');
+            cleanLedger = deduplicateWithUniqueIds(remoteLedger, 'rec');
             setLedger(cleanLedger);
-            setFloors(prev => recalculateFloorsFromLedger(prev, cleanLedger));
+            setFloors(prev => recalculateFloorsFromLedger(prev, cleanLedger!));
             loadedSuccessfully = true;
           } else if (Array.isArray(remoteFloors) && remoteFloors.length > 0) {
             setFloors(prev =>
@@ -201,6 +246,8 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               })
             );
           }
+
+          persistCache(cleanOrders, cleanYarn, cleanLedger);
 
           if (loadedSuccessfully) {
             setLastSyncedAt(new Date());
@@ -217,20 +264,28 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           GasClient.fetchLedgerRecords(forceRefresh)
         ]);
 
+        let cleanOrders: OrderPlan[] | undefined;
+        let cleanYarn: YarnAllocationRecord[] | undefined;
+        let cleanLedger: LedgerRecord[] | undefined;
+
         if (ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value) && ordersRes.value.length > 0) {
-          setOrderPlans(deduplicateWithUniqueIds(ordersRes.value, 'ord'));
+          cleanOrders = deduplicateWithUniqueIds(ordersRes.value, 'ord');
+          setOrderPlans(cleanOrders);
           loadedSuccessfully = true;
         }
         if (yarnRes.status === 'fulfilled' && Array.isArray(yarnRes.value) && yarnRes.value.length > 0) {
-          setYarnAllocations(deduplicateWithUniqueIds(yarnRes.value, 'yarn'));
+          cleanYarn = deduplicateWithUniqueIds(yarnRes.value, 'yarn');
+          setYarnAllocations(cleanYarn);
           loadedSuccessfully = true;
         }
         if (ledgerRes.status === 'fulfilled' && Array.isArray(ledgerRes.value) && ledgerRes.value.length > 0) {
-          const cleanLedger = deduplicateWithUniqueIds(ledgerRes.value, 'rec');
+          cleanLedger = deduplicateWithUniqueIds(ledgerRes.value, 'rec');
           setLedger(cleanLedger);
-          setFloors(prev => recalculateFloorsFromLedger(prev, cleanLedger));
+          setFloors(prev => recalculateFloorsFromLedger(prev, cleanLedger!));
           loadedSuccessfully = true;
         }
+
+        persistCache(cleanOrders, cleanYarn, cleanLedger);
 
         if (loadedSuccessfully) {
           setLastSyncedAt(new Date());
@@ -239,29 +294,6 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     } catch (err: any) {
       console.warn('[Global Data Bulk Fetch Warning]:', err.message);
-      // Try fallback on network/timeout error
-      try {
-        const [ordersRes, yarnRes, ledgerRes] = await Promise.allSettled([
-          GasClient.fetchOrderPlans(forceRefresh),
-          GasClient.fetchYarnAllocations(forceRefresh),
-          GasClient.fetchLedgerRecords(forceRefresh)
-        ]);
-        if (ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value) && ordersRes.value.length > 0) {
-          setOrderPlans(deduplicateWithUniqueIds(ordersRes.value, 'ord'));
-        }
-        if (yarnRes.status === 'fulfilled' && Array.isArray(yarnRes.value) && yarnRes.value.length > 0) {
-          setYarnAllocations(deduplicateWithUniqueIds(yarnRes.value, 'yarn'));
-        }
-        if (ledgerRes.status === 'fulfilled' && Array.isArray(ledgerRes.value) && ledgerRes.value.length > 0) {
-          const cleanLedger = deduplicateWithUniqueIds(ledgerRes.value, 'rec');
-          setLedger(cleanLedger);
-          setFloors(prev => recalculateFloorsFromLedger(prev, cleanLedger));
-        }
-        setLastSyncedAt(new Date());
-        setSyncError(null);
-      } catch (fallbackErr: any) {
-        setSyncError(err.message || 'Sync warning');
-      }
     } finally {
       setIsSyncing(false);
       setIsLoading(false);
