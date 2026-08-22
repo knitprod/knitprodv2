@@ -4,9 +4,33 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Database, Wifi, WifiOff, XCircle, Save, Loader2, HelpCircle, ExternalLink, Copy, Check, CheckCircle, RefreshCw, AlertTriangle, ShieldCheck, Flame, ArrowLeftRight, Layers, FileSpreadsheet, Activity } from 'lucide-react';
+import { 
+  Database, 
+  Wifi, 
+  WifiOff, 
+  XCircle, 
+  Save, 
+  Loader2, 
+  HelpCircle, 
+  ExternalLink, 
+  Copy, 
+  Check, 
+  CheckCircle, 
+  RefreshCw, 
+  AlertTriangle, 
+  ShieldCheck, 
+  Flame, 
+  Layers, 
+  FileSpreadsheet, 
+  Activity, 
+  Server, 
+  Code,
+  Key,
+  Globe
+} from 'lucide-react';
 import { GasClient } from '../lib/gasClient';
 import { FirestoreSyncService } from '../lib/firestoreSync';
+import { SupabaseSync } from '../lib/supabaseClient';
 import { SyncConflictLog } from '../types';
 import gasScriptContent from '../../google-apps-script/Code.gs?raw';
 
@@ -15,7 +39,7 @@ interface DatabaseConnectionViewProps {
 }
 
 export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConnectionViewProps) {
-  // Database connection states
+  // Google Sheets database connection states
   const [databaseMode, setDatabaseMode] = useState<'mock' | 'gas'>(() => GasClient.getDatabaseMode());
   const [gasWebAppUrl, setGasWebAppUrl] = useState(() => GasClient.getWebAppUrl());
   const [isTesting, setIsTesting] = useState(false);
@@ -24,13 +48,21 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
   const [copiedScript, setCopiedScript] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
 
+  // Supabase states
+  const [supabaseUrl, setSupabaseUrl] = useState(() => SupabaseSync.getStoredConfig().supabaseUrl);
+  const [supabaseKey, setSupabaseKey] = useState(() => SupabaseSync.getStoredConfig().supabaseKey);
+  const [isTestingSupabase, setIsTestingSupabase] = useState(false);
+  const [supabaseTestResult, setSupabaseTestResult] = useState<string | null>(null);
+  const [supabaseTestSuccess, setSupabaseTestSuccess] = useState<boolean | null>(null);
+  const [copiedSql, setCopiedSql] = useState(false);
+  const [showSqlSetup, setShowSqlSetup] = useState(false);
+
   // Two-Way Synchronization states
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<SyncConflictLog[]>([]);
-  const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => new Date().toISOString());
 
-  // Sync with central server configuration on load, subscribe to real-time app config, & subscribe to sync conflicts
+  // Sync with central server configuration on load
   useEffect(() => {
     GasClient.fetchServerConfig().then((config) => {
       if (config.gasWebAppUrl) {
@@ -41,7 +73,6 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
       }
     });
 
-    // Realtime listener for cross-device & multi-tab app config updates
     const unsubscribeAppConfig = FirestoreSyncService.subscribeToAppConfig((config) => {
       if (config.gasWebAppUrl && config.gasWebAppUrl.trim()) {
         setGasWebAppUrl(config.gasWebAppUrl.trim());
@@ -51,7 +82,6 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
       }
     });
 
-    // Subscribe to conflict logs in Firestore
     const unsubscribeConflicts = FirestoreSyncService.subscribeToConflicts((conflictList) => {
       setConflicts(conflictList);
     });
@@ -62,21 +92,50 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
     };
   }, []);
 
-  const handleManualSync = async () => {
-    setIsSyncing(true);
-    setSyncNotice(null);
+  const handleCopySql = async () => {
     try {
-      const result = await FirestoreSyncService.reconcileSheetsAndFirestore();
-      setSyncNotice(result.message);
-      setLastSyncTime(new Date().toISOString());
-      if (onSuccessNotice) {
-        onSuccessNotice(result.message);
-      }
-    } catch (err: any) {
-      setSyncNotice(`Sync warning: ${err.message || String(err)}`);
-    } finally {
-      setIsSyncing(false);
+      await navigator.clipboard.writeText(SupabaseSync.getSetupSQL());
+      setCopiedSql(true);
+      setTimeout(() => setCopiedSql(false), 2500);
+    } catch (err) {
+      console.error('Failed to copy SQL:', err);
     }
+  };
+
+  const handleTestSupabase = async () => {
+    if (!supabaseUrl.trim() || !supabaseKey.trim()) {
+      setSupabaseTestSuccess(false);
+      setSupabaseTestResult("Please enter both Supabase Project URL and Anon Public Key.");
+      return;
+    }
+
+    setIsTestingSupabase(true);
+    setSupabaseTestResult(null);
+    setSupabaseTestSuccess(null);
+
+    // Temporarily apply credentials to test
+    SupabaseSync.setCredentials(supabaseUrl, supabaseKey);
+
+    try {
+      const res = await SupabaseSync.testConnection(supabaseUrl, supabaseKey);
+      setSupabaseTestSuccess(res.success);
+      setSupabaseTestResult(res.message);
+    } catch (err: any) {
+      setSupabaseTestSuccess(false);
+      setSupabaseTestResult(`Connection Failed: ${err.message || String(err)}`);
+    } finally {
+      setIsTestingSupabase(false);
+    }
+  };
+
+  const handleSaveSupabase = (e: React.FormEvent) => {
+    e.preventDefault();
+    const ok = SupabaseSync.setCredentials(supabaseUrl, supabaseKey);
+    setIsSaved(true);
+    if (onSuccessNotice) {
+      onSuccessNotice("Supabase credentials saved successfully. Users, Settings, & Logs now route to Supabase (100% Free Forever).");
+    }
+    setTimeout(() => setIsSaved(false), 4000);
   };
 
   const handleCopyScript = async () => {
@@ -122,7 +181,6 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
         setTestResult(`Connection Failed: ${res.message}`);
       }
     } catch (err: any) {
-      console.error("Connection test failed:", err);
       setTestSuccess(false);
       setTestResult(`Connection Failed: ${err.message || 'Network Error'}. Ensure you've deployed the Apps Script as a Web App and configured access to "Anyone".`);
     } finally {
@@ -132,107 +190,236 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
 
   const handleSaveConnection = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Save database mode & URL configurations centrally to server & sync backend source code
     await GasClient.saveServerConfig(gasWebAppUrl, databaseMode);
-
     setIsSaved(true);
     if (onSuccessNotice) {
-      onSuccessNotice("Database connection settings saved & backend source code updated successfully.");
+      onSuccessNotice("Database connection settings saved successfully.");
     }
     setTimeout(() => {
       setIsSaved(false);
     }, 4000);
   };
 
+  const isSupabaseActive = SupabaseSync.isConfigured();
+
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 dark:border-slate-800 pb-4">
         <div>
           <h2 className="font-sans text-xl font-black tracking-tight text-gray-900 dark:text-white flex items-center gap-2">
-            <Database className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-            Database & Two-Way Sync Control Center
+            <Database className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+            Database & Cloud Backend Control Center
           </h2>
           <p className="text-xs font-semibold text-gray-400 dark:text-slate-400 uppercase tracking-wider">
-            Firebase Firestore Operational Database & Google Sheets Master Synchronization Engine
+            Supabase PostgreSQL (Users, Settings & Logs) + Google Sheets Master Production Ledger
           </p>
         </div>
 
         <div className="flex items-center gap-2">
-          {databaseMode === 'gas' && gasWebAppUrl.trim() ? (
+          {isSupabaseActive ? (
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 text-xs font-bold shadow-2xs">
-              <Wifi className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-              Database Connected (Google Sheets Live API)
+              <Server className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+              Supabase Connected (100% Free Forever)
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 text-xs font-bold shadow-2xs">
-              <WifiOff className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-              Offline Local Mode (Mock Data)
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-700 text-xs font-bold shadow-2xs">
+              <Flame className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+              Ready for Supabase Setup
             </span>
           )}
-          <button
-            onClick={() => {
-              setDatabaseMode('mock');
-              setGasWebAppUrl('');
-              GasClient.saveServerConfig('', 'mock');
-              if (onSuccessNotice) {
-                onSuccessNotice("All external database connections removed successfully.");
-              }
-            }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 text-xs font-bold transition-all cursor-pointer shadow-2xs"
-          >
-            <XCircle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
-            Remove Database Connections
-          </button>
         </div>
       </div>
 
       {isSaved && (
         <div className="rounded-xl border border-emerald-100 bg-emerald-50 dark:bg-emerald-950/40 dark:border-emerald-900 p-4 text-sm font-bold text-emerald-800 dark:text-emerald-300 shadow-xs flex items-center gap-2.5 animate-fade-in">
           <CheckCircle className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-          <span>Database connection configurations committed to central server cache successfully.</span>
+          <span>Configurations committed and database connection refreshed successfully!</span>
         </div>
       )}
 
-      {/* Master Data Synchronization Operational Banner */}
-      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 text-slate-800 dark:text-white shadow-sm space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Supabase Free Cloud Integration Card */}
+      <div className="rounded-2xl border-2 border-emerald-500/40 bg-linear-to-br from-emerald-50/50 to-white dark:from-emerald-950/20 dark:to-slate-900 p-6 shadow-sm space-y-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-emerald-100 dark:border-emerald-900/40 pb-4">
           <div className="space-y-1">
-            <div className="flex items-center gap-2 text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
-              <Database className="h-4 w-4 text-emerald-500" />
-              <span>Enterprise Synchronization & Data Security</span>
+            <div className="flex items-center gap-2 text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">
+              <Server className="h-4 w-4" />
+              <span>Primary Enterprise Cloud Database (100% Free Forever)</span>
             </div>
             <h3 className="text-lg font-black text-slate-900 dark:text-white">
-              Google Sheets Master Synchronization & In-Memory State
+              Supabase PostgreSQL Connection
             </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed max-w-2xl">
-              Factory operations, order planning, yarn allocations, and ledger records sync securely with Google Sheets and secure in-memory server state. Sensitive connection parameters are kept safe and never stored in plain browser storage.
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed max-w-2xl">
+              Connect your free Supabase project to store <strong>System Users & Permissions</strong>, <strong>Factory Unit Settings</strong>, and <strong>Unlimited Activity Audit Logs</strong> with zero read-count limits or daily lockouts.
             </p>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
-            <div className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 font-black text-xs uppercase tracking-wider border border-emerald-200 dark:border-emerald-800">
-              <CheckCircle className="h-4 w-4 text-emerald-500" />
-              <span>Security Protected</span>
-            </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowSqlSetup(!showSqlSetup)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-300 dark:border-emerald-800 bg-white dark:bg-slate-800 text-xs font-bold text-emerald-800 dark:text-emerald-300 hover:bg-emerald-50 transition-all cursor-pointer shadow-2xs"
+            >
+              <Code className="h-3.5 w-3.5" />
+              <span>{showSqlSetup ? 'Hide SQL Script' : 'View / Copy SQL Script'}</span>
+            </button>
+            <a
+              href="https://supabase.com/dashboard"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-2xs"
+            >
+              <span>Open Supabase Dashboard</span>
+              <ExternalLink className="h-3 w-3" />
+            </a>
           </div>
         </div>
 
-        {syncNotice && (
-          <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold text-emerald-800 dark:text-emerald-200 flex items-center gap-2 animate-fade-in">
-            <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0" />
-            <span>{syncNotice}</span>
+        {/* SQL Copy Drawer */}
+        {showSqlSetup && (
+          <div className="p-4 rounded-xl bg-slate-900 text-slate-100 border border-slate-700 text-xs space-y-3 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Code className="h-4 w-4 text-emerald-400" />
+                <span className="font-bold text-slate-200">Supabase SQL Schema (Run once in SQL Editor)</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleCopySql}
+                className="inline-flex items-center gap-1 px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs cursor-pointer"
+              >
+                {copiedSql ? (
+                  <>
+                    <Check className="h-3.5 w-3.5" />
+                    <span>Copied SQL!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5" />
+                    <span>Copy SQL</span>
+                  </>
+                )}
+              </button>
+            </div>
+            <pre className="text-[11px] font-mono p-3 bg-slate-950 rounded-lg overflow-x-auto max-h-48 text-emerald-300">
+              {SupabaseSync.getSetupSQL()}
+            </pre>
+          </div>
+        )}
+
+        <form onSubmit={handleSaveSupabase} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <Globe className="h-3.5 w-3.5 text-emerald-600" />
+              <span>Supabase Project URL</span>
+            </label>
+            <input
+              type="text"
+              placeholder="https://xyzcompany.supabase.co"
+              value={supabaseUrl}
+              onChange={(e) => {
+                setSupabaseUrl(e.target.value);
+                setSupabaseTestResult(null);
+              }}
+              onBlur={() => {
+                if (supabaseUrl.trim()) {
+                  setSupabaseUrl(SupabaseSync.cleanSupabaseUrl(supabaseUrl));
+                }
+              }}
+              className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-xs font-mono font-semibold text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 transition-all shadow-xs"
+            />
+            <p className="text-[10px] text-slate-400">
+              Found in: <strong>Project Settings &gt; API &gt; Project URL</strong> (e.g. <code>https://xyzcompany.supabase.co</code>)
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <Key className="h-3.5 w-3.5 text-emerald-600" />
+              <span>Supabase Anon Public API Key</span>
+            </label>
+            <input
+              type="password"
+              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+              value={supabaseKey}
+              onChange={(e) => {
+                setSupabaseKey(e.target.value);
+                setSupabaseTestResult(null);
+              }}
+              className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-xs font-mono font-semibold text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500 transition-all shadow-xs"
+            />
+            <p className="text-[10px] text-slate-400">
+              Found in: <strong>Project Settings &gt; API &gt; Project API keys &gt; anon public</strong>
+            </p>
+          </div>
+
+          <div className="md:col-span-2 flex flex-wrap items-center justify-between gap-3 pt-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={isTestingSupabase || !supabaseUrl.trim() || !supabaseKey.trim()}
+                onClick={handleTestSupabase}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 py-2 px-4 text-xs font-bold text-slate-800 dark:text-slate-200 transition-all disabled:opacity-50 cursor-pointer shadow-xs"
+              >
+                {isTestingSupabase ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
+                    <span>Connecting to Supabase...</span>
+                  </>
+                ) : (
+                  <>
+                    <Wifi className="h-4 w-4 text-emerald-600" />
+                    <span>Test Supabase Connection</span>
+                  </>
+                )}
+              </button>
+
+              {isSupabaseActive && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSupabaseUrl('');
+                    setSupabaseKey('');
+                    SupabaseSync.setCredentials('', '');
+                    if (onSuccessNotice) onSuccessNotice("Supabase credentials cleared.");
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 text-xs font-bold transition-all cursor-pointer"
+                >
+                  <XCircle className="h-4 w-4" />
+                  <span>Disconnect</span>
+                </button>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 px-6 text-xs font-black uppercase tracking-wider transition-all shadow-md cursor-pointer"
+            >
+              <Save className="h-4 w-4" />
+              <span>Save Supabase Connection</span>
+            </button>
+          </div>
+        </form>
+
+        {supabaseTestResult && (
+          <div className={`p-3.5 rounded-xl border text-xs font-semibold ${
+            supabaseTestSuccess
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-300'
+              : 'bg-red-50 border-red-200 text-red-800 dark:bg-red-950/40 dark:border-red-900 dark:text-red-300'
+          }`}>
+            {supabaseTestResult}
           </div>
         )}
       </div>
 
+      {/* Google Sheets Production Ledger Sync */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Connection Form */}
         <div className="lg:col-span-2 space-y-6 rounded-2xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs">
           <form onSubmit={handleSaveConnection} className="space-y-6">
             <div className="space-y-2">
               <label className="text-xs font-black uppercase tracking-wider text-gray-700 dark:text-slate-300 block">
-                1. Select Connection Mode
+                Google Sheets Production Ledger Connection
               </label>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -250,7 +437,7 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
                     <span className="text-sm font-black">Local Client Mode</span>
                   </div>
                   <p className="text-[11px] font-normal text-slate-500 dark:text-slate-400 leading-relaxed">
-                    Operates client-side using IndexedDB cache.
+                    Operates using in-memory state and local cache.
                   </p>
                 </button>
 
@@ -265,10 +452,10 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
                 >
                   <div className="flex items-center gap-2 mb-1">
                     <Wifi className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-                    <span className="text-sm font-black">Google Sheets REST API + Firestore</span>
+                    <span className="text-sm font-black">Google Sheets Live REST API</span>
                   </div>
                   <p className="text-[11px] font-normal text-slate-500 dark:text-slate-400 leading-relaxed">
-                    Bidirectional real-time sync with Google Sheets master spreadsheet.
+                    Syncs production records directly with Google Sheets.
                   </p>
                 </button>
               </div>
@@ -278,7 +465,7 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
             <div className="space-y-4 pt-2 border-t border-slate-100 dark:border-slate-800">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <label className="text-xs font-black uppercase tracking-wider text-gray-700 dark:text-slate-300">
-                  2. Google Sheets Apps Script Web App URL
+                  Google Apps Script Web App URL
                 </label>
                 <div className="flex flex-wrap items-center gap-2">
                   <button 
@@ -289,7 +476,6 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
                       setTestResult(null);
                     }}
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200 transition-all cursor-pointer shadow-2xs"
-                    title="Reset to default system URL"
                   >
                     <RefreshCw className="h-3.5 w-3.5 text-slate-500" />
                     <span>Reset Default URL</span>
@@ -311,15 +497,6 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
                       </>
                     )}
                   </button>
-                  <a 
-                    href="https://script.google.com" 
-                    target="_blank" 
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-xs font-bold text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 uppercase tracking-wider transition-colors"
-                  >
-                    <span>Open Script Editor</span>
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
                 </div>
               </div>
 
@@ -335,9 +512,6 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
                   }}
                   className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-3.5 py-2.5 text-xs font-mono font-semibold text-slate-800 dark:text-slate-100 outline-none focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 transition-all shadow-xs"
                 />
-                <p className="text-[10px] text-gray-400 font-medium">
-                  Ensure Web App is deployed with execution permission set to <strong>"Me"</strong> and access set to <strong>"Anyone"</strong>.
-                </p>
               </div>
 
               {/* Test connection action */}
@@ -362,30 +536,12 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
                 </button>
 
                 {testResult && (
-                  <div className="space-y-3 mt-3">
-                    <div className={`p-3.5 rounded-xl border text-xs font-semibold ${
-                      testSuccess 
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-300' 
-                        : 'bg-red-50 border-red-200 text-red-800 dark:bg-red-950/40 dark:border-red-900 dark:text-red-300'
-                    }`}>
-                      {testResult}
-                    </div>
-
-                    {!testSuccess && (
-                      <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-xs space-y-2.5 text-amber-900 dark:text-amber-200">
-                        <div className="font-black flex items-center gap-2">
-                          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
-                          <span>Google Apps Script Deployment Instructions (30 Seconds):</span>
-                        </div>
-                        <ol className="list-decimal list-inside space-y-1 text-[11px] font-medium leading-relaxed">
-                          <li>Click <strong>Copy Code.gs Script</strong> above to copy the backend code.</li>
-                          <li>Open your Google Sheet &gt; <strong>Extensions</strong> &gt; <strong>Apps Script</strong>.</li>
-                          <li>Paste the script, replace all existing code, and click <strong>Save</strong>.</li>
-                          <li>Click <strong>Deploy &gt; New deployment &gt; Select type &gt; Web app</strong>.</li>
-                          <li>Set <strong>Execute as: Me</strong> and <strong>Who has access: Anyone</strong>, click <strong>Deploy</strong>, and copy the new Web App URL into the box above!</li>
-                        </ol>
-                      </div>
-                    )}
+                  <div className={`p-3.5 rounded-xl border text-xs font-semibold mt-3 ${
+                    testSuccess 
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-300' 
+                      : 'bg-red-50 border-red-200 text-red-800 dark:bg-red-950/40 dark:border-red-900 dark:text-red-300'
+                  }`}>
+                    {testResult}
                   </div>
                 )}
               </div>
@@ -397,82 +553,37 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-900 hover:bg-blue-950 text-white py-3 text-xs font-black uppercase tracking-wider transition-all shadow-md cursor-pointer"
               >
                 <Save className="h-4 w-4" />
-                <span>Save Database Connection Settings</span>
+                <span>Save Google Sheets Connection</span>
               </button>
             </div>
           </form>
         </div>
 
-        {/* Database Status & Architecture Breakdown Panel */}
+        {/* Database Architecture Breakdown */}
         <div className="space-y-4">
           <div className="rounded-2xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
             <div className="flex items-center gap-2 border-b border-gray-100 dark:border-slate-800 pb-3">
-              <Flame className="h-5 w-5 text-amber-500 fill-amber-500" />
+              <Server className="h-5 w-5 text-emerald-500" />
               <h3 className="font-sans text-xs font-black text-gray-900 dark:text-white uppercase tracking-wider">
-                Firestore Database Configuration
+                Cloud Architecture
               </h3>
             </div>
 
             <div className="space-y-3 text-xs font-medium text-slate-600 dark:text-slate-300">
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-800 space-y-1">
-                <span className="block text-[10px] font-bold text-slate-400 uppercase">Project ID</span>
-                <span className="block font-mono font-bold text-slate-900 dark:text-white text-xs truncate">
-                  gen-lang-client-0538168382
-                </span>
+              <div className="p-3 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200/50 dark:border-emerald-900/40 text-emerald-900 dark:text-emerald-300 space-y-1">
+                <span className="block text-[10px] font-bold text-emerald-600 uppercase">Supabase (PostgreSQL)</span>
+                <p className="text-[11px] leading-relaxed">
+                  Stores <strong>Users, Settings, & Activity Logs</strong>. 100% Free with zero daily read counting.
+                </p>
               </div>
 
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-800 space-y-1">
-                <span className="block text-[10px] font-bold text-slate-400 uppercase">Realtime Listener</span>
-                <span className="block font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                  Active onSnapshot Connection
-                </span>
-              </div>
-
-              <div className="p-3 rounded-xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/50 dark:border-blue-900/40 text-[#0F4C81] dark:text-blue-300 space-y-1.5 text-[11px]">
-                <span className="font-bold block uppercase tracking-wide text-[10px]">How Two-Way Sync Works</span>
-                <p className="leading-relaxed">
-                  1. <strong>UI Updates</strong>: Edits in web app write to Firestore immediately for 0ms screen refreshes.<br/>
-                  2. <strong>Sheets Export</strong>: Firestore pushes records to Google Sheets.<br/>
-                  3. <strong>Manual Edits</strong>: Edits typed directly into Google Sheets by managers trigger background updates into Firestore.
+              <div className="p-3 rounded-xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/50 dark:border-blue-900/40 text-blue-900 dark:text-blue-300 space-y-1">
+                <span className="block text-[10px] font-bold text-blue-600 uppercase">Google Sheets (GAS API)</span>
+                <p className="text-[11px] leading-relaxed">
+                  Stores <strong>Master Production Ledgers, Order Plans & Yarn Allocations</strong> inside your Google Drive spreadsheets.
                 </p>
               </div>
             </div>
-          </div>
-
-          {/* Sync Conflict Logs */}
-          <div className="rounded-2xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-3">
-            <div className="flex items-center justify-between border-b border-gray-100 dark:border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-500" />
-                <h3 className="font-sans text-xs font-black text-gray-900 dark:text-white uppercase tracking-wider">
-                  Conflict Log
-                </h3>
-              </div>
-              <span className="text-[10px] font-bold text-slate-400">
-                {conflicts.length} Recorded
-              </span>
-            </div>
-
-            {conflicts.length === 0 ? (
-              <p className="text-xs text-slate-400 font-medium py-2">
-                No synchronization conflicts detected. All records in sync.
-              </p>
-            ) : (
-              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                {conflicts.map((c) => (
-                  <div key={c.id} className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-[11px] space-y-1">
-                    <div className="flex items-center justify-between font-bold text-amber-900 dark:text-amber-200">
-                      <span>Record ID: {c.recordId}</span>
-                      <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-amber-200 dark:bg-amber-900 text-amber-900 dark:text-amber-100">
-                        Winner: {c.winner}
-                      </span>
-                    </div>
-                    <p className="text-amber-800 dark:text-amber-300">{c.details}</p>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       </div>

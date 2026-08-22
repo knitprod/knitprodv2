@@ -3,6 +3,26 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+export interface UserRecord extends SyncMetadata {
+  id: string;
+  userName: string;
+  userType: 'Admin' | 'General';
+  designation: string;
+  uid: string;
+  password?: string;
+  department: 'Knitting' | 'Dyeing' | 'Finishing';
+  assignedUnits: string[];
+  assignedBuyers?: string[];
+  permission: 'Read' | 'Read / Write' | 'Hide';
+  status: 'Active' | 'Inactive';
+  lastUpdated?: string;
+  allowedTabs?: string[];
+  tabPermissions?: Record<string, 'View Only' | 'Full Access' | 'No Access'>;
+  phone?: string;
+  email?: string;
+  lastLogin?: string;
+}
+
 export interface SyncMetadata {
   createdAt?: string;
   updatedAt?: string;

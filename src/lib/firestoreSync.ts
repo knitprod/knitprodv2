@@ -19,6 +19,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { GasClient } from './gasClient';
+import { SupabaseSync } from './supabaseClient';
 import { ProductionEntry, LedgerRecord, ActivityLog, SyncConflictLog, OrderPlan, YarnAllocationRecord } from '../types';
 
 export enum OperationType {
@@ -345,9 +346,20 @@ export class FirestoreSyncService {
   }
 
   /**
-   * Save / Update Activity Log in Firebase Firestore
+   * Save / Update Activity Log in Supabase & Firebase Firestore
    */
   static async saveActivityLog(log: ActivityLog): Promise<void> {
+    if (SupabaseSync.isConfigured()) {
+      SupabaseSync.logActivity({
+        userId: log.id || 'SYS',
+        userName: log.floorId || 'Floor Event',
+        action: log.type || 'Activity',
+        details: log.message || '',
+        floor: log.floorId || '',
+        timestamp: log.timestamp
+      }).catch((e) => console.warn('Supabase logActivity notice:', e));
+    }
+
     if (FirestoreSyncService.isQuotaExceededState) return;
     try {
       const docId = log.id || `act-${Date.now()}`;
@@ -456,15 +468,30 @@ export class FirestoreSyncService {
   }
 
   /**
-   * Fetch all System Users from Firestore directly
+   * Fetch all System Users from Supabase / Firestore directly (with safe timeout & server DB fallback)
    */
   static async fetchUsers(): Promise<any[]> {
+    // 1. Try Supabase first if configured
+    if (SupabaseSync.isConfigured()) {
+      try {
+        const supabaseUsers = await SupabaseSync.fetchUsers();
+        if (supabaseUsers && supabaseUsers.length > 0) {
+          return supabaseUsers;
+        }
+      } catch (e) {
+        console.warn('Supabase fetchUsers notice:', e);
+      }
+    }
+
     try {
       if (!FirestoreSyncService.isQuotaExceededState) {
         const colRef = collection(db, COLLECTIONS.USERS);
-        const snapshot = await getDocs(colRef);
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Firestore fetchUsers timeout')), 1000)
+        );
+        const snapshot: any = await Promise.race([getDocs(colRef), timeoutPromise]);
         const usersList: any[] = [];
-        snapshot.forEach((docSnap) => {
+        snapshot.forEach((docSnap: any) => {
           usersList.push({ id: docSnap.id, ...docSnap.data() });
         });
         if (usersList.length > 0) return usersList;
@@ -491,11 +518,16 @@ export class FirestoreSyncService {
   }
 
   /**
-   * Save / Update User document directly in Firebase Firestore
+   * Save / Update User document directly in Supabase and Firebase Firestore
    */
   static async saveUser(user: any): Promise<void> {
     const docId = (user.uid || user.id || '').toString().trim().toUpperCase();
     if (!docId) return;
+
+    // 1. Save to Supabase if configured
+    if (SupabaseSync.isConfigured()) {
+      SupabaseSync.saveUser(user).catch((e) => console.warn('Supabase saveUser notice:', e));
+    }
 
     // Save to server DB as reliable fallback
     try {
@@ -533,11 +565,16 @@ export class FirestoreSyncService {
   }
 
   /**
-   * Delete User document directly from Firebase Firestore
+   * Delete User document directly from Supabase and Firebase Firestore
    */
   static async deleteUser(uidOrId: string): Promise<void> {
     if (!uidOrId) return;
     const docId = uidOrId.toString().trim().toUpperCase();
+
+    // 1. Delete from Supabase if configured
+    if (SupabaseSync.isConfigured()) {
+      SupabaseSync.deleteUser(docId).catch((e) => console.warn('Supabase deleteUser notice:', e));
+    }
 
     try {
       const currentUsers = await FirestoreSyncService.fetchUsers();
@@ -562,9 +599,22 @@ export class FirestoreSyncService {
   }
 
   /**
-   * Seed Initial System Users into Firestore if collection is empty
+   * Seed Initial System Users into Supabase & Firestore if collection is empty
    */
   static async seedInitialUsersIfEmpty(initialUsers: any[]): Promise<void> {
+    if (SupabaseSync.isConfigured()) {
+      try {
+        const existing = await SupabaseSync.fetchUsers();
+        if (!existing || existing.length === 0) {
+          for (const u of initialUsers) {
+            await SupabaseSync.saveUser(u);
+          }
+        }
+      } catch (e) {
+        console.warn('Supabase seedUsers notice:', e);
+      }
+    }
+
     if (FirestoreSyncService.isQuotaExceededState) return;
     try {
       const colRef = collection(db, COLLECTIONS.USERS);
@@ -598,6 +648,13 @@ export class FirestoreSyncService {
    * Subscribe to Global System Settings in Firestore (doc: config)
    */
   static subscribeToSettings(callback: (settings: Record<string, any>) => void) {
+    // Also fetch initial from Supabase if configured
+    if (SupabaseSync.isConfigured()) {
+      SupabaseSync.fetchSettings().then((s) => {
+        if (s) callback(s);
+      }).catch(() => {});
+    }
+
     try {
       const docRef = doc(db, COLLECTIONS.SETTINGS, 'config');
       return onSnapshot(docRef, (docSnap) => {
@@ -620,9 +677,18 @@ export class FirestoreSyncService {
   }
 
   /**
-   * Fetch System Settings from Firestore
+   * Fetch System Settings from Supabase / Firestore
    */
   static async fetchSettings(): Promise<Record<string, any>> {
+    if (SupabaseSync.isConfigured()) {
+      try {
+        const s = await SupabaseSync.fetchSettings();
+        if (s && Object.keys(s).length > 0) return s;
+      } catch (e) {
+        console.warn('Supabase fetchSettings notice:', e);
+      }
+    }
+
     try {
       if (!FirestoreSyncService.isQuotaExceededState) {
         const docRef = doc(db, COLLECTIONS.SETTINGS, 'config');
@@ -649,9 +715,13 @@ export class FirestoreSyncService {
   }
 
   /**
-   * Save / Update System Settings in Firebase Firestore
+   * Save / Update System Settings in Supabase & Firebase Firestore
    */
   static async saveSettings(settingsMap: Record<string, any>): Promise<void> {
+    if (SupabaseSync.isConfigured()) {
+      SupabaseSync.saveSettings(settingsMap).catch((e) => console.warn('Supabase saveSettings notice:', e));
+    }
+
     try {
       await fetch('/api/db', {
         method: 'POST',

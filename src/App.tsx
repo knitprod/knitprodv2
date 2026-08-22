@@ -255,8 +255,16 @@ export default function App() {
       restoreSession(firebaseUser);
     });
 
+    // Guaranteed fallback timer so login screen renders if Firebase Auth is unresponsive
+    const fallbackTimer = setTimeout(() => {
+      if (isMounted) {
+        setAuthLoading(false);
+      }
+    }, 1500);
+
     return () => {
       isMounted = false;
+      clearTimeout(fallbackTimer);
       unsubscribe();
     };
   }, []);
