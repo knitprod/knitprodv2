@@ -188,6 +188,31 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const isInitialMount = useRef<boolean>(true);
   const lastSettingsSyncRef = useRef<string | null>(null);
 
+  // Keep localStorage automatically in sync with memory state
+  useEffect(() => {
+    if (ledger && ledger.length > 0) {
+      try {
+        localStorage.setItem('cached_production_ledger', JSON.stringify(ledger));
+      } catch (e) {}
+    }
+  }, [ledger]);
+
+  useEffect(() => {
+    if (orderPlans && orderPlans.length > 0) {
+      try {
+        localStorage.setItem('cached_order_plans', JSON.stringify(orderPlans));
+      } catch (e) {}
+    }
+  }, [orderPlans]);
+
+  useEffect(() => {
+    if (yarnAllocations && yarnAllocations.length > 0) {
+      try {
+        localStorage.setItem('cached_yarn_allocations', JSON.stringify(yarnAllocations));
+      } catch (e) {}
+    }
+  }, [yarnAllocations]);
+
   // Helper to persist datasets to localStorage for instant startup
   const persistCache = (orders?: OrderPlan[], yarn?: YarnAllocationRecord[], ledgers?: LedgerRecord[]) => {
     try {

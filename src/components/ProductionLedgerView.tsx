@@ -614,19 +614,31 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
   // Master database state
   const [ledger, setLedgerRaw] = useState<LedgerRecord[]>(() => {
-    return (globalLedger && globalLedger.length > 0) ? globalLedger : generateInitialLedger();
+    if (globalLedger && globalLedger.length > 0) return globalLedger;
+    try {
+      const cached = localStorage.getItem('cached_production_ledger');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return generateInitialLedger();
   });
 
   useEffect(() => {
     if (globalLedger && globalLedger.length > 0) {
-      setLedger(globalLedger);
+      setLedgerRaw(globalLedger);
     }
   }, [globalLedger]);
 
   const setLedger = (value: LedgerRecord[] | ((prev: LedgerRecord[]) => LedgerRecord[])) => {
     setLedgerRaw((prev) => {
       const next = typeof value === 'function' ? value(prev) : value;
-      return ensureUniqueIds(next, 'rec');
+      const clean = ensureUniqueIds(next, 'rec');
+      try {
+        localStorage.setItem('cached_production_ledger', JSON.stringify(clean));
+      } catch (e) {}
+      return clean;
     });
   };
 
@@ -651,14 +663,17 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const unsubscribe = FirestoreSyncService.subscribeToLedgerRecords((records) => {
       if (records && Array.isArray(records) && records.length > 0) {
         setLedger(records);
+        globalBulkSaveLedgerRecords(records, true).catch(() => {});
       }
     });
 
-    // Seed initial ledger into Firestore if empty
-    const initial = generateInitialLedger();
-    FirestoreSyncService.seedInitialDataIfEmpty([], [], initial).catch(err => {
-      console.warn("Firestore ledger initial seed check notice:", err);
-    });
+    // Seed initial ledger into Firestore ONLY if we have no ledger anywhere
+    if (!globalLedger || globalLedger.length === 0) {
+      const initial = generateInitialLedger();
+      FirestoreSyncService.seedInitialDataIfEmpty([], [], initial).catch(err => {
+        console.warn("Firestore ledger initial seed check notice:", err);
+      });
+    }
 
     return () => unsubscribe();
   }, []);
@@ -678,9 +693,12 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         }
       } else {
         // Fallback: sync with central server DB
-        const db = await GasClient.fetchServerDb();
-        if (db && Array.isArray(db.ledger) && db.ledger.length > 0) {
-          setLedger(db.ledger);
+        if (!globalLedger || globalLedger.length === 0) {
+          const db = await GasClient.fetchServerDb();
+          if (db && Array.isArray(db.ledger) && db.ledger.length > 0) {
+            setLedger(db.ledger);
+            globalBulkSaveLedgerRecords(db.ledger, true).catch(() => {});
+          }
         }
       }
     };
@@ -1038,6 +1056,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       }
 
       setLedger(combined);
+      globalBulkSaveLedgerRecords(combined, mode === 'replace').catch(() => {});
 
       // 1. Batch save to Firestore for real-time sync across devices
       await FirestoreSyncService.batchSaveLedgerRecords(combined, currentUser?.userName || 'Admin');
@@ -1509,6 +1528,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
     // Update local state immediately
     setLedger((prev) => [recordWithTempId, ...prev]);
+    globalSaveLedgerRecord(recordWithTempId).catch(() => {});
     setIsCreateModalOpen(false);
     setCreatingRecord(null);
     triggerToast(`Production entry for ${creatingRecord.floor} on ${creatingRecord.date} saved & syncing.`);
@@ -1672,6 +1692,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
     const recordToSave = { ...editingRecord };
     setLedger((prev) => prev.map((r) => (r.id === recordToSave.id ? recordToSave : r)));
+    globalSaveLedgerRecord(recordToSave).catch(() => {});
     setIsEditModalOpen(false);
     setEditingRecord(null);
     triggerToast(`Production record for ${recordToSave.floor} on ${recordToSave.date} updated & syncing across devices.`);
@@ -1709,6 +1730,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const details = targetRecord ? `${targetRecord.floor} on ${targetRecord.date}` : '';
 
     setLedger((prev) => prev.filter((r) => r.id !== targetId));
+    globalDeleteLedgerRecord(targetId).catch(() => {});
     setIsDeleteConfirmOpen(false);
     setDeletingRecordId(null);
     triggerToast(`Production record for ${details} deleted & syncing across devices.`);
