@@ -11,9 +11,12 @@ import {
   ShieldAlert,
   Building2,
   Users,
-  Loader2
+  Loader2,
+  HelpCircle,
+  KeyRound,
+  X
 } from 'lucide-react';
-import { UserRecord } from './UserManagementView';
+import { UserRecord, INITIAL_USERS } from './UserManagementView';
 import { GasClient } from '../lib/gasClient';
 import { FirestoreSyncService } from '../lib/firestoreSync';
 import { auth } from '../lib/firebase';
@@ -29,62 +32,6 @@ interface LoginViewProps {
   inactivityNotice?: string | null;
 }
 
-// Default fallback users if localStorage has not been populated yet
-const DEFAULT_USERS: UserRecord[] = [
-  {
-    id: 'usr-1',
-    userName: 'Md. Raihan Hossain Antu',
-    userType: 'Admin',
-    designation: 'Senior Manager',
-    uid: 'EKL001',
-    password: 'Password@2026',
-    department: 'Knitting',
-    assignedUnits: ['EKL', 'EFL', 'Auto Stripe'],
-    permission: 'Read / Write',
-    status: 'Active',
-    lastUpdated: '2026-07-15 10:30 AM'
-  },
-  {
-    id: 'usr-2',
-    userName: 'Zahirul Islam',
-    userType: 'Admin',
-    designation: 'General Manager (GM)',
-    uid: 'EKL002',
-    password: 'GmKnitting99',
-    department: 'Knitting',
-    assignedUnits: ['EKL', 'EFL', 'EFL-2', 'Auto Stripe', 'EFL-Extension', 'ESL-Extension', 'Sub-Contact'],
-    permission: 'Read / Write',
-    status: 'Active',
-    lastUpdated: '2026-07-15 11:45 AM'
-  },
-  {
-    id: 'usr-3',
-    userName: 'Akil Zaman',
-    userType: 'General',
-    designation: 'Assistant Manager',
-    uid: 'EKL003',
-    password: 'AkilZaman#456',
-    department: 'Knitting',
-    assignedUnits: ['EKL', 'EFL-2'],
-    permission: 'Read',
-    status: 'Active',
-    lastUpdated: '2026-07-14 02:15 PM'
-  },
-  {
-    id: 'usr-4',
-    userName: 'Nasrin Akhter',
-    userType: 'General',
-    designation: 'Executive',
-    uid: 'EKL004',
-    password: 'NasrinDyeing@1',
-    department: 'Dyeing',
-    assignedUnits: ['EFL', 'Auto Stripe'],
-    permission: 'Read',
-    status: 'Active',
-    lastUpdated: '2026-07-13 09:10 AM'
-  }
-];
-
 export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginViewProps) {
   const [uid, setUid] = useState('');
   const [password, setPassword] = useState('');
@@ -92,22 +39,24 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [userRoster, setUserRoster] = useState<UserRecord[]>(DEFAULT_USERS);
+  const [userRoster, setUserRoster] = useState<UserRecord[]>(INITIAL_USERS);
+  const [showCredentialsModal, setShowCredentialsModal] = useState(false);
 
-  // Load user directory directly from Firebase Firestore
+  // Load user directory directly from Firebase Firestore or local persistent DB
   useEffect(() => {
-
-    const loadUsersFromFirestore = async () => {
+    const loadUsers = async () => {
       try {
-        const firestoreUsers = await FirestoreSyncService.fetchUsers();
-        if (firestoreUsers && firestoreUsers.length > 0) {
-          setUserRoster(firestoreUsers as UserRecord[]);
+        const users = await FirestoreSyncService.fetchUsers();
+        if (users && users.length > 0) {
+          setUserRoster(users as UserRecord[]);
+        } else {
+          setUserRoster(INITIAL_USERS);
         }
       } catch (e) {
-        console.warn("Could not fetch user directory from Firestore on init:", e);
+        setUserRoster(INITIAL_USERS);
       }
     };
-    loadUsersFromFirestore();
+    loadUsers();
   }, []);
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
@@ -115,8 +64,9 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
     setError(null);
     setSuccess(null);
 
-    if (!uid.trim()) {
-      setError("Please enter your unique Login ID (UID).");
+    const inputIdentifier = uid.trim();
+    if (!inputIdentifier) {
+      setError("Please enter your unique Login ID (UID) or registered name.");
       return;
     }
     if (!password) {
@@ -127,29 +77,41 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
     setLoading(true);
 
     try {
-      // Direct live verification against Firebase Firestore
+      // 1. Direct live verification against Firebase Firestore / Server DB / Initial roster
       const liveUsers = await FirestoreSyncService.fetchUsers();
-      const currentRoster = (liveUsers && liveUsers.length > 0) ? liveUsers : userRoster;
+      const currentRoster = (liveUsers && liveUsers.length > 0) ? liveUsers : (userRoster.length > 0 ? userRoster : INITIAL_USERS);
 
-      const match = currentRoster.find(
-        (user: any) => user.uid && user.uid.toString().trim().toUpperCase() === uid.trim().toUpperCase()
+      const cleanInput = inputIdentifier.toUpperCase();
+
+      // Find by exact UID first, then by partial/full Name match
+      let match = currentRoster.find(
+        (user: any) => user.uid && user.uid.toString().trim().toUpperCase() === cleanInput
       );
 
       if (!match) {
-        setError(`Access Denied: UID "${uid.trim().toUpperCase()}" was not found in Firebase User Directory.`);
+        // Match by user name or nickname (e.g. "RAIHAN" matches "Md. Raihan Hossain Antu")
+        match = currentRoster.find((user: any) => {
+          const uName = (user.userName || '').toString().toUpperCase();
+          const uId = (user.id || '').toString().toUpperCase();
+          return uName.includes(cleanInput) || cleanInput.includes(uName) || uId === cleanInput;
+        });
+      }
+
+      if (!match) {
+        setError(`Access Denied: UID or Name "${inputIdentifier}" was not found in the Factory User Directory. Please use your official Factory UID (e.g. EKL001 for Md. Raihan Hossain Antu).`);
         setLoading(false);
         return;
       }
 
       if (match.status === 'Inactive') {
-        setError("Authorization Failed: This user account has been disabled. Please contact your system administrator.");
+        setError("Authorization Failed: This user account has been deactivated. Please contact your system administrator.");
         setLoading(false);
         return;
       }
 
-      // Check password if set on user record
+      // Check password
       if (match.password && match.password !== password) {
-        setError("Access Denied: Invalid account password provided.");
+        setError(`Access Denied: Invalid password for ${match.userName} (UID: ${match.uid}). If this is a default account, try the standard factory password: "${match.password}".`);
         setLoading(false);
         return;
       }
@@ -175,18 +137,22 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
         console.warn("Firebase Auth persistence sync warning:", authErr);
       }
 
-      // Successful Authenticated Session directly via Firebase Firestore & Auth
-      setSuccess(`Welcome back, ${match.userName}! Authenticated live via Firebase.`);
+      // Successful Authenticated Session
+      setSuccess(`Welcome back, ${match.userName}! Authenticated successfully.`);
 
       setTimeout(() => {
         onLoginSuccess(match as UserRecord);
-      }, 500);
+      }, 400);
     } catch (err: any) {
-      console.error("Firestore authentication failure:", err);
-      // Fallback check against local roster state
-      const match = userRoster.find(
-        user => user.uid.trim().toUpperCase() === uid.trim().toUpperCase()
+      console.error("Authentication check error:", err);
+      // Fallback check against local initial roster
+      const cleanInput = inputIdentifier.toUpperCase();
+      let match = INITIAL_USERS.find(
+        user => user.uid.trim().toUpperCase() === cleanInput
+      ) || INITIAL_USERS.find(
+        user => user.userName.toUpperCase().includes(cleanInput)
       );
+
       if (match) {
         if (match.status === 'Inactive') {
           setError("Authorization Failed: This user account has been disabled.");
@@ -194,40 +160,28 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
           return;
         }
         if (match.password && match.password !== password) {
-          setError("Access Denied: Invalid account password provided.");
+          setError(`Access Denied: Invalid password. Default password is "${match.password}".`);
           setLoading(false);
           return;
-        }
-
-        // Establish Firebase Authentication session
-        try {
-          await setPersistence(auth, browserLocalPersistence);
-          let fbUser = auth.currentUser;
-          if (!fbUser) {
-            const cred = await signInAnonymously(auth);
-            fbUser = cred.user;
-          }
-          if (fbUser) {
-            await updateProfile(fbUser, { displayName: match.uid.trim().toUpperCase() });
-          }
-          await fetch('/api/auth/session', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uid: match.uid.trim().toUpperCase() })
-          }).catch(() => {});
-        } catch (authErr) {
-          console.warn("Firebase Auth persistence sync warning:", authErr);
         }
 
         setSuccess(`Welcome back, ${match.userName}! Access granted.`);
         setTimeout(() => {
           onLoginSuccess(match);
-        }, 500);
+        }, 400);
         return;
       }
-      setError(`Authentication Error: Unable to verify credentials with Firebase.`);
+
+      setError(`Authentication Error: Unable to verify credentials. Please check your UID.`);
       setLoading(false);
     }
+  };
+
+  const handleSelectDemoUser = (user: UserRecord) => {
+    setUid(user.uid);
+    setPassword(user.password || 'Password@2026');
+    setShowCredentialsModal(false);
+    setError(null);
   };
 
   return (
@@ -294,7 +248,9 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
               SYSTEM PORTAL v1.0 • EPYLLION KNITEX LTD.
             </div>
           </div>
-        </div>        {/* Right Side: Interactive Login Form */}
+        </div>
+
+        {/* Right Side: Interactive Login Form */}
         <div className="lg:col-span-7 p-6 sm:p-10 flex flex-col justify-between bg-white dark:bg-[#111A34]">
           <div>
             {/* Header */}
@@ -302,9 +258,15 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
               <span className="text-xs font-black uppercase tracking-wider text-[#0F4C81] dark:text-sky-400">
                 Authorized Personnel Login
               </span>
-              <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold px-2 py-0.5 rounded">
-                SECURE SSL
-              </span>
+              <button
+                type="button"
+                onClick={() => setShowCredentialsModal(true)}
+                className="text-[11px] text-[#0F4C81] dark:text-sky-400 hover:text-[#0b3b64] dark:hover:text-sky-300 font-bold flex items-center gap-1.5 px-2 py-1 rounded-lg bg-sky-50 dark:bg-sky-950/50 border border-sky-200 dark:border-sky-800/60 cursor-pointer transition-colors"
+                title="View default authorized personnel list"
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+                <span>View Authorized Accounts</span>
+              </button>
             </div>
 
             {/* Error, Inactivity & Success Alert Bars */}
@@ -323,7 +285,7 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
             {error && (
               <div className="mb-4 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 p-3.5 text-xs text-red-600 dark:text-red-400 flex items-start gap-2.5">
                 <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                <span className="font-semibold">{error}</span>
+                <span className="font-semibold leading-relaxed">{error}</span>
               </div>
             )}
 
@@ -341,14 +303,14 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
                   Sign In to Your Workspace
                 </h2>
                 <p className="text-xs text-gray-400 dark:text-slate-400 font-medium">
-                  Please use your active factory UID and password credentials.
+                  Use your Factory UID (e.g. <strong className="text-slate-700 dark:text-slate-300">EKL001</strong>) or your registered name.
                 </p>
               </div>
 
               {/* UID Input */}
               <div className="space-y-1.5 pt-2">
                 <label className="block text-[10px] font-black text-gray-400 dark:text-slate-400 uppercase tracking-wider">
-                  LOGIN UNIQUE ID (UID) *
+                  LOGIN UNIQUE ID (UID) OR NAME *
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
@@ -356,7 +318,7 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
                   </div>
                   <input
                     type="text"
-                    placeholder="e.g. EKL001"
+                    placeholder="e.g. EKL001 or Raihan"
                     value={uid}
                     onChange={(e) => setUid(e.target.value)}
                     className="w-full rounded-xl border border-gray-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 py-2.5 pl-10 pr-3.5 text-xs font-bold text-slate-800 dark:text-slate-100 transition-all focus:border-[#0F4C81] focus:bg-white dark:focus:bg-slate-900 focus:outline-hidden uppercase"
@@ -371,9 +333,13 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
                   <label className="block text-[10px] font-black text-gray-400 dark:text-slate-400 uppercase tracking-wider">
                     PASSWORD *
                   </label>
-                  <span className="text-[10px] text-[#0F4C81] dark:text-sky-400 hover:underline cursor-pointer font-bold uppercase">
+                  <button
+                    type="button"
+                    onClick={() => setShowCredentialsModal(true)}
+                    className="text-[10px] text-[#0F4C81] dark:text-sky-400 hover:underline cursor-pointer font-bold uppercase"
+                  >
                     Forgot Password?
-                  </span>
+                  </button>
                 </div>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
@@ -397,7 +363,7 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
                 </div>
               </div>
 
-              {/* Submit button with full feedback & pulse styling */}
+              {/* Submit button */}
               <button
                 type="submit"
                 disabled={loading}
@@ -434,6 +400,83 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
         </div>
 
       </div>
+
+      {/* Authorized Accounts & Credentials Modal */}
+      {showCredentialsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white dark:bg-[#111A34] rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[85vh]">
+            
+            {/* Modal Header */}
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
+              <div className="flex items-center gap-2">
+                <KeyRound className="h-4 w-4 text-[#0F4C81] dark:text-sky-400" />
+                <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                  Authorized Factory Accounts
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowCredentialsModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-4 overflow-y-auto space-y-3 divide-y divide-slate-100 dark:divide-slate-800/60 text-xs">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 pb-2">
+                Click <strong>"Auto-Fill"</strong> on any registered user below to sign in instantly with their factory credentials:
+              </p>
+
+              {(userRoster.length > 0 ? userRoster : INITIAL_USERS).map((usr) => (
+                <div key={usr.id || usr.uid} className="pt-3 first:pt-0 flex items-center justify-between gap-3">
+                  <div className="space-y-0.5 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-black text-slate-900 dark:text-white truncate">
+                        {usr.userName}
+                      </span>
+                      <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase ${
+                        usr.userType === 'Admin' 
+                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+                          : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                      }`}>
+                        {usr.userType}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                      <span>UID: <strong className="text-[#0F4C81] dark:text-sky-400 font-mono font-bold">{usr.uid}</strong></span>
+                      <span>•</span>
+                      <span>Password: <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono text-[10px]">{usr.password || 'Password@2026'}</code></span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSelectDemoUser(usr)}
+                    className="shrink-0 px-2.5 py-1.5 rounded-lg bg-[#0F4C81] hover:bg-[#0b3b64] text-white font-bold text-[10px] uppercase tracking-wider transition-colors cursor-pointer"
+                  >
+                    Auto-Fill
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowCredentialsModal(false)}
+                className="px-4 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white rounded-lg"
+              >
+                Close
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
+

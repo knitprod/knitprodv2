@@ -865,13 +865,13 @@ export default function UserManagementView() {
       // Global Search matching
       const query = globalSearch.toLowerCase().trim();
       const matchesSearch = !query ? true : (
-        user.userName.toLowerCase().includes(query) ||
-        user.uid.toLowerCase().includes(query) ||
-        user.designation.toLowerCase().includes(query) ||
-        user.department.toLowerCase().includes(query) ||
-        user.userType.toLowerCase().includes(query) ||
-        user.permission.toLowerCase().includes(query) ||
-        user.assignedUnits.some(unit => unit.toLowerCase().includes(query))
+        String(user.userName || '').toLowerCase().includes(query) ||
+        String(user.uid || '').toLowerCase().includes(query) ||
+        String(user.designation || '').toLowerCase().includes(query) ||
+        String(user.department || '').toLowerCase().includes(query) ||
+        String(user.userType || '').toLowerCase().includes(query) ||
+        String(user.permission || '').toLowerCase().includes(query) ||
+        (Array.isArray(user.assignedUnits) && user.assignedUnits.some(unit => String(unit || '').toLowerCase().includes(query)))
       );
 
       // Category filters

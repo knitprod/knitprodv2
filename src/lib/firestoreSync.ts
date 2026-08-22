@@ -92,6 +92,64 @@ const COLLECTIONS = {
 
 export class FirestoreSyncService {
   private static isSyncing = false;
+  private static isQuotaExceededState = false;
+  private static quotaMessage = '';
+  private static quotaListeners: Array<(exceeded: boolean, message: string) => void> = [];
+
+  /**
+   * Check if an error is a Firestore Quota limit exceeded error
+   */
+  static isQuotaError(err: any): boolean {
+    if (!err) return false;
+    const msg = typeof err === 'string' ? err : (err.message || String(err));
+    const code = err.code || '';
+    return (
+      code === 'resource-exhausted' ||
+      msg.includes('Quota limit exceeded') ||
+      msg.includes('Quota exceeded') ||
+      msg.includes('Free daily write units') ||
+      msg.includes('resource-exhausted')
+    );
+  }
+
+  /**
+   * Set and broadcast Quota Exceeded state
+   */
+  static setQuotaExceeded(exceeded: boolean, message?: string) {
+    FirestoreSyncService.isQuotaExceededState = exceeded;
+    if (message) FirestoreSyncService.quotaMessage = message;
+    FirestoreSyncService.quotaListeners.forEach(cb => {
+      try {
+        cb(exceeded, FirestoreSyncService.quotaMessage);
+      } catch (e) {}
+    });
+  }
+
+  /**
+   * Check if Firestore Quota is currently exceeded
+   */
+  static getIsQuotaExceeded(): boolean {
+    return FirestoreSyncService.isQuotaExceededState;
+  }
+
+  static isQuotaExceeded(): boolean {
+    return FirestoreSyncService.isQuotaExceededState;
+  }
+
+  static getQuotaMessage(): string {
+    return FirestoreSyncService.quotaMessage;
+  }
+
+  /**
+   * Subscribe to Quota status changes
+   */
+  static subscribeToQuotaStatus(callback: (exceeded: boolean, message: string) => void) {
+    FirestoreSyncService.quotaListeners.push(callback);
+    callback(FirestoreSyncService.isQuotaExceededState, FirestoreSyncService.quotaMessage);
+    return () => {
+      FirestoreSyncService.quotaListeners = FirestoreSyncService.quotaListeners.filter(cb => cb !== callback);
+    };
+  }
 
   /**
    * Subscribe to Production Entries with Realtime onSnapshot listener
@@ -106,10 +164,16 @@ export class FirestoreSyncService {
         });
         callback(entries);
       }, (error) => {
-        console.warn('Firestore production entries snapshot error:', error);
+        if (FirestoreSyncService.isQuotaError(error)) {
+          FirestoreSyncService.setQuotaExceeded(true, error.message);
+        } else {
+          console.warn('Firestore production entries snapshot notice:', error);
+        }
       });
     } catch (err) {
-      console.warn('subscribeToProductionEntries init error:', err);
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
       return () => {};
     }
   }
@@ -127,10 +191,16 @@ export class FirestoreSyncService {
         });
         callback(records);
       }, (error) => {
-        console.warn('Firestore ledger records snapshot error:', error);
+        if (FirestoreSyncService.isQuotaError(error)) {
+          FirestoreSyncService.setQuotaExceeded(true, error.message);
+        } else {
+          console.warn('Firestore ledger records snapshot notice:', error);
+        }
       });
     } catch (err) {
-      console.warn('subscribeToLedgerRecords init error:', err);
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
       return () => {};
     }
   }
@@ -148,10 +218,16 @@ export class FirestoreSyncService {
         });
         callback(plans);
       }, (error) => {
-        console.warn('Firestore order plans snapshot error:', error);
+        if (FirestoreSyncService.isQuotaError(error)) {
+          FirestoreSyncService.setQuotaExceeded(true, error.message);
+        } else {
+          console.warn('Firestore order plans snapshot notice:', error);
+        }
       });
     } catch (err) {
-      console.warn('subscribeToOrderPlans init error:', err);
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
       return () => {};
     }
   }
@@ -165,6 +241,7 @@ export class FirestoreSyncService {
       const metaDocRef = doc(db, COLLECTIONS.YARN_STORE, 'meta');
       
       const loadAllChunks = async () => {
+        if (FirestoreSyncService.isQuotaExceededState) return;
         try {
           const storeCol = collection(db, COLLECTIONS.YARN_STORE);
           const chunkDocs = await getDocs(storeCol);
@@ -196,20 +273,22 @@ export class FirestoreSyncService {
             }
           }
 
-          // If Firestore is empty on initial run, fetch from server persistent DB and seed Firestore
+          // If Firestore is empty or unpopulated, fetch from server persistent DB
           try {
             const serverRes = await fetch('/api/db');
             if (serverRes.ok) {
               const serverJson = await serverRes.json();
               if (serverJson && Array.isArray(serverJson.yarnAllocations) && serverJson.yarnAllocations.length > 0) {
                 callback(serverJson.yarnAllocations);
-                // Seed Firestore in the background
-                FirestoreSyncService.batchSaveYarnAllocations(serverJson.yarnAllocations, false).catch(() => {});
               }
             }
           } catch (e) {}
         } catch (err) {
-          console.warn('loadAllChunks error in subscribeToYarnAllocations:', err);
+          if (FirestoreSyncService.isQuotaError(err)) {
+            FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+          } else {
+            console.warn('loadAllChunks notice in subscribeToYarnAllocations:', err);
+          }
         }
       };
 
@@ -222,10 +301,16 @@ export class FirestoreSyncService {
           loadAllChunks();
         }
       }, (error) => {
-        console.warn('Firestore yarn store metadata snapshot warning:', error);
+        if (FirestoreSyncService.isQuotaError(error)) {
+          FirestoreSyncService.setQuotaExceeded(true, error.message);
+        } else {
+          console.warn('Firestore yarn store metadata snapshot notice:', error);
+        }
       });
     } catch (err) {
-      console.warn('subscribeToYarnAllocations init error:', err);
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
       return () => {};
     }
   }
@@ -234,45 +319,65 @@ export class FirestoreSyncService {
    * Subscribe to Activity Logs in Firestore with Realtime listener
    */
   static subscribeToActivityLogs(callback: (logs: ActivityLog[]) => void) {
-    const colRef = collection(db, COLLECTIONS.ACTIVITY_LOGS);
-    return onSnapshot(colRef, (snapshot) => {
-      const logsList: ActivityLog[] = [];
-      snapshot.forEach((docSnap) => {
-        logsList.push({ id: docSnap.id, ...docSnap.data() } as ActivityLog);
+    try {
+      const colRef = collection(db, COLLECTIONS.ACTIVITY_LOGS);
+      return onSnapshot(colRef, (snapshot) => {
+        const logsList: ActivityLog[] = [];
+        snapshot.forEach((docSnap) => {
+          logsList.push({ id: docSnap.id, ...docSnap.data() } as ActivityLog);
+        });
+        // Sort newest first
+        logsList.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
+        callback(logsList);
+      }, (error) => {
+        if (FirestoreSyncService.isQuotaError(error)) {
+          FirestoreSyncService.setQuotaExceeded(true, error.message);
+        } else {
+          console.warn('Firestore activity logs snapshot notice:', error);
+        }
       });
-      // Sort newest first
-      logsList.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
-      callback(logsList);
-    }, (error) => {
-      console.warn('Firestore activity logs snapshot error:', error);
-    });
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
+      return () => {};
+    }
   }
 
   /**
    * Save / Update Activity Log in Firebase Firestore
    */
   static async saveActivityLog(log: ActivityLog): Promise<void> {
-    const docId = log.id || `act-${Date.now()}`;
-    const docRef = doc(db, COLLECTIONS.ACTIVITY_LOGS, docId);
-    const nowIso = new Date().toISOString();
+    if (FirestoreSyncService.isQuotaExceededState) return;
+    try {
+      const docId = log.id || `act-${Date.now()}`;
+      const docRef = doc(db, COLLECTIONS.ACTIVITY_LOGS, docId);
+      const nowIso = new Date().toISOString();
 
-    await setDoc(docRef, {
-      ...log,
-      id: docId,
-      timestamp: log.timestamp || nowIso,
-      createdAt: nowIso
-    }, { merge: true });
+      await setDoc(docRef, {
+        ...log,
+        id: docId,
+        timestamp: log.timestamp || nowIso,
+        createdAt: nowIso
+      }, { merge: true });
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      } else {
+        console.warn('saveActivityLog notice:', err);
+      }
+    }
   }
 
   /**
    * Seed Initial Activity Logs into Firestore if collection is empty
    */
   static async seedInitialActivityLogsIfEmpty(initialLogs: ActivityLog[]): Promise<void> {
+    if (FirestoreSyncService.isQuotaExceededState) return;
     try {
       const colRef = collection(db, COLLECTIONS.ACTIVITY_LOGS);
       const snapshot = await getDocs(colRef);
       if (snapshot.empty && initialLogs.length > 0) {
-        console.log('Seeding initial activity logs into Firebase Firestore...');
         const batch = writeBatch(db);
         const nowIso = new Date().toISOString();
         initialLogs.forEach((log) => {
@@ -286,10 +391,13 @@ export class FirestoreSyncService {
           });
         });
         await batch.commit();
-        console.log('Firebase Firestore activity logs initial seeding complete.');
       }
     } catch (err) {
-      console.warn('Initial activity logs seed check skipped:', err);
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      } else {
+        console.warn('Initial activity logs seed check skipped:', err);
+      }
     }
   }
 
@@ -306,9 +414,16 @@ export class FirestoreSyncService {
         });
         callback(list);
       }, (error) => {
-        console.warn('Firestore conflicts snapshot error:', error);
+        if (FirestoreSyncService.isQuotaError(error)) {
+          FirestoreSyncService.setQuotaExceeded(true, error.message);
+        } else {
+          console.warn('Firestore conflicts snapshot notice:', error);
+        }
       });
     } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
       return () => {};
     }
   }
@@ -317,16 +432,27 @@ export class FirestoreSyncService {
    * Subscribe to System Users in Firestore with Realtime listener
    */
   static subscribeToUsers(callback: (users: any[]) => void) {
-    const colRef = collection(db, COLLECTIONS.USERS);
-    return onSnapshot(colRef, (snapshot) => {
-      const usersList: any[] = [];
-      snapshot.forEach((docSnap) => {
-        usersList.push({ id: docSnap.id, ...docSnap.data() });
+    try {
+      const colRef = collection(db, COLLECTIONS.USERS);
+      return onSnapshot(colRef, (snapshot) => {
+        const usersList: any[] = [];
+        snapshot.forEach((docSnap) => {
+          usersList.push({ id: docSnap.id, ...docSnap.data() });
+        });
+        callback(usersList);
+      }, (error) => {
+        if (FirestoreSyncService.isQuotaError(error)) {
+          FirestoreSyncService.setQuotaExceeded(true, error.message);
+        } else {
+          console.warn('Firestore users snapshot notice:', error);
+        }
       });
-      callback(usersList);
-    }, (error) => {
-      console.warn('Firestore users snapshot error:', error);
-    });
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
+      return () => {};
+    }
   }
 
   /**
@@ -334,17 +460,34 @@ export class FirestoreSyncService {
    */
   static async fetchUsers(): Promise<any[]> {
     try {
-      const colRef = collection(db, COLLECTIONS.USERS);
-      const snapshot = await getDocs(colRef);
-      const usersList: any[] = [];
-      snapshot.forEach((docSnap) => {
-        usersList.push({ id: docSnap.id, ...docSnap.data() });
-      });
-      return usersList;
+      if (!FirestoreSyncService.isQuotaExceededState) {
+        const colRef = collection(db, COLLECTIONS.USERS);
+        const snapshot = await getDocs(colRef);
+        const usersList: any[] = [];
+        snapshot.forEach((docSnap) => {
+          usersList.push({ id: docSnap.id, ...docSnap.data() });
+        });
+        if (usersList.length > 0) return usersList;
+      }
     } catch (err) {
-      console.error('Failed to fetch users from Firestore:', err);
-      return [];
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
     }
+
+    // Fallback to server DB
+    try {
+      const res = await fetch('/api/db');
+      if (res.ok) {
+        const json = await res.json();
+        const serverUsers = json?.db?.users || json?.users;
+        if (serverUsers && Array.isArray(serverUsers) && serverUsers.length > 0) {
+          return serverUsers;
+        }
+      }
+    } catch (e) {}
+
+    return [];
   }
 
   /**
@@ -354,15 +497,39 @@ export class FirestoreSyncService {
     const docId = (user.uid || user.id || '').toString().trim().toUpperCase();
     if (!docId) return;
 
-    const docRef = doc(db, COLLECTIONS.USERS, docId);
-    const nowIso = new Date().toISOString();
+    // Save to server DB as reliable fallback
+    try {
+      const currentUsers = await FirestoreSyncService.fetchUsers();
+      const idx = currentUsers.findIndex(u => (u.uid || u.id || '').toString().toUpperCase() === docId);
+      if (idx >= 0) {
+        currentUsers[idx] = { ...currentUsers[idx], ...user };
+      } else {
+        currentUsers.push({ ...user, uid: docId });
+      }
+      await fetch('/api/db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ users: currentUsers })
+      });
+    } catch (e) {}
 
-    await setDoc(docRef, {
-      ...user,
-      id: docId,
-      uid: docId,
-      updatedAt: nowIso
-    }, { merge: true });
+    if (FirestoreSyncService.isQuotaExceededState) return;
+
+    try {
+      const docRef = doc(db, COLLECTIONS.USERS, docId);
+      const nowIso = new Date().toISOString();
+
+      await setDoc(docRef, {
+        ...user,
+        id: docId,
+        uid: docId,
+        updatedAt: nowIso
+      }, { merge: true });
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
+    }
   }
 
   /**
@@ -371,19 +538,38 @@ export class FirestoreSyncService {
   static async deleteUser(uidOrId: string): Promise<void> {
     if (!uidOrId) return;
     const docId = uidOrId.toString().trim().toUpperCase();
-    const docRef = doc(db, COLLECTIONS.USERS, docId);
-    await deleteDoc(docRef);
+
+    try {
+      const currentUsers = await FirestoreSyncService.fetchUsers();
+      const updated = currentUsers.filter(u => (u.uid || u.id || '').toString().toUpperCase() !== docId);
+      await fetch('/api/db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ users: updated })
+      });
+    } catch (e) {}
+
+    if (FirestoreSyncService.isQuotaExceededState) return;
+
+    try {
+      const docRef = doc(db, COLLECTIONS.USERS, docId);
+      await deleteDoc(docRef);
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
+    }
   }
 
   /**
    * Seed Initial System Users into Firestore if collection is empty
    */
   static async seedInitialUsersIfEmpty(initialUsers: any[]): Promise<void> {
+    if (FirestoreSyncService.isQuotaExceededState) return;
     try {
       const colRef = collection(db, COLLECTIONS.USERS);
       const snapshot = await getDocs(colRef);
       if (snapshot.empty && initialUsers.length > 0) {
-        console.log('Seeding initial system users into Firebase Firestore...');
         const batch = writeBatch(db);
         const nowIso = new Date().toISOString();
         initialUsers.forEach((usr) => {
@@ -398,10 +584,13 @@ export class FirestoreSyncService {
           });
         });
         await batch.commit();
-        console.log('Firebase Firestore users initial seeding complete.');
       }
     } catch (err) {
-      console.warn('Initial users seed check skipped:', err);
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      } else {
+        console.warn('Initial users seed check skipped:', err);
+      }
     }
   }
 
@@ -409,14 +598,25 @@ export class FirestoreSyncService {
    * Subscribe to Global System Settings in Firestore (doc: config)
    */
   static subscribeToSettings(callback: (settings: Record<string, any>) => void) {
-    const docRef = doc(db, COLLECTIONS.SETTINGS, 'config');
-    return onSnapshot(docRef, (docSnap) => {
-      if (docSnap.exists()) {
-        callback(docSnap.data());
+    try {
+      const docRef = doc(db, COLLECTIONS.SETTINGS, 'config');
+      return onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) {
+          callback(docSnap.data());
+        }
+      }, (error) => {
+        if (FirestoreSyncService.isQuotaError(error)) {
+          FirestoreSyncService.setQuotaExceeded(true, error.message);
+        } else {
+          console.warn('Firestore settings snapshot listener notice:', error);
+        }
+      });
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
       }
-    }, (error) => {
-      console.warn('Firestore settings snapshot listener error:', error);
-    });
+      return () => {};
+    }
   }
 
   /**
@@ -424,14 +624,27 @@ export class FirestoreSyncService {
    */
   static async fetchSettings(): Promise<Record<string, any>> {
     try {
-      const docRef = doc(db, COLLECTIONS.SETTINGS, 'config');
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        return docSnap.data();
+      if (!FirestoreSyncService.isQuotaExceededState) {
+        const docRef = doc(db, COLLECTIONS.SETTINGS, 'config');
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          return docSnap.data();
+        }
       }
     } catch (err) {
-      console.warn('Failed to fetch settings from Firestore:', err);
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
     }
+
+    try {
+      const res = await fetch('/api/db');
+      if (res.ok) {
+        const json = await res.json();
+        if (json && json.settings) return json.settings;
+      }
+    } catch (e) {}
+
     return {};
   }
 
@@ -439,12 +652,28 @@ export class FirestoreSyncService {
    * Save / Update System Settings in Firebase Firestore
    */
   static async saveSettings(settingsMap: Record<string, any>): Promise<void> {
-    const docRef = doc(db, COLLECTIONS.SETTINGS, 'config');
-    const nowIso = new Date().toISOString();
-    await setDoc(docRef, {
-      ...settingsMap,
-      updatedAt: nowIso
-    }, { merge: true });
+    try {
+      await fetch('/api/db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings: settingsMap, ...settingsMap })
+      });
+    } catch (e) {}
+
+    if (FirestoreSyncService.isQuotaExceededState) return;
+
+    try {
+      const docRef = doc(db, COLLECTIONS.SETTINGS, 'config');
+      const nowIso = new Date().toISOString();
+      await setDoc(docRef, {
+        ...settingsMap,
+        updatedAt: nowIso
+      }, { merge: true });
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
+    }
   }
 
   /**
@@ -462,7 +691,7 @@ export class FirestoreSyncService {
 
       let totalSynced = 0;
 
-      // 1. Pull Ledger Records from Google Sheets & write to Firestore in batch chunks
+      // 1. Pull Ledger Records from Google Sheets & write to local DB
       try {
         const ledgerRecords = await GasClient.fetchLedgerList(true);
         if (ledgerRecords && ledgerRecords.length > 0) {
@@ -479,7 +708,6 @@ export class FirestoreSyncService {
         message: `Successfully synchronized ${totalSynced} records from Google Sheets.`
       };
     } catch (err: any) {
-      console.error('reconcileSheetsAndFirestore error:', err);
       return {
         syncedCount: 0,
         conflictsCount: 1,
@@ -499,49 +727,72 @@ export class FirestoreSyncService {
    * Helper persistence methods for Production Entries, Order Plans, and Ledger Records
    */
   static async saveProductionEntry(entry: ProductionEntry, operatorName?: string): Promise<void> {
+    if (FirestoreSyncService.isQuotaExceededState) return;
     try {
       const docId = entry.id || `entry-${Date.now()}`;
       const docRef = doc(db, COLLECTIONS.PRODUCTION_ENTRIES, docId);
       await setDoc(docRef, { ...entry, id: docId, operatorName: operatorName || 'Operator', updatedAt: new Date().toISOString() }, { merge: true });
-    } catch (e) {
-      console.warn('saveProductionEntry firestore notice:', e);
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
     }
   }
 
   static async saveOrderPlan(plan: OrderPlan): Promise<void> {
+    if (FirestoreSyncService.isQuotaExceededState) return;
     try {
       const docId = plan.id || `plan-${Date.now()}`;
       const docRef = doc(db, COLLECTIONS.ORDER_PLANS, docId);
       await setDoc(docRef, { ...plan, id: docId, updatedAt: new Date().toISOString() }, { merge: true });
-    } catch (e) {
-      console.warn('saveOrderPlan firestore notice:', e);
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
     }
   }
 
   static async deleteOrderPlan(planId: string): Promise<void> {
+    if (FirestoreSyncService.isQuotaExceededState) return;
     try {
       if (!planId) return;
       const docRef = doc(db, COLLECTIONS.ORDER_PLANS, planId);
       await deleteDoc(docRef);
-    } catch (e) {
-      console.warn('deleteOrderPlan firestore notice:', e);
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
     }
   }
 
   static async saveLedgerRecord(record: LedgerRecord, operatorName?: string): Promise<void> {
+    if (FirestoreSyncService.isQuotaExceededState) return;
     try {
       const docId = record.id || `ledger-${Date.now()}`;
       const docRef = doc(db, COLLECTIONS.LEDGER_RECORDS, docId);
       await setDoc(docRef, { ...record, id: docId, operatorName: operatorName || 'Manager', updatedAt: new Date().toISOString() }, { merge: true });
-    } catch (e) {
-      console.warn('saveLedgerRecord firestore notice:', e);
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
     }
   }
 
   static async batchSaveLedgerRecords(records: LedgerRecord[], operatorName?: string): Promise<void> {
+    // Always persist to server DB
+    try {
+      await fetch('/api/db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ledgerRecords: records })
+      });
+    } catch (e) {}
+
+    if (FirestoreSyncService.isQuotaExceededState) return;
+
     try {
       if (!records || records.length === 0) return;
-      const CHUNK_SIZE = 300;
+      const CHUNK_SIZE = 250;
       for (let i = 0; i < records.length; i += CHUNK_SIZE) {
         const chunk = records.slice(i, i + CHUNK_SIZE);
         const batch = writeBatch(db);
@@ -557,22 +808,28 @@ export class FirestoreSyncService {
         });
         await batch.commit();
       }
-    } catch (e) {
-      console.warn('batchSaveLedgerRecords firestore notice:', e);
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
     }
   }
 
   static async deleteLedgerRecord(recordId: string): Promise<void> {
+    if (FirestoreSyncService.isQuotaExceededState) return;
     try {
       if (!recordId) return;
       const docRef = doc(db, COLLECTIONS.LEDGER_RECORDS, recordId);
       await deleteDoc(docRef);
-    } catch (e) {
-      console.warn('deleteLedgerRecord firestore notice:', e);
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
     }
   }
 
   static async saveYarnAllocation(item: YarnAllocationRecord): Promise<void> {
+    if (FirestoreSyncService.isQuotaExceededState) return;
     try {
       const docId = sanitizeDocId(item.id || `yarn-${item.orderNumber}-${item.fabricShade}-${item.yarnRequired || ''}-${item.lotNo || ''}`, 'yarn');
       const docRef = doc(db, COLLECTIONS.YARN_ALLOCATIONS, docId);
@@ -582,26 +839,37 @@ export class FirestoreSyncService {
         updatedAt: new Date().toISOString()
       }, { merge: true });
 
-      // Signal update on store meta
       const metaDocRef = doc(db, COLLECTIONS.YARN_STORE, 'meta');
       await setDoc(metaDocRef, {
         updatedAt: new Date().toISOString(),
         version: Date.now(),
         lastAction: 'single_update'
       }, { merge: true });
-    } catch (e) {
-      console.warn('saveYarnAllocation firestore notice:', e);
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
     }
   }
 
   static async batchSaveYarnAllocations(items: YarnAllocationRecord[], replace: boolean = false): Promise<void> {
+    // Always persist to server local DB
+    try {
+      await fetch('/api/db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ yarnAllocations: items })
+      });
+    } catch (e) {}
+
+    if (FirestoreSyncService.isQuotaExceededState) return;
+
     try {
       if (!items || items.length === 0) return;
 
       const CHUNK_SIZE = 500;
       const chunkCount = Math.ceil(items.length / CHUNK_SIZE);
 
-      // Write chunk documents to YARN_STORE
       for (let i = 0; i < items.length; i += CHUNK_SIZE) {
         const chunkIndex = Math.floor(i / CHUNK_SIZE);
         const chunkItems = items.slice(i, i + CHUNK_SIZE);
@@ -613,23 +881,6 @@ export class FirestoreSyncService {
         });
       }
 
-      // If replacing, delete extra obsolete chunks
-      if (replace) {
-        try {
-          const storeCol = collection(db, COLLECTIONS.YARN_STORE);
-          const currentDocs = await getDocs(storeCol);
-          currentDocs.forEach(d => {
-            if (d.id.startsWith('chunk_')) {
-              const idx = parseInt(d.id.replace('chunk_', ''), 10);
-              if (idx >= chunkCount) {
-                deleteDoc(d.ref).catch(() => {});
-              }
-            }
-          });
-        } catch (delErr) {}
-      }
-
-      // Update meta doc to notify all devices in real time
       const metaDocRef = doc(db, COLLECTIONS.YARN_STORE, 'meta');
       await setDoc(metaDocRef, {
         updatedAt: new Date().toISOString(),
@@ -637,22 +888,15 @@ export class FirestoreSyncService {
         totalRecords: items.length,
         chunkCount: chunkCount
       });
-
-      // Also persist to server local DB
-      try {
-        await fetch('/api/db', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ yarnAllocations: items })
-        });
-      } catch (e) {}
-
-    } catch (e) {
-      console.warn('batchSaveYarnAllocations firestore notice:', e);
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
     }
   }
 
   static async deleteYarnAllocation(id: string): Promise<void> {
+    if (FirestoreSyncService.isQuotaExceededState) return;
     try {
       if (!id) return;
       const docId = sanitizeDocId(id, 'yarn');
@@ -665,41 +909,48 @@ export class FirestoreSyncService {
         version: Date.now(),
         lastAction: 'delete'
       }, { merge: true });
-    } catch (e) {
-      console.warn('deleteYarnAllocation firestore notice:', e);
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
     }
   }
 
   static async fetchYarnAllocations(): Promise<YarnAllocationRecord[]> {
     try {
-      // 1. Fetch from chunked store
-      const storeCol = collection(db, COLLECTIONS.YARN_STORE);
-      const chunkDocs = await getDocs(storeCol);
-      const allYarn: YarnAllocationRecord[] = [];
-      
-      chunkDocs.forEach((d) => {
-        if (d.id.startsWith('chunk_')) {
-          const data = d.data();
-          if (data && Array.isArray(data.items)) {
-            allYarn.push(...data.items);
+      if (!FirestoreSyncService.isQuotaExceededState) {
+        const storeCol = collection(db, COLLECTIONS.YARN_STORE);
+        const chunkDocs = await getDocs(storeCol);
+        const allYarn: YarnAllocationRecord[] = [];
+        
+        chunkDocs.forEach((d) => {
+          if (d.id.startsWith('chunk_')) {
+            const data = d.data();
+            if (data && Array.isArray(data.items)) {
+              allYarn.push(...data.items);
+            }
           }
+        });
+
+        if (allYarn.length > 0) {
+          return allYarn;
         }
-      });
 
-      if (allYarn.length > 0) {
-        return allYarn;
+        const colRef = collection(db, COLLECTIONS.YARN_ALLOCATIONS);
+        const snapshot = await getDocs(colRef);
+        const list: YarnAllocationRecord[] = [];
+        snapshot.forEach(docSnap => {
+          list.push({ id: docSnap.id, ...docSnap.data() } as YarnAllocationRecord);
+        });
+        if (list.length > 0) return list;
       }
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
+    }
 
-      // 2. Fetch from individual docs
-      const colRef = collection(db, COLLECTIONS.YARN_ALLOCATIONS);
-      const snapshot = await getDocs(colRef);
-      const list: YarnAllocationRecord[] = [];
-      snapshot.forEach(docSnap => {
-        list.push({ id: docSnap.id, ...docSnap.data() } as YarnAllocationRecord);
-      });
-      if (list.length > 0) return list;
-
-      // 3. Fallback to server DB
+    try {
       const serverRes = await fetch('/api/db');
       if (serverRes.ok) {
         const serverJson = await serverRes.json();
@@ -707,40 +958,23 @@ export class FirestoreSyncService {
           return serverJson.yarnAllocations;
         }
       }
-      return [];
-    } catch (err) {
-      console.warn('fetchYarnAllocations from firestore notice:', err);
-      return [];
-    }
+    } catch (e) {}
+    return [];
   }
 
   static async batchSaveOrderPlans(plans: OrderPlan[], replace: boolean = false): Promise<void> {
     try {
-      if (!plans || plans.length === 0) return;
+      await fetch('/api/db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderPlans: plans })
+      });
+    } catch (e) {}
 
-      if (replace) {
-        try {
-          const colRef = collection(db, COLLECTIONS.ORDER_PLANS);
-          const oldDocsSnap = await getDocs(colRef);
-          if (!oldDocsSnap.empty) {
-            const deleteBatch = writeBatch(db);
-            let count = 0;
-            for (const d of oldDocsSnap.docs) {
-              deleteBatch.delete(d.ref);
-              count++;
-              if (count >= 400) {
-                await deleteBatch.commit();
-                count = 0;
-              }
-            }
-            if (count > 0) {
-              await deleteBatch.commit();
-            }
-          }
-        } catch (delErr) {
-          console.warn('Order plans replace cleanup notice:', delErr);
-        }
-      }
+    if (FirestoreSyncService.isQuotaExceededState) return;
+
+    try {
+      if (!plans || plans.length === 0) return;
 
       const CHUNK_SIZE = 250;
       for (let i = 0; i < plans.length; i += CHUNK_SIZE) {
@@ -757,39 +991,71 @@ export class FirestoreSyncService {
         });
         await batch.commit();
       }
-    } catch (e) {
-      console.warn('batchSaveOrderPlans firestore notice:', e);
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
     }
   }
 
   static async fetchOrderPlans(): Promise<OrderPlan[]> {
     try {
-      const colRef = collection(db, COLLECTIONS.ORDER_PLANS);
-      const snapshot = await getDocs(colRef);
-      const list: OrderPlan[] = [];
-      snapshot.forEach(docSnap => {
-        list.push({ id: docSnap.id, ...docSnap.data() } as OrderPlan);
-      });
-      return list;
+      if (!FirestoreSyncService.isQuotaExceededState) {
+        const colRef = collection(db, COLLECTIONS.ORDER_PLANS);
+        const snapshot = await getDocs(colRef);
+        const list: OrderPlan[] = [];
+        snapshot.forEach(docSnap => {
+          list.push({ id: docSnap.id, ...docSnap.data() } as OrderPlan);
+        });
+        if (list.length > 0) return list;
+      }
     } catch (err) {
-      console.warn('fetchOrderPlans from firestore notice:', err);
-      return [];
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
     }
+
+    try {
+      const serverRes = await fetch('/api/db');
+      if (serverRes.ok) {
+        const serverJson = await serverRes.json();
+        if (serverJson && Array.isArray(serverJson.orderPlans) && serverJson.orderPlans.length > 0) {
+          return serverJson.orderPlans;
+        }
+      }
+    } catch (e) {}
+
+    return [];
   }
 
   static async fetchLedgerRecords(): Promise<LedgerRecord[]> {
     try {
-      const colRef = collection(db, COLLECTIONS.LEDGER_RECORDS);
-      const snapshot = await getDocs(colRef);
-      const list: LedgerRecord[] = [];
-      snapshot.forEach(docSnap => {
-        list.push({ id: docSnap.id, ...docSnap.data() } as LedgerRecord);
-      });
-      return list;
+      if (!FirestoreSyncService.isQuotaExceededState) {
+        const colRef = collection(db, COLLECTIONS.LEDGER_RECORDS);
+        const snapshot = await getDocs(colRef);
+        const list: LedgerRecord[] = [];
+        snapshot.forEach(docSnap => {
+          list.push({ id: docSnap.id, ...docSnap.data() } as LedgerRecord);
+        });
+        if (list.length > 0) return list;
+      }
     } catch (err) {
-      console.warn('fetchLedgerRecords from firestore notice:', err);
-      return [];
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
     }
+
+    try {
+      const serverRes = await fetch('/api/db');
+      if (serverRes.ok) {
+        const serverJson = await serverRes.json();
+        if (serverJson && Array.isArray(serverJson.ledgerRecords) && serverJson.ledgerRecords.length > 0) {
+          return serverJson.ledgerRecords;
+        }
+      }
+    } catch (e) {}
+
+    return [];
   }
 
   /**
@@ -797,26 +1063,29 @@ export class FirestoreSyncService {
    */
   static async fetchAppConfigFromFirestore(): Promise<{ gasWebAppUrl?: string; databaseMode?: 'gas' | 'mock' } | null> {
     try {
-      const docRef = doc(db, COLLECTIONS.SETTINGS, 'app_config');
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data) {
-          return {
-            gasWebAppUrl: data.gasWebAppUrl,
-            databaseMode: data.databaseMode
-          };
+      if (!FirestoreSyncService.isQuotaExceededState) {
+        const docRef = doc(db, COLLECTIONS.SETTINGS, 'app_config');
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data) {
+            return {
+              gasWebAppUrl: data.gasWebAppUrl,
+              databaseMode: data.databaseMode
+            };
+          }
         }
       }
-    } catch (e) {
-      console.warn('Failed to fetch app_config from Firestore:', e);
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
     }
     return null;
   }
 
   /**
    * Subscribe to global App Configuration changes in Firestore (GAS Web App URL & DB mode)
-   * This enables instantaneous real-time synchronization across ALL connected devices.
    */
   static subscribeToAppConfig(callback: (config: { gasWebAppUrl?: string; databaseMode?: 'gas' | 'mock' }) => void) {
     try {
@@ -832,10 +1101,16 @@ export class FirestoreSyncService {
           }
         }
       }, (err) => {
-        console.warn('App config Firestore listener notice:', err);
+        if (FirestoreSyncService.isQuotaError(err)) {
+          FirestoreSyncService.setQuotaExceeded(true, err.message);
+        } else {
+          console.warn('App config Firestore listener notice:', err);
+        }
       });
     } catch (e) {
-      console.warn('Failed to subscribe to app_config in Firestore:', e);
+      if (FirestoreSyncService.isQuotaError(e)) {
+        FirestoreSyncService.setQuotaExceeded(true, (e as any)?.message);
+      }
       return () => {};
     }
   }
@@ -844,6 +1119,7 @@ export class FirestoreSyncService {
    * Persists global App Configuration to Firestore so every device updates in real time.
    */
   static async saveAppConfigToFirestore(gasWebAppUrl: string, databaseMode: 'gas' | 'mock'): Promise<void> {
+    if (FirestoreSyncService.isQuotaExceededState) return;
     try {
       const docRef = doc(db, COLLECTIONS.SETTINGS, 'app_config');
       await setDoc(docRef, {
@@ -851,8 +1127,10 @@ export class FirestoreSyncService {
         databaseMode,
         updatedAt: new Date().toISOString()
       }, { merge: true });
-    } catch (e) {
-      console.warn('Failed to save app_config to Firestore:', e);
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
     }
   }
 }

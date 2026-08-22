@@ -153,7 +153,60 @@ function loadDb() {
         'ESL-Extension': '16',
       }
     },
-    users: [],
+    users: [
+      {
+        id: 'usr-1',
+        userName: 'Md. Raihan Hossain Antu',
+        userType: 'Admin',
+        designation: 'Senior Manager',
+        uid: 'EKL001',
+        password: 'Password@2026',
+        department: 'Knitting',
+        assignedUnits: ['EKL', 'EFL', 'Auto Stripe'],
+        permission: 'Read / Write',
+        status: 'Active',
+        lastUpdated: '2026-07-15 10:30 AM'
+      },
+      {
+        id: 'usr-2',
+        userName: 'Zahirul Islam',
+        userType: 'Admin',
+        designation: 'General Manager (GM)',
+        uid: 'EKL002',
+        password: 'GmKnitting99',
+        department: 'Knitting',
+        assignedUnits: ['EKL', 'EFL', 'EFL-2', 'Auto Stripe', 'EFL-Extension', 'ESL-Extension', 'Sub-Contact'],
+        permission: 'Read / Write',
+        status: 'Active',
+        lastUpdated: '2026-07-15 11:45 AM'
+      },
+      {
+        id: 'usr-3',
+        userName: 'Akil Zaman',
+        userType: 'General',
+        designation: 'Assistant Manager',
+        uid: 'EKL003',
+        password: 'AkilZaman#456',
+        department: 'Knitting',
+        assignedUnits: ['EKL', 'EFL-2'],
+        permission: 'Read',
+        status: 'Active',
+        lastUpdated: '2026-07-14 02:15 PM'
+      },
+      {
+        id: 'usr-4',
+        userName: 'Nasrin Akhter',
+        userType: 'General',
+        designation: 'Executive',
+        uid: 'EKL004',
+        password: 'NasrinDyeing@1',
+        department: 'Dyeing',
+        assignedUnits: ['EFL', 'Auto Stripe'],
+        permission: 'Read',
+        status: 'Active',
+        lastUpdated: '2026-07-13 09:10 AM'
+      }
+    ],
     ledger: [],
     productionEntries: [],
     activityLogs: []

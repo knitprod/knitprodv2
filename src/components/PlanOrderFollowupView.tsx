@@ -785,17 +785,17 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       }
 
       const q = searchQuery.toLowerCase();
-      const orderNumStr = (ord.ewo || (ord as any).orderNumber || (ord as any).orderNo || '').toString().toLowerCase();
+      const orderNumStr = String(ord.ewo || (ord as any).orderNumber || (ord as any).orderNo || '').toLowerCase();
       const matchesSearch = 
         !q ||
         orderNumStr.includes(q) ||
-        ord.buyer.toLowerCase().includes(q) ||
-        ord.color.toLowerCase().includes(q) ||
-        ord.planMonth.toLowerCase().includes(q) ||
-        ord.planType.toLowerCase().includes(q) ||
-        (ord.knitStart && ord.knitStart.toLowerCase().includes(q)) ||
-        (ord.knitEnd && ord.knitEnd.toLowerCase().includes(q)) ||
-        (ord.knitTeamLeaders && ord.knitTeamLeaders.toLowerCase().includes(q));
+        String(ord.buyer || '').toLowerCase().includes(q) ||
+        String(ord.color || '').toLowerCase().includes(q) ||
+        String(ord.planMonth || '').toLowerCase().includes(q) ||
+        String(ord.planType || '').toLowerCase().includes(q) ||
+        String(ord.knitStart || '').toLowerCase().includes(q) ||
+        String(ord.knitEnd || '').toLowerCase().includes(q) ||
+        String(ord.knitTeamLeaders || '').toLowerCase().includes(q);
       
       const matchesBuyer = buyerFilter === 'All' || ord.buyer === buyerFilter;
       const matchesTeamLeader = teamLeaderFilter === 'All' ||
