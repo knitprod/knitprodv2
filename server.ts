@@ -12,7 +12,7 @@ app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 // In-memory cache for ultra-fast response times
-let cachedConfigObj: { gasWebAppUrl: string; databaseMode: 'gas' | 'mock' } | null = null;
+let cachedConfigObj: { gasWebAppUrl: string; databaseMode: 'gas' | 'mock'; supabaseUrl?: string; supabaseKey?: string } | null = null;
 let cachedDbObj: any = null;
 const gasProxyCache = new Map<string, { timestamp: number; data: any }>();
 const CACHE_TTL_MS = 15000; // 15-second cache for GET requests
@@ -23,9 +23,11 @@ const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbz6M8NmfDjG9GKd
 function loadConfig() {
   if (cachedConfigObj) return cachedConfigObj;
 
-  let config: { gasWebAppUrl: string; databaseMode: 'gas' | 'mock' } = {
+  let config: { gasWebAppUrl: string; databaseMode: 'gas' | 'mock'; supabaseUrl?: string; supabaseKey?: string } = {
     gasWebAppUrl: process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL || DEFAULT_GAS_URL,
     databaseMode: 'gas',
+    supabaseUrl: process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
+    supabaseKey: process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '',
   };
 
   if (fs.existsSync(CONFIG_FILE)) {
@@ -38,6 +40,12 @@ function loadConfig() {
         }
         if (data.databaseMode === 'gas' || data.databaseMode === 'mock') {
           config.databaseMode = data.databaseMode;
+        }
+        if (typeof data.supabaseUrl === 'string' && data.supabaseUrl.trim()) {
+          config.supabaseUrl = data.supabaseUrl.trim();
+        }
+        if (typeof data.supabaseKey === 'string' && data.supabaseKey.trim()) {
+          config.supabaseKey = data.supabaseKey.trim();
         }
       }
     } catch (e) {
@@ -54,7 +62,7 @@ function loadConfig() {
 }
 
 // Helper to save server configuration to disk
-function saveConfig(newConfig: Partial<{ gasWebAppUrl: string; databaseMode: 'gas' | 'mock' }>) {
+function saveConfig(newConfig: Partial<{ gasWebAppUrl: string; databaseMode: 'gas' | 'mock'; supabaseUrl?: string; supabaseKey?: string }>) {
   const current = loadConfig();
   const updated = {
     ...current,
@@ -320,10 +328,12 @@ app.get('/api/config', (req, res) => {
 
 // POST update central database configuration (syncs across all devices)
 app.post('/api/config', (req, res) => {
-  const { gasWebAppUrl, databaseMode } = req.body || {};
+  const { gasWebAppUrl, databaseMode, supabaseUrl, supabaseKey } = req.body || {};
   const updated = saveConfig({
     gasWebAppUrl: typeof gasWebAppUrl === 'string' ? gasWebAppUrl : undefined,
     databaseMode: (databaseMode === 'gas' || databaseMode === 'mock') ? databaseMode : undefined,
+    supabaseUrl: typeof supabaseUrl === 'string' ? supabaseUrl : undefined,
+    supabaseKey: typeof supabaseKey === 'string' ? supabaseKey : undefined,
   });
   res.json({ success: true, config: updated });
 });

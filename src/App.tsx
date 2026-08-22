@@ -52,6 +52,7 @@ import YarnAllocationView from './components/YarnAllocationView';
 import DashboardFilterToolbar, { FilterState } from './components/DashboardFilterToolbar';
 import { GasClient } from './lib/gasClient';
 import { FirestoreSyncService } from './lib/firestoreSync';
+import { SupabaseSync } from './lib/supabaseClient';
 import { auth } from './lib/firebase';
 import { onAuthStateChanged, signOut, updateProfile } from 'firebase/auth';
 import { getTargetKgForUnit, getTotalMachinesForUnit, saveUnitConfigs, getUnitConfigs } from './lib/unitStore';
@@ -523,8 +524,12 @@ export default function App() {
     }
   };
 
-  // Fetch central server database configuration (GAS URL & DB mode) on app startup
+  // Fetch central server database configuration (GAS URL, DB mode & Supabase) on app startup
   useEffect(() => {
+    // 1. Sync Supabase config from Firestore/Server to keep connection sticky
+    SupabaseSync.syncRemoteConfig().catch(() => {});
+
+    // 2. Sync GAS and fetch live data
     GasClient.fetchServerConfig().then((config) => {
       if (config && config.databaseMode === 'gas') {
         loadLiveGasData();
@@ -546,7 +551,7 @@ export default function App() {
       }
     });
 
-    // Realtime listener for App Config (GAS Web App URL) across ALL connected devices
+    // Realtime listener for App Config (GAS Web App URL & Supabase credentials) across ALL connected devices
     const unsubscribeAppConfig = FirestoreSyncService.subscribeToAppConfig((config) => {
       let updated = false;
       if (config.gasWebAppUrl && config.gasWebAppUrl.trim()) {
@@ -561,6 +566,12 @@ export default function App() {
         if (GasClient.getDatabaseMode() !== config.databaseMode) {
           GasClient.setDatabaseMode(config.databaseMode);
           updated = true;
+        }
+      }
+      if (config.supabaseUrl && config.supabaseKey) {
+        const currentSupabase = SupabaseSync.getStoredConfig();
+        if (currentSupabase.supabaseUrl !== config.supabaseUrl || currentSupabase.supabaseKey !== config.supabaseKey) {
+          SupabaseSync.setCredentials(config.supabaseUrl, config.supabaseKey, false);
         }
       }
       if (updated && GasClient.getDatabaseMode() === 'gas') {

@@ -1131,7 +1131,7 @@ export class FirestoreSyncService {
   /**
    * Fetch global App Configuration directly from Firestore (doc: settings/app_config)
    */
-  static async fetchAppConfigFromFirestore(): Promise<{ gasWebAppUrl?: string; databaseMode?: 'gas' | 'mock' } | null> {
+  static async fetchAppConfigFromFirestore(): Promise<{ gasWebAppUrl?: string; databaseMode?: 'gas' | 'mock'; supabaseUrl?: string; supabaseKey?: string } | null> {
     try {
       if (!FirestoreSyncService.isQuotaExceededState) {
         const docRef = doc(db, COLLECTIONS.SETTINGS, 'app_config');
@@ -1141,7 +1141,9 @@ export class FirestoreSyncService {
           if (data) {
             return {
               gasWebAppUrl: data.gasWebAppUrl,
-              databaseMode: data.databaseMode
+              databaseMode: data.databaseMode,
+              supabaseUrl: data.supabaseUrl,
+              supabaseKey: data.supabaseKey
             };
           }
         }
@@ -1155,18 +1157,20 @@ export class FirestoreSyncService {
   }
 
   /**
-   * Subscribe to global App Configuration changes in Firestore (GAS Web App URL & DB mode)
+   * Subscribe to global App Configuration changes in Firestore (GAS Web App URL & DB mode & Supabase)
    */
-  static subscribeToAppConfig(callback: (config: { gasWebAppUrl?: string; databaseMode?: 'gas' | 'mock' }) => void) {
+  static subscribeToAppConfig(callback: (config: { gasWebAppUrl?: string; databaseMode?: 'gas' | 'mock'; supabaseUrl?: string; supabaseKey?: string }) => void) {
     try {
       const docRef = doc(db, COLLECTIONS.SETTINGS, 'app_config');
       return onSnapshot(docRef, (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
-          if (data && (data.gasWebAppUrl || data.databaseMode)) {
+          if (data && (data.gasWebAppUrl || data.databaseMode || data.supabaseUrl)) {
             callback({
               gasWebAppUrl: data.gasWebAppUrl,
               databaseMode: data.databaseMode,
+              supabaseUrl: data.supabaseUrl,
+              supabaseKey: data.supabaseKey
             });
           }
         }
@@ -1195,6 +1199,25 @@ export class FirestoreSyncService {
       await setDoc(docRef, {
         gasWebAppUrl: gasWebAppUrl.trim(),
         databaseMode,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (err) {
+      if (FirestoreSyncService.isQuotaError(err)) {
+        FirestoreSyncService.setQuotaExceeded(true, (err as any)?.message);
+      }
+    }
+  }
+
+  /**
+   * Persists Supabase Configuration to Firestore so Vercel deployments and all remote browsers connect automatically.
+   */
+  static async saveSupabaseConfigToFirestore(supabaseUrl: string, supabaseKey: string): Promise<void> {
+    if (FirestoreSyncService.isQuotaExceededState) return;
+    try {
+      const docRef = doc(db, COLLECTIONS.SETTINGS, 'app_config');
+      await setDoc(docRef, {
+        supabaseUrl: supabaseUrl.trim(),
+        supabaseKey: supabaseKey.trim(),
         updatedAt: new Date().toISOString()
       }, { merge: true });
     } catch (err) {
