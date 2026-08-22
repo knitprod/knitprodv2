@@ -802,6 +802,20 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
           };
 
           // Robust fallback checks for Fabric GSM and Yarn RQ Qty if not matched by standard aliases
+          if (!colMap.orderNumber) {
+            const ordHeader = headers.find(h => {
+              const l = h.toLowerCase();
+              return l.includes('booking') || l.includes('order') || l.includes('ewo') || l.includes('job') || l.includes('po');
+            });
+            if (ordHeader) colMap.orderNumber = ordHeader;
+          }
+
+          if (!colMap.yarnRequired && colMap.allocatedYarn) {
+            colMap.yarnRequired = colMap.allocatedYarn;
+          } else if (!colMap.allocatedYarn && colMap.yarnRequired) {
+            colMap.allocatedYarn = colMap.yarnRequired;
+          }
+
           if (!colMap.fabricGsm) {
             const gsmHeader = headers.find(h => {
               const l = h.toLowerCase();
@@ -821,15 +835,12 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
             if (rqHeader) colMap.yarnRqQty = rqHeader;
           }
 
-          // Validate required source columns
+          // Validate required source columns (order number / booking is essential)
           const missingCols: string[] = [];
-          if (!colMap.orderNumber) missingCols.push('Fabric Booking No');
-          if (!colMap.yarnRequired) missingCols.push('Yarn Category');
-          if (!colMap.allocatedYarn) missingCols.push('Yarn Count Physical');
-          if (!colMap.allocationDate) missingCols.push('Allocation Date');
+          if (!colMap.orderNumber) missingCols.push('Fabric Booking No / Order Number');
 
           if (missingCols.length > 0) {
-            const errMsg = `Import Cancelled: Missing required column(s) in uploaded file: ${missingCols.join(', ')}. Please upload a valid Master Yarn Allocation file containing all required source columns.`;
+            const errMsg = `Import Cancelled: Missing required column(s) in uploaded file: ${missingCols.join(', ')}. Please upload a valid Master Yarn Allocation file.`;
             setUploadError(errMsg);
             setIsParsing(false);
 

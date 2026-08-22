@@ -249,7 +249,9 @@ export class GasClient {
    */
   static async fetchServerDb(): Promise<any> {
     try {
-      const res = await fetch('/api/db');
+      const res = await fetch('/api/db', {
+        headers: { 'Accept': 'application/json' },
+      });
       if (res.ok) {
         const json = await res.json();
         if (json && json.success && json.db) {
@@ -257,7 +259,7 @@ export class GasClient {
         }
       }
     } catch (err) {
-      console.warn("Could not fetch server DB:", err);
+      console.warn("Could not fetch server DB (offline/local fallback):", err);
     }
     return null;
   }
@@ -270,10 +272,11 @@ export class GasClient {
       await fetch('/api/db', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(partial)
+        body: JSON.stringify(partial),
+        keepalive: true
       });
     } catch (err) {
-      console.error("Could not save server DB:", err);
+      console.warn("Could not save server DB (will retry on next sync):", err);
     }
   }
 
@@ -1349,8 +1352,7 @@ export class GasClient {
   }
 
   // ==========================================================
-  // YARN ALLOCATION CRUD (Connected to Firebase Firestore)
-  // Google Sheet connection closed for Yarn Allocations
+  // YARN ALLOCATION CRUD (Synchronized with Google Sheets & Server DB)
   // ==========================================================
   static async fetchYarnAllocations(forceRefresh: boolean = false): Promise<any[]> {
     if (!forceRefresh && this.cachedYarnAllocations && this.cachedYarnAllocations.length > 0) {
@@ -1358,15 +1360,19 @@ export class GasClient {
     }
 
     let result: any[] = [];
-    
-    // 1. Primary: Fetch directly from Firebase Firestore
-    try {
-      const firestoreYarn = await FirestoreSyncService.fetchYarnAllocations();
-      if (firestoreYarn && Array.isArray(firestoreYarn) && firestoreYarn.length > 0) {
-        result = firestoreYarn.map((item: any, idx: number) => this.normalizeYarnObject(item, idx));
+
+    // 1. Primary: Fetch directly from Google Apps Script / Google Sheets
+    if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
+      try {
+        const queryParams: any = {};
+        if (forceRefresh) queryParams.refresh = 'true';
+        const res = await this.request<any[]>('yarn/list', 'GET', queryParams);
+        if (res.success && res.data && Array.isArray(res.data) && res.data.length > 0) {
+          result = res.data.map((item: any, idx: number) => this.normalizeYarnObject(item, idx));
+        }
+      } catch (e) {
+        console.warn("GAS fetch yarn allocations notice:", e);
       }
-    } catch (err) {
-      console.warn("Firestore fetch yarn allocations notice:", err);
     }
 
     // 2. Secondary: Fetch from Server Persistent DB
@@ -1381,6 +1387,18 @@ export class GasClient {
       }
     }
 
+    // 3. Fallback: Check Firestore
+    if (!result.length) {
+      try {
+        const firestoreYarn = await FirestoreSyncService.fetchYarnAllocations();
+        if (firestoreYarn && Array.isArray(firestoreYarn) && firestoreYarn.length > 0) {
+          result = firestoreYarn.map((item: any, idx: number) => this.normalizeYarnObject(item, idx));
+        }
+      } catch (err) {
+        console.warn("Firestore fetch yarn allocations notice:", err);
+      }
+    }
+
     if (result.length > 0) {
       this.cachedYarnAllocations = result;
     }
@@ -1388,26 +1406,41 @@ export class GasClient {
   }
 
   static async saveYarnAllocations(yarnAllocations: any[], replace: boolean = false): Promise<void> {
-    this.cachedYarnAllocations = replace ? yarnAllocations : [...yarnAllocations, ...(this.cachedYarnAllocations || []).filter((y: any) => !yarnAllocations.some((n: any) => n.id === y.id))];
-
-    let uploadInfoMeta = null;
-    try {
-      const saved = localStorage.getItem('master_yarn_upload_info');
-      if (saved) uploadInfoMeta = JSON.parse(saved);
-    } catch (e) {}
-
-    // 1. Direct Cloud Persistence in Firebase Firestore
-    try {
-      await FirestoreSyncService.batchSaveYarnAllocations(yarnAllocations, replace);
-    } catch (fsErr) {
-      console.warn("Firestore batchSaveYarnAllocations sync notice:", fsErr);
+    if (replace || !this.cachedYarnAllocations) {
+      this.cachedYarnAllocations = yarnAllocations;
+    } else {
+      const existingMap = new Map((this.cachedYarnAllocations || []).map((y: any) => [y.id, y]));
+      yarnAllocations.forEach((y: any) => existingMap.set(y.id, y));
+      this.cachedYarnAllocations = Array.from(existingMap.values());
     }
 
-    // 2. Server Persistent DB Cache
-    await this.saveServerDb({ 
-      yarnAllocations,
-      ...(uploadInfoMeta ? { master_yarn_upload_info: uploadInfoMeta } : {})
-    });
+    // 1. Save to Server DB cache
+    await this.saveServerDb({ yarnAllocations });
+
+    // 2. Forward write mutation to Google Apps Script / Google Sheets with chunking
+    if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
+      try {
+        const BATCH_SIZE = 500;
+        if (yarnAllocations.length <= BATCH_SIZE) {
+          const res = await this.request<any>('yarn/save', 'POST', { yarnAllocations, replace });
+          if (res && res.success === false) {
+            console.warn("GAS save yarn allocations notice:", res.message);
+          }
+        } else {
+          for (let i = 0; i < yarnAllocations.length; i += BATCH_SIZE) {
+            const chunk = yarnAllocations.slice(i, i + BATCH_SIZE);
+            const isFirstChunk = (i === 0);
+            const chunkReplace = isFirstChunk ? replace : false;
+            const res = await this.request<any>('yarn/save', 'POST', { yarnAllocations: chunk, replace: chunkReplace });
+            if (res && res.success === false) {
+              console.warn(`GAS batch save yarn allocations chunk ${Math.floor(i / BATCH_SIZE) + 1} notice:`, res.message);
+            }
+          }
+        }
+      } catch (e: any) {
+        console.warn("GAS save yarn allocations notice:", e);
+      }
+    }
   }
 
   static async deleteYarnAllocation(id: string): Promise<void> {
@@ -1415,14 +1448,7 @@ export class GasClient {
       this.cachedYarnAllocations = this.cachedYarnAllocations.filter((y: any) => y.id !== id);
     }
 
-    // 1. Delete from Firebase Firestore
-    try {
-      await FirestoreSyncService.deleteYarnAllocation(id);
-    } catch (fsErr) {
-      console.warn("Firestore deleteYarnAllocation notice:", fsErr);
-    }
-
-    // 2. Update Server DB
+    // 1. Update Server DB
     try {
       const db = await this.fetchServerDb();
       if (db && db.yarnAllocations) {
@@ -1430,6 +1456,15 @@ export class GasClient {
         await this.saveServerDb({ yarnAllocations: db.yarnAllocations });
       }
     } catch (e) {}
+
+    // 2. Delete from Google Apps Script / Google Sheets
+    if (this.getDatabaseMode() === 'gas' || this.getWebAppUrl()) {
+      try {
+        await this.request('yarn/delete', 'POST', { id });
+      } catch (e) {
+        console.warn("GAS delete yarn allocation notice:", e);
+      }
+    }
   }
 
   // ==========================================================

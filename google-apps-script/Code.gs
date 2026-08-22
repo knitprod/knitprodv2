@@ -15,7 +15,7 @@
 // ==========================================================
 // CONFIGURATION & GLOBAL CONSTANTS
 // ==========================================================
-var VERSION = "4.0.0-BulkSyncAndLock";
+var VERSION = "4.1.0-LockFixed";
 var CACHE_TTL_SECONDS = 10; // 10-second raw read cache in CacheService
 var LOCK_TIMEOUT_MS = 10000; // 10,000ms timeout for script write lock
 
@@ -135,14 +135,11 @@ function doPost(e) {
   var hasLock = false;
 
   try {
-    // Acquire exclusive write lock with 10,000ms timeout
-    hasLock = lock.waitLock(LOCK_TIMEOUT_MS);
-    if (!hasLock) {
-      return makeResponse({
-        success: false,
-        message: "Server is busy processing another update. Please retry in a moment.",
-        code: "LOCK_TIMEOUT"
-      });
+    // Acquire exclusive write lock with up to 30,000ms timeout
+    try {
+      hasLock = lock.tryLock(30000);
+    } catch (lockErr) {
+      hasLock = false;
     }
 
     // Auto-bootstrap required sheets if missing
