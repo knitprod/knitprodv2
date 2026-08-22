@@ -15,11 +15,17 @@ export class SupabaseSync {
   private static client: SupabaseClient | null = null;
   private static cachedConfig: { supabaseUrl: string; supabaseKey: string } | null = null;
 
+  // Central default credentials (hardcoded fallback so no device is ever prompted)
+  static DEFAULT_SUPABASE_URL = 'https://kwaezsfoalfhigzcnezd.supabase.co';
+  static DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3YWV6c2ZvYWxmaGlnemNuZXpkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczOTUzNzksImV4cCI6MjEwMjk3MTM3OX0.eYxuK9fCwix4i0GnHW-UBl2Kg_gZNOaPWvQ6FkMy_Qs';
+
   /**
    * Default / Current Supabase Configuration
    */
   static getStoredConfig(): { supabaseUrl: string; supabaseKey: string } {
-    if (this.cachedConfig) return this.cachedConfig;
+    if (this.cachedConfig && this.cachedConfig.supabaseUrl && this.cachedConfig.supabaseKey) {
+      return this.cachedConfig;
+    }
 
     const envUrl = typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL
       ? import.meta.env.VITE_SUPABASE_URL.trim()
@@ -36,8 +42,8 @@ export class SupabaseSync {
     }
 
     const config = {
-      supabaseUrl: localUrl || envUrl || '',
-      supabaseKey: localKey || envKey || ''
+      supabaseUrl: localUrl || envUrl || this.DEFAULT_SUPABASE_URL || '',
+      supabaseKey: localKey || envKey || this.DEFAULT_SUPABASE_KEY || ''
     };
 
     this.cachedConfig = config;
