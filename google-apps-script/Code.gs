@@ -1029,14 +1029,16 @@ function handleSaveLedgerRecordsInternal(ss, records, isReplace) {
     normHeaders = rawHeaders.map(function(h) { return normalizeHeaderName(h); });
   }
 
+  // STRICT SAFETY GUARD: Never clear or delete existing ledger rows unless explicitly confirmed with a non-empty valid dataset
   if (isReplace) {
+    if (!records || records.length === 0) {
+      // Never wipe the sheet on empty payload
+      return { success: true, message: "No records to replace; existing ledger sheet preserved safely.", count: 0 };
+    }
+
     var lastRow = sheet.getLastRow();
     if (lastRow > 1) {
       sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
-    }
-
-    if (records.length === 0) {
-      return { success: true, message: "Ledger sheet cleared.", count: 0 };
     }
 
     var matrix = records.map(function(rec, idx) {
@@ -1051,7 +1053,7 @@ function handleSaveLedgerRecordsInternal(ss, records, isReplace) {
     sheet.getRange(2, 1, matrix.length, normHeaders.length).setValues(matrix);
     return {
       success: true,
-      message: "Successfully replaced " + records.length + " ledger records in Google Sheets.",
+      message: "Successfully synchronized " + records.length + " ledger records in Google Sheets.",
       count: records.length
     };
   }
