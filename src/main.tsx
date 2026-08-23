@@ -12,6 +12,10 @@ if (typeof window !== 'undefined') {
     sessionStorage.removeItem('active_user_credentials');
     localStorage.removeItem('active_user_credentials');
     localStorage.removeItem('gas_web_app_url');
+    localStorage.removeItem('supabase_url');
+    localStorage.removeItem('supabase_anon_key');
+    sessionStorage.removeItem('supabase_url');
+    sessionStorage.removeItem('supabase_anon_key');
   } catch (e) {
     // Ignore storage access restrictions if any
   }

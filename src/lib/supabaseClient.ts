@@ -37,13 +37,16 @@ export class SupabaseSync {
     let localUrl = '';
     let localKey = '';
     if (typeof localStorage !== 'undefined') {
-      localUrl = localStorage.getItem('supabase_url') || '';
-      localKey = localStorage.getItem('supabase_anon_key') || '';
+      // Clean up legacy plain keys from localStorage if present
+      if (localStorage.getItem('supabase_url') || localStorage.getItem('supabase_anon_key')) {
+        localStorage.removeItem('supabase_url');
+        localStorage.removeItem('supabase_anon_key');
+      }
     }
 
     const config = {
-      supabaseUrl: localUrl || envUrl || this.DEFAULT_SUPABASE_URL || '',
-      supabaseKey: localKey || envKey || this.DEFAULT_SUPABASE_KEY || ''
+      supabaseUrl: envUrl || this.DEFAULT_SUPABASE_URL || '',
+      supabaseKey: envKey || this.DEFAULT_SUPABASE_KEY || ''
     };
 
     this.cachedConfig = config;
@@ -140,8 +143,8 @@ export class SupabaseSync {
     const cleanKey = key.trim();
 
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('supabase_url', cleanUrl);
-      localStorage.setItem('supabase_anon_key', cleanKey);
+      localStorage.removeItem('supabase_url');
+      localStorage.removeItem('supabase_anon_key');
     }
 
     this.cachedConfig = { supabaseUrl: cleanUrl, supabaseKey: cleanKey };
