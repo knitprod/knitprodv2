@@ -3,23 +3,24 @@
  * SPDX-License-Identifier: Apache-2.0
  * 
  * Epyllion Knitex Ltd. - Knitting Performance System
- * High-Concurrency Production Google Apps Script (GAS) Web App Backend
+ * High-Concurrency Production Google Apps Script (GAS) Web App Backend (v5.0.0-AtomicFresh)
  * 
- * Optimized for:
- * 1. Single-request bulk fetching of all datasets (Order Plans, Yarn Allocations, Production Ledger, Dashboard)
- * 2. High-performance CacheService zero-cost caching (10s read cache)
- * 3. LockService write queuing (10,000ms timeout) to prevent multi-user write conflicts
- * 4. Automatic cache invalidation upon mutation
+ * Key Features:
+ * 1. Atomic Idempotent Upserts: Prevents double entries and data loss by key-based row updates.
+ * 2. High-Performance Bulk Sync: Serves all sheets in a single request (<1s response with CacheService).
+ * 3. LockService Concurrency: 30-second write lock prevents race conditions from simultaneous edits.
+ * 4. Flexible Multi-Field Key Resolution: Robust date formatting & case-insensitive header matching.
+ * 5. Automatic Read Cache Purging: Ensures multi-device real-time consistency on write mutations.
  */
 
 // ==========================================================
 // CONFIGURATION & GLOBAL CONSTANTS
 // ==========================================================
-var VERSION = "4.1.0-LockFixed";
-var CACHE_TTL_SECONDS = 10; // 10-second raw read cache in CacheService
-var LOCK_TIMEOUT_MS = 10000; // 10,000ms timeout for script write lock
+var VERSION = "5.0.0-AtomicFresh";
+var CACHE_TTL_SECONDS = 10; // 10-second read cache
+var LOCK_TIMEOUT_MS = 30000; // 30,000ms timeout for script write lock
 
-// Cache keys for invalidation
+// Cache keys for automatic invalidation
 var CACHE_KEYS = [
   "bulk_read_all",
   "bulk_read_orders",
@@ -35,8 +36,7 @@ var CACHE_KEYS = [
 
 /**
  * Handles all HTTP GET requests.
- * By default (or with action=all / action=bulk), fetches all sheets in ONE single JSON payload.
- * Uses CacheService to serve reads instantly with zero Google API quota consumption.
+ * Supports action=all, action=orders, action=yarn, action=ledger, action=health.
  */
 function doGet(e) {
   try {
@@ -54,7 +54,7 @@ function doGet(e) {
             .setMimeType(ContentService.MimeType.JSON);
         }
       } catch (cacheErr) {
-        // Cache read fallback to live sheet read
+        // Fallback to live sheet read
       }
     }
 
@@ -94,24 +94,20 @@ function doGet(e) {
         };
         break;
       default:
-        // Default to all datasets for any unmatched action
         responseObj = handleGetAllDatasets(e);
         break;
     }
 
     var jsonString = JSON.stringify(responseObj);
 
-    // Store in CacheService for 10 seconds (if within 100KB limit)
+    // Store in CacheService for fast repeated reads (if within 100KB limit)
     try {
       if (jsonString.length < 98000) {
         var cache = CacheService.getScriptCache();
         cache.put(cacheKey, jsonString, CACHE_TTL_SECONDS);
-        if (action !== "all" && action !== "bulk") {
-          // Keep bulk_read_all updated
-        }
       }
     } catch (cachePutErr) {
-      // Ignore cache put overflow
+      // Ignore cache overflow
     }
 
     return ContentService.createTextOutput(jsonString)
@@ -120,7 +116,7 @@ function doGet(e) {
   } catch (error) {
     return makeResponse({
       success: false,
-      message: "Server Error: " + error.toString(),
+      message: "Server GET Error: " + error.toString(),
       timestamp: new Date().toISOString()
     });
   }
@@ -128,7 +124,7 @@ function doGet(e) {
 
 /**
  * Handles all HTTP POST requests with LockService concurrency protection.
- * Queues concurrent saves from 10–15 users, executes atomic updates, and purges read caches.
+ * Queues concurrent saves from multiple devices, executes atomic updates, and purges read caches.
  */
 function doPost(e) {
   var lock = LockService.getScriptLock();
@@ -137,7 +133,7 @@ function doPost(e) {
   try {
     // Acquire exclusive write lock with up to 30,000ms timeout
     try {
-      hasLock = lock.tryLock(30000);
+      hasLock = lock.tryLock(LOCK_TIMEOUT_MS);
     } catch (lockErr) {
       hasLock = false;
     }
@@ -173,12 +169,16 @@ function doPost(e) {
         result = handleSaveBulkDatasets(postData);
         break;
       case "orders/save":
+      case "orders/add":
+      case "orders/update":
         result = handleSaveOrderPlans(postData);
         break;
       case "orders/delete":
         result = handleDeleteOrderPlan(postData);
         break;
       case "yarn/save":
+      case "yarn/add":
+      case "yarn/update":
         result = handleSaveYarnAllocations(postData);
         break;
       case "yarn/delete":
@@ -203,7 +203,7 @@ function doPost(e) {
         break;
     }
 
-    // On successful write mutation, purge read cache so next reads fetch fresh data immediately
+    // Purge read caches immediately after any write mutation
     if (result && result.success !== false) {
       purgeReadCache();
     }
@@ -216,7 +216,7 @@ function doPost(e) {
       message: "Server POST Error: " + error.toString()
     });
   } finally {
-    // Release the script lock immediately in finally block
+    // Release the script lock safely
     if (hasLock) {
       try {
         lock.releaseLock();
@@ -234,9 +234,7 @@ function purgeReadCache() {
   try {
     var cache = CacheService.getScriptCache();
     cache.removeAll(CACHE_KEYS);
-  } catch (e) {
-    // Cache purge safe fallback
-  }
+  } catch (e) {}
 }
 
 /**
@@ -259,124 +257,115 @@ function handleGetAllDatasets(e) {
   
   var orderPlans = getOrderPlansInternal(ss);
   var yarnAllocations = getYarnAllocationsInternal(ss);
-  var ledger = getLedgerRecordsInternal(ss);
-
-  // Compute floor & KPI summary
-  var summary = computeDashboardSummary(ledger);
+  var ledgerRecords = getLedgerRecordsInternal(ss);
+  var dashboard = computeDashboardSummary(ledgerRecords);
 
   return {
     success: true,
-    version: VERSION,
-    timestamp: new Date().toISOString(),
     data: {
       orderPlans: orderPlans,
       yarnAllocations: yarnAllocations,
-      ledger: ledger,
-      floors: summary.floors,
-      kpis: summary.kpis,
-      totalOrders: orderPlans.length,
-      totalYarn: yarnAllocations.length,
-      totalLedger: ledger.length
+      ledger: ledgerRecords,
+      floors: dashboard.floors,
+      kpis: dashboard.kpis,
+      version: VERSION,
+      timestamp: new Date().toISOString()
     }
   };
 }
 
 /**
- * Handles bulk save of multiple collections in one atomic lock.
+ * Bulk save across multiple sheets in a single transaction.
  */
 function handleSaveBulkDatasets(payload) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var saved = { orders: 0, yarn: 0, ledger: 0 };
+  var resOrders = null;
+  var resYarn = null;
+  var resLedger = null;
 
   if (payload.orderPlans && Array.isArray(payload.orderPlans)) {
-    handleSaveOrderPlansInternal(ss, payload.orderPlans, payload.replace === true);
-    saved.orders = payload.orderPlans.length;
+    resOrders = handleSaveOrderPlansInternal(ss, payload.orderPlans, payload.replaceOrders === true);
   }
-
   if (payload.yarnAllocations && Array.isArray(payload.yarnAllocations)) {
-    handleSaveYarnAllocationsInternal(ss, payload.yarnAllocations, payload.replace === true);
-    saved.yarn = payload.yarnAllocations.length;
+    resYarn = handleSaveYarnAllocationsInternal(ss, payload.yarnAllocations, payload.replaceYarn === true);
   }
-
   if (payload.ledger && Array.isArray(payload.ledger)) {
-    handleSaveLedgerRecordsInternal(ss, payload.ledger, payload.replace === true);
-    saved.ledger = payload.ledger.length;
+    resLedger = handleSaveLedgerRecordsInternal(ss, payload.ledger, payload.replaceLedger === true);
   }
 
   return {
     success: true,
-    message: "Bulk datasets saved successfully with lock protection.",
-    saved: saved
+    message: "Bulk datasets updated successfully.",
+    orders: resOrders,
+    yarn: resYarn,
+    ledger: resLedger
   };
 }
 
 // ==========================================================
-// COLUMN HEADER NORMALIZATION HELPER
+// SHARED UTILITIES & HEADER NORMALIZATION
 // ==========================================================
 
-function normalizeHeaderName(headerStr) {
-  if (!headerStr) return "";
-  var raw = headerStr.toString().trim();
-  var str = raw.toLowerCase().replace(/[^a-z0-9]/g, "");
+function normalizeHeaderName(raw) {
+  if (!raw) return "";
+  var str = raw.toString().trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 
-  // Common ID
-  if (str === "id" || str === "recordid" || str === "entryid") return "id";
-
-  // Production Ledger field mappings
-  if (str === "unit" || str === "unitname" || str === "unittype") return "unit";
-  if (str === "year" || str === "calyear") return "year";
-  if (str === "month" || str === "calmonth") return "month";
-  if (str === "date" || str === "entrydate" || str === "productiondate") return "date";
-  if (str === "day" || str === "dayofweek" || str === "weekday") return "day";
+  // Common aliases
+  if (str === "id" || str === "uid" || str === "recordid") return "id";
+  if (str === "unit" || str === "factoryunit" || str === "unitname") return "unit";
+  if (str === "year") return "year";
+  if (str === "month") return "month";
+  if (str === "date" || str === "productiondate") return "date";
+  if (str === "day") return "day";
   if (str === "floor" || str === "floorname" || str === "factoryfloor") return "floor";
-  if (str === "target" || str === "targettotal" || str === "totaltarget" || str === "targetkg") return "target";
-  if (str === "shifta" || str === "shift1") return "shiftA";
-  if (str === "shiftb" || str === "shift2") return "shiftB";
-  if (str === "shiftc" || str === "shift3") return "shiftC";
-  if (str === "totalproduction" || str === "totalprod" || str === "productionkg" || str === "productiontotal") return "totalProduction";
-  if (str === "targetbulk" || str === "targetbulkkg" || str === "bulktarget") return "targetBulk";
-  if (str === "bulkprod" || str === "bulkproduction" || str === "bulkproductionkg") return "bulkProd";
-  if (str === "sampleprod" || str === "sampleproduction" || str === "sampleproductionkg") return "sampleProd";
-  if (str === "totalmachines" || str === "totalmc" || str === "totalmachinesallocated" || str === "allocatedmachines") return "totalMachines";
-  if (str === "runningbulk" || str === "runningbulkmc") return "runningBulk";
-  if (str === "runningsample" || str === "runningsamplemc") return "runningSample";
-  if (str === "runningmachine" || str === "runningmc" || str === "totalrunningmachine" || str === "activemachines") return "runningMachine";
+  if (str === "target" || str === "targettotal" || str === "totaltarget") return "target";
+  if (str === "shifta" || str === "shiftaqty") return "shiftA";
+  if (str === "shiftb" || str === "shiftbqty") return "shiftB";
+  if (str === "shiftc" || str === "shiftcqty") return "shiftC";
+  if (str === "totalproduction" || str === "totalprod" || str === "productionkg") return "totalProduction";
+  if (str === "targetbulk" || str === "bulktarget") return "targetBulk";
+  if (str === "bulkprod" || str === "bulkproduction") return "bulkProd";
+  if (str === "sampleprod" || str === "sampleproduction") return "sampleProd";
+  if (str === "totalmachines" || str === "totalmc") return "totalMachines";
+  if (str === "runningbulk" || str === "bulkmc") return "runningBulk";
+  if (str === "runningsample" || str === "samplemc") return "runningSample";
+  if (str === "runningmachine" || str === "runningmc" || str === "runningmachines") return "runningMachine";
   if (str === "idlemc" || str === "idlemachine" || str === "idlemachines") return "idleMc";
-  if (str === "machineutilization" || str === "machineutil" || str === "utilizationrate" || str === "mcutilization") return "machineUtilization";
-  if (str === "idlemcpct" || str === "idlemachinepct" || str === "idlemachinepercent") return "idleMcPct";
-  if (str === "idleproduction" || str === "idleproductionkg" || str === "lossidlemachine") return "idleProduction";
-  if (str === "efficiency" || str === "efficiencypercent" || str === "netefficiency") return "efficiency";
-  if (str === "propermc" || str === "productionpermachine" || str === "avgprodpermachine") return "proPerMc";
-  if (str === "reject" || str === "rejectkg" || str === "rejectedfabric") return "reject";
-  if (str === "rejectpct" || str === "rejectpercent" || str === "rejectratio") return "rejectPct";
-  if (str === "hold" || str === "holdkg" || str === "holdfabric") return "hold";
-  if (str === "holdpct" || str === "holdpercent" || str === "holdratio") return "holdPct";
+  if (str === "machineutilization" || str === "machineutilizationpct" || str === "mcutilization") return "machineUtilization";
+  if (str === "idlemcpct" || str === "idlemachinepct") return "idleMcPct";
+  if (str === "idleproduction" || str === "idleprod") return "idleProduction";
+  if (str === "efficiency" || str === "effpct" || str === "eff") return "efficiency";
+  if (str === "propermc" || str === "productionpermachine") return "proPerMc";
+  if (str === "reject" || str === "rejectkg") return "reject";
+  if (str === "rejectpct" || str === "rejectpercent") return "rejectPct";
+  if (str === "hold" || str === "holdkg") return "hold";
+  if (str === "holdpct" || str === "holdpercent") return "holdPct";
   if (str === "jhutecutpcs" || str === "jhute" || str === "cutpcs") return "jhuteCutpcs";
   if (str === "jhutecutpcspct" || str === "jhutepct") return "jhuteCutpcsPct";
-  if (str === "needlebroken" || str === "needlebreakage" || str === "needles") return "needleBroken";
-  if (str === "needleperkg" || str === "needlebrokenperkg" || str === "needlebrokenkg") return "needlePerKg";
-  if (str === "sinkerbroken" || str === "sinkerbreakage" || str === "sinkers") return "sinkerBroken";
-  if (str === "sinkerperkg" || str === "sinkerbrokenperkg" || str === "sinkerbrokenkg") return "sinkerPerKg";
-  if (str === "oilconsumption" || str === "oilconsumptionltr" || str === "oilltr") return "oilConsumption";
-  if (str === "beltbroken" || str === "beltbreakage" || str === "belts") return "beltBroken";
-  if (str === "othersparepartsname" || str === "sparepartsname" || str === "othersparepart") return "otherSparePartsName";
-  if (str === "othersparepartsqty" || str === "sparepartsqty") return "otherSparePartsQty";
-  if (str === "setchangepcs" || str === "setchange" || str === "setchangecount") return "setChangePcs";
-  if (str === "productionlossforeff" || str === "productionlossforefficiency" || str === "lossforeff") return "productionLossForEff";
-  if (str === "prodlossforsample" || str === "productionlossforsample" || str === "lossforsample") return "prodLossForSample";
-  if (str === "capacityutilization" || str === "capacityutil" || str === "capacityutilpct") return "capacityUtilization";
-  if (str === "totaloperator" || str === "totaloperators" || str === "operators") return "totalOperator";
-  if (str === "absent" || str === "absentcount" || str === "absentoperators") return "absent";
+  if (str === "needlebroken" || str === "needle") return "needleBroken";
+  if (str === "needleperkg" || str === "needlebrokenkg") return "needlePerKg";
+  if (str === "sinkerbroken" || str === "sinker") return "sinkerBroken";
+  if (str === "sinkerperkg" || str === "sinkerbrokenkg") return "sinkerPerKg";
+  if (str === "oilconsumption" || str === "oil") return "oilConsumption";
+  if (str === "beltbroken" || str === "belt") return "beltBroken";
+  if (str === "othersparepartsname" || str === "sparepartsname" || str === "sparename") return "otherSparePartsName";
+  if (str === "othersparepartsqty" || str === "sparepartsqty" || str === "spareqty") return "otherSparePartsQty";
+  if (str === "setchangepcs" || str === "setchange") return "setChangePcs";
+  if (str === "productionlossforeff" || str === "productionlossforefficiency" || str === "prodlossforeff") return "productionLossForEff";
+  if (str === "prodlossforsample" || str === "productionlossforsample") return "prodLossForSample";
+  if (str === "capacityutilization" || str === "capacityutilizationpct") return "capacityUtilization";
+  if (str === "totaloperator" || str === "operators" || str === "totaloperators") return "totalOperator";
+  if (str === "absent" || str === "absentcount") return "absent";
   if (str === "absentpct" || str === "absentpercent") return "absentPct";
-  if (str === "productionflatknit" || str === "flatknitproduction") return "productionFlatKnit";
-  if (str === "achievmentcircular" || str === "circularachievement") return "achievmentCircular";
-  if (str === "otd" || str === "otdstatus") return "otd";
-  if (str === "yarnissued" || str === "yarnissuekg") return "yarnIssued";
+  if (str === "productionflatknit" || str === "flatknitprod") return "productionFlatKnit";
+  if (str === "achievmentcircular" || str === "achievementcircular") return "achievmentCircular";
+  if (str === "otd") return "otd";
+  if (str === "yarnissued" || str === "yarnissue") return "yarnIssued";
   if (str === "totalrunningfactories" || str === "runningfactories") return "totalRunningFactories";
   if (str === "numbervehicles" || str === "vehicles") return "numberVehicles";
-  if (str === "fabricreturn" || str === "fabricreturned") return "fabricReturn";
-  if (str === "remarks" || str === "comment" || str === "comments" || str === "note" || str === "notes") return "remarks";
-  if (str === "lastupdated" || str === "updatedat" || str === "timestamp") return "lastUpdated";
+  if (str === "fabricreturn" || str === "returnfabric") return "fabricReturn";
+  if (str === "remarks" || str === "remark") return "remarks";
+  if (str === "lastupdated" || str === "updatedat") return "lastUpdated";
 
   // Yarn field mappings
   if (str.indexOf("actualreq") >= 0 || str.indexOf("requisitiondate") >= 0) return "actualRequisitionDate";
@@ -426,6 +415,9 @@ function normalizeHeaderName(headerStr) {
   return raw;
 }
 
+/**
+ * Standardize any date cell or string into clean YYYY-MM-DD.
+ */
 function formatDateCell(val, tz) {
   if (!val) return "";
   if (val instanceof Date) {
@@ -438,17 +430,19 @@ function formatDateCell(val, tz) {
       return year + "-" + month + "-" + day;
     }
   }
-  return val;
+  var strVal = val.toString().trim();
+  if (strVal.match(/^\d{4}-\d{2}-\d{2}/)) {
+    return strVal.substring(0, 10);
+  }
+  return strVal;
 }
 
 function getSheetCaseInsensitive(ss, candidateNames) {
   if (!ss) ss = SpreadsheetApp.getActiveSpreadsheet();
-  // 1. Direct exact sheet name lookup
   for (var c = 0; c < candidateNames.length; c++) {
     var s = ss.getSheetByName(candidateNames[c]);
     if (s) return s;
   }
-  // 2. Exact normalized lookup (case-insensitive & trimmed)
   var sheets = ss.getSheets();
   for (var j = 0; j < candidateNames.length; j++) {
     var cand = candidateNames[j].trim().toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -456,18 +450,6 @@ function getSheetCaseInsensitive(ss, candidateNames) {
       var name = sheets[i].getName().trim().toLowerCase().replace(/[^a-z0-9]/g, "");
       if (name === cand) {
         return sheets[i];
-      }
-    }
-  }
-  // 3. Substring match only if candidate is at least 4 characters long and starts with candidate
-  for (var j = 0; j < candidateNames.length; j++) {
-    var cand = candidateNames[j].trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-    if (cand.length >= 4) {
-      for (var i = 0; i < sheets.length; i++) {
-        var name = sheets[i].getName().trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-        if (name.indexOf(cand) === 0 || cand.indexOf(name) === 0) {
-          return sheets[i];
-        }
       }
     }
   }
@@ -597,7 +579,6 @@ function handleSaveOrderPlansInternal(ss, orders, isReplace) {
   var ewoCol = normHeaders.indexOf("ewo");
   var colorCol = normHeaders.indexOf("color");
   var buyerCol = normHeaders.indexOf("buyer");
-  var planMonthCol = normHeaders.indexOf("planMonth");
 
   var existingMap = {};
   for (var i = 1; i < data.length; i++) {
@@ -607,12 +588,11 @@ function handleSaveOrderPlansInternal(ss, orders, isReplace) {
     var rEwo = (ewoCol >= 0 && row[ewoCol]) ? row[ewoCol].toString().trim() : "";
     var rColor = (colorCol >= 0 && row[colorCol]) ? row[colorCol].toString().trim() : "";
     var rBuyer = (buyerCol >= 0 && row[buyerCol]) ? row[buyerCol].toString().trim() : "";
-    var rMonth = (planMonthCol >= 0 && row[planMonthCol]) ? row[planMonthCol].toString().trim() : "";
 
     if (rId) existingMap["id:" + rId.toLowerCase()] = rIndex;
     if (rEwo) existingMap["ewo:" + rEwo.toLowerCase()] = rIndex;
-    if (rEwo && rColor) existingMap["ewoColor:" + (rEwo + "|" + rColor).toLowerCase()] = rIndex;
-    if (rBuyer && rColor && rMonth) existingMap["buyerColorMonth:" + (rBuyer + "|" + rColor + "|" + rMonth).toLowerCase()] = rIndex;
+    if (rEwo && rColor) existingMap["ewoColor:" + (rEwo + "_" + rColor).toLowerCase()] = rIndex;
+    if (rBuyer && rColor && rEwo) existingMap["full:" + (rBuyer + "_" + rEwo + "_" + rColor).toLowerCase()] = rIndex;
   }
 
   var newRowsToAppend = [];
@@ -622,12 +602,11 @@ function handleSaveOrderPlansInternal(ss, orders, isReplace) {
     var ordEwo = (ord.ewo || "").toString().trim();
     var ordColor = (ord.color || "").toString().trim();
     var ordBuyer = (ord.buyer || "").toString().trim();
-    var ordMonth = (ord.planMonth || "").toString().trim();
 
     var matchedRowIndex = existingMap["id:" + ordId.toLowerCase()] ||
-      (ordEwo && ordColor ? existingMap["ewoColor:" + (ordEwo + "|" + ordColor).toLowerCase()] : 0) ||
+      (ordEwo && ordColor ? existingMap["ewoColor:" + (ordEwo + "_" + ordColor).toLowerCase()] : 0) ||
       (ordEwo ? existingMap["ewo:" + ordEwo.toLowerCase()] : 0) ||
-      (ordBuyer && ordColor && ordMonth ? existingMap["buyerColorMonth:" + (ordBuyer + "|" + ordColor + "|" + ordMonth).toLowerCase()] : 0);
+      (ordBuyer && ordColor && ordEwo ? existingMap["full:" + (ordBuyer + "_" + ordEwo + "_" + ordColor).toLowerCase()] : 0);
 
     var newRow = normHeaders.map(function(h, colIdx) {
       if (h === "id") return ordId;
@@ -662,12 +641,12 @@ function handleDeleteOrderPlan(payload) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = getOrderPlanSheetInternal(ss);
   if (!sheet) {
-    return { success: false, message: "Order Plan & Status sheet does not exist." };
+    return { success: false, message: "Order Plan sheet does not exist." };
   }
 
   var id = payload.id || (payload.data && payload.data.id) || payload.ewo;
   if (!id) {
-    return { success: false, message: "Order plan ID or EWO number is required for deletion." };
+    return { success: false, message: "Order ID or EWO is required for deletion." };
   }
 
   var data = sheet.getDataRange().getValues();
@@ -706,7 +685,7 @@ function handleDeleteOrderPlan(payload) {
 
 function getYarnSheetInternal(ss) {
   ss = ss || SpreadsheetApp.getActiveSpreadsheet();
-  return getSheetCaseInsensitive(ss, ["Yarn Allocation", "Yarn_Allocation", "YarnAllocation", "Yarn", "Yarn Allocation Summary"]);
+  return getSheetCaseInsensitive(ss, ["Yarn Allocation", "Yarn_Allocation", "YarnAllocations", "Yarn"]);
 }
 
 function getYarnAllocationsInternal(ss) {
@@ -737,7 +716,7 @@ function getYarnAllocationsInternal(ss) {
       item[propKey] = val;
     }
     if (!item.id || item.id === "") {
-      item.id = "yarn-" + (item.orderNumber || "ord") + "-" + (item.allocationNo || item.fabricShade || item.lotNo || i);
+      item.id = "yarn-" + (item.orderNumber || item.allocationNo || "alloc") + "-" + (item.lotNo || "") + "-" + i;
     }
     if (item.id || item.orderNumber || item.allocationNo || item.buyer) {
       yarnAllocations.push(item);
@@ -796,7 +775,7 @@ function handleSaveYarnAllocationsInternal(ss, items, isReplace) {
     }
 
     if (items.length === 0) {
-      return { success: true, message: "Sheet cleared successfully.", count: 0 };
+      return { success: true, message: "Yarn Allocation sheet cleared successfully.", count: 0 };
     }
 
     var matrix = items.map(function(yarnItem, idx) {
@@ -815,15 +794,15 @@ function handleSaveYarnAllocationsInternal(ss, items, isReplace) {
     sheet.getRange(2, 1, matrix.length, normHeaders.length).setValues(matrix);
     return {
       success: true,
-      message: "Successfully replaced " + items.length + " yarn allocation records in Google Sheets.",
+      message: "Successfully replaced " + items.length + " yarn allocations in Google Sheets.",
       count: items.length
     };
   }
 
   var idCol = normHeaders.indexOf("id");
+  var allocNoCol = normHeaders.indexOf("allocationNo");
   var orderNoCol = normHeaders.indexOf("orderNumber");
   var shadeCol = normHeaders.indexOf("fabricShade");
-  var allocNoCol = normHeaders.indexOf("allocationNo");
   var yarnReqCol = normHeaders.indexOf("yarnRequired");
   var lotNoCol = normHeaders.indexOf("lotNo");
 
@@ -832,9 +811,9 @@ function handleSaveYarnAllocationsInternal(ss, items, isReplace) {
     var rIndex = i + 1;
     var row = data[i];
     var rId = (idCol >= 0 && row[idCol]) ? row[idCol].toString().trim() : "";
+    var rAllocNo = (allocNoCol >= 0 && row[allocNoCol]) ? row[allocNoCol].toString().trim() : "";
     var rOrder = (orderNoCol >= 0 && row[orderNoCol]) ? row[orderNoCol].toString().trim() : "";
     var rShade = (shadeCol >= 0 && row[shadeCol]) ? row[shadeCol].toString().trim() : "";
-    var rAllocNo = (allocNoCol >= 0 && row[allocNoCol]) ? row[allocNoCol].toString().trim() : "";
     var rYarnReq = (yarnReqCol >= 0 && row[yarnReqCol]) ? row[yarnReqCol].toString().trim() : "";
     var rLotNo = (lotNoCol >= 0 && row[lotNoCol]) ? row[lotNoCol].toString().trim() : "";
 
@@ -937,7 +916,7 @@ function handleDeleteYarnAllocation(payload) {
 }
 
 // ==========================================================
-// 3. PRODUCTION LEDGER MODULE
+// 3. PRODUCTION LEDGER MODULE (ATOMIC & IDEMPOTENT)
 // ==========================================================
 
 function getLedgerSheetInternal(ss) {
@@ -1082,12 +1061,19 @@ function handleSaveLedgerRecordsInternal(ss, records, isReplace) {
   var floorCol = normHeaders.indexOf("floor");
   var unitCol = normHeaders.indexOf("unit");
 
+  var tz = "GMT+6";
+  try {
+    tz = (ss && ss.getSpreadsheetTimeZone()) || Session.getScriptTimeZone() || "GMT+6";
+  } catch (e) {}
+
+  // Build row lookup map
   var existingMap = {};
   for (var i = 1; i < data.length; i++) {
     var rIndex = i + 1;
     var row = data[i];
     var rId = (idCol >= 0 && row[idCol]) ? row[idCol].toString().trim() : "";
-    var rDate = (dateCol >= 0 && row[dateCol]) ? row[dateCol].toString().trim() : "";
+    var rawDateCell = (dateCol >= 0) ? row[dateCol] : "";
+    var rDate = formatDateCell(rawDateCell, tz);
     var rFloor = (floorCol >= 0 && row[floorCol]) ? row[floorCol].toString().trim() : "";
     var rUnit = (unitCol >= 0 && row[unitCol]) ? row[unitCol].toString().trim() : "";
 
@@ -1099,11 +1085,13 @@ function handleSaveLedgerRecordsInternal(ss, records, isReplace) {
   var newRowsToAppend = [];
 
   records.forEach(function(rec, idx) {
-    var recId = (rec.id || ("rec-" + (rec.date || Date.now()) + "-" + (rec.floor || "unit") + "-" + (idx + 1))).toString().trim();
-    var recDate = (rec.date || "").toString().trim();
+    var cleanFloorSlug = (rec.floor || "unit").toString().toLowerCase().replace(/[^a-z0-9]/g, "-");
+    var recDate = formatDateCell(rec.date, tz);
     var recFloor = (rec.floor || "").toString().trim();
     var recUnit = (rec.unit || "").toString().trim();
+    var recId = (rec.id || ("rec-" + (recDate || "nodate") + "-" + cleanFloorSlug + "-" + (idx + 1))).toString().trim();
 
+    // Idempotent multi-key match
     var matchedRowIndex = existingMap["id:" + recId.toLowerCase()] ||
       (recDate && recFloor ? existingMap["dateFloor:" + (recDate + "_" + recFloor).toLowerCase()] : 0) ||
       (recDate && recFloor && recUnit ? existingMap["dateFloorUnit:" + (recDate + "_" + recFloor + "_" + recUnit).toLowerCase()] : 0);
@@ -1115,9 +1103,13 @@ function handleSaveLedgerRecordsInternal(ss, records, isReplace) {
     });
 
     if (matchedRowIndex && matchedRowIndex > 1) {
+      // Overwrite existing row in place
       sheet.getRange(matchedRowIndex, 1, 1, normHeaders.length).setValues([newRow]);
     } else {
       newRowsToAppend.push(newRow);
+      // Register in existingMap to prevent duplicate within the same batch
+      if (recId) existingMap["id:" + recId.toLowerCase()] = 999999;
+      if (recDate && recFloor) existingMap["dateFloor:" + (recDate + "_" + recFloor).toLowerCase()] = 999999;
     }
   });
 

@@ -658,56 +658,22 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     }
   };
 
-  // 1. Subscribe to Firestore for real-time multi-device ledger sync across mobile/tablet/desktop
+  // 1. Synchronize mode configuration & listen for manual sync events
   React.useEffect(() => {
-    const unsubscribe = FirestoreSyncService.subscribeToLedgerRecords((records) => {
-      if (records && Array.isArray(records) && records.length > 0) {
-        setLedger(records);
-        globalBulkSaveLedgerRecords(records, true).catch(() => {});
-      }
-    });
-
-    // Seed initial ledger into Firestore ONLY if we have no ledger anywhere
-    if (!globalLedger || globalLedger.length === 0) {
-      const initial = generateInitialLedger();
-      FirestoreSyncService.seedInitialDataIfEmpty([], [], initial).catch(err => {
-        console.warn("Firestore ledger initial seed check notice:", err);
-      });
-    }
-
-    return () => unsubscribe();
-  }, []);
-
-  // 2. Load mode configuration & fetch GAS records & listen for sync events
-  React.useEffect(() => {
-    const initAndLoad = async () => {
+    const initMode = async () => {
       const config = await GasClient.fetchServerConfig();
       const activeMode = config.databaseMode || GasClient.getDatabaseMode();
       const activeUrl = config.gasWebAppUrl || GasClient.getWebAppUrl();
-
       if (activeMode === 'gas' && activeUrl) {
         setIsGasMode(true);
-        // Only fetch if globalLedger is currently empty
-        if (!globalLedger || globalLedger.length === 0) {
-          loadGasLedger(false);
-        }
-      } else {
-        // Fallback: sync with central server DB
-        if (!globalLedger || globalLedger.length === 0) {
-          const db = await GasClient.fetchServerDb();
-          if (db && Array.isArray(db.ledger) && db.ledger.length > 0) {
-            setLedger(db.ledger);
-            globalBulkSaveLedgerRecords(db.ledger, true).catch(() => {});
-          }
-        }
       }
     };
-    initAndLoad();
+    initMode();
 
     const handleSync = () => loadGasLedger(true);
     window.addEventListener('gas_data_synced', handleSync);
     return () => window.removeEventListener('gas_data_synced', handleSync);
-  }, [globalLedger?.length]);
+  }, []);
 
   // 3. Debounced server DB backup to prevent mobile main-thread lag
   React.useEffect(() => {
@@ -1528,22 +1494,13 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
     // Update local state immediately
     setLedger((prev) => [recordWithTempId, ...prev]);
-    globalSaveLedgerRecord(recordWithTempId).catch(() => {});
+    // Single source of truth: globalSaveLedgerRecord dispatches to local state, Firestore & Google Sheets
+    globalSaveLedgerRecord(recordWithTempId).catch((err: any) => {
+      console.warn("Global ledger save notice:", err);
+    });
     setIsCreateModalOpen(false);
     setCreatingRecord(null);
     triggerToast(`Production entry for ${creatingRecord.floor} on ${creatingRecord.date} saved & syncing.`);
-
-    // 1. Sync with Firestore
-    FirestoreSyncService.saveLedgerRecord(recordWithTempId, currentUser?.userName || 'Manager')
-      .catch((err: any) => {
-        console.warn("Background ledger save notice:", err);
-      });
-
-    // 2. Sync with GAS / Google Sheets
-    GasClient.addLedgerEntry(recordWithTempId)
-      .catch((gasErr: any) => {
-        console.warn("GAS submission notice:", gasErr);
-      });
   };
 
   // ----------------------------------------------------
@@ -1692,22 +1649,13 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
     const recordToSave = { ...editingRecord };
     setLedger((prev) => prev.map((r) => (r.id === recordToSave.id ? recordToSave : r)));
-    globalSaveLedgerRecord(recordToSave).catch(() => {});
+    // Single source of truth: globalSaveLedgerRecord dispatches to local state, Firestore & Google Sheets
+    globalSaveLedgerRecord(recordToSave).catch((err: any) => {
+      console.warn("Global ledger edit sync notice:", err);
+    });
     setIsEditModalOpen(false);
     setEditingRecord(null);
     triggerToast(`Production record for ${recordToSave.floor} on ${recordToSave.date} updated & syncing across devices.`);
-
-    // 1. Sync with Firestore
-    FirestoreSyncService.saveLedgerRecord(recordToSave, currentUser?.userName || 'Manager')
-      .catch((err: any) => {
-        console.warn("Background ledger update notice:", err);
-      });
-
-    // 2. Sync with Google Sheets / GAS
-    GasClient.updateLedgerEntry(recordToSave)
-      .catch((gasErr: any) => {
-        console.warn("GAS edit sync notice:", gasErr);
-      });
   };
 
   // ----------------------------------------------------
@@ -1730,22 +1678,13 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const details = targetRecord ? `${targetRecord.floor} on ${targetRecord.date}` : '';
 
     setLedger((prev) => prev.filter((r) => r.id !== targetId));
-    globalDeleteLedgerRecord(targetId).catch(() => {});
+    // Single source of truth: globalDeleteLedgerRecord dispatches to local state, Firestore & Google Sheets
+    globalDeleteLedgerRecord(targetId).catch((err: any) => {
+      console.warn("Global ledger delete sync notice:", err);
+    });
     setIsDeleteConfirmOpen(false);
     setDeletingRecordId(null);
     triggerToast(`Production record for ${details} deleted & syncing across devices.`);
-
-    // 1. Sync deletion with Firestore
-    FirestoreSyncService.deleteLedgerRecord(targetId)
-      .catch((err: any) => {
-        console.warn("Background ledger delete notice:", err);
-      });
-
-    // 2. Sync deletion with Google Sheets / GAS
-    GasClient.deleteLedgerEntry(targetId)
-      .catch((gasErr: any) => {
-        console.warn("GAS delete sync notice:", gasErr);
-      });
   };
 
   // ----------------------------------------------------
