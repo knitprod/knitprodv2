@@ -30,6 +30,7 @@ import {
 } from '../lib/unitStore';
 import { FirestoreSyncService } from '../lib/firestoreSync';
 import { UserRecord } from './UserManagementView';
+import { ALL_FACTORY_FLOORS, normalizeFloorKey } from '../lib/userPermissions';
 import { ShieldCheck, Lock } from 'lucide-react';
 
 interface AddProductionRecordModalProps {
@@ -80,18 +81,57 @@ export default function AddProductionRecordModal({
     };
   }, []);
 
-  if (!isOpen || !record) return null;
-
-  const allFloors = ['EKL', 'EFL', 'EFL-2', 'Auto Stripe', 'Extension', 'ESL-Extension', 'Sub-Contact'];
+  const allFloors = ALL_FACTORY_FLOORS;
   const isAdmin = currentUser?.userType === 'Admin';
   
-  // Filter floors by user assigned units if not admin
-  const floors = (allowedFloors && allowedFloors.length > 0)
-    ? allFloors.filter(f => allowedFloors.some(af => af.toLowerCase().replace(/[-\s_]/g, '') === f.toLowerCase().replace(/[-\s_]/g, '')))
-    : (isAdmin ? allFloors : (record.floor ? [record.floor] : allFloors));
+  // Calculate allowed floors safely for current user
+  const floors = React.useMemo(() => {
+    if (isAdmin) return allFloors;
+
+    const userUnits = (allowedFloors && allowedFloors.length > 0)
+      ? allowedFloors
+      : (currentUser?.assignedUnits && currentUser.assignedUnits.length > 0 ? currentUser.assignedUnits : []);
+
+    if (userUnits.length > 0) {
+      const normalizedUserUnits = userUnits.map(normalizeFloorKey).filter(Boolean);
+      if (normalizedUserUnits.some(u => u.toLowerCase() === 'all' || u.toLowerCase() === 'allunits')) {
+        return allFloors;
+      }
+      
+      const matched = allFloors.filter(f => 
+        normalizedUserUnits.some(u => normalizeFloorKey(u) === normalizeFloorKey(f))
+      );
+      if (matched.length > 0) return matched;
+      
+      // If no standard floor matched, return the normalized user units
+      const custom = normalizedUserUnits.filter(Boolean);
+      if (custom.length > 0) return custom;
+    }
+
+    if (record?.floor) {
+      const norm = normalizeFloorKey(record.floor);
+      const match = allFloors.find(f => normalizeFloorKey(f) === norm);
+      return [match || norm || 'EKL'];
+    }
+
+    return allFloors;
+  }, [isAdmin, allowedFloors, currentUser?.assignedUnits, record?.floor]);
+
+  // Keep record.floor in sync with valid options
+  React.useEffect(() => {
+    if (isOpen && record) {
+      const currentNorm = normalizeFloorKey(record.floor || '');
+      const validOption = floors.find(f => normalizeFloorKey(f) === currentNorm) || floors[0] || 'EKL';
+      if (!record.floor || normalizeFloorKey(record.floor) !== normalizeFloorKey(validOption)) {
+        onChange('floor', validOption);
+      }
+    }
+  }, [isOpen, record?.floor, floors]);
+
+  if (!isOpen || !record) return null;
 
   // Current floor setting values for live preview calculation
-  const currentFloor = record.floor || 'EKL';
+  const currentFloor = record.floor || (floors[0] || 'EKL');
   const isSubContact = currentFloor === 'Sub-Contact' || record.unit === 'Sub-Contact';
   const unitCapacity = getProductionCapacityForUnit(currentFloor);
   const avgProdPerMc = getAvgProdPerMachineForUnit(currentFloor);
@@ -285,10 +325,18 @@ export default function AddProductionRecordModal({
                   )}
                 </div>
                 <select
-                  value={record.floor ?? (floors[0] || 'EKL')}
+                  value={
+                    record.floor 
+                      ? (floors.find(fl => normalizeFloorKey(fl) === normalizeFloorKey(record.floor)) || normalizeFloorKey(record.floor)) 
+                      : (floors[0] || 'EKL')
+                  }
                   onChange={(e) => onChange('floor', e.target.value)}
                   className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                 >
+                  {/* Fallback option if record.floor is not already in list */}
+                  {record.floor && !floors.some(fl => normalizeFloorKey(fl) === normalizeFloorKey(record.floor)) && (
+                    <option value={record.floor}>{normalizeFloorKey(record.floor)}</option>
+                  )}
                   {floors.map((fl) => (
                     <option key={fl} value={fl}>{fl}</option>
                   ))}

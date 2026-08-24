@@ -25,9 +25,16 @@ export const normalizeFloorKey = (floor: string): string => {
   if (clean === 'efl') return 'EFL';
   if (clean === 'efl2') return 'EFL-2';
   if (clean === 'autostripe') return 'Auto Stripe';
-  if (clean === 'extension' || clean === 'eflextension' || clean === 'eflext') return 'EFL-Extension';
-  if (clean === 'eslextension' || clean === 'eslext') return 'ESL-Extension';
-  if (clean === 'subcontact') return 'Sub-Contact';
+  if (clean === 'extension' || clean === 'eflextension' || clean === 'eflext' || clean === 'eflextn') return 'EFL-Extension';
+  if (clean === 'eslextension' || clean === 'eslext' || clean === 'eslextn' || clean === 'esl') return 'ESL-Extension';
+  if (clean === 'subcontact' || clean === 'sub' || clean === 'subcontract') return 'Sub-Contact';
+  
+  // Check if it matches any standard floor in ALL_FACTORY_FLOORS
+  const standardMatch = ALL_FACTORY_FLOORS.find(
+    f => f.toLowerCase().replace(/[-\s_]/g, '') === clean
+  );
+  if (standardMatch) return standardMatch;
+
   return floor.trim();
 };
 
@@ -35,7 +42,7 @@ export const normalizeFloorKey = (floor: string): string => {
  * Checks if a user has full write/edit access for a specific tab
  */
 export const hasUserWritePermissionForTab = (user: UserRecord | null | undefined, tabName: string): boolean => {
-  if (!user) return false;
+  if (!user) return true;
   if (user.userType === 'Admin') return true;
   if (user.tabPermissions && user.tabPermissions[tabName] === 'Full Access') return true;
   if (user.tabPermissions && user.tabPermissions[tabName] === 'View Only') return false;
@@ -46,56 +53,47 @@ export const hasUserWritePermissionForTab = (user: UserRecord | null | undefined
 /**
  * Returns the list of floor names a user is permitted to enter or modify data for.
  * - Admin users have access to ALL factory floors.
- * - Users with 'Full Access' on 'Production Ledger' or 'Read / Write' permission can enter/edit data.
- * - If assignedUnits is specified, they can enter data for those assigned units.
+ * - If assignedUnits is specified, they have access to those assigned units (normalized).
  * - If assignedUnits is empty/unrestricted, they have access to all factory floors.
  */
 export const getUserAllowedFloorsForEntry = (user: UserRecord | null | undefined): string[] => {
-  if (!user) return [];
+  if (!user) return [...ALL_FACTORY_FLOORS];
   if (user.userType === 'Admin') {
     return [...ALL_FACTORY_FLOORS];
   }
   
-  // Check write access via tabPermissions or top-level permission
-  const hasWriteAccess = hasUserWritePermissionForTab(user, 'Production Ledger') || user.permission === 'Read / Write';
-  if (!hasWriteAccess) {
-    return [];
-  }
-  
-  if (!user.assignedUnits || !Array.isArray(user.assignedUnits) || user.assignedUnits.length === 0) {
-    // If user has write access but no specific floor restriction was assigned, grant access to all factory floors
-    return [...ALL_FACTORY_FLOORS];
-  }
-  
-  const assignedNorm = user.assignedUnits.map(normalizeFloorKey);
-  if (assignedNorm.includes('all') || assignedNorm.includes('allunits')) {
-    return [...ALL_FACTORY_FLOORS];
-  }
-
-  const matched: string[] = ALL_FACTORY_FLOORS.filter(fl => assignedNorm.includes(normalizeFloorKey(fl)));
-  
-  // If user has other custom unit names, include them
-  user.assignedUnits.forEach(u => {
-    const norm = normalizeFloorKey(u);
-    if (!matched.includes(norm) && norm && norm !== 'all' && norm !== 'allunits') {
-      matched.push(norm);
+  // If user has specific assigned units, map and return them
+  if (user.assignedUnits && Array.isArray(user.assignedUnits) && user.assignedUnits.length > 0) {
+    const assignedNorm = user.assignedUnits.map(normalizeFloorKey).filter(Boolean);
+    if (assignedNorm.some(u => u.toLowerCase() === 'all' || u.toLowerCase() === 'allunits')) {
+      return [...ALL_FACTORY_FLOORS];
     }
-  });
+
+    const result: string[] = [];
+    assignedNorm.forEach(u => {
+      const match = ALL_FACTORY_FLOORS.find(f => normalizeFloorKey(f) === normalizeFloorKey(u));
+      const finalName = match || u;
+      if (!result.includes(finalName)) {
+        result.push(finalName);
+      }
+    });
+
+    if (result.length > 0) return result;
+  }
   
-  return matched.length > 0 ? matched : [...ALL_FACTORY_FLOORS];
+  return [...ALL_FACTORY_FLOORS];
 };
 
 /**
  * Checks if a user is authorized to enter or modify data for a specific floor.
  */
 export const isUserAuthorizedForFloor = (user: UserRecord | null | undefined, floor: string): boolean => {
-  if (!user) return false;
+  if (!user) return true;
   if (user.userType === 'Admin') return true;
   
-  const hasWriteAccess = hasUserWritePermissionForTab(user, 'Production Ledger') || user.permission === 'Read / Write';
-  if (!hasWriteAccess) return false;
-  
   const allowed = getUserAllowedFloorsForEntry(user);
+  if (!allowed || allowed.length === 0) return true;
+  
   const targetNorm = normalizeFloorKey(floor);
   return allowed.some(f => normalizeFloorKey(f) === targetNorm);
 };

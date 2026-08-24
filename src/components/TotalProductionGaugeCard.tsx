@@ -4,85 +4,101 @@
  */
 
 import React from 'react';
-import { Target } from 'lucide-react';
 
-export interface TotalTargetGaugeCardProps {
+export interface TotalProductionGaugeCardProps {
   key?: React.Key;
-  totalTarget: number;
-  totalBulk?: number;
+  totalProduction: number;
+  totalBulkProduction?: number;
   monthName?: string;
-  monthTotal?: number;
-  monthBulk?: number;
-  inHouseTarget?: number;
-  subContactTarget?: number;
+  monthTotalProduction?: number;
+  monthBulkProduction?: number;
+  inHouseBulkProduction?: number;
+  subContactBulkProduction?: number;
   inHousePct?: number;
   subContactPct?: number;
-  lastMonthBulkTarget?: number;
+  sampleProduction?: number;
+  prodLossForSample?: number;
+  lastMonthProduction?: number;
   growthPct?: number;
   achievementPct?: number;
   className?: string;
 }
 
-export default function TotalTargetGaugeCard({
-  totalTarget,
-  totalBulk,
+export default function TotalProductionGaugeCard({
+  totalProduction,
+  totalBulkProduction,
   monthName = 'August',
-  monthTotal,
-  monthBulk,
-  inHouseTarget,
-  subContactTarget,
+  monthTotalProduction,
+  monthBulkProduction,
+  inHouseBulkProduction,
+  subContactBulkProduction,
   inHousePct,
   subContactPct,
-  lastMonthBulkTarget,
-  growthPct = -29,
-  achievementPct,
+  sampleProduction = 0,
+  prodLossForSample = 0,
+  lastMonthProduction,
+  growthPct = -21,
+  achievementPct = 80,
   className = '',
-}: TotalTargetGaugeCardProps) {
+}: TotalProductionGaugeCardProps) {
   // 1. Resolve Monthly Totals & Bulk (strictly rounded integers, no fractions)
   const calculatedMonthTotal = Math.round(
-    monthTotal !== undefined ? monthTotal : totalTarget
+    monthTotalProduction !== undefined ? monthTotalProduction : totalProduction
   );
 
   const calculatedTotalBulk = Math.round(
-    totalBulk !== undefined ? totalBulk : totalTarget * 0.98
+    totalBulkProduction !== undefined ? totalBulkProduction : totalProduction * 0.98
   );
 
   const calculatedMonthBulk = Math.round(
-    monthBulk !== undefined
-      ? monthBulk
-      : (inHouseTarget !== undefined && subContactTarget !== undefined
-          ? inHouseTarget + subContactTarget
+    monthBulkProduction !== undefined
+      ? monthBulkProduction
+      : (inHouseBulkProduction !== undefined && subContactBulkProduction !== undefined
+          ? inHouseBulkProduction + subContactBulkProduction
           : calculatedMonthTotal * 0.98)
   );
 
-  // 2. In-House & Sub-Contact are strictly the breakdown of Bulk Target (strictly rounded integers)
+  // 2. In-House & Sub-Contact are strictly the breakdown of Bulk Production (strictly rounded integers)
   const calculatedSubContactBulk = Math.round(
-    subContactTarget !== undefined
-      ? subContactTarget
+    subContactBulkProduction !== undefined
+      ? subContactBulkProduction
       : (subContactPct !== undefined
           ? calculatedMonthBulk * (subContactPct / 100)
-          : calculatedMonthBulk * 0.41)
+          : calculatedMonthBulk * 0.43)
   );
 
   const calculatedInHouseBulk = Math.round(
-    inHouseTarget !== undefined
-      ? inHouseTarget
+    inHouseBulkProduction !== undefined
+      ? inHouseBulkProduction
       : (inHousePct !== undefined
           ? calculatedMonthBulk * (inHousePct / 100)
           : Math.max(0, calculatedMonthBulk - calculatedSubContactBulk))
   );
 
-  // 3. Gauge Percentages (Split of Bulk Target: In-House % vs Sub-Contact %)
+  // 3. Gauge Percentages (Split of Bulk Production: In-House % vs Sub-Contact %)
   const computedInHousePct = calculatedMonthBulk > 0
     ? Math.round((calculatedInHouseBulk / calculatedMonthBulk) * 100)
-    : (inHousePct !== undefined ? inHousePct : 59);
+    : (inHousePct !== undefined ? inHousePct : 57);
   const clampedInHousePct = Math.min(100, Math.max(0, computedInHousePct));
   const clampedSubContactPct = 100 - clampedInHousePct;
 
-  const calculatedLastMonthBulk = Math.round(
-    lastMonthBulkTarget !== undefined
-      ? lastMonthBulkTarget
-      : calculatedMonthBulk / (1 + (growthPct / 100))
+  // 4. Sample Production & Production Loss For Sample (strictly rounded integers)
+  const calculatedSampleProd = Math.round(
+    sampleProduction !== undefined
+      ? sampleProduction
+      : Math.max(0, calculatedMonthTotal - calculatedMonthBulk)
+  );
+
+  const calculatedProdLoss = Math.round(
+    prodLossForSample !== undefined
+      ? prodLossForSample
+      : calculatedSampleProd * 1.5
+  );
+
+  const calculatedLastMonthProd = Math.round(
+    lastMonthProduction !== undefined
+      ? lastMonthProduction
+      : calculatedMonthTotal / (1 + (growthPct / 100))
   );
 
   // Growth sign check
@@ -107,19 +123,19 @@ export default function TotalTargetGaugeCard({
   return (
     <div 
       className={`rounded-xl border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xs overflow-hidden flex flex-col justify-between transition-all duration-200 hover:shadow-md ${className}`}
-      id="total-target-kpi-gauge-card"
+      id="total-production-kpi-gauge-card"
     >
-      {/* 1. Header Bar: Total Target | Total: xxxKg | Bulk: xxxKg */}
+      {/* 1. Header Bar: Total Production | Total: xxxKg | Bulk: xxxKg */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 dark:border-slate-800 bg-gray-50/70 dark:bg-slate-800/50 px-3.5 py-2">
         <div className="flex items-center gap-2">
-          {/* Target Icon with outer ring */}
+          {/* Production / Factory Icon with outer ring */}
           <div className="flex h-6 w-6 items-center justify-center rounded-full border border-gray-800 dark:border-slate-200 bg-white dark:bg-slate-900 text-gray-900 dark:text-white shadow-2xs">
-            <Target className="h-3.5 w-3.5 text-gray-900 dark:text-white" />
+            <span className="text-xs leading-none">🏭</span>
           </div>
           <span className="font-sans text-xs font-black text-gray-900 dark:text-white tracking-tight">
-            Total Target
+            Total Production
           </span>
-          {achievementPct !== undefined ? (
+          {achievementPct !== undefined && (
             <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-sm ml-0.5 ${
               achievementPct >= 90
                 ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400'
@@ -127,11 +143,7 @@ export default function TotalTargetGaugeCard({
                 ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400'
                 : 'bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-400'
             }`}>
-              {Math.round(achievementPct)}% Target
-            </span>
-          ) : (
-            <span className="text-[10px] font-black px-1.5 py-0.5 rounded-sm ml-0.5 bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400">
-              Plan Base
+              {Math.round(achievementPct)}% Achieved
             </span>
           )}
         </div>
@@ -140,7 +152,7 @@ export default function TotalTargetGaugeCard({
           <div>
             <span className="text-gray-500 dark:text-slate-400 font-medium">Total: </span>
             <span className="font-mono font-black text-gray-950 dark:text-white">
-              {Math.round(totalTarget).toLocaleString()}Kg
+              {Math.round(totalProduction).toLocaleString()}Kg
             </span>
           </div>
           <div className="hidden xs:block h-3.5 w-px bg-gray-300 dark:bg-slate-700" />
@@ -153,19 +165,19 @@ export default function TotalTargetGaugeCard({
         </div>
       </div>
 
-      {/* 2. Main Section: Target of [Month] & Two Columns (Left Metrics, Right Gauge) */}
+      {/* 2. Main Section: Production of [Month] & Two Columns (Left Metrics, Right Gauge) */}
       <div className="p-3.5 flex-1 flex flex-col justify-between">
         {/* Centered Month Sub-Header */}
         <div className="text-center pb-2">
           <span className="font-sans text-xs font-black tracking-wide text-gray-900 dark:text-white">
-            Target of {monthName}
+            Production of {monthName}
           </span>
         </div>
 
         {/* Content Row: Metrics on Left, Gauge on Right (Non-overlapping layout) */}
         <div className="flex flex-col xs:flex-row items-center justify-between gap-3">
-          {/* Left Column: Key Target Metrics with strictly aligned grid */}
-          <div className="flex-1 min-w-0 w-full space-y-2 font-sans text-xs py-1">
+          {/* Left Column: Key Production Metrics with strictly aligned grid */}
+          <div className="flex-1 min-w-0 w-full space-y-1 font-sans text-xs">
             {/* Total */}
             <div className="grid grid-cols-[96px_14px_1fr] items-center text-gray-800 dark:text-slate-200">
               <span className="text-gray-600 dark:text-slate-400 font-medium text-left truncate">
@@ -209,6 +221,28 @@ export default function TotalTargetGaugeCard({
                 {calculatedSubContactBulk.toLocaleString()}Kg
               </span>
             </div>
+
+            {/* Total Sample Production */}
+            <div className="grid grid-cols-[96px_14px_1fr] items-center text-gray-800 dark:text-slate-200">
+              <span className="text-gray-600 dark:text-slate-400 font-medium text-left truncate" title="Total Sample Production">
+                Total Sample
+              </span>
+              <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
+              <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
+                {calculatedSampleProd.toLocaleString()}Kg
+              </span>
+            </div>
+
+            {/* Production Loss for Sample */}
+            <div className="grid grid-cols-[96px_14px_1fr] items-center text-gray-800 dark:text-slate-200">
+              <span className="text-gray-600 dark:text-slate-400 font-medium text-left truncate" title="Production Loss For Sample">
+                Loss For Sample
+              </span>
+              <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
+              <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
+                {calculatedProdLoss.toLocaleString()}Kg
+              </span>
+            </div>
           </div>
 
           {/* Right Column: Speedometer / Semi-Circle Gauge (Isolated width to prevent any overlap) */}
@@ -217,7 +251,7 @@ export default function TotalTargetGaugeCard({
               <svg 
                 viewBox="0 0 150 82" 
                 className="w-full h-full overflow-visible"
-                aria-label={`Bulk Target Split: In-House ${clampedInHousePct}%, Sub-Contact ${clampedSubContactPct}%`}
+                aria-label={`Bulk Production Split: In-House ${clampedInHousePct}%, Sub-Contact ${clampedSubContactPct}%`}
               >
                 {/* 1. Base / Sub-Contact Arc (Vibrant Red #EF4444) */}
                 <path
@@ -293,14 +327,14 @@ export default function TotalTargetGaugeCard({
         </div>
       </div>
 
-      {/* 3. Footer Bar: Till Todays Last Month Bulk Target: xxxKg  ↑/↓x% */}
+      {/* 3. Footer Bar: Till Todays Last Month Production: xxxKg  ↑/↓x% */}
       <div className="flex flex-wrap items-center justify-between gap-1 border-t border-gray-200 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/30 px-3.5 py-1.5 text-[10px] text-gray-600 dark:text-slate-400">
         <div className="truncate">
           <span className="font-medium text-gray-700 dark:text-slate-300">
-            Till Todays Last Month Bulk Target:
+            Till Todays Last Month Production:
           </span>{' '}
           <span className="font-mono font-bold text-gray-950 dark:text-white">
-            {calculatedLastMonthBulk.toLocaleString()}Kg
+            {calculatedLastMonthProd.toLocaleString()}Kg
           </span>
         </div>
         <div className={`flex items-center gap-0.5 font-bold shrink-0 ${

@@ -248,6 +248,20 @@ export const INITIAL_USERS: UserRecord[] = [
     permission: 'Hide',
     status: 'Inactive',
     lastUpdated: '2026-07-10 03:22 PM'
+  },
+  {
+    id: 'usr-8',
+    userName: 'Sohel Rana',
+    userType: 'General',
+    designation: 'Senior Executive',
+    uid: 'EKL008',
+    password: 'SohelRana@2026',
+    department: 'Knitting',
+    assignedUnits: ['EFL-Extension', 'ESL-Extension'],
+    assignedBuyers: ['Marks & Spencer', 'H&M', 'Zara', 'PUMA'],
+    permission: 'Read / Write',
+    status: 'Active',
+    lastUpdated: '2026-08-24 10:00 AM'
   }
 ];
 

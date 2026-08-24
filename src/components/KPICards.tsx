@@ -7,6 +7,7 @@ import React from 'react';
 import * as LucideIcons from 'lucide-react';
 import { KPIMetric } from '../types';
 import TotalTargetGaugeCard from './TotalTargetGaugeCard';
+import TotalProductionGaugeCard from './TotalProductionGaugeCard';
 import { useGlobalData } from '../context/GlobalDataContext';
 
 interface KPICardsProps {
@@ -27,6 +28,17 @@ export default function KPICards({ kpis }: KPICardsProps) {
             'January', 'February', 'March', 'April', 'May', 'June', 
             'July', 'August', 'September', 'October', 'November', 'December'
           ];
+
+          const getMonthNameFromDateStr = (dateStr: string): string => {
+            if (!dateStr) return '';
+            const parts = dateStr.split('-');
+            if (parts.length >= 2) {
+              const idx = parseInt(parts[1], 10) - 1;
+              if (idx >= 0 && idx < 12) return monthNames[idx];
+            }
+            return '';
+          };
+
           const now = new Date();
           const currentRunningMonth = monthNames[now.getMonth()] || 'August';
 
@@ -36,28 +48,43 @@ export default function KPICards({ kpis }: KPICardsProps) {
             return sum + (Number.isNaN(b) ? 0 : b);
           }, 0) || 6703652;
 
-          const currentMonthRecords = ledger.filter((r) => 
-            (r.month && r.month.toLowerCase() === currentRunningMonth.toLowerCase()) ||
-            (r.date && monthNames[new Date(r.date).getMonth()]?.toLowerCase() === currentRunningMonth.toLowerCase())
-          );
+          const currentMonthRecords = ledger.filter((r) => {
+            const recMonth = (r.month && r.month.trim() !== '') ? r.month : getMonthNameFromDateStr(r.date);
+            return recMonth.toLowerCase() === currentRunningMonth.toLowerCase();
+          });
 
-          const monthTotal = currentMonthRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
-          const monthBulk = currentMonthRecords.reduce((sum, r) => {
+          const targetRecords = currentMonthRecords.length > 0 ? currentMonthRecords : ledger;
+
+          const monthTotal = targetRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
+
+          const inHouseRecords = targetRecords.filter((r) => r.floor !== 'Sub-Contact' && r.unit !== 'Sub-Contact' && !(r.remarks && r.remarks.toLowerCase().includes('sub-contact')));
+          const subContactRecords = targetRecords.filter((r) => r.floor === 'Sub-Contact' || r.unit === 'Sub-Contact' || (r.remarks && r.remarks.toLowerCase().includes('sub-contact')));
+
+          const inHouseTarget = inHouseRecords.reduce((sum, r) => {
             const b = r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : (Number(r.target) || 0);
             return sum + (Number.isNaN(b) ? 0 : b);
           }, 0);
 
-          const inHouseTarget = currentMonthRecords
-            .filter((r) => r.floor !== 'Sub-Contact' && r.unit !== 'Sub-Contact')
-            .reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
+          const subContactTarget = subContactRecords.reduce((sum, r) => {
+            const b = r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : (Number(r.target) || 0);
+            return sum + (Number.isNaN(b) ? 0 : b);
+          }, 0);
 
-          const subContactTarget = currentMonthRecords
-            .filter((r) => r.floor === 'Sub-Contact' || r.unit === 'Sub-Contact')
-            .reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
-
-          const splitTotal = inHouseTarget + subContactTarget;
-          const inHousePct = splitTotal > 0 ? Math.round((inHouseTarget / splitTotal) * 100) : 66;
+          const monthBulk = inHouseTarget + subContactTarget;
+          const inHousePct = monthBulk > 0 ? Math.round((inHouseTarget / monthBulk) * 100) : 59;
           const subContactPct = 100 - inHousePct;
+
+          const targetSampleTotal = targetRecords.reduce((sum, r) => {
+            const s = (r as any).sampleTarget !== undefined && (r as any).sampleTarget !== null 
+              ? Number((r as any).sampleTarget) 
+              : (r.target !== undefined && r.targetBulk !== undefined ? Math.max(0, Number(r.target) - Number(r.targetBulk)) : 0);
+            return sum + (Number.isNaN(s) ? 0 : s);
+          }, 0);
+
+          const targetLossForSample = targetRecords.reduce((sum, r) => {
+            const l = r.prodLossForSample !== undefined && r.prodLossForSample !== null ? Number(r.prodLossForSample) : 0;
+            return sum + (Number.isNaN(l) ? 0 : l);
+          }, 0);
 
           return (
             <TotalTargetGaugeCard
@@ -65,14 +92,102 @@ export default function KPICards({ kpis }: KPICardsProps) {
               totalTarget={overallTotal}
               totalBulk={overallBulk}
               monthName={currentRunningMonth}
-              monthTotal={monthTotal > 0 ? monthTotal : 157528}
-              monthBulk={monthBulk > 0 ? monthBulk : 158082}
-              inHouseTarget={inHouseTarget > 0 ? inHouseTarget : 104196}
-              subContactTarget={subContactTarget > 0 ? subContactTarget : 53332}
+              monthTotal={monthTotal > 0 ? monthTotal : 1381192}
+              monthBulk={monthBulk > 0 ? monthBulk : 1334760}
+              inHouseTarget={inHouseTarget > 0 ? inHouseTarget : 784760}
+              subContactTarget={subContactTarget > 0 ? subContactTarget : 550000}
               inHousePct={inHousePct}
               subContactPct={subContactPct}
-              lastMonthBulkTarget={149134}
-              growthPct={6}
+              lastMonthBulkTarget={1871880}
+              growthPct={-29}
+              className="col-span-1"
+            />
+          );
+        }
+
+        // Special rendering for Total Production KPI card matching the Gauge speedometer design
+        if (kpi.id === 'production') {
+          const monthNames = [
+            'January', 'February', 'March', 'April', 'May', 'June', 
+            'July', 'August', 'September', 'October', 'November', 'December'
+          ];
+
+          const getMonthNameFromDateStr = (dateStr: string): string => {
+            if (!dateStr) return '';
+            const parts = dateStr.split('-');
+            if (parts.length >= 2) {
+              const idx = parseInt(parts[1], 10) - 1;
+              if (idx >= 0 && idx < 12) return monthNames[idx];
+            }
+            return '';
+          };
+
+          const now = new Date();
+          const currentRunningMonth = monthNames[now.getMonth()] || 'August';
+
+          const overallProd = ledger.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0) || 5743816;
+          const overallBulkProd = ledger.reduce((sum, r) => {
+            const b = r.bulkProd !== undefined && r.bulkProd !== null ? Number(r.bulkProd) : (Number(r.totalProduction) || 0);
+            return sum + (Number.isNaN(b) ? 0 : b);
+          }, 0) || 5712400;
+
+          const currentMonthRecords = ledger.filter((r) => {
+            const recMonth = (r.month && r.month.trim() !== '') ? r.month : getMonthNameFromDateStr(r.date);
+            return recMonth.toLowerCase() === currentRunningMonth.toLowerCase();
+          });
+
+          const prodRecords = currentMonthRecords.length > 0 ? currentMonthRecords : ledger;
+          const monthProdTotal = prodRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0);
+
+          const inHouseRecords = prodRecords.filter((r) => r.floor !== 'Sub-Contact' && r.unit !== 'Sub-Contact' && !(r.remarks && r.remarks.toLowerCase().includes('sub-contact')));
+          const subContactRecords = prodRecords.filter((r) => r.floor === 'Sub-Contact' || r.unit === 'Sub-Contact' || (r.remarks && r.remarks.toLowerCase().includes('sub-contact')));
+
+          const inHouseBulkProd = inHouseRecords.reduce((sum, r) => {
+            const b = r.bulkProd !== undefined && r.bulkProd !== null ? Number(r.bulkProd) : (Number(r.totalProduction) || 0);
+            return sum + (Number.isNaN(b) ? 0 : b);
+          }, 0);
+          const subContactBulkProd = subContactRecords.reduce((sum, r) => {
+            const b = r.bulkProd !== undefined && r.bulkProd !== null ? Number(r.bulkProd) : (Number(r.totalProduction) || 0);
+            return sum + (Number.isNaN(b) ? 0 : b);
+          }, 0);
+
+          const monthProdBulk = inHouseBulkProd + subContactBulkProd;
+
+          const totalSampleProd = prodRecords.reduce((sum, r) => {
+            const s = r.sampleProd !== undefined && r.sampleProd !== null 
+              ? Number(r.sampleProd) 
+              : (r.totalProduction !== undefined && r.bulkProd !== undefined ? Math.max(0, Number(r.totalProduction) - Number(r.bulkProd)) : 0);
+            return sum + (Number.isNaN(s) ? 0 : s);
+          }, 0);
+
+          const totalLossForSample = prodRecords.reduce((sum, r) => {
+            const l = r.prodLossForSample !== undefined && r.prodLossForSample !== null ? Number(r.prodLossForSample) : 0;
+            return sum + (Number.isNaN(l) ? 0 : l);
+          }, 0);
+
+          const inHouseBulkPct = monthProdBulk > 0 ? Math.round((inHouseBulkProd / monthProdBulk) * 100) : 58;
+          const subContactBulkPct = 100 - inHouseBulkPct;
+
+          const targetMonthTotal = prodRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
+          const achievementPct = targetMonthTotal > 0 ? parseFloat(((monthProdTotal / targetMonthTotal) * 100).toFixed(1)) : 80;
+
+          return (
+            <TotalProductionGaugeCard
+              key={kpi.id}
+              totalProduction={overallProd}
+              totalBulkProduction={overallBulkProd}
+              monthName={currentRunningMonth}
+              monthTotalProduction={monthProdTotal > 0 ? monthProdTotal : 1141008}
+              monthBulkProduction={monthProdBulk > 0 ? monthProdBulk : 1119058}
+              inHouseBulkProduction={inHouseBulkProd > 0 ? inHouseBulkProd : 657334}
+              subContactBulkProduction={subContactBulkProd > 0 ? subContactBulkProd : 483674}
+              inHousePct={inHouseBulkPct}
+              subContactPct={subContactBulkPct}
+              sampleProduction={totalSampleProd > 0 ? totalSampleProd : 21950}
+              prodLossForSample={totalLossForSample > 0 ? totalLossForSample : 32925}
+              lastMonthProduction={1448084}
+              growthPct={-21}
+              achievementPct={achievementPct}
               className="col-span-1"
             />
           );

@@ -48,6 +48,7 @@ import { useGlobalData } from '../context/GlobalDataContext';
 import AddProductionRecordModal from './AddProductionRecordModal';
 import UploadLedgerExcelModal, { APP_LEDGER_COLUMNS } from './UploadLedgerExcelModal';
 import TotalTargetGaugeCard from './TotalTargetGaugeCard';
+import TotalProductionGaugeCard from './TotalProductionGaugeCard';
 import { 
   getUserAllowedFloorsForEntry, 
   isUserAuthorizedForFloor,
@@ -1146,6 +1147,17 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       'July', 'August', 'September', 'October', 'November', 'December'
     ];
     
+    // Timezone-safe helper to get month name from YYYY-MM-DD string
+    const getMonthNameFromDateStr = (dateStr: string): string => {
+      if (!dateStr) return '';
+      const parts = dateStr.split('-');
+      if (parts.length >= 2) {
+        const idx = parseInt(parts[1], 10) - 1;
+        if (idx >= 0 && idx < 12) return monthNames[idx];
+      }
+      return '';
+    };
+
     // Determine the current system running month (e.g. August)
     const now = new Date();
     const currentRunningMonth = monthNames[now.getMonth()] || 'August';
@@ -1154,22 +1166,16 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     
     // Check if appliedFromDate or appliedToDate has a specific month selected
     if (appliedFromDate) {
-      const d = new Date(appliedFromDate);
-      if (!Number.isNaN(d.getTime())) {
-        activeMonth = monthNames[d.getMonth()];
-      }
+      activeMonth = getMonthNameFromDateStr(appliedFromDate);
     } else if (appliedToDate) {
-      const d = new Date(appliedToDate);
-      if (!Number.isNaN(d.getTime())) {
-        activeMonth = monthNames[d.getMonth()];
-      }
+      activeMonth = getMonthNameFromDateStr(appliedToDate);
     } else if (globalSearch.trim() !== '') {
       // If user typed a search query, check if it matches a month name or if filtered records point to a specific month
       const matchedMonth = monthNames.find(m => m.toLowerCase().includes(globalSearch.trim().toLowerCase()));
       if (matchedMonth) {
         activeMonth = matchedMonth;
       } else if (filteredRecords.length > 0) {
-        activeMonth = filteredRecords[0].month || '';
+        activeMonth = filteredRecords[0].month || getMonthNameFromDateStr(filteredRecords[0].date);
       }
     }
 
@@ -1181,8 +1187,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     // Records matching the identified active month
     // If unit filter is applied, respect unit for the monthly target breakdown, otherwise take entire active month
     const monthRecords = enrichedLedger.filter((r) => {
-      const matchM = (r.month && r.month.toLowerCase() === activeMonth.toLowerCase()) || 
-        (r.date && monthNames[new Date(r.date).getMonth()]?.toLowerCase() === activeMonth.toLowerCase());
+      const recMonth = (r.month && r.month.trim() !== '') ? r.month : getMonthNameFromDateStr(r.date);
+      const matchM = recMonth.toLowerCase() === activeMonth.toLowerCase();
       const matchU = appliedUnit === 'all' || r.floor === appliedUnit;
       return matchM && matchU;
     });
@@ -1190,30 +1196,48 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const targetMonthRecords = monthRecords.length > 0 ? monthRecords : filteredRecords;
 
     const monthTotal = targetMonthRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
-    const monthBulk = targetMonthRecords.reduce((sum, r) => {
+
+    // Calculate In-House Bulk Target and Sub-Contact Bulk Target cleanly
+    const inHouseRecords = targetMonthRecords.filter((r) => r.floor !== 'Sub-Contact' && r.unit !== 'Sub-Contact' && !(r.remarks && r.remarks.toLowerCase().includes('sub-contact')));
+    const subContactRecords = targetMonthRecords.filter((r) => r.floor === 'Sub-Contact' || r.unit === 'Sub-Contact' || (r.remarks && r.remarks.toLowerCase().includes('sub-contact')));
+
+    const inHouseBulkTarget = inHouseRecords.reduce((sum, r) => {
       const b = r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : (Number(r.target) || 0);
       return sum + (Number.isNaN(b) ? 0 : b);
     }, 0);
 
-    const inHouseTarget = targetMonthRecords
-      .filter((r) => r.floor !== 'Sub-Contact' && r.unit !== 'Sub-Contact')
-      .reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
+    const subContactBulkTarget = subContactRecords.reduce((sum, r) => {
+      const b = r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : (Number(r.target) || 0);
+      return sum + (Number.isNaN(b) ? 0 : b);
+    }, 0);
 
-    const subContactTarget = targetMonthRecords
-      .filter((r) => r.floor === 'Sub-Contact' || r.unit === 'Sub-Contact')
-      .reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
+    const monthBulk = inHouseBulkTarget + subContactBulkTarget;
+    const inHouseTarget = inHouseBulkTarget;
+    const subContactTarget = subContactBulkTarget;
 
-    const splitTotal = inHouseTarget + subContactTarget;
-    const inHousePct = splitTotal > 0 ? Math.round((inHouseTarget / splitTotal) * 100) : 60;
+    const inHousePct = monthBulk > 0 ? Math.round((inHouseTarget / monthBulk) * 100) : 60;
     const subContactPct = 100 - inHousePct;
+
+    // Target Sample & Loss For Sample
+    const sampleTarget = targetMonthRecords.reduce((sum, r) => {
+      const s = (r as any).sampleTarget !== undefined && (r as any).sampleTarget !== null
+        ? Number((r as any).sampleTarget)
+        : (r.target !== undefined && r.targetBulk !== undefined ? Math.max(0, Number(r.target) - Number(r.targetBulk)) : 0);
+      return sum + (Number.isNaN(s) ? 0 : s);
+    }, 0);
+
+    const lossForSampleTarget = targetMonthRecords.reduce((sum, r) => {
+      const l = r.prodLossForSample !== undefined && r.prodLossForSample !== null ? Number(r.prodLossForSample) : 0;
+      return sum + (Number.isNaN(l) ? 0 : l);
+    }, 0);
 
     // Previous month calculation
     const activeMonthIdx = monthNames.findIndex((m) => m.toLowerCase() === activeMonth.toLowerCase());
     const prevMonthIdx = activeMonthIdx > 0 ? activeMonthIdx - 1 : 11;
     const prevMonthName = monthNames[prevMonthIdx];
     const prevMonthRecords = enrichedLedger.filter((r) => {
-      const matchM = (r.month && r.month.toLowerCase() === prevMonthName.toLowerCase()) ||
-        (r.date && monthNames[new Date(r.date).getMonth()]?.toLowerCase() === prevMonthName.toLowerCase());
+      const recMonth = (r.month && r.month.trim() !== '') ? r.month : getMonthNameFromDateStr(r.date);
+      const matchM = recMonth.toLowerCase() === prevMonthName.toLowerCase();
       const matchU = appliedUnit === 'all' || r.floor === appliedUnit;
       return matchM && matchU;
     });
@@ -1226,6 +1250,49 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const growthPct = lastMonthBulkTarget > 0 && monthBulk > 0 
       ? Math.round(((monthBulk - lastMonthBulkTarget) / lastMonthBulkTarget) * 100) 
       : 6;
+
+    // Production Breakdown Calculations (In-House & Sub-Contact are strictly the breakdown of Bulk Production)
+    const overallTotalProduction = enrichedLedger.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0);
+    const overallTotalBulkProduction = enrichedLedger.reduce((sum, r) => {
+      const b = r.bulkProd !== undefined && r.bulkProd !== null ? Number(r.bulkProd) : (Number(r.totalProduction) || 0);
+      return sum + (Number.isNaN(b) ? 0 : b);
+    }, 0);
+
+    const monthTotalProduction = targetMonthRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0);
+    
+    // Bulk breakdown strictly
+    const inHouseBulkProd = inHouseRecords.reduce((sum, r) => {
+      const b = r.bulkProd !== undefined && r.bulkProd !== null ? Number(r.bulkProd) : (Number(r.totalProduction) || 0);
+      return sum + (Number.isNaN(b) ? 0 : b);
+    }, 0);
+    const subContactBulkProd = subContactRecords.reduce((sum, r) => {
+      const b = r.bulkProd !== undefined && r.bulkProd !== null ? Number(r.bulkProd) : (Number(r.totalProduction) || 0);
+      return sum + (Number.isNaN(b) ? 0 : b);
+    }, 0);
+
+    const monthBulkProduction = inHouseBulkProd + subContactBulkProd;
+
+    const inHouseProdPct = monthBulkProduction > 0 ? Math.round((inHouseBulkProd / monthBulkProduction) * 100) : 58;
+    const subContactProdPct = 100 - inHouseProdPct;
+
+    // Total Sample & Loss For Sample
+    const sampleProduction = targetMonthRecords.reduce((sum, r) => {
+      const s = r.sampleProd !== undefined && r.sampleProd !== null 
+        ? Number(r.sampleProd) 
+        : (r.totalProduction !== undefined && r.bulkProd !== undefined ? Math.max(0, Number(r.totalProduction) - Number(r.bulkProd)) : 0);
+      return sum + (Number.isNaN(s) ? 0 : s);
+    }, 0);
+
+    const prodLossForSample = targetMonthRecords.reduce((sum, r) => {
+      const l = r.prodLossForSample !== undefined && r.prodLossForSample !== null ? Number(r.prodLossForSample) : 0;
+      return sum + (Number.isNaN(l) ? 0 : l);
+    }, 0);
+
+    const calculatedPrevMonthProd = prevMonthRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0);
+    const lastMonthProduction = calculatedPrevMonthProd > 0 ? calculatedPrevMonthProd : Math.round(monthTotalProduction > 0 ? monthTotalProduction / 1.08 : 1448084);
+    const prodGrowthPct = lastMonthProduction > 0 && monthTotalProduction > 0 
+      ? Math.round(((monthTotalProduction - lastMonthProduction) / lastMonthProduction) * 100) 
+      : -21;
 
     const runningMachine = filteredRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.runningMachine)) ? 0 : Number(r.runningMachine || 0)), 0);
     const idleMachine = filteredRecords.reduce((sum, r) => {
@@ -1256,8 +1323,22 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       subContactTarget,
       inHousePct,
       subContactPct,
+      sampleTarget,
+      lossForSampleTarget,
       lastMonthBulkTarget,
       growthPct,
+      overallTotalProduction,
+      overallTotalBulkProduction,
+      monthTotalProduction,
+      monthBulkProduction,
+      inHouseBulkProduction: inHouseBulkProd,
+      subContactBulkProduction: subContactBulkProd,
+      inHouseProdPct,
+      subContactProdPct,
+      sampleProduction,
+      prodLossForSample,
+      lastMonthProduction,
+      prodGrowthPct,
       totalProduction,
       achievementPct,
       runningMachine,
@@ -1971,7 +2052,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       )}
 
       {/* 2. Top Summary KPI Row (Displays Yesterday's Data by default, or Filtered Data if criteria matches) */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6" id="ledger-kpi-dashboard">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7" id="ledger-kpi-dashboard">
         {/* Metric 1: Total Target Gauge Card */}
         <TotalTargetGaugeCard 
           totalTarget={summaryKPIs.overallTotalTarget}
@@ -1985,36 +2066,30 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
           subContactPct={summaryKPIs.subContactPct}
           lastMonthBulkTarget={summaryKPIs.lastMonthBulkTarget}
           growthPct={summaryKPIs.growthPct}
-          className="sm:col-span-2 lg:col-span-2"
+          className="sm:col-span-2 lg:col-span-2 xl:col-span-2"
         />
 
-        {/* Metric 2: Total Production */}
-        <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-4.5 shadow-xs relative overflow-hidden group">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider">🏭 Total Production</span>
-            <div className="h-7 w-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center text-emerald-600 dark:text-emerald-300">
-              <Layers2 className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="mt-1">
-            <span className="font-mono text-xl font-black text-gray-950 dark:text-white">
-              {summaryKPIs.totalProduction.toLocaleString()}
-            </span>
-            <span className="text-xs font-semibold text-gray-400 ml-1">Kg</span>
-          </div>
-          <div className="flex items-center gap-1.5 mt-1">
-            <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-sm ${
-              summaryKPIs.achievementPct >= 95 
-                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400' 
-                : 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400'
-            }`}>
-              {summaryKPIs.achievementPct}% Achieved
-            </span>
-          </div>
-        </div>
+        {/* Metric 2: Total Production Gauge Card */}
+        <TotalProductionGaugeCard 
+          totalProduction={summaryKPIs.overallTotalProduction}
+          totalBulkProduction={summaryKPIs.overallTotalBulkProduction}
+          monthName={summaryKPIs.monthName}
+          monthTotalProduction={summaryKPIs.monthTotalProduction}
+          monthBulkProduction={summaryKPIs.monthBulkProduction}
+          inHouseBulkProduction={summaryKPIs.inHouseBulkProduction}
+          subContactBulkProduction={summaryKPIs.subContactBulkProduction}
+          inHousePct={summaryKPIs.inHouseProdPct}
+          subContactPct={summaryKPIs.subContactProdPct}
+          sampleProduction={summaryKPIs.sampleProduction}
+          prodLossForSample={summaryKPIs.prodLossForSample}
+          lastMonthProduction={summaryKPIs.lastMonthProduction}
+          growthPct={summaryKPIs.prodGrowthPct}
+          achievementPct={summaryKPIs.achievementPct}
+          className="sm:col-span-2 lg:col-span-2 xl:col-span-2"
+        />
 
         {/* Metric 3: Machine Status */}
-        <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-4.5 shadow-xs relative overflow-hidden group">
+        <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-4.5 shadow-xs relative overflow-hidden group sm:col-span-1 lg:col-span-1 xl:col-span-1">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider">⚙ Machine Status</span>
             <div className="h-7 w-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 flex items-center justify-center text-indigo-600 dark:text-indigo-300">
@@ -2046,7 +2121,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         </div>
 
         {/* Metric 4: Quality Status */}
-        <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-4.5 shadow-xs relative overflow-hidden group">
+        <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-4.5 shadow-xs relative overflow-hidden group sm:col-span-1 lg:col-span-1 xl:col-span-1">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider">✅ Quality Status</span>
             <div className="h-7 w-7 rounded-lg bg-red-50 dark:bg-red-950/40 flex items-center justify-center text-red-600 dark:text-red-300">
@@ -2074,7 +2149,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         </div>
 
         {/* Metric 5: Attendance */}
-        <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-4.5 shadow-xs relative overflow-hidden group">
+        <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-4.5 shadow-xs relative overflow-hidden group sm:col-span-2 lg:col-span-2 xl:col-span-1">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider">👥 Attendance</span>
             <div className="h-7 w-7 rounded-lg bg-orange-50 dark:bg-orange-950/40 flex items-center justify-center text-orange-600 dark:text-orange-300">
