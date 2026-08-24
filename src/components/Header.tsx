@@ -426,7 +426,7 @@ export default function Header({
                   {currentUser?.userName || 'Md. Raihan Hossain Antu'}
                 </span>
                 <span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
-                  {currentUser?.designation || 'Sr. Production Manager'} ({currentUser?.uid || 'EKL001'})
+                  {currentUser?.designation || 'Sr. Production Manager'} ({currentUser?.department || 'Knitting'})
                 </span>
               </div>
               <div className="relative flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-700 text-sm font-black text-white shadow-sm ring-2 ring-blue-50 dark:ring-slate-800">
