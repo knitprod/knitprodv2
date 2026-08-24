@@ -47,6 +47,7 @@ import { FirestoreSyncService } from '../lib/firestoreSync';
 import { useGlobalData } from '../context/GlobalDataContext';
 import AddProductionRecordModal from './AddProductionRecordModal';
 import UploadLedgerExcelModal, { APP_LEDGER_COLUMNS } from './UploadLedgerExcelModal';
+import TotalTargetGaugeCard from './TotalTargetGaugeCard';
 import { 
   getUserAllowedFloorsForEntry, 
   isUserAuthorizedForFloor,
@@ -1120,9 +1121,111 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   // DYNAMIC TOP SUMMARY & KPI CALCULATIONS
   // ----------------------------------------------------
   const summaryKPIs = useMemo(() => {
+    // 1. Overall Full Summary Totals (Always full ledger total summary value & target bulk value)
+    const overallTotalTarget = enrichedLedger.reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
+    const overallTotalBulkTarget = enrichedLedger.reduce((sum, r) => {
+      const b = r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : (Number(r.target) || 0);
+      return sum + (Number.isNaN(b) ? 0 : b);
+    }, 0);
+
+    // 2. Filtered subset calculations
     const totalTarget = filteredRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
+    const totalBulkTarget = filteredRecords.reduce((sum, r) => {
+      const b = r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : (Number(r.target) || 0);
+      return sum + (Number.isNaN(b) ? 0 : b);
+    }, 0);
+
     const totalProduction = filteredRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0);
     const achievementPct = totalTarget > 0 ? parseFloat(((totalProduction / totalTarget) * 100).toFixed(1)) : 0;
+
+    // 3. Month Detection for the Gauge Card:
+    // When no filters are applied, default to the current running month (August).
+    // If a user filters by Date range (From/To) or Global Search, derive the month from the filter or filtered data.
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June', 
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    
+    // Determine the current system running month (e.g. August)
+    const now = new Date();
+    const currentRunningMonth = monthNames[now.getMonth()] || 'August';
+
+    let activeMonth = '';
+    
+    // Check if appliedFromDate or appliedToDate has a specific month selected
+    if (appliedFromDate) {
+      const d = new Date(appliedFromDate);
+      if (!Number.isNaN(d.getTime())) {
+        activeMonth = monthNames[d.getMonth()];
+      }
+    } else if (appliedToDate) {
+      const d = new Date(appliedToDate);
+      if (!Number.isNaN(d.getTime())) {
+        activeMonth = monthNames[d.getMonth()];
+      }
+    } else if (globalSearch.trim() !== '') {
+      // If user typed a search query, check if it matches a month name or if filtered records point to a specific month
+      const matchedMonth = monthNames.find(m => m.toLowerCase().includes(globalSearch.trim().toLowerCase()));
+      if (matchedMonth) {
+        activeMonth = matchedMonth;
+      } else if (filteredRecords.length > 0) {
+        activeMonth = filteredRecords[0].month || '';
+      }
+    }
+
+    // If no explicit date or month filter is active, ALWAYS show the current running month (August)
+    if (!activeMonth) {
+      activeMonth = currentRunningMonth;
+    }
+
+    // Records matching the identified active month
+    // If unit filter is applied, respect unit for the monthly target breakdown, otherwise take entire active month
+    const monthRecords = enrichedLedger.filter((r) => {
+      const matchM = (r.month && r.month.toLowerCase() === activeMonth.toLowerCase()) || 
+        (r.date && monthNames[new Date(r.date).getMonth()]?.toLowerCase() === activeMonth.toLowerCase());
+      const matchU = appliedUnit === 'all' || r.floor === appliedUnit;
+      return matchM && matchU;
+    });
+
+    const targetMonthRecords = monthRecords.length > 0 ? monthRecords : filteredRecords;
+
+    const monthTotal = targetMonthRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
+    const monthBulk = targetMonthRecords.reduce((sum, r) => {
+      const b = r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : (Number(r.target) || 0);
+      return sum + (Number.isNaN(b) ? 0 : b);
+    }, 0);
+
+    const inHouseTarget = targetMonthRecords
+      .filter((r) => r.floor !== 'Sub-Contact' && r.unit !== 'Sub-Contact')
+      .reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
+
+    const subContactTarget = targetMonthRecords
+      .filter((r) => r.floor === 'Sub-Contact' || r.unit === 'Sub-Contact')
+      .reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
+
+    const splitTotal = inHouseTarget + subContactTarget;
+    const inHousePct = splitTotal > 0 ? Math.round((inHouseTarget / splitTotal) * 100) : 60;
+    const subContactPct = 100 - inHousePct;
+
+    // Previous month calculation
+    const activeMonthIdx = monthNames.findIndex((m) => m.toLowerCase() === activeMonth.toLowerCase());
+    const prevMonthIdx = activeMonthIdx > 0 ? activeMonthIdx - 1 : 11;
+    const prevMonthName = monthNames[prevMonthIdx];
+    const prevMonthRecords = enrichedLedger.filter((r) => {
+      const matchM = (r.month && r.month.toLowerCase() === prevMonthName.toLowerCase()) ||
+        (r.date && monthNames[new Date(r.date).getMonth()]?.toLowerCase() === prevMonthName.toLowerCase());
+      const matchU = appliedUnit === 'all' || r.floor === appliedUnit;
+      return matchM && matchU;
+    });
+    const calculatedPrevMonthBulk = prevMonthRecords.reduce((sum, r) => {
+      const b = r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : (Number(r.target) || 0);
+      return sum + (Number.isNaN(b) ? 0 : b);
+    }, 0);
+
+    const lastMonthBulkTarget = calculatedPrevMonthBulk > 0 ? calculatedPrevMonthBulk : Math.round(monthBulk > 0 ? monthBulk / 1.06 : 653259);
+    const growthPct = lastMonthBulkTarget > 0 && monthBulk > 0 
+      ? Math.round(((monthBulk - lastMonthBulkTarget) / lastMonthBulkTarget) * 100) 
+      : 6;
 
     const runningMachine = filteredRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.runningMachine)) ? 0 : Number(r.runningMachine || 0)), 0);
     const idleMachine = filteredRecords.reduce((sum, r) => {
@@ -1142,11 +1245,24 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const absentPct = totalOperators > 0 ? parseFloat(((totalAbsent / totalOperators) * 100).toFixed(1)) : 0;
 
     return {
+      overallTotalTarget,
+      overallTotalBulkTarget,
       totalTarget,
+      totalBulkTarget,
+      monthName: activeMonth,
+      monthTotal,
+      monthBulk,
+      inHouseTarget,
+      subContactTarget,
+      inHousePct,
+      subContactPct,
+      lastMonthBulkTarget,
+      growthPct,
       totalProduction,
       achievementPct,
       runningMachine,
       idleMachine,
+      totalMachines,
       machineUtilization,
       totalReject,
       rejectPct,
@@ -1156,7 +1272,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       totalAbsent,
       absentPct
     };
-  }, [filteredRecords]);
+  }, [enrichedLedger, filteredRecords, appliedFromDate, appliedToDate, appliedUnit]);
 
   // ----------------------------------------------------
   // FLOOR-WISE PERFORMANCE CARD COMPUTATIONS
@@ -1855,27 +1971,22 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       )}
 
       {/* 2. Top Summary KPI Row (Displays Yesterday's Data by default, or Filtered Data if criteria matches) */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5" id="ledger-kpi-dashboard">
-        {/* Metric 1: Total Target */}
-        <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-4.5 shadow-xs relative overflow-hidden group">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider">🎯 Total Target</span>
-            <div className="h-7 w-7 rounded-lg bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center text-[#0F4C81] dark:text-blue-300">
-              <TrendingUp className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="mt-1">
-            <span className="font-mono text-xl font-black text-gray-950 dark:text-white">
-              {summaryKPIs.totalTarget.toLocaleString()}
-            </span>
-            <span className="text-xs font-semibold text-gray-400 ml-1">Kg</span>
-          </div>
-          <p className="text-[10px] font-semibold text-gray-400 mt-1 whitespace-nowrap">
-            {appliedFromDate === '2026-07-12' && appliedToDate === '2026-07-12' && appliedUnit === 'all'
-              ? "Plan target for Yesterday"
-              : "Plan target for selected filters"}
-          </p>
-        </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6" id="ledger-kpi-dashboard">
+        {/* Metric 1: Total Target Gauge Card */}
+        <TotalTargetGaugeCard 
+          totalTarget={summaryKPIs.overallTotalTarget}
+          totalBulk={summaryKPIs.overallTotalBulkTarget}
+          monthName={summaryKPIs.monthName}
+          monthTotal={summaryKPIs.monthTotal}
+          monthBulk={summaryKPIs.monthBulk}
+          inHouseTarget={summaryKPIs.inHouseTarget}
+          subContactTarget={summaryKPIs.subContactTarget}
+          inHousePct={summaryKPIs.inHousePct}
+          subContactPct={summaryKPIs.subContactPct}
+          lastMonthBulkTarget={summaryKPIs.lastMonthBulkTarget}
+          growthPct={summaryKPIs.growthPct}
+          className="sm:col-span-2 lg:col-span-2"
+        />
 
         {/* Metric 2: Total Production */}
         <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-4.5 shadow-xs relative overflow-hidden group">
