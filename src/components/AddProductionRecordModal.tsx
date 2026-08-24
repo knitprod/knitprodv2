@@ -343,21 +343,22 @@ export default function AddProductionRecordModal({
                     </label>
                     <input
                       type="number"
-                      value={record.target === 0 || record.target === undefined ? (record.target === 0 ? 0 : '') : record.target}
+                      value={record.target === 0 || record.target === undefined ? '' : record.target}
                       onChange={(e) => {
                         const val = e.target.value;
                         onChange('target', val === '' ? 0 : (parseFloat(val) || 0));
                       }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                      placeholder="e.g. 15000"
+                      placeholder="0"
                     />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Shift A</label>
                     <input
                       type="number"
-                      value={record.shiftA ?? 0}
-                      onChange={(e) => onChange('shiftA', parseFloat(e.target.value) || 0)}
+                      value={record.shiftA === 0 || record.shiftA === undefined ? '' : record.shiftA}
+                      onChange={(e) => onChange('shiftA', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -365,8 +366,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Shift B</label>
                     <input
                       type="number"
-                      value={record.shiftB ?? 0}
-                      onChange={(e) => onChange('shiftB', parseFloat(e.target.value) || 0)}
+                      value={record.shiftB === 0 || record.shiftB === undefined ? '' : record.shiftB}
+                      onChange={(e) => onChange('shiftB', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -374,8 +376,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Shift C</label>
                     <input
                       type="number"
-                      value={record.shiftC ?? 0}
-                      onChange={(e) => onChange('shiftC', parseFloat(e.target.value) || 0)}
+                      value={record.shiftC === 0 || record.shiftC === undefined ? '' : record.shiftC}
+                      onChange={(e) => onChange('shiftC', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -423,8 +426,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Sample Prod.</label>
                     <input
                       type="number"
-                      value={record.sampleProd ?? 0}
-                      onChange={(e) => onChange('sampleProd', parseFloat(e.target.value) || 0)}
+                      value={record.sampleProd === 0 || record.sampleProd === undefined ? '' : record.sampleProd}
+                      onChange={(e) => onChange('sampleProd', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -449,8 +453,9 @@ export default function AddProductionRecordModal({
                     </label>
                     <input
                       type="number"
-                      value={record.runningBulk !== undefined ? record.runningBulk : runningBulk}
-                      onChange={(e) => onChange('runningBulk', parseInt(e.target.value) || 0)}
+                      value={record.runningBulk !== undefined ? (record.runningBulk === 0 ? '' : record.runningBulk) : (runningBulk === 0 ? '' : runningBulk)}
+                      onChange={(e) => onChange('runningBulk', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -459,8 +464,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Running Sample</label>
                     <input
                       type="number"
-                      value={record.runningSample ?? 0}
-                      onChange={(e) => onChange('runningSample', parseInt(e.target.value) || 0)}
+                      value={record.runningSample === 0 || record.runningSample === undefined ? '' : record.runningSample}
+                      onChange={(e) => onChange('runningSample', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -576,8 +582,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Reject</label>
                     <input
                       type="number"
-                      value={record.reject ?? 0}
-                      onChange={(e) => onChange('reject', parseFloat(e.target.value) || 0)}
+                      value={record.reject === 0 || record.reject === undefined ? '' : record.reject}
+                      onChange={(e) => onChange('reject', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -594,8 +601,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Hold</label>
                     <input
                       type="number"
-                      value={record.hold ?? 0}
-                      onChange={(e) => onChange('hold', parseFloat(e.target.value) || 0)}
+                      value={record.hold === 0 || record.hold === undefined ? '' : record.hold}
+                      onChange={(e) => onChange('hold', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -612,8 +620,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Jhute/Cutpcs</label>
                     <input
                       type="number"
-                      value={record.jhuteCutpcs ?? 0}
-                      onChange={(e) => onChange('jhuteCutpcs', parseFloat(e.target.value) || 0)}
+                      value={record.jhuteCutpcs === 0 || record.jhuteCutpcs === undefined ? '' : record.jhuteCutpcs}
+                      onChange={(e) => onChange('jhuteCutpcs', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -630,8 +639,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Set Change(Pcs)</label>
                     <input
                       type="number"
-                      value={record.setChangePcs !== undefined ? record.setChangePcs : (record.setChange !== undefined ? record.setChange : 0)}
-                      onChange={(e) => onChange('setChangePcs', parseInt(e.target.value) || 0)}
+                      value={record.setChangePcs !== undefined ? (record.setChangePcs === 0 ? '' : record.setChangePcs) : (record.setChange === 0 ? '' : (record.setChange ?? ''))}
+                      onChange={(e) => onChange('setChangePcs', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -648,8 +658,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Needle Broken</label>
                     <input
                       type="number"
-                      value={record.needleBroken ?? 0}
-                      onChange={(e) => onChange('needleBroken', parseInt(e.target.value) || 0)}
+                      value={record.needleBroken === 0 || record.needleBroken === undefined ? '' : record.needleBroken}
+                      onChange={(e) => onChange('needleBroken', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -669,8 +680,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Sinker Broken</label>
                     <input
                       type="number"
-                      value={record.sinkerBroken ?? 0}
-                      onChange={(e) => onChange('sinkerBroken', parseInt(e.target.value) || 0)}
+                      value={record.sinkerBroken === 0 || record.sinkerBroken === undefined ? '' : record.sinkerBroken}
+                      onChange={(e) => onChange('sinkerBroken', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -690,8 +702,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Oil Consumption</label>
                     <input
                       type="number"
-                      value={record.oilConsumption ?? 0}
-                      onChange={(e) => onChange('oilConsumption', parseFloat(e.target.value) || 0)}
+                      value={record.oilConsumption === 0 || record.oilConsumption === undefined ? '' : record.oilConsumption}
+                      onChange={(e) => onChange('oilConsumption', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -699,8 +712,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Belt Broken</label>
                     <input
                       type="number"
-                      value={record.beltBroken ?? 0}
-                      onChange={(e) => onChange('beltBroken', parseInt(e.target.value) || 0)}
+                      value={record.beltBroken === 0 || record.beltBroken === undefined ? '' : record.beltBroken}
+                      onChange={(e) => onChange('beltBroken', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -718,8 +732,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Other Spare parts QTY</label>
                     <input
                       type="number"
-                      value={record.otherSparePartsQty ?? 0}
-                      onChange={(e) => onChange('otherSparePartsQty', parseInt(e.target.value) || 0)}
+                      value={record.otherSparePartsQty === 0 || record.otherSparePartsQty === undefined ? '' : record.otherSparePartsQty}
+                      onChange={(e) => onChange('otherSparePartsQty', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -736,8 +751,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Total Operator</label>
                     <input
                       type="number"
-                      value={record.totalOperator ?? 0}
-                      onChange={(e) => onChange('totalOperator', parseInt(e.target.value) || 0)}
+                      value={record.totalOperator === 0 || record.totalOperator === undefined ? '' : record.totalOperator}
+                      onChange={(e) => onChange('totalOperator', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -745,8 +761,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Absent</label>
                     <input
                       type="number"
-                      value={record.absent ?? 0}
-                      onChange={(e) => onChange('absent', parseInt(e.target.value) || 0)}
+                      value={record.absent === 0 || record.absent === undefined ? '' : record.absent}
+                      onChange={(e) => onChange('absent', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -780,21 +797,22 @@ export default function AddProductionRecordModal({
                     </label>
                     <input
                       type="number"
-                      value={record.target === 0 || record.target === undefined ? (record.target === 0 ? 0 : '') : record.target}
+                      value={record.target === 0 || record.target === undefined ? '' : record.target}
                       onChange={(e) => {
                         const val = e.target.value;
                         onChange('target', val === '' ? 0 : (parseFloat(val) || 0));
                       }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                      placeholder="e.g. 25000"
+                      placeholder="0"
                     />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-extrabold text-[#0F4C81] dark:text-blue-400 uppercase">Total Production (Kg)</label>
                     <input
                       type="number"
-                      value={record.totalProduction ?? 0}
-                      onChange={(e) => onChange('totalProduction', parseFloat(e.target.value) || 0)}
+                      value={record.totalProduction === 0 || record.totalProduction === undefined ? '' : record.totalProduction}
+                      onChange={(e) => onChange('totalProduction', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-[#0F4C81] dark:text-blue-400 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -802,8 +820,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Sample Prod. (Kg)</label>
                     <input
                       type="number"
-                      value={record.sampleProd ?? 0}
-                      onChange={(e) => onChange('sampleProd', parseFloat(e.target.value) || 0)}
+                      value={record.sampleProd === 0 || record.sampleProd === undefined ? '' : record.sampleProd}
+                      onChange={(e) => onChange('sampleProd', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -823,8 +842,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Production-Flat Knit (Kg)</label>
                     <input
                       type="number"
-                      value={record.productionFlatKnit ?? 0}
-                      onChange={(e) => onChange('productionFlatKnit', parseFloat(e.target.value) || 0)}
+                      value={record.productionFlatKnit === 0 || record.productionFlatKnit === undefined ? '' : record.productionFlatKnit}
+                      onChange={(e) => onChange('productionFlatKnit', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -835,8 +855,9 @@ export default function AddProductionRecordModal({
                     </label>
                     <input
                       type="number"
-                      value={record.achievmentCircular ?? achievmentCircular}
-                      onChange={(e) => onChange('achievmentCircular', parseFloat(e.target.value) || 0)}
+                      value={record.achievmentCircular === 0 || record.achievmentCircular === undefined ? '' : (record.achievmentCircular ?? achievmentCircular)}
+                      onChange={(e) => onChange('achievmentCircular', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -863,8 +884,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Yarn Issued (Kg)</label>
                     <input
                       type="number"
-                      value={record.yarnIssued ?? 0}
-                      onChange={(e) => onChange('yarnIssued', parseFloat(e.target.value) || 0)}
+                      value={record.yarnIssued === 0 || record.yarnIssued === undefined ? '' : record.yarnIssued}
+                      onChange={(e) => onChange('yarnIssued', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -872,8 +894,13 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Total Running Factories</label>
                     <input
                       type="number"
-                      value={record.totalRunningFactories ?? record.runningFactories ?? 0}
-                      onChange={(e) => onChange('totalRunningFactories', parseInt(e.target.value) || 0)}
+                      value={
+                        (record.totalRunningFactories ?? record.runningFactories ?? 0) === 0
+                          ? ''
+                          : (record.totalRunningFactories ?? record.runningFactories)
+                      }
+                      onChange={(e) => onChange('totalRunningFactories', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -881,8 +908,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Running Machine</label>
                     <input
                       type="number"
-                      value={record.runningMachine ?? 0}
-                      onChange={(e) => onChange('runningMachine', parseInt(e.target.value) || 0)}
+                      value={record.runningMachine === 0 || record.runningMachine === undefined ? '' : record.runningMachine}
+                      onChange={(e) => onChange('runningMachine', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -890,8 +918,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Number Vehicles</label>
                     <input
                       type="number"
-                      value={record.numberVehicles ?? 0}
-                      onChange={(e) => onChange('numberVehicles', parseInt(e.target.value) || 0)}
+                      value={record.numberVehicles === 0 || record.numberVehicles === undefined ? '' : record.numberVehicles}
+                      onChange={(e) => onChange('numberVehicles', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -899,8 +928,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Fabric Return (Kg)</label>
                     <input
                       type="number"
-                      value={record.fabricReturn ?? 0}
-                      onChange={(e) => onChange('fabricReturn', parseFloat(e.target.value) || 0)}
+                      value={record.fabricReturn === 0 || record.fabricReturn === undefined ? '' : record.fabricReturn}
+                      onChange={(e) => onChange('fabricReturn', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -917,8 +947,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Hold (Kg)</label>
                     <input
                       type="number"
-                      value={record.hold ?? 0}
-                      onChange={(e) => onChange('hold', parseFloat(e.target.value) || 0)}
+                      value={record.hold === 0 || record.hold === undefined ? '' : record.hold}
+                      onChange={(e) => onChange('hold', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-amber-600 dark:text-amber-400 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -938,8 +969,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Reject (Kg)</label>
                     <input
                       type="number"
-                      value={record.reject ?? 0}
-                      onChange={(e) => onChange('reject', parseFloat(e.target.value) || 0)}
+                      value={record.reject === 0 || record.reject === undefined ? '' : record.reject}
+                      onChange={(e) => onChange('reject', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-rose-600 dark:text-rose-400 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -959,8 +991,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Jhute/Cut Pcs (Kg)</label>
                     <input
                       type="number"
-                      value={record.jhuteCutpcs ?? 0}
-                      onChange={(e) => onChange('jhuteCutpcs', parseFloat(e.target.value) || 0)}
+                      value={record.jhuteCutpcs === 0 || record.jhuteCutpcs === undefined ? '' : record.jhuteCutpcs}
+                      onChange={(e) => onChange('jhuteCutpcs', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-orange-600 dark:text-orange-400 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -989,8 +1022,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Total Manpower</label>
                     <input
                       type="number"
-                      value={record.totalOperator ?? 0}
-                      onChange={(e) => onChange('totalOperator', parseInt(e.target.value) || 0)}
+                      value={record.totalOperator === 0 || record.totalOperator === undefined ? '' : record.totalOperator}
+                      onChange={(e) => onChange('totalOperator', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -998,8 +1032,9 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Absent</label>
                     <input
                       type="number"
-                      value={record.absent ?? 0}
-                      onChange={(e) => onChange('absent', parseInt(e.target.value) || 0)}
+                      value={record.absent === 0 || record.absent === undefined ? '' : record.absent}
+                      onChange={(e) => onChange('absent', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
+                      placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
