@@ -169,7 +169,7 @@ export default function DashboardCharts({
 
           {/* CHART 1: Target vs Production */}
           {(activeTab === 'all' || activeTab === 'core') && (
-            <div className="rounded-2xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs hover:border-gray-200 transition-all" id="chart-target-vs-prod">
+            <div className="rounded-2xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs hover:border-gray-200 transition-all col-span-1 md:col-span-2 lg:col-span-2" id="chart-target-vs-prod">
               <div className="flex items-center justify-between border-b border-gray-50 dark:border-slate-800/50 pb-3">
                 <div className="flex items-center gap-2">
                   <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 dark:bg-blue-950/40 text-[#0F4C81] dark:text-blue-400">
@@ -180,14 +180,16 @@ export default function DashboardCharts({
                     <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase">Knitted Yield trend (Kg)</p>
                   </div>
                 </div>
-                <span className="text-[10px] font-mono font-extrabold text-blue-700 dark:text-blue-400">
-                  {overallAchievement}% Ach.
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] font-mono font-extrabold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded-md border border-blue-100 dark:border-blue-900/40">
+                    {overallAchievement}% Achieved
+                  </span>
+                </div>
               </div>
 
-              {/* Dynamic Trend Curves */}
-              <div className="mt-4 relative">
-                <div className="flex items-end justify-between h-32 gap-1.5 pt-2">
+              {/* Dynamic Trend Curves - Expanded Width from Left to Right */}
+              <div className="mt-4 relative px-1 sm:px-2">
+                <div className="flex items-end justify-between h-36 gap-2 sm:gap-4 pt-2">
                   {productionData.map((d, i) => {
                     const maxVal = Math.max(...productionData.map(x => Math.max(x.value1, x.value2)));
                     const h1 = `${(d.value1 / maxVal) * 100}%`;
@@ -201,25 +203,25 @@ export default function DashboardCharts({
                       >
                         {/* Interactive Tooltip */}
                         {hoveredIndex?.chart === 'prod' && hoveredIndex.index === i && (
-                          <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-slate-900 text-white p-1.5 rounded-lg text-[9px] font-bold z-10 shadow-lg whitespace-nowrap">
+                          <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-slate-900 text-white p-2 rounded-lg text-[10px] font-bold z-10 shadow-lg whitespace-nowrap">
                             Target: {d.value1.toLocaleString()} Kg<br />
                             Actual: {d.value2.toLocaleString()} Kg
                           </div>
                         )}
-                        <div className="w-full flex items-end justify-center h-24 gap-1">
+                        <div className="w-full flex items-end justify-center h-28 gap-1.5 sm:gap-2">
                           {/* Target Column */}
-                          <div className="w-2.5 rounded-t-sm bg-slate-200 dark:bg-slate-800" style={{ height: h1 }} />
+                          <div className="w-3.5 sm:w-5 rounded-t-sm bg-slate-200 dark:bg-slate-800 transition-all group-hover:bg-slate-300 dark:group-hover:bg-slate-700" style={{ height: h1 }} />
                           {/* Actual Column */}
-                          <div className="w-2.5 rounded-t-sm bg-blue-600 dark:bg-blue-500" style={{ height: h2 }} />
+                          <div className="w-3.5 sm:w-5 rounded-t-sm bg-blue-600 dark:bg-blue-500 transition-all group-hover:bg-blue-700 dark:group-hover:bg-blue-400" style={{ height: h2 }} />
                         </div>
-                        <span className="text-[9px] font-bold text-gray-400 dark:text-slate-500">{d.label}</span>
+                        <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{d.label}</span>
                       </div>
                     );
                   })}
                 </div>
-                <div className="flex justify-center gap-3 mt-3 text-[9px] font-bold text-gray-400">
-                  <span className="flex items-center gap-1"><span className="h-2 w-2 bg-slate-200 dark:bg-slate-800 rounded-xs" /> Target</span>
-                  <span className="flex items-center gap-1"><span className="h-2 w-2 bg-blue-600 dark:bg-blue-500 rounded-xs" /> Actual Yield</span>
+                <div className="flex justify-center gap-6 mt-4 text-[10px] font-bold text-gray-500 dark:text-slate-400 border-t border-gray-50 dark:border-slate-800/40 pt-2">
+                  <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 bg-slate-200 dark:bg-slate-800 rounded-xs" /> Target (Kg)</span>
+                  <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 bg-blue-600 dark:bg-blue-500 rounded-xs" /> Actual Production (Kg)</span>
                 </div>
               </div>
             </div>
