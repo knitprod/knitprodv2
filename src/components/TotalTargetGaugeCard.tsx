@@ -155,10 +155,13 @@ export default function TotalTargetGaugeCard({
 
       {/* 2. Main Section: Target of [Month] & Two Columns (Left Metrics, Right Gauge) */}
       <div className="p-3.5 flex-1 flex flex-col justify-between">
-        {/* Centered Month Sub-Header */}
-        <div className="text-center pb-2">
-          <span className="font-sans text-xs font-black tracking-wide text-gray-900 dark:text-white">
-            Target of {monthName}
+        {/* Centered Month / Filter Period Sub-Header */}
+        <div className="text-center pb-2 px-1">
+          <span 
+            className="font-sans text-xs font-black tracking-wide text-gray-900 dark:text-white block truncate"
+            title={(monthName || 'August').startsWith('Target') ? monthName : `Target of ${monthName || 'August'}`}
+          >
+            {(monthName || 'August').startsWith('Target') ? monthName : `Target of ${monthName || 'August'}`}
           </span>
         </div>
 

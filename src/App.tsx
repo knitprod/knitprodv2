@@ -1293,7 +1293,7 @@ export default function App() {
                 />
 
                 {/* KPI metrics row */}
-                <KPICards kpis={kpis} />
+                <KPICards kpis={kpis} filterState={filterState} />
 
                 {/* Floor indicators & Activity feed */}
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">

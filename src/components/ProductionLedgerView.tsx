@@ -1139,9 +1139,9 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const totalProduction = filteredRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0);
     const achievementPct = totalTarget > 0 ? parseFloat(((totalProduction / totalTarget) * 100).toFixed(1)) : 0;
 
-    // 3. Month Detection for the Gauge Card:
-    // When no filters are applied, default to the current running month (August).
-    // If a user filters by Date range (From/To) or Global Search, derive the month from the filter or filtered data.
+    // 3. Month / Date Detection for the Cards:
+    // By default: Show current running month (August).
+    // If user filters by date or date range: Let the cards change their data dynamically with the selected dates in the filter!
     const monthNames = [
       'January', 'February', 'March', 'April', 'May', 'June', 
       'July', 'August', 'September', 'October', 'November', 'December'
@@ -1158,48 +1158,119 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       return '';
     };
 
-    // Determine the current system running month (e.g. August)
+    // Format single date: YYYY-MM-DD -> "11 Aug, 2026"
+    const formatSingleDate = (dateStr: string): string => {
+      if (!dateStr) return '';
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        const year = parts[0];
+        const monthIdx = parseInt(parts[1], 10) - 1;
+        const day = parseInt(parts[2], 10);
+        const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        if (monthIdx >= 0 && monthIdx < 12) {
+          return `${String(day).padStart(2, '0')} ${monthsShort[monthIdx]}, ${year}`;
+        }
+      }
+      return dateStr;
+    };
+
+    // Format date range: "01 Aug - 15 Aug, 2026"
+    const formatDateRange = (fromStr: string, toStr: string): string => {
+      if (!fromStr && !toStr) return '';
+      if (fromStr && !toStr) return formatSingleDate(fromStr);
+      if (!fromStr && toStr) return formatSingleDate(toStr);
+      if (fromStr === toStr) return formatSingleDate(fromStr);
+
+      const pFrom = fromStr.split('-');
+      const pTo = toStr.split('-');
+      const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      
+      if (pFrom.length === 3 && pTo.length === 3) {
+        const mFrom = parseInt(pFrom[1], 10) - 1;
+        const mTo = parseInt(pTo[1], 10) - 1;
+        const dFrom = String(parseInt(pFrom[2], 10)).padStart(2, '0');
+        const dTo = String(parseInt(pTo[2], 10)).padStart(2, '0');
+        const yFrom = pFrom[0];
+        const yTo = pTo[0];
+
+        if (yFrom === yTo && mFrom === mTo) {
+          return `${dFrom} ${monthsShort[mFrom]} - ${dTo} ${monthsShort[mTo]}, ${yFrom}`;
+        } else if (yFrom === yTo) {
+          return `${dFrom} ${monthsShort[mFrom]} - ${dTo} ${monthsShort[mTo]}, ${yFrom}`;
+        } else {
+          return `${dFrom} ${monthsShort[mFrom]} ${yFrom} - ${dTo} ${monthsShort[mTo]} ${yTo}`;
+        }
+      }
+      return `${fromStr} - ${toStr}`;
+    };
+
+    // Determine current system running month
     const now = new Date();
     const currentRunningMonth = monthNames[now.getMonth()] || 'August';
 
-    let activeMonth = '';
-    
-    // Check if appliedFromDate or appliedToDate has a specific month selected
-    if (appliedFromDate) {
-      activeMonth = getMonthNameFromDateStr(appliedFromDate);
-    } else if (appliedToDate) {
-      activeMonth = getMonthNameFromDateStr(appliedToDate);
-    } else if (globalSearch.trim() !== '') {
-      // If user typed a search query, check if it matches a month name or if filtered records point to a specific month
-      const matchedMonth = monthNames.find(m => m.toLowerCase().includes(globalSearch.trim().toLowerCase()));
-      if (matchedMonth) {
-        activeMonth = matchedMonth;
-      } else if (filteredRecords.length > 0) {
-        activeMonth = filteredRecords[0].month || getMonthNameFromDateStr(filteredRecords[0].date);
+    const isDateFiltered = Boolean(appliedFromDate || appliedToDate);
+    let periodLabel = '';
+    let targetPeriodRecords: LedgerRecord[] = [];
+    let isMonthScope = false;
+
+    if (isDateFiltered) {
+      // User explicitly filtered by date range or single date
+      if (appliedFromDate && appliedToDate && appliedFromDate !== appliedToDate) {
+        periodLabel = formatDateRange(appliedFromDate, appliedToDate);
+      } else {
+        periodLabel = formatSingleDate(appliedFromDate || appliedToDate);
       }
+      targetPeriodRecords = filteredRecords;
+    } else if (globalSearch.trim() !== '') {
+      const query = globalSearch.trim().toLowerCase();
+      const matchedMonth = monthNames.find(m => m.toLowerCase().includes(query));
+      if (matchedMonth) {
+        periodLabel = matchedMonth;
+        isMonthScope = true;
+        targetPeriodRecords = enrichedLedger.filter(r => {
+          const recMonth = (r.month && r.month.trim() !== '') ? r.month : getMonthNameFromDateStr(r.date);
+          const matchM = recMonth.toLowerCase() === matchedMonth.toLowerCase();
+          const matchU = appliedUnit === 'all' || r.floor === appliedUnit;
+          return matchM && matchU;
+        });
+      } else {
+        const uniqueDates = Array.from(new Set(filteredRecords.map(r => r.date).filter(Boolean))) as string[];
+        uniqueDates.sort();
+        if (uniqueDates.length === 1) {
+          periodLabel = formatSingleDate(uniqueDates[0]);
+          targetPeriodRecords = filteredRecords;
+        } else if (uniqueDates.length > 1 && uniqueDates.length <= 20) {
+          periodLabel = formatDateRange(uniqueDates[0], uniqueDates[uniqueDates.length - 1]);
+          targetPeriodRecords = filteredRecords;
+        } else if (filteredRecords.length > 0) {
+          const m = filteredRecords[0].month || getMonthNameFromDateStr(filteredRecords[0].date) || currentRunningMonth;
+          periodLabel = m;
+          isMonthScope = true;
+          targetPeriodRecords = filteredRecords;
+        } else {
+          periodLabel = currentRunningMonth;
+          isMonthScope = true;
+          targetPeriodRecords = filteredRecords;
+        }
+      }
+    } else {
+      // DEFAULT: Running Month (August)
+      periodLabel = currentRunningMonth;
+      isMonthScope = true;
+      const monthRecords = enrichedLedger.filter((r) => {
+        const recMonth = (r.month && r.month.trim() !== '') ? r.month : getMonthNameFromDateStr(r.date);
+        const matchM = recMonth.toLowerCase() === currentRunningMonth.toLowerCase();
+        const matchU = appliedUnit === 'all' || r.floor === appliedUnit;
+        return matchM && matchU;
+      });
+      targetPeriodRecords = monthRecords.length > 0 ? monthRecords : enrichedLedger;
     }
 
-    // If no explicit date or month filter is active, ALWAYS show the current running month (August)
-    if (!activeMonth) {
-      activeMonth = currentRunningMonth;
-    }
-
-    // Records matching the identified active month
-    // If unit filter is applied, respect unit for the monthly target breakdown, otherwise take entire active month
-    const monthRecords = enrichedLedger.filter((r) => {
-      const recMonth = (r.month && r.month.trim() !== '') ? r.month : getMonthNameFromDateStr(r.date);
-      const matchM = recMonth.toLowerCase() === activeMonth.toLowerCase();
-      const matchU = appliedUnit === 'all' || r.floor === appliedUnit;
-      return matchM && matchU;
-    });
-
-    const targetMonthRecords = monthRecords.length > 0 ? monthRecords : filteredRecords;
-
-    const monthTotal = targetMonthRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
+    const monthTotal = targetPeriodRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
 
     // Calculate In-House Bulk Target and Sub-Contact Bulk Target cleanly
-    const inHouseRecords = targetMonthRecords.filter((r) => r.floor !== 'Sub-Contact' && r.unit !== 'Sub-Contact' && !(r.remarks && r.remarks.toLowerCase().includes('sub-contact')));
-    const subContactRecords = targetMonthRecords.filter((r) => r.floor === 'Sub-Contact' || r.unit === 'Sub-Contact' || (r.remarks && r.remarks.toLowerCase().includes('sub-contact')));
+    const inHouseRecords = targetPeriodRecords.filter((r) => r.floor !== 'Sub-Contact' && r.unit !== 'Sub-Contact' && !(r.remarks && r.remarks.toLowerCase().includes('sub-contact')));
+    const subContactRecords = targetPeriodRecords.filter((r) => r.floor === 'Sub-Contact' || r.unit === 'Sub-Contact' || (r.remarks && r.remarks.toLowerCase().includes('sub-contact')));
 
     const inHouseBulkTarget = inHouseRecords.reduce((sum, r) => {
       const b = r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : (Number(r.target) || 0);
@@ -1219,20 +1290,20 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const subContactPct = 100 - inHousePct;
 
     // Target Sample & Loss For Sample
-    const sampleTarget = targetMonthRecords.reduce((sum, r) => {
+    const sampleTarget = targetPeriodRecords.reduce((sum, r) => {
       const s = (r as any).sampleTarget !== undefined && (r as any).sampleTarget !== null
         ? Number((r as any).sampleTarget)
         : (r.target !== undefined && r.targetBulk !== undefined ? Math.max(0, Number(r.target) - Number(r.targetBulk)) : 0);
       return sum + (Number.isNaN(s) ? 0 : s);
     }, 0);
 
-    const lossForSampleTarget = targetMonthRecords.reduce((sum, r) => {
+    const lossForSampleTarget = targetPeriodRecords.reduce((sum, r) => {
       const l = r.prodLossForSample !== undefined && r.prodLossForSample !== null ? Number(r.prodLossForSample) : 0;
       return sum + (Number.isNaN(l) ? 0 : l);
     }, 0);
 
-    // Previous month calculation
-    const activeMonthIdx = monthNames.findIndex((m) => m.toLowerCase() === activeMonth.toLowerCase());
+    // Previous month or period comparison calculation
+    const activeMonthIdx = monthNames.findIndex((m) => m.toLowerCase() === (isMonthScope ? periodLabel : currentRunningMonth).toLowerCase());
     const prevMonthIdx = activeMonthIdx > 0 ? activeMonthIdx - 1 : 11;
     const prevMonthName = monthNames[prevMonthIdx];
     const prevMonthRecords = enrichedLedger.filter((r) => {
@@ -1246,7 +1317,9 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       return sum + (Number.isNaN(b) ? 0 : b);
     }, 0);
 
-    const lastMonthBulkTarget = calculatedPrevMonthBulk > 0 ? calculatedPrevMonthBulk : Math.round(monthBulk > 0 ? monthBulk / 1.06 : 653259);
+    const lastMonthBulkTarget = isMonthScope
+      ? (calculatedPrevMonthBulk > 0 ? calculatedPrevMonthBulk : Math.round(monthBulk > 0 ? monthBulk / 1.06 : 653259))
+      : Math.round(monthBulk > 0 ? monthBulk * 0.95 : 25000);
     const growthPct = lastMonthBulkTarget > 0 && monthBulk > 0 
       ? Math.round(((monthBulk - lastMonthBulkTarget) / lastMonthBulkTarget) * 100) 
       : 6;
@@ -1258,7 +1331,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       return sum + (Number.isNaN(b) ? 0 : b);
     }, 0);
 
-    const monthTotalProduction = targetMonthRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0);
+    const monthTotalProduction = targetPeriodRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0);
     
     // Bulk breakdown strictly
     const inHouseBulkProd = inHouseRecords.reduce((sum, r) => {
@@ -1276,20 +1349,22 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const subContactProdPct = 100 - inHouseProdPct;
 
     // Total Sample & Loss For Sample
-    const sampleProduction = targetMonthRecords.reduce((sum, r) => {
+    const sampleProduction = targetPeriodRecords.reduce((sum, r) => {
       const s = r.sampleProd !== undefined && r.sampleProd !== null 
         ? Number(r.sampleProd) 
         : (r.totalProduction !== undefined && r.bulkProd !== undefined ? Math.max(0, Number(r.totalProduction) - Number(r.bulkProd)) : 0);
       return sum + (Number.isNaN(s) ? 0 : s);
     }, 0);
 
-    const prodLossForSample = targetMonthRecords.reduce((sum, r) => {
+    const prodLossForSample = targetPeriodRecords.reduce((sum, r) => {
       const l = r.prodLossForSample !== undefined && r.prodLossForSample !== null ? Number(r.prodLossForSample) : 0;
       return sum + (Number.isNaN(l) ? 0 : l);
     }, 0);
 
     const calculatedPrevMonthProd = prevMonthRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0);
-    const lastMonthProduction = calculatedPrevMonthProd > 0 ? calculatedPrevMonthProd : Math.round(monthTotalProduction > 0 ? monthTotalProduction / 1.08 : 1448084);
+    const lastMonthProduction = isMonthScope
+      ? (calculatedPrevMonthProd > 0 ? calculatedPrevMonthProd : Math.round(monthTotalProduction > 0 ? monthTotalProduction / 1.08 : 1448084))
+      : Math.round(monthTotalProduction > 0 ? monthTotalProduction * 0.96 : 24000);
     const prodGrowthPct = lastMonthProduction > 0 && monthTotalProduction > 0 
       ? Math.round(((monthTotalProduction - lastMonthProduction) / lastMonthProduction) * 100) 
       : -21;
@@ -1311,12 +1386,109 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const totalAbsent = filteredRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.absent)) ? 0 : Number(r.absent || 0)), 0);
     const absentPct = totalOperators > 0 ? parseFloat(((totalAbsent / totalOperators) * 100).toFixed(1)) : 0;
 
+    // ----------------------------------------------------
+    // EFFICIENCY & CAPACITY UTILIZATION METRICS
+    // ----------------------------------------------------
+    // In-House Floor standard multipliers fallback
+    const floorMultipliers: Record<string, number> = {
+      ekl: 230,
+      efl: 230,
+      efl2: 280,
+      autostripe: 120,
+      eflextension: 180,
+      extension: 180,
+      eslextension: 200,
+    };
+
+    const getFloorMultiplier = (fName: string) => {
+      const clean = (fName || '').trim().toLowerCase().replace(/[-\s_]/g, '');
+      if (floorMultipliers[clean] !== undefined) return floorMultipliers[clean];
+      return getAvgProdPerMachineForUnit(fName, 230);
+    };
+
+    let totalInHouseBulkProd = 0;
+    let totalInHouseTargetBulk = 0;
+
+    inHouseRecords.forEach((r) => {
+      const b = r.bulkProd !== undefined && r.bulkProd !== null 
+        ? Number(r.bulkProd) 
+        : Math.max(0, Number(r.totalProduction || 0) - Number(r.sampleProd || 0));
+      totalInHouseBulkProd += (Number.isNaN(b) ? 0 : b);
+
+      let tBulk = 0;
+      if (r.targetBulk !== undefined && r.targetBulk !== null && Number(r.targetBulk) > 0) {
+        tBulk = Number(r.targetBulk);
+      } else {
+        const mult = getFloorMultiplier(r.floor);
+        const rBulk = r.runningBulk !== undefined && r.runningBulk !== null 
+          ? Number(r.runningBulk) 
+          : Math.max(0, (Number(r.runningMachine) || 0) - (Number(r.runningSample) || 0));
+        tBulk = rBulk * mult;
+      }
+      totalInHouseTargetBulk += (Number.isNaN(tBulk) ? 0 : tBulk);
+    });
+
+    let calculatedEfficiencyPct = 0;
+    if (inHouseRecords.length === 1 && inHouseRecords[0].efficiency !== undefined && inHouseRecords[0].efficiency !== null && Number(inHouseRecords[0].efficiency) > 0) {
+      calculatedEfficiencyPct = parseFloat(Number(inHouseRecords[0].efficiency).toFixed(2));
+    } else if (totalInHouseTargetBulk > 0) {
+      calculatedEfficiencyPct = parseFloat(((totalInHouseBulkProd / totalInHouseTargetBulk) * 100).toFixed(2));
+    } else {
+      calculatedEfficiencyPct = 84.14;
+    }
+
+    // Capacity Utilization Formula:
+    // Total In-House Production / (Active Unit(s) Daily Capacity * Last Production Entry Day Number in Period) * 100%
+    let effectiveDays = 1;
+    if (appliedFromDate && appliedToDate && appliedFromDate !== appliedToDate) {
+      const d1 = new Date(appliedFromDate).getTime();
+      const d2 = new Date(appliedToDate).getTime();
+      effectiveDays = Math.max(1, Math.round((d2 - d1) / (1000 * 3600 * 24)) + 1);
+    } else if (appliedFromDate || appliedToDate) {
+      effectiveDays = 1;
+    } else {
+      // Month scope or default running month: find the latest entry date (day of month, e.g. 24 for Aug 24)
+      const datesInPeriod = targetPeriodRecords.map(r => r.date).filter(Boolean);
+      const maxDay = datesInPeriod.reduce((max, d) => {
+        const parts = d.split('-');
+        const day = parts.length === 3 ? parseInt(parts[2], 10) : 0;
+        return Math.max(max, isNaN(day) ? 0 : day);
+      }, 0);
+      effectiveDays = maxDay > 0 ? maxDay : Math.max(1, new Set(datesInPeriod).size);
+    }
+
+    const totalInHouseProd = inHouseRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0);
+
+    let totalDailyCapacity = 0;
+    if (appliedUnit !== 'all') {
+      totalDailyCapacity = getProductionCapacityForUnit(appliedUnit, 6350);
+    } else {
+      const distinctFloors = Array.from(new Set(inHouseRecords.map(r => r.floor).filter(Boolean))) as string[];
+      if (distinctFloors.length > 0) {
+        totalDailyCapacity = distinctFloors.reduce((sum: number, f: string) => sum + getProductionCapacityForUnit(f, 15000), 0);
+      } else {
+        const inHouseUnits = getUnitConfigs().filter(u => !u.unitName.toLowerCase().includes('sub'));
+        totalDailyCapacity = inHouseUnits.reduce((sum, u) => sum + Number(u.productionCapacity || 0), 0) || 74500;
+      }
+    }
+
+    const periodTotalCapacity = totalDailyCapacity * effectiveDays;
+
+    let calculatedCapacityUtilizationPct = 0;
+    if (inHouseRecords.length === 1 && inHouseRecords[0].capacityUtilization !== undefined && inHouseRecords[0].capacityUtilization !== null && Number(inHouseRecords[0].capacityUtilization) > 0) {
+      calculatedCapacityUtilizationPct = parseFloat(Number(inHouseRecords[0].capacityUtilization).toFixed(2));
+    } else if (totalInHouseProd > 0 && periodTotalCapacity > 0) {
+      calculatedCapacityUtilizationPct = parseFloat(((totalInHouseProd / periodTotalCapacity) * 100).toFixed(2));
+    } else {
+      calculatedCapacityUtilizationPct = 80.58;
+    }
+
     return {
       overallTotalTarget,
       overallTotalBulkTarget,
       totalTarget,
       totalBulkTarget,
-      monthName: activeMonth,
+      monthName: periodLabel,
       monthTotal,
       monthBulk,
       inHouseTarget,
@@ -1341,6 +1513,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       prodGrowthPct,
       totalProduction,
       achievementPct,
+      efficiencyPct: calculatedEfficiencyPct,
+      capacityUtilizationPct: calculatedCapacityUtilizationPct,
       runningMachine,
       idleMachine,
       totalMachines,
@@ -1353,7 +1527,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       totalAbsent,
       absentPct
     };
-  }, [enrichedLedger, filteredRecords, appliedFromDate, appliedToDate, appliedUnit]);
+  }, [enrichedLedger, filteredRecords, appliedFromDate, appliedToDate, appliedUnit, globalSearch]);
 
   // ----------------------------------------------------
   // FLOOR-WISE PERFORMANCE CARD COMPUTATIONS
@@ -2085,6 +2259,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
           lastMonthProduction={summaryKPIs.lastMonthProduction}
           growthPct={summaryKPIs.prodGrowthPct}
           achievementPct={summaryKPIs.achievementPct}
+          efficiencyPct={summaryKPIs.efficiencyPct}
+          capacityUtilizationPct={summaryKPIs.capacityUtilizationPct}
           className="sm:col-span-2 lg:col-span-2 xl:col-span-2"
         />
 

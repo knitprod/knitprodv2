@@ -21,7 +21,108 @@ export interface TotalProductionGaugeCardProps {
   lastMonthProduction?: number;
   growthPct?: number;
   achievementPct?: number;
+  efficiencyPct?: number;
+  capacityUtilizationPct?: number;
   className?: string;
+}
+
+interface MiniGaugeProps {
+  label: string;
+  value: number;
+  color?: string;
+}
+
+function MiniSpeedometer({ label, value, color = '#0284c7' }: MiniGaugeProps) {
+  const roundedVal = Math.round(value);
+  const clampedVal = Math.min(100, Math.max(0, roundedVal));
+  
+  const radius = 30;
+  const strokeWidth = 6.5;
+  const cx = 45;
+  const cy = 38;
+  const totalArcLength = Math.PI * radius;
+  const fillArcLength = (clampedVal / 100) * totalArcLength;
+
+  // Needle angle: 180 deg (left, 0%) to 0 deg (right, 100%)
+  const needleAngleDeg = 180 - (180 * (clampedVal / 100));
+  const needleAngleRad = (needleAngleDeg * Math.PI) / 180;
+  const needleLength = 23;
+  const needleTipX = cx + needleLength * Math.cos(needleAngleRad);
+  const needleTipY = cy - needleLength * Math.sin(needleAngleRad);
+
+  return (
+    <div className="flex flex-col items-center justify-center flex-1 min-w-0">
+      <div className="relative w-20 h-10 flex items-center justify-center">
+        <svg 
+          viewBox="0 0 90 44" 
+          className="w-full h-full overflow-visible"
+          aria-label={`${label}: ${roundedVal}%`}
+        >
+          {/* Background Track Arc */}
+          <path
+            d={`M ${cx - radius} ${cy} A ${radius} ${radius} 0 0 1 ${cx + radius} ${cy}`}
+            fill="none"
+            stroke="#E2E8F0"
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
+            className="dark:stroke-slate-700"
+          />
+
+          {/* Filled Active Arc */}
+          <path
+            d={`M ${cx - radius} ${cy} A ${radius} ${radius} 0 0 1 ${cx + radius} ${cy}`}
+            fill="none"
+            stroke={color}
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
+            strokeDasharray={`${fillArcLength} ${totalArcLength}`}
+            className="transition-all duration-700 ease-out"
+          />
+
+          {/* Needle */}
+          <line
+            x1={cx}
+            y1={cy}
+            x2={needleTipX}
+            y2={needleTipY}
+            stroke="#475569"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            className="dark:stroke-slate-300 transition-all duration-700 ease-out"
+          />
+
+          {/* Center Pivot */}
+          <circle
+            cx={cx}
+            cy={cy}
+            r="3.5"
+            fill="#475569"
+            className="dark:fill-slate-300"
+          />
+          <circle
+            cx={cx}
+            cy={cy}
+            r="1.2"
+            fill="#FFFFFF"
+            className="dark:fill-slate-900"
+          />
+        </svg>
+      </div>
+      
+      {/* Label and Value */}
+      <div className="text-center mt-0.5 w-full px-0.5">
+        <span className="font-mono text-xs font-black text-gray-950 dark:text-white block leading-tight">
+          {roundedVal}%
+        </span>
+        <span 
+          className="text-[9.5px] font-semibold text-gray-600 dark:text-slate-400 block truncate"
+          title={label}
+        >
+          {label}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 export default function TotalProductionGaugeCard({
@@ -39,6 +140,8 @@ export default function TotalProductionGaugeCard({
   lastMonthProduction,
   growthPct = -21,
   achievementPct = 80,
+  efficiencyPct = 84,
+  capacityUtilizationPct = 76,
   className = '',
 }: TotalProductionGaugeCardProps) {
   // 1. Resolve Monthly Totals & Bulk (strictly rounded integers, no fractions)
@@ -75,7 +178,7 @@ export default function TotalProductionGaugeCard({
           : Math.max(0, calculatedMonthBulk - calculatedSubContactBulk))
   );
 
-  // 3. Gauge Percentages (Split of Bulk Production: In-House % vs Sub-Contact %)
+  // 3. Split of Bulk Production: In-House % vs Sub-Contact %
   const computedInHousePct = calculatedMonthBulk > 0
     ? Math.round((calculatedInHouseBulk / calculatedMonthBulk) * 100)
     : (inHousePct !== undefined ? inHousePct : 57);
@@ -104,21 +207,6 @@ export default function TotalProductionGaugeCard({
   // Growth sign check
   const isNegative = growthPct < 0;
   const displayGrowthPct = Math.abs(Math.round(growthPct));
-
-  // Speedometer Gauge Arc Calculations (180-degree semi-circle gauge)
-  const radius = 54;
-  const strokeWidth = 13;
-  const cx = 75;
-  const cy = 70;
-  const totalArcLength = Math.PI * radius; // Arc perimeter for 180 deg
-  const inHouseArcLength = (clampedInHousePct / 100) * totalArcLength;
-
-  // Needle angle: 180 deg (left, 0%) to 0 deg (right, 100%)
-  const needleAngleDeg = 180 - (180 * (clampedInHousePct / 100));
-  const needleAngleRad = (needleAngleDeg * Math.PI) / 180;
-  const needleLength = 42;
-  const needleTipX = cx + needleLength * Math.cos(needleAngleRad);
-  const needleTipY = cy - needleLength * Math.sin(needleAngleRad);
 
   return (
     <div 
@@ -165,165 +253,133 @@ export default function TotalProductionGaugeCard({
         </div>
       </div>
 
-      {/* 2. Main Section: Production of [Month] & Two Columns (Left Metrics, Right Gauge) */}
-      <div className="p-3.5 flex-1 flex flex-col justify-between">
-        {/* Centered Month Sub-Header */}
-        <div className="text-center pb-2">
-          <span className="font-sans text-xs font-black tracking-wide text-gray-900 dark:text-white">
-            Production of {monthName}
+      {/* 2. Main Section: Production of [Month], Metrics List, Progress Bar, and Dual Bottom Speedometers */}
+      <div className="p-3 sm:p-3.5 flex-1 flex flex-col justify-between space-y-2">
+        {/* Centered Month / Filter Period Sub-Header */}
+        <div className="text-center pb-0.5 px-1">
+          <span 
+            className="font-sans text-xs font-black tracking-wide text-gray-900 dark:text-white block truncate"
+            title={(monthName || 'August').startsWith('Production') ? monthName : `Production of ${monthName || 'August'}`}
+          >
+            {(monthName || 'August').startsWith('Production') ? monthName : `Production of ${monthName || 'August'}`}
           </span>
         </div>
 
-        {/* Content Row: Metrics on Left, Gauge on Right (Non-overlapping layout) */}
-        <div className="flex flex-col xs:flex-row items-center justify-between gap-3">
-          {/* Left Column: Key Production Metrics with strictly aligned grid */}
-          <div className="flex-1 min-w-0 w-full space-y-1 font-sans text-xs">
-            {/* Total */}
-            <div className="grid grid-cols-[96px_14px_1fr] items-center text-gray-800 dark:text-slate-200">
-              <span className="text-gray-600 dark:text-slate-400 font-medium text-left truncate">
-                Total
-              </span>
-              <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
-              <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
-                {calculatedMonthTotal.toLocaleString()}Kg
-              </span>
-            </div>
-
-            {/* Bulk */}
-            <div className="grid grid-cols-[96px_14px_1fr] items-center text-gray-800 dark:text-slate-200">
-              <span className="text-gray-600 dark:text-slate-400 font-medium text-left truncate">
-                Bulk
-              </span>
-              <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
-              <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
-                {calculatedMonthBulk.toLocaleString()}Kg
-              </span>
-            </div>
-
-            {/* In-House */}
-            <div className="grid grid-cols-[96px_14px_1fr] items-center text-gray-800 dark:text-slate-200">
-              <span className="text-gray-600 dark:text-slate-400 font-medium text-left truncate">
-                In-House
-              </span>
-              <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
-              <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
-                {calculatedInHouseBulk.toLocaleString()}Kg
-              </span>
-            </div>
-
-            {/* Sub-Contact */}
-            <div className="grid grid-cols-[96px_14px_1fr] items-center text-gray-800 dark:text-slate-200">
-              <span className="text-gray-600 dark:text-slate-400 font-medium text-left truncate">
-                Sub-Contact
-              </span>
-              <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
-              <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
-                {calculatedSubContactBulk.toLocaleString()}Kg
-              </span>
-            </div>
-
-            {/* Total Sample Production */}
-            <div className="grid grid-cols-[96px_14px_1fr] items-center text-gray-800 dark:text-slate-200">
-              <span className="text-gray-600 dark:text-slate-400 font-medium text-left truncate" title="Total Sample Production">
-                Total Sample
-              </span>
-              <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
-              <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
-                {calculatedSampleProd.toLocaleString()}Kg
-              </span>
-            </div>
-
-            {/* Production Loss for Sample */}
-            <div className="grid grid-cols-[96px_14px_1fr] items-center text-gray-800 dark:text-slate-200">
-              <span className="text-gray-600 dark:text-slate-400 font-medium text-left truncate" title="Production Loss For Sample">
-                Loss For Sample
-              </span>
-              <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
-              <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
-                {calculatedProdLoss.toLocaleString()}Kg
-              </span>
-            </div>
+        {/* Key Production Metrics with strictly aligned grid */}
+        <div className="w-full space-y-1 font-sans text-xs">
+          {/* Total */}
+          <div className="grid grid-cols-[100px_14px_1fr] items-center text-gray-800 dark:text-slate-200">
+            <span className="text-gray-600 dark:text-slate-400 font-medium text-left truncate">
+              Total
+            </span>
+            <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
+            <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
+              {calculatedMonthTotal.toLocaleString()}Kg
+            </span>
           </div>
 
-          {/* Right Column: Speedometer / Semi-Circle Gauge (Isolated width to prevent any overlap) */}
-          <div className="w-36 shrink-0 flex flex-col items-center justify-center pl-1">
-            <div className="relative w-34 h-20 flex items-center justify-center">
-              <svg 
-                viewBox="0 0 150 82" 
-                className="w-full h-full overflow-visible"
-                aria-label={`Bulk Production Split: In-House ${clampedInHousePct}%, Sub-Contact ${clampedSubContactPct}%`}
-              >
-                {/* 1. Base / Sub-Contact Arc (Vibrant Red #EF4444) */}
-                <path
-                  d={`M ${cx - radius} ${cy} A ${radius} ${radius} 0 0 1 ${cx + radius} ${cy}`}
-                  fill="none"
-                  stroke="#EF4444"
-                  strokeWidth={strokeWidth}
-                  strokeLinecap="butt"
-                  className="transition-all duration-700 ease-out"
-                />
-
-                {/* 2. In-House Arc (Vibrant Cyan #00BCD4) */}
-                <path
-                  d={`M ${cx - radius} ${cy} A ${radius} ${radius} 0 0 1 ${cx + radius} ${cy}`}
-                  fill="none"
-                  stroke="#00BCD4"
-                  strokeWidth={strokeWidth}
-                  strokeLinecap="butt"
-                  strokeDasharray={`${inHouseArcLength} ${totalArcLength}`}
-                  className="transition-all duration-700 ease-out"
-                />
-
-                {/* 3. Needle Pointer pointing to split percentage */}
-                <line
-                  x1={cx}
-                  y1={cy}
-                  x2={needleTipX}
-                  y2={needleTipY}
-                  stroke="#64748B"
-                  strokeWidth="3.5"
-                  strokeLinecap="round"
-                  className="dark:stroke-slate-400 transition-all duration-700 ease-out"
-                />
-
-                {/* 4. Center Pivot Cap */}
-                <circle
-                  cx={cx}
-                  cy={cy}
-                  r="5.5"
-                  fill="#64748B"
-                  className="dark:fill-slate-400"
-                />
-                <circle
-                  cx={cx}
-                  cy={cy}
-                  r="2"
-                  fill="#FFFFFF"
-                  className="dark:fill-slate-900"
-                />
-              </svg>
-            </div>
-
-            {/* Gauge Bottom Labels (In-House % vs Sub-Contact %) */}
-            <div className="w-full flex items-center justify-between text-[10px] font-bold mt-1 px-1">
-              <div className="text-left">
-                <span className="font-mono font-black text-gray-900 dark:text-white block leading-tight">
-                  {clampedInHousePct}%
-                </span>
-                <span className="text-[9px] font-semibold text-gray-600 dark:text-slate-400 block whitespace-nowrap">
-                  In-House
-                </span>
-              </div>
-              <div className="text-right">
-                <span className="font-mono font-black text-gray-900 dark:text-white block leading-tight">
-                  {clampedSubContactPct}%
-                </span>
-                <span className="text-[9px] font-semibold text-gray-600 dark:text-slate-400 block whitespace-nowrap">
-                  Sub-Contact
-                </span>
-              </div>
-            </div>
+          {/* Bulk */}
+          <div className="grid grid-cols-[100px_14px_1fr] items-center text-gray-800 dark:text-slate-200">
+            <span className="text-gray-600 dark:text-slate-400 font-medium text-left truncate">
+              Bulk
+            </span>
+            <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
+            <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
+              {calculatedMonthBulk.toLocaleString()}Kg
+            </span>
           </div>
+
+          {/* In-House */}
+          <div className="grid grid-cols-[100px_14px_1fr] items-center text-gray-800 dark:text-slate-200">
+            <span className="text-gray-600 dark:text-slate-400 font-medium text-left truncate">
+              In-House
+            </span>
+            <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
+            <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
+              {calculatedInHouseBulk.toLocaleString()}Kg
+            </span>
+          </div>
+
+          {/* Sub-Contact */}
+          <div className="grid grid-cols-[100px_14px_1fr] items-center text-gray-800 dark:text-slate-200">
+            <span className="text-gray-600 dark:text-slate-400 font-medium text-left truncate">
+              Sub-Contact
+            </span>
+            <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
+            <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
+              {calculatedSubContactBulk.toLocaleString()}Kg
+            </span>
+          </div>
+
+          {/* Total Sample Production */}
+          <div className="grid grid-cols-[100px_14px_1fr] items-center text-gray-800 dark:text-slate-200">
+            <span className="text-gray-600 dark:text-slate-400 font-medium text-left truncate" title="Total Sample Production">
+              Total Sample
+            </span>
+            <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
+            <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
+              {calculatedSampleProd.toLocaleString()}Kg
+            </span>
+          </div>
+
+          {/* Production Loss for Sample */}
+          <div className="grid grid-cols-[100px_14px_1fr] items-center text-gray-800 dark:text-slate-200">
+            <span className="text-gray-600 dark:text-slate-400 font-medium text-left truncate" title="Production Loss For Sample">
+              Loss For Sample
+            </span>
+            <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
+            <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
+              {calculatedProdLoss.toLocaleString()}Kg
+            </span>
+          </div>
+        </div>
+
+        {/* Horizontal Progress Bar Chart */}
+        <div className="w-full pt-0.5">
+          {/* Top Labels: "In-House X%" on Left, "Y% Sub-Contact" on Right */}
+          <div className="w-full flex items-center justify-between text-[11px] font-bold text-gray-900 dark:text-slate-100 mb-1">
+            <span className="text-left">In-House {clampedInHousePct}%</span>
+            <span className="text-right">{clampedSubContactPct}% Sub-Contact</span>
+          </div>
+
+          {/* Dual-Color Segmented Horizontal Bar stretching full width */}
+          <div 
+            className="h-4 sm:h-4.5 w-full flex overflow-hidden shadow-2xs"
+            role="progressbar"
+            aria-label={`Bulk Production Breakdown: In-House ${clampedInHousePct}%, Sub-Contact ${clampedSubContactPct}%`}
+          >
+            {/* In-House Segment (Deep Petrol Teal) */}
+            <div
+              style={{ width: `${clampedInHousePct}%` }}
+              className="h-full bg-[#13607c] transition-all duration-500 ease-out"
+              title={`In-House: ${clampedInHousePct}%`}
+            />
+            {/* Sub-Contact Segment (Warm Orange) */}
+            <div
+              style={{ width: `${clampedSubContactPct}%` }}
+              className="h-full bg-[#e26a2c] transition-all duration-500 ease-out"
+              title={`Sub-Contact: ${clampedSubContactPct}%`}
+            />
+          </div>
+        </div>
+
+        {/* Bottom Gauges Row: Left Efficiency & Right Capacity Utilization */}
+        <div className="w-full pt-1.5 border-t border-gray-100 dark:border-slate-800 flex items-center justify-between gap-2">
+          {/* Left Bottom: Efficiency Speedometer Gauge */}
+          <MiniSpeedometer 
+            label="Efficiency"
+            value={efficiencyPct}
+            color="#059669"
+          />
+
+          <div className="h-9 w-px bg-gray-200 dark:bg-slate-700" />
+
+          {/* Right Bottom: Capacity Utilization Speedometer Gauge */}
+          <MiniSpeedometer 
+            label="Capacity Utilization"
+            value={capacityUtilizationPct}
+            color="#0284c7"
+          />
         </div>
       </div>
 
