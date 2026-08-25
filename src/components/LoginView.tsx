@@ -15,14 +15,7 @@ import {
 } from 'lucide-react';
 import { UserRecord, INITIAL_USERS } from './UserManagementView';
 import { GasClient } from '../lib/gasClient';
-import { FirestoreSyncService } from '../lib/firestoreSync';
-import { auth } from '../lib/firebase';
-import { 
-  signInAnonymously, 
-  updateProfile, 
-  setPersistence, 
-  browserLocalPersistence 
-} from 'firebase/auth';
+import { SupabaseSync } from '../lib/supabaseClient';
 
 interface LoginViewProps {
   onLoginSuccess: (user: UserRecord) => void;
@@ -38,11 +31,11 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
   const [loading, setLoading] = useState(false);
   const [userRoster, setUserRoster] = useState<UserRecord[]>(INITIAL_USERS);
 
-  // Load user directory directly from Firebase Firestore or local persistent DB
+  // Load user directory directly from Supabase / Server DB / Initial roster
   useEffect(() => {
     const loadUsers = async () => {
       try {
-        const users = await FirestoreSyncService.fetchUsers();
+        const users = await SupabaseSync.fetchUsers();
         if (users && users.length > 0) {
           setUserRoster(users as UserRecord[]);
         } else {
@@ -73,8 +66,8 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
     setLoading(true);
 
     try {
-      // 1. Direct live verification against Firebase Firestore / Supabase / Server DB / Initial roster
-      const liveUsers = await FirestoreSyncService.fetchUsers();
+      // 1. Direct live verification against Supabase / Server DB / Initial roster
+      const liveUsers = await SupabaseSync.fetchUsers();
       const currentRoster = (liveUsers && liveUsers.length > 0) ? liveUsers : (userRoster.length > 0 ? userRoster : INITIAL_USERS);
 
       const cleanInput = inputIdentifier.toUpperCase().replace(/[\s-_]/g, '');
@@ -129,40 +122,12 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
         return;
       }
 
-      // Establish Firebase Authentication session and cookie asynchronously without blocking UI login
-      const establishAuthSession = async () => {
-        try {
-          const authTimeout = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('Auth timeout')), 1000)
-          );
-          await Promise.race([
-            (async () => {
-              await setPersistence(auth, browserLocalPersistence).catch(() => {});
-              let fbUser = auth.currentUser;
-              if (!fbUser) {
-                const cred = await signInAnonymously(auth).catch(() => null);
-                fbUser = cred?.user || null;
-              }
-              if (fbUser) {
-                await updateProfile(fbUser, { displayName: match.uid.trim().toUpperCase() }).catch(() => {});
-              }
-            })(),
-            authTimeout
-          ]).catch(() => {});
-
-          // Establish secure HTTP-only session cookie
-          await fetch('/api/auth/session', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uid: match.uid.trim().toUpperCase() })
-          }).catch(() => {});
-        } catch (authErr) {
-          console.warn("Firebase Auth persistence sync warning:", authErr);
-        }
-      };
-
-      // Trigger session creation non-blocking
-      establishAuthSession();
+      // Establish secure HTTP-only session cookie
+      fetch('/api/auth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: match.uid.trim().toUpperCase() })
+      }).catch(() => {});
 
       // Successful Authenticated Session
       setSuccess(`Welcome back, ${match.userName}! Authenticated successfully.`);

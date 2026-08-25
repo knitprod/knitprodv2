@@ -29,7 +29,6 @@ import {
   Globe
 } from 'lucide-react';
 import { GasClient } from '../lib/gasClient';
-import { FirestoreSyncService } from '../lib/firestoreSync';
 import { SupabaseSync } from '../lib/supabaseClient';
 import { SyncConflictLog } from '../types';
 import gasScriptContent from '../../google-apps-script/Code.gs?raw';
@@ -72,24 +71,6 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
         setDatabaseMode(config.databaseMode);
       }
     });
-
-    const unsubscribeAppConfig = FirestoreSyncService.subscribeToAppConfig((config) => {
-      if (config.gasWebAppUrl && config.gasWebAppUrl.trim()) {
-        setGasWebAppUrl(config.gasWebAppUrl.trim());
-      }
-      if (config.databaseMode) {
-        setDatabaseMode(config.databaseMode);
-      }
-    });
-
-    const unsubscribeConflicts = FirestoreSyncService.subscribeToConflicts((conflictList) => {
-      setConflicts(conflictList);
-    });
-
-    return () => {
-      if (unsubscribeAppConfig) unsubscribeAppConfig();
-      if (unsubscribeConflicts) unsubscribeConflicts();
-    };
   }, []);
 
   const handleCopySql = async () => {

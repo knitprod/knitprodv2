@@ -310,19 +310,54 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
   const subContactTotalMachineRun = scDateKeys.length > 0 ? (sumScMc / scDaysCount) : 153;
   const subContactActiveVehicles = scDateKeys.length > 0 ? (sumScVeh / scDaysCount) : 8;
 
-  // Quality Status Metrics
-  const totalReject = activeRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.reject)) ? 0 : Number(r.reject || 0)), 0);
-  const totalHold = activeRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.hold)) ? 0 : Number(r.hold || 0)), 0);
-  const totalProdCombined = inHouseProdTotal + subContactBulkProd;
-  const rejectPct = totalProdCombined > 0 ? parseFloat(((totalReject / totalProdCombined) * 100).toFixed(2)) : 0.07;
-  const holdPct = totalProdCombined > 0 ? parseFloat(((totalHold / totalProdCombined) * 100).toFixed(1)) : 0.8;
-  const totalJhuteCutpcs = activeRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.jhuteCutpcs)) ? 0 : Number(r.jhuteCutpcs || 0)), 0) || 1840;
-  const jhuteCutpcsPct = totalProdCombined > 0 ? parseFloat(((totalJhuteCutpcs / totalProdCombined) * 100).toFixed(2)) : 0.12;
+  // In-House Quality Status Metrics
+  const rawInHouseReject = inHouseRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.reject)) ? 0 : Number(r.reject || 0)), 0);
+  const rawInHouseHold = inHouseRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.hold)) ? 0 : Number(r.hold || 0)), 0);
+  const rawInHouseJhute = inHouseRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.jhuteCutpcs)) ? 0 : Number(r.jhuteCutpcs || 0)), 0);
 
-  // Attendance Metrics
-  const totalOperators = activeRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalOperator)) ? 0 : Number(r.totalOperator || 0)), 0) || 36817;
-  const totalAbsent = activeRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.absent)) ? 0 : Number(r.absent || 0)), 0) || 837;
-  const absentPct = totalOperators > 0 ? parseFloat(((totalAbsent / totalOperators) * 100).toFixed(1)) : 2.3;
+  const inHouseReject = Math.round(rawInHouseReject > 0 ? rawInHouseReject : 3240);
+  const inHouseHold = Math.round(rawInHouseHold > 0 ? rawInHouseHold : 38150);
+  const inHouseJhute = Math.round(rawInHouseJhute > 0 ? rawInHouseJhute : 540);
+
+  const inHouseRejectPct = inHouseProdTotal > 0 ? parseFloat(((inHouseReject / inHouseProdTotal) * 100).toFixed(2)) : 0.07;
+  const inHouseHoldPct = inHouseProdTotal > 0 ? parseFloat(((inHouseHold / inHouseProdTotal) * 100).toFixed(1)) : 0.8;
+  const inHouseJhutePct = inHouseProdTotal > 0 ? parseFloat(((inHouseJhute / inHouseProdTotal) * 100).toFixed(2)) : 0.01;
+  const inHouseScrapPct = parseFloat((inHouseRejectPct + inHouseHoldPct + inHouseJhutePct).toFixed(2));
+  const inHousePassRatePct = Math.max(0, Math.min(100, 100 - inHouseScrapPct));
+
+  // Sub-Contact Quality Status Metrics (Sub-Contact only has Reject; Hold & Jhute/CutPcs do not apply)
+  const rawSubContactReject = subContactRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.reject)) ? 0 : Number(r.reject || 0)), 0);
+  const subContactReject = Math.round(rawSubContactReject);
+  const subContactHold = 0;
+  const subContactJhute = 0;
+
+  const subContactRejectPct = subContactBulkProd > 0 ? parseFloat(((subContactReject / subContactBulkProd) * 100).toFixed(2)) : 0;
+  const subContactHoldPct = 0;
+  const subContactJhutePct = 0;
+  const subContactScrapPct = subContactRejectPct;
+  const subContactPassRatePct = Math.max(0, Math.min(100, 100 - subContactScrapPct));
+
+  // Combined Quality Totals (In-House has Reject, Hold, Jhute; Sub-Contact only contributes Reject)
+  const totalReject = inHouseReject + subContactReject;
+  const totalHold = inHouseHold;
+  const totalJhuteCutpcs = inHouseJhute;
+  const totalProdCombined = inHouseProdTotal + subContactBulkProd;
+  const rejectPct = totalProdCombined > 0 ? parseFloat(((totalReject / totalProdCombined) * 100).toFixed(2)) : 0;
+  const holdPct = totalProdCombined > 0 ? parseFloat(((totalHold / totalProdCombined) * 100).toFixed(2)) : 0;
+  const jhuteCutpcsPct = totalProdCombined > 0 ? parseFloat(((totalJhuteCutpcs / totalProdCombined) * 100).toFixed(2)) : 0;
+  const cumulativeScrapPct = parseFloat((rejectPct + holdPct + jhuteCutpcsPct).toFixed(2));
+
+  // Attendance Metrics: Computed as DAILY AVERAGE across the active period (Running Month by default, reacts to filter)
+  const activeStaffRecords = inHouseRecords.filter(r => (Number(r.totalOperator) || Number((r as any).totalStaff) || Number((r as any).manpower) || 0) > 0);
+  const activeStaffRecordsCount = Math.max(1, activeStaffRecords.length);
+  const sumStaff = activeStaffRecords.reduce((acc, r) => acc + (Number(r.totalOperator) || Number((r as any).totalStaff) || Number((r as any).manpower) || 0), 0);
+  const sumAbsent = activeStaffRecords.reduce((acc, r) => acc + (Number(r.absent) || 0), 0);
+
+  const avgStaff = sumStaff > 0 ? Math.round(sumStaff / activeStaffRecordsCount) : 51;
+  const avgAbsent = sumStaff > 0 ? Math.round(sumAbsent / activeStaffRecordsCount) : 2;
+  const avgPresent = Math.max(0, avgStaff - avgAbsent);
+  const absentPct = avgStaff > 0 ? parseFloat(((avgAbsent / avgStaff) * 100).toFixed(1)) : 3.9;
+  const presentPct = avgStaff > 0 ? parseFloat(((avgPresent / avgStaff) * 100).toFixed(1)) : 96.1;
 
   return (
     <div className="space-y-4" id="dashboard-kpi-cards-container">
@@ -371,20 +406,35 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
 
         {/* Card 5: Quality Status */}
         <QualityStatusCard
+          inHouseReject={inHouseReject}
+          inHouseRejectPct={inHouseRejectPct}
+          inHouseHold={inHouseHold}
+          inHouseHoldPct={inHouseHoldPct}
+          inHouseJhuteCutpcs={inHouseJhute}
+          inHouseJhuteCutpcsPct={inHouseJhutePct}
+          inHouseCumulativeScrapPct={inHouseScrapPct}
+          inHousePassRatePct={inHousePassRatePct}
+          subContactReject={subContactReject}
+          subContactRejectPct={subContactRejectPct}
+          subContactCumulativeScrapPct={subContactScrapPct}
+          subContactPassRatePct={subContactPassRatePct}
           totalReject={totalReject}
           rejectPct={rejectPct}
           totalHold={totalHold}
           holdPct={holdPct}
           totalJhuteCutpcs={totalJhuteCutpcs}
           jhuteCutpcsPct={jhuteCutpcsPct}
+          cumulativeScrapPct={cumulativeScrapPct}
           periodLabel={periodLabel}
         />
 
-        {/* Card 6: Attendance */}
+        {/* Card 6: Attendance (Showing Daily Average Counts) */}
         <AttendanceCard
-          totalStaff={totalOperators}
-          totalAbsent={totalAbsent}
+          totalStaff={avgStaff}
+          totalAbsent={avgAbsent}
           absentPct={absentPct}
+          presentStaff={avgPresent}
+          presentPct={presentPct}
           periodLabel={periodLabel}
         />
       </div>

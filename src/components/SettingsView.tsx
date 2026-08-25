@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Settings, Save, Image, Cpu, CheckCircle, ShoppingBag, Plus, X, RotateCcw, Search, RefreshCw, Edit, Trash2, Building2, Layers, Check, Upload } from 'lucide-react';
 import { GasClient } from '../lib/gasClient';
-import { FirestoreSyncService } from '../lib/firestoreSync';
+import { SupabaseSync } from '../lib/supabaseClient';
 import { getBuyers, saveBuyers, addBuyer as addNewBuyerToStore, removeBuyer as removeBuyerFromStore, renameBuyerInStore, resetBuyersToDefault } from '../lib/buyerStore';
 import { getCompanyLogo, saveCompanyLogo, removeCompanyLogo } from '../lib/logoStore';
 import { UnitThresholdConfig, INITIAL_UNIT_CONFIGS, getUnitConfigs, saveUnitConfigs } from '../lib/unitStore';
@@ -118,17 +118,9 @@ export default function SettingsView() {
     GasClient.fetchSettings().then(remoteSettings => {
       if (remoteSettings) {
         applyRemoteSettings(remoteSettings);
-        FirestoreSyncService.saveSettings(remoteSettings).catch(() => {});
       }
     }).catch(err => {
       console.warn("Notice loading Google Sheets settings:", err);
-    });
-
-    // 2. Realtime subscription to Firestore settings
-    const unsubscribe = FirestoreSyncService.subscribeToSettings((remoteSettings) => {
-      if (remoteSettings) {
-        applyRemoteSettings(remoteSettings);
-      }
     });
 
     const handleBuyersUpdate = (e: Event) => {
@@ -141,7 +133,6 @@ export default function SettingsView() {
     };
     window.addEventListener('buyers_updated', handleBuyersUpdate);
     return () => {
-      if (unsubscribe) unsubscribe();
       window.removeEventListener('buyers_updated', handleBuyersUpdate);
     };
   }, []);
@@ -238,22 +229,21 @@ export default function SettingsView() {
     };
 
     try {
-      await FirestoreSyncService.saveSettings(settingsMap);
-      // Log Activity in Firestore
-      const logMsg = editingUnit
-        ? `Updated Unit configuration for "${nameTrimmed}": Capacity=${capNum}Kg, Machines=${macNum}, Avg=${avgNum}Kg.`
-        : `Added New Unit "${nameTrimmed}": Capacity=${capNum}Kg, Machines=${macNum}, Avg=${avgNum}Kg.`;
-
-      await FirestoreSyncService.saveActivityLog({
-        id: `act-${Date.now()}`,
-        timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
-        floorId: nameTrimmed,
-        type: 'maintenance',
-        message: logMsg,
-        status: 'info'
+      await GasClient.saveServerDb({
+        settings: settingsMap,
+        activityLogs: [{
+          id: `act-${Date.now()}`,
+          timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+          floorId: nameTrimmed,
+          type: 'maintenance',
+          message: editingUnit
+            ? `Updated Unit configuration for "${nameTrimmed}": Capacity=${capNum}Kg, Machines=${macNum}, Avg=${avgNum}Kg.`
+            : `Added New Unit "${nameTrimmed}": Capacity=${capNum}Kg, Machines=${macNum}, Avg=${avgNum}Kg.`,
+          status: 'info'
+        }]
       });
     } catch (err) {
-      console.warn("Error saving unit changes to Firestore:", err);
+      console.warn("Error saving unit changes to server DB:", err);
     }
   };
 
@@ -273,24 +263,26 @@ export default function SettingsView() {
     };
 
     try {
-      await FirestoreSyncService.saveSettings(settingsMap);
-      await FirestoreSyncService.saveActivityLog({
-        id: `act-${Date.now()}`,
-        timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
-        floorId: unit.unitName,
-        type: 'maintenance',
-        message: `Deleted Unit "${unit.unitName}" from General Threshold Settings.`,
-        status: 'warning'
+      await GasClient.saveServerDb({
+        settings: settingsMap,
+        activityLogs: [{
+          id: `act-${Date.now()}`,
+          timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+          floorId: unit.unitName,
+          type: 'maintenance',
+          message: `Deleted Unit "${unit.unitName}" from General Threshold Settings.`,
+          status: 'warning'
+        }]
       });
     } catch (err) {
-      console.warn("Error syncing unit deletion to Firestore:", err);
+      console.warn("Error syncing unit deletion to server DB:", err);
     }
   };
 
   // Automatically update Assigned Buyers in all User Accounts when a buyer is renamed or deleted
   const syncUserAssignedBuyersOnRename = async (oldName: string, newName: string | null) => {
     try {
-      const serverUsers = await FirestoreSyncService.fetchUsers();
+      const serverUsers = await SupabaseSync.fetchUsers();
       if (!serverUsers || !Array.isArray(serverUsers)) return;
 
       for (const usr of serverUsers) {
@@ -306,11 +298,11 @@ export default function SettingsView() {
             assignedBuyers: nextAssigned,
             lastUpdated: new Date().toISOString().slice(0, 10) + ' ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
           };
-          await FirestoreSyncService.saveUser(updatedUser);
+          await SupabaseSync.saveUser(updatedUser);
         }
       }
     } catch (err) {
-      console.warn("Failed to sync updated buyer name to user accounts in Firestore:", err);
+      console.warn("Failed to sync updated buyer name to user accounts:", err);
     }
   };
 
@@ -386,30 +378,17 @@ export default function SettingsView() {
       buyers: buyersList
     };
 
-    // Sync to Firestore via FirestoreSyncService
-    try {
-      await FirestoreSyncService.saveSettings(settingsMap);
-      await FirestoreSyncService.saveActivityLog({
+    // Persist centrally on server DB for all devices
+    await GasClient.saveServerDb({
+      settings: settingsMap,
+      activityLogs: [{
         id: `act-${Date.now()}`,
         timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
         floorId: 'System',
         type: 'maintenance',
-        message: `System configurations committed to Firebase Firestore. Total Units: ${unitConfigs.length}, Active Buyers: ${buyersList.length}.`,
+        message: `System configurations updated. Total Units: ${unitConfigs.length}, Active Buyers: ${buyersList.length}.`,
         status: 'success'
-      });
-    } catch (e) {
-      console.warn("Settings save error:", e);
-    }
-
-    // Persist centrally on server DB for all devices
-    await GasClient.saveServerDb({
-      settings: {
-        rejectThreshold,
-        maxIdleMachines,
-        alarmEmail,
-        unitConfigs,
-        buyers: buyersList
-      }
+      }]
     });
 
     setIsSyncing(false);

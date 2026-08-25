@@ -686,14 +686,14 @@ const getMetricsForUnitAndDate = (unitId: string, dateStr: string) => {
   }[ledgerFloorName] || 48;
 
   const defaultTotalOperators = {
-    'EKL': 110,
-    'EFL': 95,
-    'EFL-2': 85,
-    'Auto Stripe': 50,
-    'EFL-Extension': 65,
-    'ESL-Extension': 40,
+    'EKL': 53,
+    'EFL': 51,
+    'EFL-2': 50,
+    'Auto Stripe': 48,
+    'EFL-Extension': 49,
+    'ESL-Extension': 52,
     'Sub-Contact': 0
-  }[ledgerFloorName] || 110;
+  }[ledgerFloorName] || 51;
 
   return {
     target: 0,

@@ -51,10 +51,7 @@ import PlanOrderFollowupView from './components/PlanOrderFollowupView';
 import YarnAllocationView from './components/YarnAllocationView';
 import DashboardFilterToolbar, { FilterState } from './components/DashboardFilterToolbar';
 import { GasClient } from './lib/gasClient';
-import { FirestoreSyncService } from './lib/firestoreSync';
 import { SupabaseSync } from './lib/supabaseClient';
-import { auth } from './lib/firebase';
-import { onAuthStateChanged, signOut, updateProfile } from 'firebase/auth';
 import { getTargetKgForUnit, getTotalMachinesForUnit, saveUnitConfigs, getUnitConfigs } from './lib/unitStore';
 import { saveBuyers } from './lib/buyerStore';
 
@@ -166,45 +163,36 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<UserRecord | null>(null);
   const lastActivityRef = useRef<number>(Date.now());
 
-  // Automatic Firebase Authentication state restoration on startup and page refresh
+  // Automatic Authentication state restoration on startup and page refresh
   useEffect(() => {
     let isMounted = true;
 
-    const restoreSession = async (firebaseUser: any) => {
+    const restoreSession = async () => {
       try {
         let targetUid: string | null = null;
 
-        if (firebaseUser) {
-          targetUid = firebaseUser.displayName || null;
-        }
-
-        // If Firebase Auth user displayName is not yet assigned, check secure server cookie
-        if (!targetUid) {
-          try {
-            const res = await fetch('/api/auth/session', { credentials: 'same-origin' });
-            if (res.ok) {
-              const data = await res.json();
-              if (data.authenticated && data.uid) {
-                targetUid = data.uid;
-                if (firebaseUser) {
-                  await updateProfile(firebaseUser, { displayName: targetUid }).catch(() => {});
-                }
-              }
+        // Check secure server session
+        try {
+          const res = await fetch('/api/auth/session', { credentials: 'same-origin' });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.authenticated && data.uid) {
+              targetUid = data.uid;
             }
-          } catch (e) {
-            // Server check network fallback
           }
+        } catch (e) {
+          // Network fallback
         }
 
         if (targetUid) {
-          // Fetch live user roster from Firestore
-          const liveUsers = await FirestoreSyncService.fetchUsers();
+          // Fetch live user roster from Supabase / Server DB
+          const liveUsers = await SupabaseSync.fetchUsers();
           const cleanUid = targetUid.trim().toUpperCase();
           let matchedUser = liveUsers?.find(
             (u: any) => u.uid && u.uid.toString().trim().toUpperCase() === cleanUid
           );
 
-          // Fallback to initial roster if Firestore users collection is currently initializing
+          // Fallback to initial roster
           if (!matchedUser) {
             matchedUser = INITIAL_USERS.find(
               (u) => u.uid.toUpperCase() === cleanUid
@@ -213,7 +201,6 @@ export default function App() {
 
           if (matchedUser) {
             if (matchedUser.status === 'Inactive') {
-              await signOut(auth).catch(() => {});
               await fetch('/api/auth/session', { method: 'DELETE' }).catch(() => {});
               if (isMounted) {
                 setCurrentUser(null);
@@ -236,7 +223,7 @@ export default function App() {
           }
         }
 
-        // No active or valid authenticated session
+        // No active session
         if (isMounted) {
           setCurrentUser(null);
           GasClient.setActiveUser(null);
@@ -252,21 +239,10 @@ export default function App() {
       }
     };
 
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      restoreSession(firebaseUser);
-    });
-
-    // Guaranteed fallback timer so login screen renders if Firebase Auth is unresponsive
-    const fallbackTimer = setTimeout(() => {
-      if (isMounted) {
-        setAuthLoading(false);
-      }
-    }, 1500);
+    restoreSession();
 
     return () => {
       isMounted = false;
-      clearTimeout(fallbackTimer);
-      unsubscribe();
     };
   }, []);
 
@@ -274,38 +250,6 @@ export default function App() {
   useEffect(() => {
     GasClient.setActiveUser(currentUser);
   }, [currentUser]);
-
-  // Real-time synchronization of active user profile from Firestore
-  useEffect(() => {
-    if (!currentUser?.uid && !currentUser?.id) return;
-
-    const unsubscribe = FirestoreSyncService.subscribeToUsers((serverUsers) => {
-      if (serverUsers && Array.isArray(serverUsers)) {
-        const matching = serverUsers.find(
-          (u) => (u.uid && currentUser?.uid && u.uid.toUpperCase() === currentUser.uid.toUpperCase()) || u.id === currentUser?.id
-        );
-        if (matching) {
-          const updatedUser = { ...matching };
-          delete updatedUser.password;
-          setCurrentUser((prev) => {
-            if (!prev) return updatedUser;
-            const prevBuyers = JSON.stringify(prev.assignedBuyers || []);
-            const nextBuyers = JSON.stringify(updatedUser.assignedBuyers || []);
-            const prevTabs = JSON.stringify(prev.allowedTabs || []);
-            const nextTabs = JSON.stringify(updatedUser.allowedTabs || []);
-            if (prevBuyers !== nextBuyers || prevTabs !== nextTabs || prev.userName !== updatedUser.userName) {
-              return updatedUser;
-            }
-            return prev;
-          });
-        }
-      }
-    });
-
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
-  }, [currentUser?.uid, currentUser?.id]);
 
   // 30-Minute Inactivity Auto-Logout Tracking (in React memory)
   useEffect(() => {
@@ -323,7 +267,6 @@ export default function App() {
 
       if (now - lastActivityRef.current >= INACTIVITY_LIMIT_MS) {
         // Trigger security auto-logout
-        signOut(auth).catch(() => {});
         fetch('/api/auth/session', { method: 'DELETE' }).catch(() => {});
         setCurrentUser(null);
         GasClient.setActiveUser(null);
@@ -449,7 +392,7 @@ export default function App() {
 
   const [gasSyncError, setGasSyncError] = useState<string | null>(null);
   const [syncBannerMessage, setSyncBannerMessage] = useState<string | null>(null);
-  const [isFirestoreQuotaExceeded, setIsFirestoreQuotaExceeded] = useState<boolean>(() => FirestoreSyncService.isQuotaExceeded());
+  const [isFirestoreQuotaExceeded, setIsFirestoreQuotaExceeded] = useState<boolean>(false);
   const [dismissQuotaBanner, setDismissQuotaBanner] = useState<boolean>(false);
 
   // Google Apps Script real-time sync loader (Background fetch)
@@ -510,12 +453,10 @@ export default function App() {
     try {
       // 1. Pull live data from Google Sheet & update local React states
       await loadLiveGasData(true);
-      // 2. Perform full two-way gateway sync between Google Sheet & Firestore
-      const recon = await FirestoreSyncService.reconcileSheetsAndFirestore();
-      // 3. Dispatch global sync event so mounted views re-fetch live sheets data
+      // 2. Dispatch global sync event so mounted views re-fetch live sheets data
       window.dispatchEvent(new Event('gas_data_synced'));
 
-      setSyncBannerMessage(recon.message || "Successfully pulled & synchronized live data from Google Sheet!");
+      setSyncBannerMessage("Successfully pulled & synchronized live data from Google Sheet!");
       setTimeout(() => setSyncBannerMessage(null), 4500);
     } catch (err: any) {
       console.error("Manual sync error:", err);
@@ -528,7 +469,7 @@ export default function App() {
 
   // Fetch central server database configuration (GAS URL, DB mode & Supabase) on app startup
   useEffect(() => {
-    // 1. Sync Supabase config from Firestore/Server to keep connection sticky
+    // 1. Sync Supabase config from Server to keep connection sticky
     SupabaseSync.syncRemoteConfig().catch(() => {});
 
     // 2. Sync GAS and fetch live data
@@ -538,81 +479,6 @@ export default function App() {
       }
     }).catch((err) => {
       console.warn("Central config fetch notice:", err);
-    });
-  }, []);
-
-  // Initialize Firebase Firestore User Management, Activity Logs, and Real-time App Config Sync
-  useEffect(() => {
-    FirestoreSyncService.seedInitialUsersIfEmpty(INITIAL_USERS);
-    FirestoreSyncService.seedInitialActivityLogsIfEmpty(INITIAL_ACTIVITY_LOGS);
-
-    // Realtime listener for Activity Logs in Firestore
-    const unsubscribeActivityLogs = FirestoreSyncService.subscribeToActivityLogs((logs) => {
-      if (logs && logs.length > 0) {
-        setActivityLogsRaw(logs);
-      }
-    });
-
-    // Realtime listener for App Config (GAS Web App URL & Supabase credentials) across ALL connected devices
-    const unsubscribeAppConfig = FirestoreSyncService.subscribeToAppConfig((config) => {
-      let updated = false;
-      if (config.gasWebAppUrl && config.gasWebAppUrl.trim()) {
-        const newUrl = config.gasWebAppUrl.trim();
-        if (GasClient.getWebAppUrl() !== newUrl) {
-          GasClient.setWebAppUrl(newUrl);
-          GasClient.clearConfigCache();
-          updated = true;
-        }
-      }
-      if (config.databaseMode) {
-        if (GasClient.getDatabaseMode() !== config.databaseMode) {
-          GasClient.setDatabaseMode(config.databaseMode);
-          updated = true;
-        }
-      }
-      if (config.supabaseUrl && config.supabaseKey) {
-        const currentSupabase = SupabaseSync.getStoredConfig();
-        if (currentSupabase.supabaseUrl !== config.supabaseUrl || currentSupabase.supabaseKey !== config.supabaseKey) {
-          SupabaseSync.setCredentials(config.supabaseUrl, config.supabaseKey, false);
-        }
-      }
-      if (updated && GasClient.getDatabaseMode() === 'gas') {
-        loadLiveGasData();
-      }
-    });
-
-    // Realtime listener for System Settings (Units, Targets, Machines, Buyers) in Firestore
-    const unsubscribeSettings = FirestoreSyncService.subscribeToSettings((remoteSettings) => {
-      if (remoteSettings) {
-        if (remoteSettings.buyers) {
-          const list = Array.isArray(remoteSettings.buyers)
-            ? remoteSettings.buyers
-            : String(remoteSettings.buyers).split(',').map((s: string) => s.trim()).filter(Boolean);
-          if (list.length > 0) {
-            saveBuyers(list);
-          }
-        }
-        if (remoteSettings.unitConfigs && Array.isArray(remoteSettings.unitConfigs) && remoteSettings.unitConfigs.length > 0) {
-          saveUnitConfigs(remoteSettings.unitConfigs);
-          setFloors((prevFloors) =>
-            prevFloors.map((floor) => {
-              const targetKg = getTargetKgForUnit(floor.name, floor.targetKg);
-              const totalMachines = getTotalMachinesForUnit(floor.name, floor.totalMachines);
-              const runningMachines = Math.min(floor.runningMachines, totalMachines);
-              const idleMachines = Math.max(0, totalMachines - runningMachines);
-              const achievementPct = targetKg > 0 ? parseFloat(((floor.productionKg / targetKg) * 100).toFixed(1)) : 0;
-              return {
-                ...floor,
-                targetKg,
-                totalMachines,
-                runningMachines,
-                idleMachines,
-                achievementPct
-              };
-            })
-          );
-        }
-      }
     });
 
     const handleUnitConfigUpdate = (e: Event) => {
@@ -638,15 +504,7 @@ export default function App() {
     };
     window.addEventListener('unit_configs_updated', handleUnitConfigUpdate);
 
-    const unsubscribeQuota = FirestoreSyncService.subscribeToQuotaStatus((exceeded) => {
-      setIsFirestoreQuotaExceeded(exceeded);
-    });
-
     return () => {
-      if (unsubscribeActivityLogs) unsubscribeActivityLogs();
-      if (unsubscribeAppConfig) unsubscribeAppConfig();
-      if (unsubscribeSettings) unsubscribeSettings();
-      if (unsubscribeQuota) unsubscribeQuota();
       window.removeEventListener('unit_configs_updated', handleUnitConfigUpdate);
     };
   }, []);
@@ -877,11 +735,9 @@ export default function App() {
       prevFloors.map((floor) => {
         if (floor.id === newEntry.floorId) {
           const newProd = floor.productionKg + newEntry.productionKg;
-          const newReject = floor.rejectKg + newEntry.rejectKg;
           return {
             ...floor,
             productionKg: newProd,
-            rejectKg: newReject,
             achievementPct: Math.min(100, Math.round((newProd / (floor.targetKg || 1)) * 100)),
             lastUpdated: 'Just now'
           };
@@ -901,13 +757,12 @@ export default function App() {
     };
     setActivityLogs((prev) => [newLog, ...prev]);
 
-    // 3. Save to Firestore operational DB, save Activity Log, and push to Google Sheets automatically
-    FirestoreSyncService.saveActivityLog(newLog).catch((err) => {
-      console.warn('FirestoreSyncService saveActivityLog error:', err);
-    });
-
-    FirestoreSyncService.saveProductionEntry(completedEntry, currentUser?.userName || 'Operator').catch((err) => {
-      console.warn('FirestoreSyncService saveProductionEntry error:', err);
+    // 3. Save to server DB
+    GasClient.saveServerDb({ 
+      productionEntries: [completedEntry],
+      activityLogs: [newLog]
+    }).catch((err) => {
+      console.warn('saveServerDb error:', err);
     });
   };
 
@@ -918,7 +773,6 @@ export default function App() {
 
   const executeLogout = async () => {
     try {
-      await signOut(auth).catch(() => {});
       await fetch('/api/auth/session', { method: 'DELETE' }).catch(() => {});
       sessionStorage.removeItem('active_current_page');
       localStorage.removeItem('active_current_page');
@@ -943,7 +797,7 @@ export default function App() {
             </h2>
             <p className="text-xs font-semibold text-slate-500 dark:text-sky-300 flex items-center justify-center gap-2">
               <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0F4C81] dark:text-sky-400" />
-              Verifying Firebase Authentication session...
+              Verifying secure authentication session...
             </p>
           </div>
         </div>

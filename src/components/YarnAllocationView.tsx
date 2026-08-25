@@ -26,7 +26,6 @@ import {
 import { UserRecord } from './UserManagementView';
 import { useTableColumns, ColumnCustomizerDropdown, ResizableTh, ColumnDef } from './TableColumnCustomizer';
 import { GasClient } from '../lib/gasClient';
-import { FirestoreSyncService } from '../lib/firestoreSync';
 import { useGlobalData } from '../context/GlobalDataContext';
 
 export interface MasterUploadInfo {
@@ -1057,40 +1056,10 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
       }
     }).catch(() => {});
 
-    // Fetch latest master upload metadata from Firestore on mount
-    FirestoreSyncService.fetchSettings().then((settings) => {
-      if (settings && settings.master_yarn_upload_info) {
-        setUploadInfo(settings.master_yarn_upload_info);
-      }
-    }).catch(err => console.warn('Could not fetch initial master_yarn_upload_info from Firestore:', err));
-
-    // 2. Real-time subscription to Firestore settings for instant cross-device updates
-    let lastKnownMeta = uploadInfo;
-    const unsubscribeFirestore = FirestoreSyncService.subscribeToSettings((settings) => {
-      if (settings && settings.master_yarn_upload_info) {
-        const remoteMeta = settings.master_yarn_upload_info as MasterUploadInfo;
-        if (
-          lastKnownMeta.lastUploadedAt !== remoteMeta.lastUploadedAt ||
-          lastKnownMeta.lastUpdatedDate !== remoteMeta.lastUpdatedDate ||
-          lastKnownMeta.lastUpdateTime !== remoteMeta.lastUpdateTime ||
-          lastKnownMeta.uploadedBy !== remoteMeta.uploadedBy ||
-          lastKnownMeta.totalRecords !== remoteMeta.totalRecords ||
-          lastKnownMeta.fileName !== remoteMeta.fileName ||
-          lastKnownMeta.status !== remoteMeta.status
-        ) {
-          lastKnownMeta = remoteMeta;
-          setUploadInfo(remoteMeta);
-          // Automatically re-fetch updated dataset for other devices when master file is uploaded on any device
-          fetchAllocations(true);
-        }
-      }
-    });
-
     const handleSync = () => fetchAllocations(true);
     window.addEventListener('gas_data_synced', handleSync);
 
     return () => {
-      unsubscribeFirestore();
       window.removeEventListener('gas_data_synced', handleSync);
     };
   }, []);
@@ -1145,12 +1114,8 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
       localStorage.setItem('master_yarn_upload_info', JSON.stringify(newUploadInfo));
     } catch (e) {}
 
-    // Save immediately to persistent server DB cache & Firestore metadata
+    // Save immediately to persistent server DB cache
     GasClient.saveServerDb({ master_yarn_upload_info: newUploadInfo, yarnAllocations: dataToSave }).catch(err => console.warn("Server DB notice:", err));
-    FirestoreSyncService.saveSettings({
-      master_yarn_upload_info: newUploadInfo,
-      last_yarn_allocation_updated: new Date().toISOString()
-    }).catch(err => console.warn("Firestore notice:", err));
 
     // Close upload modal immediately so user can interact with the newly loaded records in the browser
     setShowUploadModal(false);

@@ -6,7 +6,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { GasClient } from '../lib/gasClient';
-import { FirestoreSyncService } from '../lib/firestoreSync';
 import { UserRecord } from './UserManagementView';
 import { formatDisplayDate } from './YarnAllocationView';
 import SearchableSelect from './SearchableSelect';

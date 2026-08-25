@@ -25,11 +25,11 @@ export default function AttendanceCard({
   periodLabel,
   className = '',
 }: AttendanceCardProps) {
-  const staffCount = Math.round(totalStaff || 36817);
-  const absentCount = Math.round(totalAbsent || 837);
+  const staffCount = typeof totalStaff === 'number' && totalStaff > 0 ? Math.round(totalStaff) : 51;
+  const absentCount = typeof totalAbsent === 'number' && totalAbsent >= 0 ? Math.round(totalAbsent) : 2;
   const calculatedAbsentPct = staffCount > 0 
     ? parseFloat(((absentCount / staffCount) * 100).toFixed(1)) 
-    : (typeof absentPct === 'number' ? parseFloat(absentPct.toFixed(1)) : 2.3);
+    : (typeof absentPct === 'number' ? parseFloat(absentPct.toFixed(1)) : 3.9);
 
   const calculatedPresent = presentStaff !== undefined ? Math.round(presentStaff) : Math.max(0, staffCount - absentCount);
   const calculatedPresentPct = presentPct !== undefined 
@@ -65,7 +65,7 @@ export default function AttendanceCard({
             {staffCount.toLocaleString()}
           </span>
           <span className="text-xs sm:text-sm font-semibold text-slate-500 dark:text-slate-400">
-            Total Staff
+            Daily Avg Staff
           </span>
         </div>
 
@@ -73,7 +73,7 @@ export default function AttendanceCard({
         <div className="mt-2 flex items-center justify-between">
           <span className="font-sans text-xs font-bold text-red-600 dark:text-red-400 flex items-center gap-1">
             <UserX className="h-3.5 w-3.5 shrink-0" />
-            <span>{absentCount.toLocaleString()} Absent</span>
+            <span>{absentCount.toLocaleString()} Avg Absent</span>
           </span>
 
           <span className="rounded-lg bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800/80 px-2 py-0.5 font-mono text-[10.5px] font-bold text-red-700 dark:text-red-300 shadow-2xs">

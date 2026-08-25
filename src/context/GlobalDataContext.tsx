@@ -15,7 +15,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { OrderPlan, YarnAllocationRecord, LedgerRecord, FactoryFloor } from '../types';
 import { INITIAL_FLOORS } from '../data';
-import { FirestoreSyncService } from '../lib/firestoreSync';
 import { GasClient } from '../lib/gasClient';
 
 export interface GlobalDataContextType {
@@ -384,78 +383,18 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return () => clearInterval(interval);
   }, []);
 
-  // 3. Cross-Device Real-time Event Listener & Direct Firestore Real-time Subscriptions
+  // 3. Cross-Device Real-time Event Listener
   useEffect(() => {
     const handleSyncEvent = () => refreshAll(true);
     window.addEventListener('gas_data_synced', handleSyncEvent);
 
-    // Instant real-time Firestore onSnapshot listeners across all devices
-    const unsubOrders = FirestoreSyncService.subscribeToOrderPlans((remotePlans) => {
-      if (Array.isArray(remotePlans) && remotePlans.length > 0) {
-        setOrderPlans(prev => {
-          if (prev.length > 50 && remotePlans.length < 20) {
-            return prev;
-          }
-          const clean = deduplicateWithUniqueIds(remotePlans, 'ord');
-          if (clean.length !== prev.length || JSON.stringify(prev) !== JSON.stringify(clean)) {
-            return clean;
-          }
-          return prev;
-        });
-      }
-    });
-
-    const unsubYarn = FirestoreSyncService.subscribeToYarnAllocations((remoteYarn) => {
-      if (Array.isArray(remoteYarn) && remoteYarn.length > 0) {
-        setYarnAllocations(prev => {
-          if (prev.length > 50 && remoteYarn.length < 20) {
-            return prev;
-          }
-          const clean = deduplicateWithUniqueIds(remoteYarn, 'yarn');
-          if (clean.length !== prev.length || JSON.stringify(prev) !== JSON.stringify(clean)) {
-            return clean;
-          }
-          return prev;
-        });
-      }
-    });
-
-    const unsubLedger = FirestoreSyncService.subscribeToLedgerRecords((remoteLedger) => {
-      if (Array.isArray(remoteLedger) && remoteLedger.length > 0) {
-        const clean = deduplicateWithUniqueIds(remoteLedger, 'rec');
-        setLedger(prev => {
-          if (JSON.stringify(prev) !== JSON.stringify(clean)) {
-            setFloors(fl => recalculateFloorsFromLedger(fl, clean));
-            return clean;
-          }
-          return prev;
-        });
-      }
-    });
-
-    const unsubSettings = FirestoreSyncService.subscribeToSettings((settings) => {
-      if (settings) {
-        const syncKey = `${settings.last_order_plan_updated || ''}_${settings.last_yarn_allocation_updated || ''}_${settings.last_ledger_updated || ''}`;
-        if (syncKey !== '_' && syncKey !== lastSettingsSyncRef.current) {
-          if (lastSettingsSyncRef.current !== null) {
-            refreshAll(true);
-          }
-          lastSettingsSyncRef.current = syncKey;
-        }
-      }
-    });
-
     return () => {
       window.removeEventListener('gas_data_synced', handleSyncEvent);
-      unsubOrders();
-      unsubYarn();
-      unsubLedger();
-      unsubSettings();
     };
   }, [refreshAll]);
 
   // ==========================================================
-  // OPTIMISTIC MUTATIONS WITH REAL-TIME FIRESTORE & KEEPALIVE SYNC
+  // OPTIMISTIC MUTATIONS WITH DIRECT GOOGLE SHEETS SYNC
   // ==========================================================
 
   // --- Order Plans ---
@@ -471,25 +410,17 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return [order, ...prev];
     });
 
-    // 2. Real-time Firestore write (instant cross-device broadcast)
-    FirestoreSyncService.saveOrderPlan(order).catch(err => console.warn('Firestore saveOrderPlan notice:', err));
-    FirestoreSyncService.saveSettings({ last_order_plan_updated: new Date().toISOString() }).catch(() => {});
-
-    // 3. Dispatched with keepalive: true to Google Sheets
+    // 2. Dispatched with keepalive: true to Google Sheets
     return executeKeepaliveMutation('orders/save', { orderPlans: [order], replace: false });
   };
 
   const deleteOrderPlan = async (id: string) => {
     setOrderPlans(prev => prev.filter(o => o.id !== id && o.ewo !== id));
-    FirestoreSyncService.deleteOrderPlan(id).catch(err => console.warn('Firestore deleteOrderPlan notice:', err));
-    FirestoreSyncService.saveSettings({ last_order_plan_updated: new Date().toISOString() }).catch(() => {});
     return executeKeepaliveMutation('orders/delete', { id });
   };
 
   const bulkSaveOrderPlans = async (orders: OrderPlan[], replace: boolean = false) => {
     setOrderPlans(prev => replace ? orders : [...orders, ...prev.filter(p => !orders.some(o => o.id === p.id))]);
-    FirestoreSyncService.batchSaveOrderPlans(orders, replace).catch(err => console.warn('Firestore batchSaveOrderPlans notice:', err));
-    FirestoreSyncService.saveSettings({ last_order_plan_updated: new Date().toISOString() }).catch(() => {});
     return executeKeepaliveMutation('orders/save', { orderPlans: orders, replace });
   };
 
@@ -541,9 +472,6 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return next;
     });
 
-    FirestoreSyncService.saveLedgerRecord(record).catch(err => console.warn('Firestore saveLedgerRecord notice:', err));
-    FirestoreSyncService.saveSettings({ last_ledger_updated: new Date().toISOString() }).catch(() => {});
-
     return executeKeepaliveMutation('ledger/save', { ledger: [record], replace: false });
   };
 
@@ -554,9 +482,6 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return next;
     });
 
-    FirestoreSyncService.deleteLedgerRecord(id).catch(err => console.warn('Firestore deleteLedgerRecord notice:', err));
-    FirestoreSyncService.saveSettings({ last_ledger_updated: new Date().toISOString() }).catch(() => {});
-
     return executeKeepaliveMutation('ledger/delete', { id });
   };
 
@@ -566,9 +491,6 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setFloors(fl => recalculateFloorsFromLedger(fl, next));
       return next;
     });
-
-    FirestoreSyncService.batchSaveLedgerRecords(records).catch(err => console.warn('Firestore batchSaveLedgerRecords notice:', err));
-    FirestoreSyncService.saveSettings({ last_ledger_updated: new Date().toISOString() }).catch(() => {});
 
     return executeKeepaliveMutation('ledger/save', { ledger: records, replace });
   };

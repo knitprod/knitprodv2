@@ -43,7 +43,6 @@ import {
 import * as XLSX from 'xlsx';
 import { LedgerRecord } from '../types';
 import { GasClient } from '../lib/gasClient';
-import { FirestoreSyncService } from '../lib/firestoreSync';
 import { useGlobalData } from '../context/GlobalDataContext';
 import AddProductionRecordModal from './AddProductionRecordModal';
 import UploadLedgerExcelModal, { APP_LEDGER_COLUMNS } from './UploadLedgerExcelModal';
@@ -186,8 +185,8 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       productionLossForEff: -30865.13,
       capacityUtilization: 63.49,
       totalOperator: 49,
-      absent: 4,
-      absentPct: 8.16,
+      absent: 2,
+      absentPct: 4.08,
       remarks: '',
       idleMachine: 12,
       idleMachinePct: 32,
@@ -289,8 +288,8 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       productionLossForEff: -32886.16,
       capacityUtilization: 62.80,
       totalOperator: 52,
-      absent: 0,
-      absentPct: 0,
+      absent: 1,
+      absentPct: 1.92,
       remarks: '',
       idleMachine: 1,
       idleMachinePct: 3,
@@ -338,9 +337,9 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       setChangePcs: 0,
       productionLossForEff: -2960,
       capacityUtilization: 76.4,
-      totalOperator: 98,
-      absent: 4,
-      absentPct: 4.1,
+      totalOperator: 53,
+      absent: 2,
+      absentPct: 3.77,
       remarks: '',
       runningMachine: 46,
       idleMachine: 12,
@@ -440,9 +439,9 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       setChangePcs: 0,
       productionLossForEff: -4543,
       capacityUtilization: 67.7,
-      totalOperator: 96,
-      absent: 4,
-      absentPct: 4.2,
+      totalOperator: 51,
+      absent: 2,
+      absentPct: 3.92,
       remarks: '',
       runningMachine: 51,
       idleMachine: 15,
@@ -491,9 +490,9 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       setChangePcs: 0,
       productionLossForEff: 3115,
       capacityUtilization: 63.9,
-      totalOperator: 60,
-      absent: 3,
-      absentPct: 5.0,
+      totalOperator: 50,
+      absent: 2,
+      absentPct: 4.0,
       remarks: 'power problem 4.13hours',
       runningMachine: 34,
       idleMachine: 9,
@@ -694,15 +693,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   // Unit settings reactive state
   const [unitConfigs, setUnitConfigs] = useState<UnitThresholdConfig[]>(() => getUnitConfigs());
 
-  // Real-time listener for Settings and Unit Threshold updates
+  // Listener for Unit Threshold updates
   React.useEffect(() => {
-    const unsubscribeSettings = FirestoreSyncService.subscribeToSettings((remoteSettings) => {
-      if (remoteSettings && remoteSettings.unitConfigs && Array.isArray(remoteSettings.unitConfigs) && remoteSettings.unitConfigs.length > 0) {
-        setUnitConfigs(remoteSettings.unitConfigs);
-        saveUnitConfigs(remoteSettings.unitConfigs);
-      }
-    });
-
     const handleUnitConfigsUpdated = (e: Event) => {
       const customEv = e as CustomEvent<UnitThresholdConfig[]>;
       if (customEv.detail) {
@@ -714,7 +706,6 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     window.addEventListener('unit_configs_updated', handleUnitConfigsUpdated);
 
     return () => {
-      if (unsubscribeSettings) unsubscribeSettings();
       window.removeEventListener('unit_configs_updated', handleUnitConfigsUpdated);
     };
   }, []);
@@ -1030,13 +1021,10 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       setLedger(combined);
       globalBulkSaveLedgerRecords(combined, mode === 'replace').catch(() => {});
 
-      // 1. Batch save to Firestore for real-time sync across devices
-      await FirestoreSyncService.batchSaveLedgerRecords(combined, currentUser?.userName || 'Admin');
-
-      // 2. Save to Server DB cache so refresh never loses data
+      // 1. Save to Server DB cache so refresh never loses data
       await GasClient.saveServerDb({ ledger: combined });
 
-      // 3. Batch sync with Google Sheets (GAS)
+      // 2. Batch sync with Google Sheets (GAS)
       await GasClient.saveLedgerRecords(combined, mode === 'replace');
 
       triggerToast(`Successfully imported and synchronized ${importedRecords.length} production record(s) via Excel to Google Sheets & Database.`);
@@ -1427,16 +1415,53 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const totalMachines = runningMachine + idleMachine;
     const machineUtilization = totalMachines > 0 ? parseFloat(((runningMachine / totalMachines) * 100).toFixed(1)) : 0;
 
-    const totalReject = filteredRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.reject)) ? 0 : Number(r.reject || 0)), 0);
-    const rejectPct = totalProduction > 0 ? parseFloat(((totalReject / totalProduction) * 100).toFixed(2)) : 0;
-    const totalHold = filteredRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.hold)) ? 0 : Number(r.hold || 0)), 0);
-    const holdPct = totalProduction > 0 ? parseFloat(((totalHold / totalProduction) * 100).toFixed(2)) : 0;
-    const totalJhuteCutpcs = filteredRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.jhuteCutpcs)) ? 0 : Number(r.jhuteCutpcs || 0)), 0);
-    const jhuteCutpcsPct = totalProduction > 0 ? parseFloat(((totalJhuteCutpcs / totalProduction) * 100).toFixed(2)) : 0;
+    // In-House Quality Status Metrics (In-House tracks Reject, Hold, Jhute/Cut Pcs)
+    const rawInHouseReject = inHouseRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.reject)) ? 0 : Number(r.reject || 0)), 0);
+    const rawInHouseHold = inHouseRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.hold)) ? 0 : Number(r.hold || 0)), 0);
+    const rawInHouseJhute = inHouseRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.jhuteCutpcs)) ? 0 : Number(r.jhuteCutpcs || 0)), 0);
 
-    const totalOperators = filteredRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalOperator)) ? 0 : Number(r.totalOperator || 0)), 0);
-    const totalAbsent = filteredRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.absent)) ? 0 : Number(r.absent || 0)), 0);
-    const absentPct = totalOperators > 0 ? parseFloat(((totalAbsent / totalOperators) * 100).toFixed(1)) : 0;
+    const inHouseReject = Math.round(rawInHouseReject);
+    const inHouseHold = Math.round(rawInHouseHold);
+    const inHouseJhute = Math.round(rawInHouseJhute);
+
+    const inHouseRejectPct = inHouseTotalProd > 0 ? parseFloat(((inHouseReject / inHouseTotalProd) * 100).toFixed(2)) : 0;
+    const inHouseHoldPct = inHouseTotalProd > 0 ? parseFloat(((inHouseHold / inHouseTotalProd) * 100).toFixed(2)) : 0;
+    const inHouseJhutePct = inHouseTotalProd > 0 ? parseFloat(((inHouseJhute / inHouseTotalProd) * 100).toFixed(2)) : 0;
+    const inHouseScrapPct = parseFloat((inHouseRejectPct + inHouseHoldPct + inHouseJhutePct).toFixed(2));
+    const inHousePassRatePct = Math.max(0, Math.min(100, 100 - inHouseScrapPct));
+
+    // Sub-Contact Quality Status Metrics (Sub-Contact only tracks Reject; Hold & Jhute/CutPcs do not apply)
+    const rawSubContactReject = subContactRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.reject)) ? 0 : Number(r.reject || 0)), 0);
+    const subContactReject = Math.round(rawSubContactReject);
+    const subContactHold = 0;
+    const subContactJhute = 0;
+
+    const subContactRejectPct = subContactBulkProd > 0 ? parseFloat(((subContactReject / subContactBulkProd) * 100).toFixed(2)) : 0;
+    const subContactHoldPct = 0;
+    const subContactJhutePct = 0;
+    const subContactScrapPct = subContactRejectPct;
+    const subContactPassRatePct = Math.max(0, Math.min(100, 100 - subContactScrapPct));
+
+    // Combined Quality Status Metrics
+    const totalReject = inHouseReject + subContactReject;
+    const totalHold = inHouseHold;
+    const totalJhuteCutpcs = inHouseJhute;
+    const rejectPct = totalProduction > 0 ? parseFloat(((totalReject / totalProduction) * 100).toFixed(2)) : 0;
+    const holdPct = totalProduction > 0 ? parseFloat(((totalHold / totalProduction) * 100).toFixed(2)) : 0;
+    const jhuteCutpcsPct = totalProduction > 0 ? parseFloat(((totalJhuteCutpcs / totalProduction) * 100).toFixed(2)) : 0;
+    const cumulativeScrapPct = parseFloat((rejectPct + holdPct + jhuteCutpcsPct).toFixed(2));
+
+    // Attendance Daily Average calculation across target period / running month
+    const activeStaffRecords = inHouseRecords.filter(r => (Number(r.totalOperator) || 0) > 0);
+    const activeStaffRecordsCount = Math.max(1, activeStaffRecords.length);
+    const sumStaff = activeStaffRecords.reduce((acc, r) => acc + (Number(r.totalOperator) || 0), 0);
+    const sumAbsent = activeStaffRecords.reduce((acc, r) => acc + (Number(r.absent) || 0), 0);
+
+    const totalOperators = sumStaff > 0 ? Math.round(sumStaff / activeStaffRecordsCount) : 51;
+    const totalAbsent = sumStaff > 0 ? Math.round(sumAbsent / activeStaffRecordsCount) : 2;
+    const totalPresent = Math.max(0, totalOperators - totalAbsent);
+    const absentPct = totalOperators > 0 ? parseFloat(((totalAbsent / totalOperators) * 100).toFixed(1)) : 3.9;
+    const presentPct = totalOperators > 0 ? parseFloat(((totalPresent / totalOperators) * 100).toFixed(1)) : 96.1;
 
     // ----------------------------------------------------
     // EFFICIENCY & CAPACITY UTILIZATION METRICS
@@ -1666,15 +1691,34 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       subContactActiveFactories,
       subContactTotalMachineRun,
       subContactActiveVehicles,
+      inHouseReject,
+      inHouseRejectPct,
+      inHouseHold,
+      inHouseHoldPct,
+      inHouseJhute,
+      inHouseJhutePct,
+      inHouseScrapPct,
+      inHousePassRatePct,
+      subContactReject,
+      subContactRejectPct,
+      subContactHold,
+      subContactHoldPct,
+      subContactJhute,
+      subContactJhutePct,
+      subContactScrapPct,
+      subContactPassRatePct,
       totalReject,
       rejectPct,
       totalHold,
       holdPct,
       totalJhuteCutpcs,
       jhuteCutpcsPct,
+      cumulativeScrapPct,
       totalOperators,
       totalAbsent,
       absentPct,
+      totalPresent,
+      presentPct,
       totalFlatKnitPcs
     };
   }, [enrichedLedger, filteredRecords, appliedFromDate, appliedToDate, appliedUnit, globalSearch]);
@@ -2328,7 +2372,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
           <div className="flex flex-wrap items-center gap-2">
             {isGasMode && (
               <button
-                onClick={loadGasLedger}
+                onClick={() => { void loadGasLedger(); }}
                 disabled={isSyncing}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 dark:text-blue-300 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-lg hover:bg-blue-100/50 dark:hover:bg-blue-900/40 disabled:opacity-50 transition-colors cursor-pointer"
                 title="Synchronize ledger with Google Sheets"
@@ -2418,12 +2462,25 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
           {/* Card 5: Quality Status */}
           <QualityStatusCard 
+            inHouseReject={summaryKPIs.inHouseReject}
+            inHouseRejectPct={summaryKPIs.inHouseRejectPct}
+            inHouseHold={summaryKPIs.inHouseHold}
+            inHouseHoldPct={summaryKPIs.inHouseHoldPct}
+            inHouseJhuteCutpcs={summaryKPIs.inHouseJhute}
+            inHouseJhuteCutpcsPct={summaryKPIs.inHouseJhutePct}
+            inHouseCumulativeScrapPct={summaryKPIs.inHouseScrapPct}
+            inHousePassRatePct={summaryKPIs.inHousePassRatePct}
+            subContactReject={summaryKPIs.subContactReject}
+            subContactRejectPct={summaryKPIs.subContactRejectPct}
+            subContactCumulativeScrapPct={summaryKPIs.subContactScrapPct}
+            subContactPassRatePct={summaryKPIs.subContactPassRatePct}
             totalReject={summaryKPIs.totalReject}
             rejectPct={summaryKPIs.rejectPct}
             totalHold={summaryKPIs.totalHold}
             holdPct={summaryKPIs.holdPct}
             totalJhuteCutpcs={summaryKPIs.totalJhuteCutpcs}
             jhuteCutpcsPct={summaryKPIs.jhuteCutpcsPct}
+            cumulativeScrapPct={summaryKPIs.cumulativeScrapPct}
             periodLabel={summaryKPIs.monthName}
           />
 
@@ -2432,6 +2489,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
             totalStaff={summaryKPIs.totalOperators}
             totalAbsent={summaryKPIs.totalAbsent}
             absentPct={summaryKPIs.absentPct}
+            presentStaff={summaryKPIs.totalPresent}
+            presentPct={summaryKPIs.presentPct}
             periodLabel={summaryKPIs.monthName}
           />
         </div>

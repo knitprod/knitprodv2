@@ -1,6 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { UserRecord } from '../types';
-import { FirestoreSyncService } from './firestoreSync';
 
 /**
  * Supabase Client & Sync Manager for Epyllion Knitex ERP
@@ -34,8 +33,6 @@ export class SupabaseSync {
       ? import.meta.env.VITE_SUPABASE_ANON_KEY.trim()
       : '';
 
-    let localUrl = '';
-    let localKey = '';
     if (typeof localStorage !== 'undefined') {
       // Clean up legacy plain keys from localStorage if present
       if (localStorage.getItem('supabase_url') || localStorage.getItem('supabase_anon_key')) {
@@ -54,22 +51,11 @@ export class SupabaseSync {
   }
 
   /**
-   * Loads Supabase config from Firestore or server to ensure Vercel and all remote clients sync seamlessly
+   * Loads Supabase config from server to ensure all remote clients sync seamlessly
    */
   static async syncRemoteConfig(): Promise<{ supabaseUrl: string; supabaseKey: string }> {
     try {
-      // 1. Try fetching from Firestore app_config
-      const firestoreConfig = await FirestoreSyncService.fetchAppConfigFromFirestore();
-      if (firestoreConfig && (firestoreConfig as any).supabaseUrl && (firestoreConfig as any).supabaseKey) {
-        const url = (firestoreConfig as any).supabaseUrl;
-        const key = (firestoreConfig as any).supabaseKey;
-        this.setCredentials(url, key, false);
-        return { supabaseUrl: url, supabaseKey: key };
-      }
-    } catch (e) {}
-
-    try {
-      // 2. Try fetching from Server config API
+      // Try fetching from Server config API
       const serverRes = await fetch('/api/config');
       if (serverRes.ok) {
         const json = await serverRes.json();
@@ -151,10 +137,7 @@ export class SupabaseSync {
     this.client = null;
 
     if (persistToCloud && cleanUrl && cleanKey) {
-      // 1. Persist to Firestore app_config so all devices/deployments like Vercel load it automatically
-      FirestoreSyncService.saveSupabaseConfigToFirestore(cleanUrl, cleanKey).catch(() => {});
-
-      // 2. Persist to Express server config if running
+      // Persist to Express server config if running
       fetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -259,13 +242,16 @@ export class SupabaseSync {
         designation: row.designation || '',
         department: row.department || '',
         assignedUnits: row.assigned_units || row.assignedUnits || [],
+        assignedBuyers: row.assigned_buyers || row.assignedBuyers || [],
         allowedTabs: row.allowed_tabs || row.allowedTabs || [],
+        tabPermissions: row.tab_permissions || row.tabPermissions || {},
         permission: row.permission || 'Read',
         status: row.status || 'Active',
         phone: row.phone || '',
         email: row.email || '',
         lastLogin: row.last_login || row.lastLogin,
         password: row.password || 'Password@2026',
+        lastUpdated: row.updated_at || row.lastUpdated || new Date().toLocaleString(),
         createdAt: row.created_at || row.createdAt
       }));
     } catch (err) {

@@ -6,7 +6,7 @@
 import { ProductionEntry, ActivityLog, FactoryFloor, KPIMetric, LedgerRecord } from '../types';
 import { UserRecord } from '../components/UserManagementView';
 import { getBuyers } from './buyerStore';
-import { FirestoreSyncService } from './firestoreSync';
+import { SupabaseSync } from './supabaseClient';
 
 /**
  * Service client for communicating with the Google Apps Script REST API.
@@ -123,17 +123,17 @@ export class GasClient {
       let resolvedUrl = this.getWebAppUrl();
       let resolvedMode = this.getDatabaseMode();
 
-      // 2. Fetch from Firestore (cross-device central truth across Vercel & devices)
+      // 2. Fetch from Supabase app_settings or Server config
       try {
-        const firestoreConfig = await FirestoreSyncService.fetchAppConfigFromFirestore();
-        if (firestoreConfig?.gasWebAppUrl && firestoreConfig.gasWebAppUrl.trim()) {
-          resolvedUrl = firestoreConfig.gasWebAppUrl.trim();
+        const supabaseSettings = await SupabaseSync.fetchSettings();
+        if (supabaseSettings && (supabaseSettings as any).gasWebAppUrl && (supabaseSettings as any).gasWebAppUrl.trim()) {
+          resolvedUrl = (supabaseSettings as any).gasWebAppUrl.trim();
         }
-        if (firestoreConfig?.databaseMode) {
-          resolvedMode = firestoreConfig.databaseMode;
+        if (supabaseSettings && (supabaseSettings as any).databaseMode) {
+          resolvedMode = (supabaseSettings as any).databaseMode;
         }
       } catch (err) {
-        console.warn("Could not fetch Firestore app config:", err);
+        console.warn("Could not fetch Supabase app config:", err);
       }
 
       // 3. Fallback to Express server config if resolvedUrl is still empty
@@ -201,11 +201,11 @@ export class GasClient {
       console.error("Failed to save central server config:", err);
     }
 
-    // 2. Save to Firestore so all active devices receive real-time sync
+    // 2. Save to Supabase so all active devices receive real-time sync
     try {
-      await FirestoreSyncService.saveAppConfigToFirestore(trimmedUrl, mode);
+      await SupabaseSync.saveSettings({ gasWebAppUrl: trimmedUrl, databaseMode: mode });
     } catch (err) {
-      console.warn("Failed to sync app config to Firestore:", err);
+      console.warn("Failed to sync app config to Supabase:", err);
     }
   }
 
@@ -522,9 +522,9 @@ export class GasClient {
       }
 
       try {
-        const firestoreUsers = await FirestoreSyncService.fetchUsers();
-        if (firestoreUsers && firestoreUsers.length > 0) {
-          const match = firestoreUsers.find((u: any) => u.uid && u.uid.trim().toUpperCase() === cleanUid);
+        const supabaseUsers = await SupabaseSync.fetchUsers();
+        if (supabaseUsers && supabaseUsers.length > 0) {
+          const match = supabaseUsers.find((u: any) => u.uid && u.uid.trim().toUpperCase() === cleanUid);
           if (match) {
             if (match.status === 'Inactive') {
               throw new Error("This account is inactive. Please contact your system administrator.");
@@ -908,11 +908,11 @@ export class GasClient {
       tabPermissions: user.tabPermissions || {}
     };
 
-    // 1. Sync directly to Firebase Firestore
+    // 1. Sync directly to Supabase
     try {
-      await FirestoreSyncService.saveUser(fullUserRecord);
+      await SupabaseSync.saveUser(fullUserRecord);
     } catch (e) {
-      console.warn("Failed to sync new user to Firestore:", e);
+      console.warn("Failed to sync new user to Supabase:", e);
     }
 
     // 2. Sync to Central DB file /api/db
@@ -970,11 +970,11 @@ export class GasClient {
       tabPermissions: user.tabPermissions || {}
     };
 
-    // 1. Sync directly to Firebase Firestore
+    // 1. Sync directly to Supabase
     try {
-      await FirestoreSyncService.saveUser(fullUserRecord);
+      await SupabaseSync.saveUser(fullUserRecord);
     } catch (e) {
-      console.warn("Failed to sync updated user to Firestore:", e);
+      console.warn("Failed to sync updated user to Supabase:", e);
     }
 
     // Update in-memory active user session if self
@@ -1024,11 +1024,11 @@ export class GasClient {
   static async deleteUser(targetUid: string): Promise<boolean> {
     const cleanTarget = targetUid.trim().toUpperCase();
 
-    // 1. Delete directly from Firebase Firestore
+    // 1. Delete directly from Supabase
     try {
-      await FirestoreSyncService.deleteUser(cleanTarget);
+      await SupabaseSync.deleteUser(cleanTarget);
     } catch (e) {
-      console.warn("Failed to delete user in Firestore:", e);
+      console.warn("Failed to delete user in Supabase:", e);
     }
 
     // 2. Delete from Google Apps Script if connected
@@ -1391,17 +1391,6 @@ export class GasClient {
       }
     }
 
-    // 3. Fallback: Check Firestore
-    if (!result.length) {
-      try {
-        const firestoreYarn = await FirestoreSyncService.fetchYarnAllocations();
-        if (firestoreYarn && Array.isArray(firestoreYarn) && firestoreYarn.length > 0) {
-          result = firestoreYarn.map((item: any, idx: number) => this.normalizeYarnObject(item, idx));
-        }
-      } catch (err) {
-        console.warn("Firestore fetch yarn allocations notice:", err);
-      }
-    }
 
     if (result.length > 0) {
       this.cachedYarnAllocations = result;

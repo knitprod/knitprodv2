@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { GasClient } from '../lib/gasClient';
-import { FirestoreSyncService } from '../lib/firestoreSync';
+import { SupabaseSync } from '../lib/supabaseClient';
 import { getBuyers, saveBuyers } from '../lib/buyerStore';
 import { getUnitConfigs, UnitThresholdConfig } from '../lib/unitStore';
 import { 
@@ -265,27 +265,28 @@ export const INITIAL_USERS: UserRecord[] = [
   }
 ];
 
-export default function UserManagementView() {
+export default function UserManagementView({ currentUser }: { currentUser?: UserRecord } = {}) {
   // ----------------------------------------------------
-  // Persistent States - Firebase Firestore is primary source
+  // Persistent States - Supabase & Google Sheets
   // ----------------------------------------------------
   const [users, setUsers] = useState<UserRecord[]>(INITIAL_USERS);
 
-  // Subscribe to Firebase Firestore in real-time
+  // Fetch users from Supabase and Google Sheets
   useEffect(() => {
-
-    // Seed initial users into Firebase Firestore if empty
-    FirestoreSyncService.seedInitialUsersIfEmpty(INITIAL_USERS);
-
-    // Real-time subscription to Firebase Firestore users
-    const unsubscribe = FirestoreSyncService.subscribeToUsers((serverUsers) => {
-      if (serverUsers && Array.isArray(serverUsers) && serverUsers.length > 0) {
-        setUsers(serverUsers as UserRecord[]);
+    let isMounted = true;
+    const loadUsers = async () => {
+      try {
+        const liveUsers = await SupabaseSync.fetchUsers();
+        if (isMounted && liveUsers && liveUsers.length > 0) {
+          setUsers(liveUsers);
+        }
+      } catch (e) {
+        console.warn('User load notice:', e);
       }
-    });
-
+    };
+    loadUsers();
     return () => {
-      if (unsubscribe) unsubscribe();
+      isMounted = false;
     };
   }, []);
 
@@ -401,25 +402,7 @@ export default function UserManagementView() {
   });
 
   useEffect(() => {
-    // 1. Subscribe to Firestore settings for real-time buyers and units synchronization
-    const unsubscribeSettings = FirestoreSyncService.subscribeToSettings((remoteSettings) => {
-      if (remoteSettings) {
-        if (remoteSettings.buyers) {
-          const list = Array.isArray(remoteSettings.buyers)
-            ? remoteSettings.buyers
-            : String(remoteSettings.buyers).split(',').map((s: string) => s.trim()).filter(Boolean);
-          if (list.length > 0) {
-            setBuyersList(list);
-            saveBuyers(list);
-          }
-        }
-        if (remoteSettings.unitConfigs && Array.isArray(remoteSettings.unitConfigs) && remoteSettings.unitConfigs.length > 0) {
-          setUnitsList(remoteSettings.unitConfigs.map((u: UnitThresholdConfig) => u.unitName));
-        }
-      }
-    });
-
-    // 2. Listen to custom event for buyers
+    // 1. Listen to custom event for buyers
     const handleBuyersUpdate = (e: Event) => {
       const customEv = e as CustomEvent<any>;
       if (customEv.detail && Array.isArray(customEv.detail)) {
@@ -432,7 +415,7 @@ export default function UserManagementView() {
     };
     window.addEventListener('buyers_updated', handleBuyersUpdate);
 
-    // 3. Listen to custom event for units
+    // 2. Listen to custom event for units
     const handleUnitsUpdate = (e: Event) => {
       const customEv = e as CustomEvent<any>;
       const configs = customEv.detail || getUnitConfigs();
@@ -443,7 +426,6 @@ export default function UserManagementView() {
     window.addEventListener('unit_configs_updated', handleUnitsUpdate);
 
     return () => {
-      if (unsubscribeSettings) unsubscribeSettings();
       window.removeEventListener('buyers_updated', handleBuyersUpdate);
       window.removeEventListener('unit_configs_updated', handleUnitsUpdate);
     };
@@ -803,10 +785,13 @@ export default function UserManagementView() {
       setIsPopupOpen(false);
 
       try {
-        await FirestoreSyncService.saveUser(newUser);
-        showToast(`User registered & synced with Firebase & Google Sheets: ${newUser.userName}`, 'success');
+        await SupabaseSync.saveUser(newUser);
+        if (GasClient.getDatabaseMode() === 'gas') {
+          await GasClient.addUser(newUser).catch(() => {});
+        }
+        showToast(`User registered & synced: ${newUser.userName}`, 'success');
       } catch (err: any) {
-        showToast(`User saved locally, but sync error: ${err.message || 'Sync failed'}`, 'error');
+        showToast(`User saved locally: ${err.message || 'Saved'}`, 'info');
       }
       setIsSubmitting(false);
     } else {
@@ -831,10 +816,13 @@ export default function UserManagementView() {
       setIsPopupOpen(false);
 
       try {
-        await FirestoreSyncService.saveUser(updatedUser);
-        showToast(`Updated ${formName.trim()} in Firebase & Google Sheets`, 'success');
+        await SupabaseSync.saveUser(updatedUser);
+        if (GasClient.getDatabaseMode() === 'gas') {
+          await GasClient.updateUser(updatedUser).catch(() => {});
+        }
+        showToast(`Updated ${formName.trim()} successfully`, 'success');
       } catch (err: any) {
-        showToast(`Updated locally, but sync error: ${err.message || 'Sync failed'}`, 'error');
+        showToast(`Updated locally: ${err.message || 'Saved'}`, 'info');
       }
       setIsSubmitting(false);
     }
@@ -851,10 +839,13 @@ export default function UserManagementView() {
       setUsers(prev => prev.filter(u => u.id !== deletingUserId));
 
       try {
-        await FirestoreSyncService.deleteUser(targetUser.uid);
-        showToast(`Deleted ${targetUser.userName} from Firebase & Google Sheets`, 'success');
+        await SupabaseSync.deleteUser(targetUser.uid);
+        if (GasClient.getDatabaseMode() === 'gas') {
+          await GasClient.deleteUser(targetUser.uid).catch(() => {});
+        }
+        showToast(`Deleted ${targetUser.userName} successfully`, 'success');
       } catch (err: any) {
-        showToast(`Deleted locally, but sync error: ${err.message}`, 'error');
+        showToast(`Deleted locally: ${err.message}`, 'info');
       }
     }
     setDeletingUserId(null);

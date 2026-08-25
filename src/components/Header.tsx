@@ -35,7 +35,7 @@ import {
 import { ActivityLog } from '../types';
 import { UserRecord } from './UserManagementView';
 import { GasClient } from '../lib/gasClient';
-import { FirestoreSyncService } from '../lib/firestoreSync';
+import { SupabaseSync } from '../lib/supabaseClient';
 import { getCompanyLogo, saveCompanyLogo } from '../lib/logoStore';
 import TopNavMenu from './TopNavMenu';
 
@@ -97,19 +97,8 @@ export default function Header({
     };
     window.addEventListener('company_logo_updated', handleLogoUpdate);
 
-    // Also check remote settings from Firestore for companyLogo
-    const unsubSettings = FirestoreSyncService.subscribeToSettings((settings) => {
-      if (settings?.companyLogo) {
-        setCompanyLogo(settings.companyLogo);
-        try {
-          localStorage.setItem('ekl_company_logo', settings.companyLogo);
-        } catch {}
-      }
-    });
-
     return () => {
       window.removeEventListener('company_logo_updated', handleLogoUpdate);
-      if (unsubSettings) unsubSettings();
     };
   }, []);
 
@@ -163,12 +152,12 @@ export default function Header({
       lastUpdated: new Date().toLocaleString()
     };
 
-    // Save directly to Firebase Firestore
-    FirestoreSyncService.saveUser(updatedUser).catch(err => {
-      console.warn("Failed to sync updated password to Firestore:", err);
+    // Save directly to Supabase
+    SupabaseSync.saveUser(updatedUser).catch(err => {
+      console.warn("Failed to sync updated password to Supabase:", err);
     });
 
-    setPwdSuccess("Password updated and synced to Firebase Firestore!");
+    setPwdSuccess("Password updated successfully!");
     setIsUpdatingPwd(false);
 
     // Sync to Google Sheets in background

@@ -15,7 +15,7 @@ export interface UserRecord extends SyncMetadata {
   assignedBuyers?: string[];
   permission: 'Read' | 'Read / Write' | 'Hide';
   status: 'Active' | 'Inactive';
-  lastUpdated?: string;
+  lastUpdated: string;
   allowedTabs?: string[];
   tabPermissions?: Record<string, 'View Only' | 'Full Access' | 'No Access'>;
   phone?: string;

@@ -28,7 +28,6 @@ import {
   saveUnitConfigs,
   UnitThresholdConfig
 } from '../lib/unitStore';
-import { FirestoreSyncService } from '../lib/firestoreSync';
 import { UserRecord } from './UserManagementView';
 import { ALL_FACTORY_FLOORS, normalizeFloorKey } from '../lib/userPermissions';
 import { ShieldCheck, Lock } from 'lucide-react';
@@ -64,19 +63,11 @@ export default function AddProductionRecordModal({
   const [unitConfigs, setUnitConfigs] = React.useState<UnitThresholdConfig[]>(() => getUnitConfigs());
 
   React.useEffect(() => {
-    const unsubscribe = FirestoreSyncService.subscribeToSettings((remoteSettings) => {
-      if (remoteSettings && remoteSettings.unitConfigs && Array.isArray(remoteSettings.unitConfigs) && remoteSettings.unitConfigs.length > 0) {
-        setUnitConfigs(remoteSettings.unitConfigs);
-        saveUnitConfigs(remoteSettings.unitConfigs);
-      }
-    });
-
     const handleUpdate = () => {
       setUnitConfigs(getUnitConfigs());
     };
     window.addEventListener('unit_configs_updated', handleUpdate);
     return () => {
-      if (unsubscribe) unsubscribe();
       window.removeEventListener('unit_configs_updated', handleUpdate);
     };
   }, []);
