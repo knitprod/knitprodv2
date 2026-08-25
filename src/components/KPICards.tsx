@@ -8,8 +8,9 @@ import * as LucideIcons from 'lucide-react';
 import { KPIMetric } from '../types';
 import TotalTargetGaugeCard from './TotalTargetGaugeCard';
 import TotalProductionGaugeCard from './TotalProductionGaugeCard';
+import MachineStatusCard from './MachineStatusCard';
 import { useGlobalData } from '../context/GlobalDataContext';
-import { getUnitConfigs, getProductionCapacityForUnit, getAvgProdPerMachineForUnit } from '../lib/unitStore';
+import { getUnitConfigs, getProductionCapacityForUnit, getAvgProdPerMachineForUnit, getTotalMachinesForUnit } from '../lib/unitStore';
 import { FilterState } from './DashboardFilterToolbar';
 
 interface KPICardsProps {
@@ -385,6 +386,103 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
               capacityUtilizationPct={capacityUtilizationPct}
               className="col-span-1"
             />
+          );
+        }
+
+        // Special rendering for Machine Status KPI card (divided into In-House & Sub-Contact)
+        if (kpi.id === 'machine_status' || kpi.id === 'running') {
+          const inHouseRecords = activeRecords.filter((r) => r.floor !== 'Sub-Contact' && r.unit !== 'Sub-Contact' && !(r.remarks && r.remarks.toLowerCase().includes('sub-contact')));
+          const subContactRecords = activeRecords.filter((r) => r.floor === 'Sub-Contact' || r.unit === 'Sub-Contact' || (r.remarks && r.remarks.toLowerCase().includes('sub-contact')));
+
+          // In-House: Total Machine from Setting Panel
+          let inHouseTotalMachines = 0;
+          const activeUnitFilter = filterState?.unit;
+          if (activeUnitFilter && activeUnitFilter !== 'all') {
+            inHouseTotalMachines = getTotalMachinesForUnit(activeUnitFilter, 66);
+          } else {
+            const distinctFloors = Array.from(new Set(inHouseRecords.map(r => r.floor).filter(Boolean))) as string[];
+            if (distinctFloors.length > 0) {
+              inHouseTotalMachines = distinctFloors.reduce((sum: number, f: string) => sum + getTotalMachinesForUnit(f, 45), 0);
+            } else {
+              const inHouseConfigs = getUnitConfigs().filter(u => !u.unitName.toLowerCase().includes('sub'));
+              inHouseTotalMachines = inHouseConfigs.reduce((sum, u) => sum + Number(u.totalMachine || 0), 0) || 261;
+            }
+          }
+
+          // In-House Daily Sums for Averages
+          const inHouseDateMap: Record<string, { bulkRun: number; sampleRun: number; totalRun: number }> = {};
+          inHouseRecords.forEach(r => {
+            const d = r.date || 'default';
+            if (!inHouseDateMap[d]) {
+              inHouseDateMap[d] = { bulkRun: 0, sampleRun: 0, totalRun: 0 };
+            }
+            const bRun = Number(r.runningBulk) || Math.max(0, (Number(r.runningMachine) || 0) - (Number(r.runningSample) || 0));
+            const sRun = Number(r.runningSample) || 0;
+            inHouseDateMap[d].bulkRun += bRun;
+            inHouseDateMap[d].sampleRun += sRun;
+            inHouseDateMap[d].totalRun += (bRun + sRun);
+          });
+
+          const inHouseDateKeys = Object.keys(inHouseDateMap);
+          const inHouseDaysCount = Math.max(1, inHouseDateKeys.length);
+
+          const sumBulkRun = inHouseDateKeys.reduce((acc, d) => acc + inHouseDateMap[d].bulkRun, 0);
+          const sumSampleRun = inHouseDateKeys.reduce((acc, d) => acc + inHouseDateMap[d].sampleRun, 0);
+          const sumTotalRun = inHouseDateKeys.reduce((acc, d) => acc + inHouseDateMap[d].totalRun, 0);
+
+          const inHouseBulkRunning = sumBulkRun / inHouseDaysCount;
+          const inHouseSampleRunning = sumSampleRun / inHouseDaysCount;
+          const inHouseRunningMachines = sumTotalRun / inHouseDaysCount;
+
+          // Idle Machine % = ((Total Running Machine - Total Machine) / Total Machine) * 100
+          const inHouseIdleMachinePct = inHouseTotalMachines > 0
+            ? ((inHouseRunningMachines - inHouseTotalMachines) / inHouseTotalMachines) * 100
+            : 0;
+          const inHouseIdleCount = Math.max(0, inHouseTotalMachines - inHouseRunningMachines);
+
+          // Sub-Contact Daily Sums for Averages
+          const scDateMap: Record<string, { actFactories: number; mcRun: number; vehicles: number }> = {};
+          subContactRecords.forEach(r => {
+            const d = r.date || 'default';
+            if (!scDateMap[d]) {
+              scDateMap[d] = { actFactories: 0, mcRun: 0, vehicles: 0 };
+            }
+            const actF = Number(r.totalRunningFactories) || Number(r.runningFactories) || (Number(r.totalOperator) > 0 ? Number(r.totalOperator) : 18);
+            const mc = Number(r.runningMachine) || (Number(r.runningBulk || 0) + Number(r.runningSample || 0)) || 153;
+            const veh = Number(r.numberVehicles) || 8;
+
+            scDateMap[d].actFactories += actF;
+            scDateMap[d].mcRun += mc;
+            scDateMap[d].vehicles += veh;
+          });
+
+          const scDateKeys = Object.keys(scDateMap);
+          const scDaysCount = Math.max(1, scDateKeys.length);
+
+          const sumScFactories = scDateKeys.reduce((acc, d) => acc + scDateMap[d].actFactories, 0);
+          const sumScMc = scDateKeys.reduce((acc, d) => acc + scDateMap[d].mcRun, 0);
+          const sumScVeh = scDateKeys.reduce((acc, d) => acc + scDateMap[d].vehicles, 0);
+
+          const subContactActiveFactories = scDateKeys.length > 0 ? (sumScFactories / scDaysCount) : 18;
+          const subContactTotalMachineRun = scDateKeys.length > 0 ? (sumScMc / scDaysCount) : 153;
+          const subContactActiveVehicles = scDateKeys.length > 0 ? (sumScVeh / scDaysCount) : 8;
+
+          return (
+            <div key={kpi.id} className="col-span-1">
+              <MachineStatusCard
+                inHouseTotalMachines={inHouseTotalMachines}
+                inHouseRunningMachines={inHouseRunningMachines}
+                inHouseBulkRunning={inHouseBulkRunning}
+                inHouseSampleRunning={inHouseSampleRunning}
+                inHouseIdleMachinePct={inHouseIdleMachinePct}
+                inHouseIdleCount={inHouseIdleCount}
+                subContactActiveFactories={subContactActiveFactories}
+                subContactTotalMachineRun={subContactTotalMachineRun}
+                subContactActiveVehicles={subContactActiveVehicles}
+                periodLabel={periodLabel}
+                className="w-full h-full"
+              />
+            </div>
           );
         }
 
