@@ -30,7 +30,13 @@ export function getUnitConfigs(): UnitThresholdConfig[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        // Sanitize any outdated cached EKL count of 30 to the correct 29
+        return parsed.map((item: UnitThresholdConfig) => {
+          if (item.unitName.toUpperCase() === 'EKL') {
+            return { ...item, totalMachine: 29 };
+          }
+          return item;
+        });
       }
     }
   } catch (err) {
@@ -42,8 +48,9 @@ export function getUnitConfigs(): UnitThresholdConfig[] {
 export function saveUnitConfigs(configs: UnitThresholdConfig[]): void {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(UNIT_STORAGE_KEY, JSON.stringify(configs));
-    window.dispatchEvent(new CustomEvent('unit_configs_updated', { detail: configs }));
+    const sanitized = configs.map(c => c.unitName.toUpperCase() === 'EKL' ? { ...c, totalMachine: 29 } : c);
+    localStorage.setItem(UNIT_STORAGE_KEY, JSON.stringify(sanitized));
+    window.dispatchEvent(new CustomEvent('unit_configs_updated', { detail: sanitized }));
   } catch (err) {
     console.warn('Error saving unit configs to storage:', err);
   }
@@ -65,9 +72,24 @@ export function getTargetKgForUnit(unitName: string, defaultVal: number = 15000)
   return config ? Number(config.productionCapacity) : defaultVal;
 }
 
-export function getTotalMachinesForUnit(unitName: string, defaultVal: number = 30): number {
+export function getTotalMachinesForUnit(unitName: string, defaultVal?: number): number {
+  const normalized = (unitName || '').trim().toLowerCase();
+  if (normalized === 'ekl') return 29;
+  
   const config = getUnitConfigByName(unitName);
-  return config ? Number(config.totalMachine) : defaultVal;
+  if (config && config.totalMachine !== undefined && config.totalMachine !== null) {
+    const val = Number(config.totalMachine);
+    if (!isNaN(val) && val > 0) return val;
+  }
+  if (defaultVal !== undefined && defaultVal > 0) return defaultVal;
+  
+  if (normalized === 'efl') return 40;
+  if (normalized === 'efl-2' || normalized === 'efl2') return 35;
+  if (normalized.includes('stripe')) return 20;
+  if (normalized.includes('efl-ext') || normalized === 'extension') return 25;
+  if (normalized.includes('esl-ext')) return 16;
+  if (normalized.includes('sub')) return 153;
+  return 29;
 }
 
 export function getAvgProdPerMachineForUnit(unitName: string, defaultVal: number = 350): number {

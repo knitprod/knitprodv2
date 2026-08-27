@@ -110,9 +110,16 @@ export default function QualityStatusCard({
           <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
             <CheckCircle2 className="h-3.5 w-3.5" />
           </div>
-          <span className="font-sans text-xs font-black uppercase tracking-wider text-slate-950 dark:text-white">
-            QUALITY STATUS
-          </span>
+          <div>
+            <span className="font-sans text-xs font-black uppercase tracking-wider text-slate-950 dark:text-white block">
+              QUALITY STATUS
+            </span>
+            {periodLabel && (
+              <span className="font-sans text-[10px] font-semibold text-slate-500 dark:text-slate-400 block -mt-0.5">
+                {periodLabel}
+              </span>
+            )}
+          </div>
         </div>
         
         {/* Pass Rate Badge & Alert Icon */}

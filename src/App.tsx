@@ -828,7 +828,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50/50 dark:bg-slate-950 font-sans text-gray-900 dark:text-slate-100 antialiased transition-colors duration-200 w-full max-w-full overflow-x-hidden">
+    <div className="min-h-screen bg-gray-50/50 dark:bg-slate-950 font-sans text-gray-900 dark:text-slate-100 antialiased transition-colors duration-200 w-full max-w-full overflow-x-clip">
       {/* 1. Primary Header */}
       <Header 
         notifications={activityLogs} 
@@ -1125,12 +1125,12 @@ export default function App() {
       )}
 
       {/* 2. Main Layout Container */}
-      <div className="flex pt-16 md:pt-28 w-full max-w-full overflow-x-hidden">
+      <div className="flex pt-14 md:pt-[94px] w-full max-w-full overflow-x-clip">
         {/* Main Workspace Frame */}
         <main 
-          className="flex-1 min-w-0 max-w-full min-h-[calc(100vh-7rem)] p-2 sm:p-4 md:p-4 transition-all duration-300 ease-in-out"
+          className="flex-1 min-w-0 max-w-full min-h-[calc(100vh-6rem)] p-2 sm:p-4 md:p-4 pt-1 sm:pt-1 md:pt-1 transition-all duration-300 ease-in-out"
         >
-          <div className="w-full space-y-6 min-w-0">
+          <div className="w-full space-y-5 min-w-0">
             
             {/* Page View Switcher */}
             {currentPage === 'Dashboard' && (

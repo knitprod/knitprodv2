@@ -71,9 +71,16 @@ export default function MachineStatusCard({
           <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
             <Cpu className="h-3.5 w-3.5" />
           </div>
-          <span className="font-sans text-xs font-black uppercase tracking-wider text-slate-950 dark:text-white">
-            MACHINE STATUS
-          </span>
+          <div>
+            <span className="font-sans text-xs font-black uppercase tracking-wider text-slate-950 dark:text-white block">
+              MACHINE STATUS
+            </span>
+            {periodLabel && (
+              <span className="font-sans text-[10px] font-semibold text-slate-500 dark:text-slate-400 block -mt-0.5">
+                {periodLabel}
+              </span>
+            )}
+          </div>
         </div>
         <span className="rounded-lg bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800/80 px-2 py-0.5 font-mono text-[10px] font-bold text-indigo-900 dark:text-indigo-300 shadow-2xs">
           {inHouseUtilPct}% Util

@@ -52,6 +52,7 @@ import ProductionTargetSummaryCard from './ProductionTargetSummaryCard';
 import MachineStatusCard from './MachineStatusCard';
 import QualityStatusCard from './QualityStatusCard';
 import AttendanceCard from './AttendanceCard';
+import { LedgerCalendarDatePicker } from './LedgerCalendarDatePicker';
 import { 
   getUserAllowedFloorsForEntry, 
   isUserAuthorizedForFloor,
@@ -616,6 +617,39 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   const [isGasMode, setIsGasMode] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [ledgerGasError, setLedgerGasError] = useState<string | null>(null);
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    let ticking = false;
+    const handleScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          // On mobile screens (< 768px), keep static layout without toggle glitching
+          if (window.innerWidth < 768) {
+            setIsScrolled(false);
+            ticking = false;
+            return;
+          }
+          const scrollY = window.scrollY || window.pageYOffset || 0;
+          setIsScrolled((prev) => {
+            // Hysteresis threshold: collapse at > 80px, expand at < 25px
+            if (!prev && scrollY > 80) {
+              return true;
+            }
+            if (prev && scrollY < 25) {
+              return false;
+            }
+            return prev;
+          });
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   // Master database state
   const [ledger, setLedgerRaw] = useState<LedgerRecord[]>(() => {
@@ -712,11 +746,57 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
   // Helper to dynamically fetch total machines per floor unit from unitStore/settings
   const getTotalMachinesForFloor = (floorName: string) => {
-    return getTotalMachinesForUnit(floorName, floorName === 'Sub-Contact' ? 0 : 30);
+    return getTotalMachinesForUnit(floorName, floorName === 'Sub-Contact' ? 0 : (floorName === 'EKL' ? 29 : 30));
   };
 
   const getTargetForFloor = (floorName: string) => {
     return getTargetKgForUnit(floorName, 15000);
+  };
+
+  // Format single date: YYYY-MM-DD -> "11 Aug, 2026"
+  const formatSingleDate = (dateStr: string): string => {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const year = parts[0];
+      const monthIdx = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      if (monthIdx >= 0 && monthIdx < 12) {
+        return `${String(day).padStart(2, '0')} ${monthsShort[monthIdx]}, ${year}`;
+      }
+    }
+    return dateStr;
+  };
+
+  // Format date range: "01 Aug - 15 Aug, 2026"
+  const formatDateRange = (fromStr: string, toStr: string): string => {
+    if (!fromStr && !toStr) return '';
+    if (fromStr && !toStr) return formatSingleDate(fromStr);
+    if (!fromStr && toStr) return formatSingleDate(toStr);
+    if (fromStr === toStr) return formatSingleDate(fromStr);
+
+    const pFrom = fromStr.split('-');
+    const pTo = toStr.split('-');
+    const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    if (pFrom.length === 3 && pTo.length === 3) {
+      const mFrom = parseInt(pFrom[1], 10) - 1;
+      const mTo = parseInt(pTo[1], 10) - 1;
+      const dFrom = String(parseInt(pFrom[2], 10)).padStart(2, '0');
+      const dTo = String(parseInt(pTo[2], 10)).padStart(2, '0');
+      const yFrom = pFrom[0];
+      const yTo = pTo[0];
+
+      if (yFrom === yTo && mFrom === mTo) {
+        return `${dFrom} - ${dTo} ${monthsShort[mFrom]}, ${yFrom}`;
+      } else if (yFrom === yTo) {
+        return `${dFrom} ${monthsShort[mFrom]} - ${dTo} ${monthsShort[mTo]}, ${yFrom}`;
+      } else {
+        return `${dFrom} ${monthsShort[mFrom]} ${yFrom} - ${dTo} ${monthsShort[mTo]} ${yTo}`;
+      }
+    }
+    return `${fromStr} - ${toStr}`;
   };
 
   // Helper to format yesterday's date as default YYYY-MM-DD
@@ -955,15 +1035,101 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     return ledger.map(recalculateRecordFields);
   }, [ledger, unitConfigs]);
 
-  // Filter States - Defaulting to no date range filtration applied initially
+  // Helper to compute current running month date range (e.g. 2026-08-01 to 2026-08-31)
+  const getRunningMonthRange = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
+    return {
+      from: `${year}-${month}-01`,
+      to: `${year}-${month}-${String(lastDay).padStart(2, '0')}`,
+    };
+  };
+
+  const initialRunningMonth = getRunningMonthRange();
+
+  // Filter States - Empty by default (no default dates pre-filled, only shows if user selects a date)
   const [filterUnit, setFilterUnit] = useState<string>('all');
+  const [filterYear, setFilterYear] = useState<string>('all');
   const [filterFromDate, setFilterFromDate] = useState<string>('');
   const [filterToDate, setFilterToDate] = useState<string>('');
 
-  // Applied values (so changes only lock in on clicking "Apply Filter")
+  // Applied values (empty by default)
   const [appliedUnit, setAppliedUnit] = useState<string>('all');
+  const [appliedYear, setAppliedYear] = useState<string>('all');
   const [appliedFromDate, setAppliedFromDate] = useState<string>('');
   const [appliedToDate, setAppliedToDate] = useState<string>('');
+
+  // Extract all unique units/floors actually entered in the ledger or configured
+  const availableUnits = useMemo(() => {
+    const defaultList = ['EKL', 'EFL', 'EFL-2', 'Auto Stripe', 'EFL-Extension', 'ESL-Extension', 'Sub-Contact'];
+    const fromRecords = enrichedLedger.map((r) => r.floor).filter(Boolean);
+    const fromConfigs = unitConfigs.map((c) => c.unitName).filter(Boolean);
+    const set = new Set([...defaultList, ...fromRecords, ...fromConfigs]);
+    return Array.from(set);
+  }, [enrichedLedger, unitConfigs]);
+
+  // Extract all unique years present in the ledger (sorted descending)
+  const availableYears = useMemo(() => {
+    const years = new Set<string>();
+    enrichedLedger.forEach((r) => {
+      if (r.year) years.add(r.year.toString());
+      else if (r.date) {
+        const y = r.date.split('-')[0];
+        if (y) years.add(y);
+      }
+    });
+    // Ensure current year is always available
+    const currentY = new Date().getFullYear().toString();
+    years.add(currentY);
+    const arr = Array.from(years);
+    arr.sort((a, b) => Number(b) - Number(a));
+    return arr;
+  }, [enrichedLedger]);
+
+  // Extract all unique dates actually entered in the ledger
+  const availableLedgerDates = useMemo(() => {
+    let source = enrichedLedger;
+    if (filterYear !== 'all') {
+      source = source.filter((r) => {
+        const recYear = r.year ? r.year.toString() : (r.date ? r.date.split('-')[0] : '');
+        return recYear === filterYear;
+      });
+    }
+    const dates = Array.from(
+      new Set(source.map((r) => (r.date ? r.date.trim() : '')).filter(Boolean))
+    ) as string[];
+    dates.sort();
+    return dates;
+  }, [enrichedLedger, filterYear]);
+
+  const minAvailableDate = availableLedgerDates[0] || '';
+  const maxAvailableDate = availableLedgerDates[availableLedgerDates.length - 1] || '';
+
+  const handleFromDateChange = (val: string) => {
+    if (!val) {
+      setFilterFromDate('');
+      return;
+    }
+    if (availableLedgerDates.length > 0 && !availableLedgerDates.includes(val)) {
+      triggerToast(`Date "${val}" is not entered in the Ledger. Please select an entered date (${availableLedgerDates.map(formatSingleDate).join(', ')}).`);
+      return;
+    }
+    setFilterFromDate(val);
+  };
+
+  const handleToDateChange = (val: string) => {
+    if (!val) {
+      setFilterToDate('');
+      return;
+    }
+    if (availableLedgerDates.length > 0 && !availableLedgerDates.includes(val)) {
+      triggerToast(`Date "${val}" is not entered in the Ledger. Please select an entered date (${availableLedgerDates.map(formatSingleDate).join(', ')}).`);
+      return;
+    }
+    setFilterToDate(val);
+  };
 
   // Grid/UI states
   const [globalSearch, setGlobalSearch] = useState<string>('');
@@ -1047,7 +1213,23 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   const filteredRecords = useMemo(() => {
     return enrichedLedger.filter((r) => {
       // Unit filter
-      const matchesUnit = appliedUnit === 'all' || r.floor === appliedUnit;
+      let matchesUnit = true;
+      if (appliedUnit !== 'all') {
+        if (appliedUnit === 'In-House' || appliedUnit === 'In-House (All)') {
+          matchesUnit = r.floor !== 'Sub-Contact' && r.unit !== 'Sub-Contact';
+        } else if (appliedUnit === 'Sub-Contact') {
+          matchesUnit = r.floor === 'Sub-Contact' || r.unit === 'Sub-Contact';
+        } else {
+          matchesUnit = r.floor === appliedUnit;
+        }
+      }
+
+      // Year filter
+      let matchesYear = true;
+      if (appliedYear !== 'all') {
+        const recYear = r.year ? r.year.toString() : (r.date ? r.date.split('-')[0] : '');
+        matchesYear = recYear === appliedYear;
+      }
 
       // Date range filter
       let matchesDate = true;
@@ -1071,9 +1253,9 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
           r.year.toString().includes(query);
       }
 
-      return matchesUnit && matchesDate && matchesSearch;
+      return matchesUnit && matchesYear && matchesDate && matchesSearch;
     });
-  }, [enrichedLedger, appliedUnit, appliedFromDate, appliedToDate, globalSearch]);
+  }, [enrichedLedger, appliedUnit, appliedYear, appliedFromDate, appliedToDate, globalSearch]);
 
   // ----------------------------------------------------
   // SORT LOGIC
@@ -1108,7 +1290,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   // Reset page when filters change
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [appliedUnit, appliedFromDate, appliedToDate, globalSearch, pageSize]);
+  }, [appliedUnit, appliedYear, appliedFromDate, appliedToDate, globalSearch, pageSize]);
 
   // ----------------------------------------------------
   // DYNAMIC TOP SUMMARY & KPI CALCULATIONS
@@ -1150,74 +1332,34 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       return '';
     };
 
-    // Format single date: YYYY-MM-DD -> "11 Aug, 2026"
-    const formatSingleDate = (dateStr: string): string => {
-      if (!dateStr) return '';
-      const parts = dateStr.split('-');
-      if (parts.length === 3) {
-        const year = parts[0];
-        const monthIdx = parseInt(parts[1], 10) - 1;
-        const day = parseInt(parts[2], 10);
-        const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        if (monthIdx >= 0 && monthIdx < 12) {
-          return `${String(day).padStart(2, '0')} ${monthsShort[monthIdx]}, ${year}`;
-        }
-      }
-      return dateStr;
-    };
-
-    // Format date range: "01 Aug - 15 Aug, 2026"
-    const formatDateRange = (fromStr: string, toStr: string): string => {
-      if (!fromStr && !toStr) return '';
-      if (fromStr && !toStr) return formatSingleDate(fromStr);
-      if (!fromStr && toStr) return formatSingleDate(toStr);
-      if (fromStr === toStr) return formatSingleDate(fromStr);
-
-      const pFrom = fromStr.split('-');
-      const pTo = toStr.split('-');
-      const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      
-      if (pFrom.length === 3 && pTo.length === 3) {
-        const mFrom = parseInt(pFrom[1], 10) - 1;
-        const mTo = parseInt(pTo[1], 10) - 1;
-        const dFrom = String(parseInt(pFrom[2], 10)).padStart(2, '0');
-        const dTo = String(parseInt(pTo[2], 10)).padStart(2, '0');
-        const yFrom = pFrom[0];
-        const yTo = pTo[0];
-
-        if (yFrom === yTo && mFrom === mTo) {
-          return `${dFrom} ${monthsShort[mFrom]} - ${dTo} ${monthsShort[mTo]}, ${yFrom}`;
-        } else if (yFrom === yTo) {
-          return `${dFrom} ${monthsShort[mFrom]} - ${dTo} ${monthsShort[mTo]}, ${yFrom}`;
-        } else {
-          return `${dFrom} ${monthsShort[mFrom]} ${yFrom} - ${dTo} ${monthsShort[mTo]} ${yTo}`;
-        }
-      }
-      return `${fromStr} - ${toStr}`;
-    };
-
     // Determine current system running month
     const now = new Date();
     const currentRunningMonth = monthNames[now.getMonth()] || 'August';
+    const defaultMonthLabel = `${currentRunningMonth} ${now.getFullYear()}`;
 
     const isDateFiltered = Boolean(appliedFromDate || appliedToDate);
-    let periodLabel = '';
+    const isYearFiltered = appliedYear !== 'all';
+    let periodLabel = defaultMonthLabel;
     let targetPeriodRecords: LedgerRecord[] = [];
-    let isMonthScope = false;
+    let isMonthScope = true;
 
     if (isDateFiltered) {
-      // User explicitly filtered by date range or single date
       if (appliedFromDate && appliedToDate && appliedFromDate !== appliedToDate) {
         periodLabel = formatDateRange(appliedFromDate, appliedToDate);
       } else {
         periodLabel = formatSingleDate(appliedFromDate || appliedToDate);
       }
+      isMonthScope = false;
+      targetPeriodRecords = filteredRecords;
+    } else if (isYearFiltered) {
+      periodLabel = `Year ${appliedYear}`;
+      isMonthScope = false;
       targetPeriodRecords = filteredRecords;
     } else if (globalSearch.trim() !== '') {
       const query = globalSearch.trim().toLowerCase();
       const matchedMonth = monthNames.find(m => m.toLowerCase().includes(query));
       if (matchedMonth) {
-        periodLabel = matchedMonth;
+        periodLabel = `${matchedMonth} ${now.getFullYear()}`;
         isMonthScope = true;
         targetPeriodRecords = enrichedLedger.filter(r => {
           const recMonth = (r.month && r.month.trim() !== '') ? r.month : getMonthNameFromDateStr(r.date);
@@ -1226,33 +1368,27 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
           return matchM && matchU;
         });
       } else {
-        const uniqueDates = Array.from(new Set(filteredRecords.map(r => r.date).filter(Boolean))) as string[];
-        uniqueDates.sort();
-        if (uniqueDates.length === 1) {
-          periodLabel = formatSingleDate(uniqueDates[0]);
-          targetPeriodRecords = filteredRecords;
-        } else if (uniqueDates.length > 1 && uniqueDates.length <= 20) {
-          periodLabel = formatDateRange(uniqueDates[0], uniqueDates[uniqueDates.length - 1]);
-          targetPeriodRecords = filteredRecords;
-        } else if (filteredRecords.length > 0) {
-          const m = filteredRecords[0].month || getMonthNameFromDateStr(filteredRecords[0].date) || currentRunningMonth;
-          periodLabel = m;
-          isMonthScope = true;
-          targetPeriodRecords = filteredRecords;
-        } else {
-          periodLabel = currentRunningMonth;
-          isMonthScope = true;
-          targetPeriodRecords = filteredRecords;
-        }
+        periodLabel = defaultMonthLabel;
+        isMonthScope = true;
+        targetPeriodRecords = filteredRecords;
       }
     } else {
-      // DEFAULT: Running Month (August)
-      periodLabel = currentRunningMonth;
+      // DEFAULT: Running Month (August 2026) when no date filter is selected
+      periodLabel = defaultMonthLabel;
       isMonthScope = true;
       const monthRecords = enrichedLedger.filter((r) => {
         const recMonth = (r.month && r.month.trim() !== '') ? r.month : getMonthNameFromDateStr(r.date);
         const matchM = recMonth.toLowerCase() === currentRunningMonth.toLowerCase();
-        const matchU = appliedUnit === 'all' || r.floor === appliedUnit;
+        let matchU = true;
+        if (appliedUnit !== 'all') {
+          if (appliedUnit === 'In-House' || appliedUnit === 'In-House (All)') {
+            matchU = r.floor !== 'Sub-Contact' && r.unit !== 'Sub-Contact';
+          } else if (appliedUnit === 'Sub-Contact') {
+            matchU = r.floor === 'Sub-Contact' || r.unit === 'Sub-Contact';
+          } else {
+            matchU = r.floor === appliedUnit;
+          }
+        }
         return matchM && matchU;
       });
       targetPeriodRecords = monthRecords.length > 0 ? monthRecords : enrichedLedger;
@@ -1274,7 +1410,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         ? Number(r.target) 
         : ((r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : 0) + Number((r as any).sampleTarget || 0));
       return sum + (Number.isNaN(t) ? 0 : t);
-    }, 0) || (inHouseBulkTarget || 819040);
+    }, 0) || (inHouseBulkTarget || 0);
 
     const subContactBulkTarget = subContactRecords.reduce((sum, r) => {
       const b = r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : (Number(r.target) || 0);
@@ -1285,8 +1421,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const inHouseTarget = inHouseBulkTarget;
     const subContactTarget = subContactBulkTarget;
 
-    const inHousePct = monthBulk > 0 ? Math.round((inHouseTarget / monthBulk) * 100) : 60;
-    const subContactPct = 100 - inHousePct;
+    const inHousePct = monthBulk > 0 ? Math.round((inHouseTarget / monthBulk) * 100) : 0;
+    const subContactPct = monthBulk > 0 ? (100 - inHousePct) : 0;
 
     // Target Sample & Loss For Sample
     const sampleTarget = targetPeriodRecords.reduce((sum, r) => {
@@ -1317,11 +1453,11 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     }, 0);
 
     const lastMonthBulkTarget = isMonthScope
-      ? (calculatedPrevMonthBulk > 0 ? calculatedPrevMonthBulk : Math.round(monthBulk > 0 ? monthBulk / 1.06 : 653259))
-      : Math.round(monthBulk > 0 ? monthBulk * 0.95 : 25000);
+      ? (calculatedPrevMonthBulk > 0 ? calculatedPrevMonthBulk : Math.round(monthBulk > 0 ? monthBulk / 1.06 : 0))
+      : Math.round(monthBulk > 0 ? monthBulk * 0.95 : 0);
     const growthPct = lastMonthBulkTarget > 0 && monthBulk > 0 
       ? Math.round(((monthBulk - lastMonthBulkTarget) / lastMonthBulkTarget) * 100) 
-      : 6;
+      : 0;
 
     // Production Breakdown Calculations (In-House & Sub-Contact are strictly the breakdown of Bulk Production)
     const overallTotalProduction = enrichedLedger.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0);
@@ -1344,8 +1480,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
     const monthBulkProduction = inHouseBulkProd + subContactBulkProd;
 
-    const inHouseProdPct = monthBulkProduction > 0 ? Math.round((inHouseBulkProd / monthBulkProduction) * 100) : 58;
-    const subContactProdPct = 100 - inHouseProdPct;
+    const inHouseProdPct = monthBulkProduction > 0 ? Math.round((inHouseBulkProd / monthBulkProduction) * 100) : 0;
+    const subContactProdPct = monthBulkProduction > 0 ? (100 - inHouseProdPct) : 0;
 
     // In-House specific total production and sample production (Strictly matching actual factory figures)
     const inHouseTotalProd = inHouseRecords.reduce((sum, r) => {
@@ -1353,19 +1489,19 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         ? Number(r.totalProduction) 
         : (Number(r.bulkProd || 0) + Number(r.sampleProd || 0));
       return sum + (Number.isNaN(t) ? 0 : t);
-    }, 0) || 687425;
+    }, 0) || (inHouseBulkProd + (inHouseRecords.reduce((sum, r) => sum + Number(r.sampleProd || 0), 0)));
 
     const inHouseSampleProd = inHouseRecords.reduce((sum, r) => {
       const s = r.sampleProd !== undefined && r.sampleProd !== null 
         ? Number(r.sampleProd) 
         : (r.totalProduction !== undefined && r.bulkProd !== undefined ? Math.max(0, Number(r.totalProduction) - Number(r.bulkProd)) : 0);
       return sum + (Number.isNaN(s) ? 0 : s);
-    }, 0) || 23485;
+    }, 0);
 
     const inHouseProdLossForSample = inHouseRecords.reduce((sum, r) => {
       const l = r.prodLossForSample !== undefined && r.prodLossForSample !== null ? Number(r.prodLossForSample) : 0;
       return sum + (Number.isNaN(l) ? 0 : l);
-    }, 0) || 67298;
+    }, 0);
 
     const subContactTotalProd = subContactRecords.reduce((sum, r) => {
       const t = r.totalProduction !== undefined && r.totalProduction !== null && Number(r.totalProduction) > 0
@@ -1379,7 +1515,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const combinedOverallProd = inHouseTotalProd + subContactTotalProd;
     const combinedOverallBulkProd = inHouseBulkProd + subContactBulkProd;
     const combinedOverallSampleProd = inHouseSampleProd;
-    const combinedOverallAchievePct = combinedOverallTarget > 0 ? Math.round((combinedOverallProd / combinedOverallTarget) * 100) : 83;
+    const combinedOverallAchievePct = combinedOverallTarget > 0 ? Math.round((combinedOverallProd / combinedOverallTarget) * 100) : 0;
 
     // Total Sample & Loss For Sample across entire period
     const sampleProduction = targetPeriodRecords.reduce((sum, r) => {
@@ -1392,7 +1528,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const totalFlatKnitPcs = targetPeriodRecords.reduce((sum, r) => {
       const fk = r.productionFlatKnit !== undefined && r.productionFlatKnit !== null ? Number(r.productionFlatKnit) : 0;
       return sum + (Number.isNaN(fk) ? 0 : fk);
-    }, 0) || 12450;
+    }, 0);
 
     const prodLossForSample = targetPeriodRecords.reduce((sum, r) => {
       const l = r.prodLossForSample !== undefined && r.prodLossForSample !== null ? Number(r.prodLossForSample) : 0;
@@ -1401,11 +1537,11 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
     const calculatedPrevMonthProd = prevMonthRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0);
     const lastMonthProduction = isMonthScope
-      ? (calculatedPrevMonthProd > 0 ? calculatedPrevMonthProd : Math.round(monthTotalProduction > 0 ? monthTotalProduction / 1.08 : 1448084))
-      : Math.round(monthTotalProduction > 0 ? monthTotalProduction * 0.96 : 24000);
+      ? (calculatedPrevMonthProd > 0 ? calculatedPrevMonthProd : Math.round(monthTotalProduction > 0 ? monthTotalProduction / 1.08 : 0))
+      : Math.round(monthTotalProduction > 0 ? monthTotalProduction * 0.96 : 0);
     const prodGrowthPct = lastMonthProduction > 0 && monthTotalProduction > 0 
       ? Math.round(((monthTotalProduction - lastMonthProduction) / lastMonthProduction) * 100) 
-      : -21;
+      : 0;
 
     const runningMachine = filteredRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.runningMachine)) ? 0 : Number(r.runningMachine || 0)), 0);
     const idleMachine = filteredRecords.reduce((sum, r) => {
@@ -1428,7 +1564,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const inHouseHoldPct = inHouseTotalProd > 0 ? parseFloat(((inHouseHold / inHouseTotalProd) * 100).toFixed(2)) : 0;
     const inHouseJhutePct = inHouseTotalProd > 0 ? parseFloat(((inHouseJhute / inHouseTotalProd) * 100).toFixed(2)) : 0;
     const inHouseScrapPct = parseFloat((inHouseRejectPct + inHouseHoldPct + inHouseJhutePct).toFixed(2));
-    const inHousePassRatePct = Math.max(0, Math.min(100, 100 - inHouseScrapPct));
+    const inHousePassRatePct = inHouseTotalProd > 0 ? Math.max(0, Math.min(100, 100 - inHouseScrapPct)) : 0;
 
     // Sub-Contact Quality Status Metrics (Sub-Contact only tracks Reject; Hold & Jhute/CutPcs do not apply)
     const rawSubContactReject = subContactRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.reject)) ? 0 : Number(r.reject || 0)), 0);
@@ -1440,7 +1576,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const subContactHoldPct = 0;
     const subContactJhutePct = 0;
     const subContactScrapPct = subContactRejectPct;
-    const subContactPassRatePct = Math.max(0, Math.min(100, 100 - subContactScrapPct));
+    const subContactPassRatePct = subContactBulkProd > 0 ? Math.max(0, Math.min(100, 100 - subContactScrapPct)) : 0;
 
     // Combined Quality Status Metrics
     const totalReject = inHouseReject + subContactReject;
@@ -1457,11 +1593,11 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const sumStaff = activeStaffRecords.reduce((acc, r) => acc + (Number(r.totalOperator) || 0), 0);
     const sumAbsent = activeStaffRecords.reduce((acc, r) => acc + (Number(r.absent) || 0), 0);
 
-    const totalOperators = sumStaff > 0 ? Math.round(sumStaff / activeStaffRecordsCount) : 51;
-    const totalAbsent = sumStaff > 0 ? Math.round(sumAbsent / activeStaffRecordsCount) : 2;
+    const totalOperators = activeStaffRecords.length > 0 ? Math.round(sumStaff / activeStaffRecordsCount) : 0;
+    const totalAbsent = activeStaffRecords.length > 0 ? Math.round(sumAbsent / activeStaffRecordsCount) : 0;
     const totalPresent = Math.max(0, totalOperators - totalAbsent);
-    const absentPct = totalOperators > 0 ? parseFloat(((totalAbsent / totalOperators) * 100).toFixed(1)) : 3.9;
-    const presentPct = totalOperators > 0 ? parseFloat(((totalPresent / totalOperators) * 100).toFixed(1)) : 96.1;
+    const absentPct = totalOperators > 0 ? parseFloat(((totalAbsent / totalOperators) * 100).toFixed(1)) : 0;
+    const presentPct = totalOperators > 0 ? parseFloat(((totalPresent / totalOperators) * 100).toFixed(1)) : 0;
 
     // ----------------------------------------------------
     // EFFICIENCY & CAPACITY UTILIZATION METRICS
@@ -1511,7 +1647,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     } else if (totalInHouseTargetBulk > 0) {
       calculatedEfficiencyPct = parseFloat(((totalInHouseBulkProd / totalInHouseTargetBulk) * 100).toFixed(2));
     } else {
-      calculatedEfficiencyPct = 84.14;
+      calculatedEfficiencyPct = 0;
     }
 
     // Capacity Utilization Formula:
@@ -1545,7 +1681,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         totalDailyCapacity = distinctFloors.reduce((sum: number, f: string) => sum + getProductionCapacityForUnit(f, 15000), 0);
       } else {
         const inHouseUnits = getUnitConfigs().filter(u => !u.unitName.toLowerCase().includes('sub'));
-        totalDailyCapacity = inHouseUnits.reduce((sum, u) => sum + Number(u.productionCapacity || 0), 0) || 74500;
+        totalDailyCapacity = inHouseUnits.reduce((sum, u) => sum + Number(u.productionCapacity || 0), 0) || (inHouseRecords.length > 0 ? 74500 : 0);
       }
     }
 
@@ -1557,7 +1693,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     } else if (totalInHouseProd > 0 && periodTotalCapacity > 0) {
       calculatedCapacityUtilizationPct = parseFloat(((totalInHouseProd / periodTotalCapacity) * 100).toFixed(2));
     } else {
-      calculatedCapacityUtilizationPct = 80.58;
+      calculatedCapacityUtilizationPct = 0;
     }
 
     // ----------------------------------------------------
@@ -1573,7 +1709,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         inHouseTotalMachines = distinctFloors.reduce((sum: number, f: string) => sum + getTotalMachinesForUnit(f, 45), 0);
       } else {
         const inHouseConfigs = getUnitConfigs().filter(u => !u.unitName.toLowerCase().includes('sub'));
-        inHouseTotalMachines = inHouseConfigs.reduce((sum, u) => sum + Number(u.totalMachine || 0), 0) || 261;
+        inHouseTotalMachines = inHouseConfigs.reduce((sum, u) => sum + Number(u.totalMachine || 0), 0) || (inHouseRecords.length > 0 ? 261 : 0);
       }
     }
 
@@ -1598,12 +1734,12 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const sumSampleRun = inHouseDateKeys.reduce((acc, d) => acc + inHouseDateMap[d].sampleRun, 0);
     const sumTotalRun = inHouseDateKeys.reduce((acc, d) => acc + inHouseDateMap[d].totalRun, 0);
 
-    const inHouseBulkRunning = sumBulkRun / inHouseDaysCount;
-    const inHouseSampleRunning = sumSampleRun / inHouseDaysCount;
-    const inHouseRunningMachines = sumTotalRun / inHouseDaysCount;
+    const inHouseBulkRunning = inHouseDateKeys.length > 0 ? (sumBulkRun / inHouseDaysCount) : 0;
+    const inHouseSampleRunning = inHouseDateKeys.length > 0 ? (sumSampleRun / inHouseDaysCount) : 0;
+    const inHouseRunningMachines = inHouseDateKeys.length > 0 ? (sumTotalRun / inHouseDaysCount) : 0;
 
     // Idle Machine % = ((Total Running Machine - Total Machine) / Total Machine) * 100
-    const inHouseIdleMachinePct = inHouseTotalMachines > 0
+    const inHouseIdleMachinePct = inHouseTotalMachines > 0 && inHouseRunningMachines > 0
       ? ((inHouseRunningMachines - inHouseTotalMachines) / inHouseTotalMachines) * 100
       : 0;
     const inHouseIdleCount = Math.max(0, inHouseTotalMachines - inHouseRunningMachines);
@@ -1615,9 +1751,9 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       if (!scDateMap[d]) {
         scDateMap[d] = { actFactories: 0, mcRun: 0, vehicles: 0 };
       }
-      const actF = Number(r.totalRunningFactories) || Number(r.runningFactories) || (Number(r.totalOperator) > 0 ? Number(r.totalOperator) : 18);
-      const mc = Number(r.runningMachine) || (Number(r.runningBulk || 0) + Number(r.runningSample || 0)) || 153;
-      const veh = Number(r.numberVehicles) || 8;
+      const actF = Number(r.totalRunningFactories) || Number(r.runningFactories) || (Number(r.totalOperator) > 0 ? Number(r.totalOperator) : 0);
+      const mc = Number(r.runningMachine) || (Number(r.runningBulk || 0) + Number(r.runningSample || 0)) || 0;
+      const veh = Number(r.numberVehicles) || 0;
 
       scDateMap[d].actFactories += actF;
       scDateMap[d].mcRun += mc;
@@ -1631,9 +1767,9 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const sumScMc = scDateKeys.reduce((acc, d) => acc + scDateMap[d].mcRun, 0);
     const sumScVeh = scDateKeys.reduce((acc, d) => acc + scDateMap[d].vehicles, 0);
 
-    const subContactActiveFactories = scDateKeys.length > 0 ? (sumScFactories / scDaysCount) : 18;
-    const subContactTotalMachineRun = scDateKeys.length > 0 ? (sumScMc / scDaysCount) : 153;
-    const subContactActiveVehicles = scDateKeys.length > 0 ? (sumScVeh / scDaysCount) : 8;
+    const subContactActiveFactories = scDateKeys.length > 0 ? (sumScFactories / scDaysCount) : 0;
+    const subContactTotalMachineRun = scDateKeys.length > 0 ? (sumScMc / scDaysCount) : 0;
+    const subContactActiveVehicles = scDateKeys.length > 0 ? (sumScVeh / scDaysCount) : 0;
 
     return {
       overallTotalTarget,
@@ -1719,7 +1855,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       absentPct,
       totalPresent,
       presentPct,
-      totalFlatKnitPcs
+      totalFlatKnitPcs,
+      targetPeriodRecords
     };
   }, [enrichedLedger, filteredRecords, appliedFromDate, appliedToDate, appliedUnit, globalSearch]);
 
@@ -1740,7 +1877,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     };
 
     const getFloorDateStatus = (dateStr: string) => {
-      if (!dateStr) return { isLive: false, label: 'No Data' };
+      if (!dateStr) return { isLive: false, label: 'No Entry', dateStr: '' };
       
       const cleanDate = dateStr.trim();
       const now = new Date();
@@ -1750,78 +1887,248 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       yesterday.setDate(yesterday.getDate() - 1);
       const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
       
+      // If Last Production Update date = Today() - 1 (or Today), show Live
       if (cleanDate === yesterdayStr || cleanDate === todayStr) {
-        return { isLive: true, label: 'Live' };
+        return { isLive: true, label: 'Live', dateStr: cleanDate };
       }
       
-      return { isLive: false, label: formatDateFriendly(cleanDate) };
+      return { isLive: false, label: formatSingleDate(cleanDate), dateStr: cleanDate };
     };
 
+    // Use scoped targetPeriodRecords from summaryKPIs (by default: active running month, or selected filter period)
+    const activeScopedRecords = summaryKPIs.targetPeriodRecords || filteredRecords;
+
     return floorsList.map((floorName) => {
-      const floorRows = filteredRecords.filter((r) => isFloorMatch(r.floor, floorName));
+      const isSub = floorName.toLowerCase().includes('sub');
+      const floorRows = activeScopedRecords.filter((r) => isFloorMatch(r.floor, floorName) || (isSub && (r.unit || '').toLowerCase().includes('sub')));
       
-      const target = floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
-      const production = floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0);
+      const target = Math.round(floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0));
+      const production = Math.round(floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0));
       const achievementPct = target > 0 ? parseFloat(((production / target) * 100).toFixed(1)) : 0;
 
-      const runningMachine = floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.runningMachine)) ? 0 : Number(r.runningMachine || 0)), 0);
-      const idleMachine = floorRows.reduce((sum, r) => {
-        const val = r.idleMachine !== undefined ? r.idleMachine : (r.idleMc !== undefined ? r.idleMc : 0);
+      const rawBulkTarget = floorRows.reduce((sum, r) => {
+        const val = r.targetBulk !== undefined ? r.targetBulk : (r.target ? Number(r.target) - Number(r.sampleProd || 0) : 0);
         return sum + (Number.isNaN(Number(val)) ? 0 : Number(val || 0));
       }, 0);
+      const bulkTarget = Math.round(rawBulkTarget > 0 ? rawBulkTarget : target);
+
+      const rawBulkProd = floorRows.reduce((sum, r) => {
+        const val = r.bulkProd !== undefined ? r.bulkProd : (Number(r.totalProduction || 0) - Number(r.sampleProd || 0));
+        return sum + (Number.isNaN(Number(val)) ? 0 : Number(val || 0));
+      }, 0);
+      const bulkProd = Math.round(rawBulkProd > 0 ? rawBulkProd : production);
+
+      const sampleProd = Math.round(floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.sampleProd)) ? 0 : Number(r.sampleProd || 0)), 0));
+      const prodLossForSample = Math.round(floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.prodLossForSample)) ? 0 : Number(r.prodLossForSample || 0)), 0));
+
+      const rawFlatKnit = floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.productionFlatKnit)) ? 0 : Number(r.productionFlatKnit || 0)), 0);
+      const productionFlatKnit = Math.round(rawFlatKnit);
+
+      const rawPartyReturned = floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.fabricReturn)) ? 0 : Number(r.fabricReturn || 0)), 0);
+      const partyReturned = Math.round(rawPartyReturned);
+
+      // Machine & Staff Metrics:
+      // Group by distinct active dates to calculate daily averages for multi-date ranges (or by default), or exact values for a single date filter
+      const dateAggregateMap: Record<string, {
+        runningSample: number;
+        runningMachine: number;
+        totalMachines: number;
+        idleMachine: number;
+        totalOperator: number;
+        absent: number;
+        runningFactories: number;
+        numberVehicles: number;
+      }> = {};
+
+      floorRows.forEach((r) => {
+        const d = r.date ? r.date.trim() : 'default';
+        if (!dateAggregateMap[d]) {
+          dateAggregateMap[d] = {
+            runningSample: 0,
+            runningMachine: 0,
+            totalMachines: 0,
+            idleMachine: 0,
+            totalOperator: 0,
+            absent: 0,
+            runningFactories: 0,
+            numberVehicles: 0,
+          };
+        }
+        const sRun = Number(r.runningSample) || 0;
+        const bRun = Number(r.runningBulk) || Math.max(0, (Number(r.runningMachine) || 0) - sRun);
+        const mRun = Number(r.runningMachine) || (bRun + sRun);
+        const idleM = r.idleMachine !== undefined ? Number(r.idleMachine) : (r.idleMc !== undefined ? Number(r.idleMc) : 0);
+        const totM = r.totalMachines !== undefined && Number(r.totalMachines) > 0
+          ? Number(r.totalMachines)
+          : (mRun + idleM);
+
+        const actF = Number(r.totalRunningFactories) || Number(r.runningFactories) || 0;
+        const veh = Number(r.numberVehicles) || 0;
+
+        dateAggregateMap[d].runningSample += sRun;
+        dateAggregateMap[d].runningMachine += mRun;
+        dateAggregateMap[d].totalMachines += totM;
+        dateAggregateMap[d].idleMachine += idleM;
+        dateAggregateMap[d].totalOperator += Number(r.totalOperator) || 0;
+        dateAggregateMap[d].absent += Number(r.absent) || 0;
+        dateAggregateMap[d].runningFactories += actF;
+        dateAggregateMap[d].numberVehicles += veh;
+      });
+
+      const uniqueDates = Object.keys(dateAggregateMap);
+      const daysCount = uniqueDates.length || 1;
+      const isSingleDay = uniqueDates.length === 1;
+
+      const sumRunningSample = uniqueDates.reduce((acc, d) => acc + dateAggregateMap[d].runningSample, 0);
+      const sumRunningMachine = uniqueDates.reduce((acc, d) => acc + dateAggregateMap[d].runningMachine, 0);
+      const sumTotalMachines = uniqueDates.reduce((acc, d) => {
+        const t = dateAggregateMap[d].totalMachines;
+        return acc + (t > 0 ? t : (getTotalMachinesForUnit(floorName, 0) || dateAggregateMap[d].runningMachine));
+      }, 0);
+      const sumTotalOperator = uniqueDates.reduce((acc, d) => acc + dateAggregateMap[d].totalOperator, 0);
+      const sumAbsent = uniqueDates.reduce((acc, d) => acc + dateAggregateMap[d].absent, 0);
+      const sumRunningFactories = uniqueDates.reduce((acc, d) => acc + dateAggregateMap[d].runningFactories, 0);
+      const sumVehicles = uniqueDates.reduce((acc, d) => acc + dateAggregateMap[d].numberVehicles, 0);
+
+      const runningSample = floorRows.length > 0 
+        ? Math.round(isSingleDay ? sumRunningSample : (sumRunningSample / daysCount))
+        : 0;
+      const runningMachine = floorRows.length > 0
+        ? Math.round(isSingleDay ? sumRunningMachine : (sumRunningMachine / daysCount))
+        : 0;
       
-      const reject = floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.reject)) ? 0 : Number(r.reject || 0)), 0);
-      const hold = floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.hold)) ? 0 : Number(r.hold || 0)), 0);
-      const absent = floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.absent)) ? 0 : Number(r.absent || 0)), 0);
-      const totalOperator = floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalOperator)) ? 0 : Number(r.totalOperator || 0)), 0);
+      const configuredTotal = getTotalMachinesForFloor(floorName);
+      let totalMachines = configuredTotal > 0
+        ? configuredTotal
+        : (floorRows.length > 0 ? Math.round(isSingleDay ? sumTotalMachines : (sumTotalMachines / daysCount)) : 0);
+
+      if (totalMachines === 0 && (runningMachine > 0 || floorRows.length > 0)) {
+        totalMachines = configuredTotal || runningMachine;
+      }
+      if (totalMachines < runningMachine) {
+        totalMachines = runningMachine;
+      }
+
+      const runningFactories = floorRows.length > 0
+        ? Math.round(isSingleDay ? sumRunningFactories : (sumRunningFactories / daysCount))
+        : 0;
+
+      const numberVehicles = floorRows.length > 0
+        ? Math.round(isSingleDay ? sumVehicles : (sumVehicles / daysCount))
+        : 0;
+
+      const idleMachine = Math.max(0, totalMachines - runningMachine);
+      const idleMachinePct = totalMachines > 0 ? parseFloat(((idleMachine / totalMachines) * 100).toFixed(1)) : 0;
+
+      const reject = Math.round(floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.reject)) ? 0 : Number(r.reject || 0)), 0));
+      const rejectPct = production > 0 ? parseFloat(((reject / production) * 100).toFixed(2)) : 0;
+
+      const hold = Math.round(floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.hold)) ? 0 : Number(r.hold || 0)), 0));
+      const holdPct = production > 0 ? parseFloat(((hold / production) * 100).toFixed(2)) : 0;
+
+      const totalOperator = floorRows.length > 0
+        ? Math.round(isSingleDay ? sumTotalOperator : (sumTotalOperator / daysCount))
+        : 0;
+      const absent = floorRows.length > 0
+        ? Math.round(isSingleDay ? sumAbsent : (sumAbsent / daysCount))
+        : 0;
       const absentPct = totalOperator > 0 ? parseFloat(((absent / totalOperator) * 100).toFixed(1)) : 0;
 
-      // Find latest production update date for this floor
-      const matchingFloorRecords = floorRows.length > 0 ? floorRows : enrichedLedger.filter((r) => isFloorMatch(r.floor, floorName));
-      const validDates = matchingFloorRecords
+      const needleBroken = Math.round(floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.needleBroken)) ? 0 : Number(r.needleBroken || 0)), 0));
+      const sinkerBroken = Math.round(floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.sinkerBroken)) ? 0 : Number(r.sinkerBroken || 0)), 0));
+      const oilConsumption = Math.round(floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.oilConsumption)) ? 0 : Number(r.oilConsumption || 0)), 0));
+      const beltBroken = Math.round(floorRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.beltBroken)) ? 0 : Number(r.beltBroken || 0)), 0));
+
+      const needlePerKg = (needleBroken > 0 && production > 0) ? Math.round(production / needleBroken) : 0;
+      const sinkerPerKg = (sinkerBroken > 0 && production > 0) ? Math.round(production / sinkerBroken) : 0;
+      const oilPerKg = (oilConsumption > 0 && production > 0) ? Math.round(production / oilConsumption) : 0;
+      const beltPerKg = (beltBroken > 0 && production > 0) ? Math.round(production / beltBroken) : 0;
+
+      // Find overall latest production update date for this floor in the system
+      const allFloorRecords = enrichedLedger.filter((r) => isFloorMatch(r.floor, floorName) || (isSub && (r.unit || '').toLowerCase().includes('sub')));
+      const validDates = allFloorRecords
         .map((r) => (r.date ? r.date.trim() : ''))
         .filter(Boolean)
         .sort((a, b) => b.localeCompare(a));
-      const latestDate = validDates[0] || '';
-      const dateStatus = getFloorDateStatus(latestDate);
+      const latestFloorDate = validDates[0] || '';
+      const dateStatus = getFloorDateStatus(latestFloorDate);
 
       return {
         name: floorName,
+        isSubContact: isSub,
         target,
         production,
         achievementPct,
+        bulkTarget,
+        bulkProd,
+        sampleProd,
+        runningSample,
+        prodLossForSample,
+        productionFlatKnit,
+        partyReturned,
+        runningFactories,
+        numberVehicles,
+        totalMachines,
         runningMachine,
         idleMachine,
+        idleMachinePct,
         reject,
+        rejectPct,
         hold,
+        holdPct,
         absent,
         totalOperator,
         absentPct,
-        lastUpdated: latestDate ? formatDateFriendly(latestDate) : 'N/A',
+        needleBroken,
+        sinkerBroken,
+        oilConsumption,
+        beltBroken,
+        needlePerKg,
+        sinkerPerKg,
+        oilPerKg,
+        beltPerKg,
+        lastUpdated: latestFloorDate ? formatSingleDate(latestFloorDate) : 'N/A',
         dateStatus
       };
     });
-  }, [filteredRecords, enrichedLedger]);
+  }, [summaryKPIs.targetPeriodRecords, filteredRecords, enrichedLedger]);
 
   // ----------------------------------------------------
   // HANDLERS: FILTER ACTIONS
   // ----------------------------------------------------
   const handleApplyFilters = () => {
+    if (filterFromDate && availableLedgerDates.length > 0 && !availableLedgerDates.includes(filterFromDate)) {
+      triggerToast(`From Date "${filterFromDate}" is not entered in the Ledger.`);
+      return;
+    }
+    if (filterToDate && availableLedgerDates.length > 0 && !availableLedgerDates.includes(filterToDate)) {
+      triggerToast(`To Date "${filterToDate}" is not entered in the Ledger.`);
+      return;
+    }
+    if (filterFromDate && filterToDate && filterFromDate > filterToDate) {
+      triggerToast("From Date cannot be later than To Date.");
+      return;
+    }
     setAppliedUnit(filterUnit);
+    setAppliedYear(filterYear);
     setAppliedFromDate(filterFromDate);
     setAppliedToDate(filterToDate);
+    setCurrentPage(1);
     triggerToast("Ledger criteria successfully applied.");
   };
 
   const handleResetFilters = () => {
     setFilterUnit('all');
+    setFilterYear('all');
     setFilterFromDate('');
     setFilterToDate('');
     setAppliedUnit('all');
+    setAppliedYear('all');
     setAppliedFromDate('');
     setAppliedToDate('');
     setGlobalSearch('');
-    triggerToast("Ledger criteria reset to show all historical dates.");
+    setCurrentPage(1);
+    triggerToast("Ledger criteria reset to running month.");
   };
 
   // ----------------------------------------------------
@@ -2351,60 +2658,201 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
   return (
     <div className="space-y-6 w-full min-w-0 max-w-full">
-      {/* 1. Header Section */}
-      <div className="flex flex-col gap-1 border-b border-gray-100 dark:border-slate-800 pb-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="font-sans text-2xl font-black tracking-tight text-gray-950 dark:text-white">
-              Production Update Ledger
-            </h1>
-            <p className="text-xs font-semibold text-gray-400 dark:text-slate-400 uppercase tracking-wider">
-              Monitor, Search, Edit and Manage Daily Production Records
-            </p>
-            {appliedUnit === 'all' && appliedFromDate === '2026-07-12' && appliedToDate === '2026-07-12' && (
-              <div className="mt-2 flex">
-                <span className="text-[10px] font-black bg-emerald-500/15 text-emerald-800 dark:text-emerald-400 px-3 py-1 rounded-full uppercase border border-emerald-500/25 animate-pulse">
-                  Viewing Default: Yesterday
-                </span>
-              </div>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {isGasMode && (
-              <button
-                onClick={() => { void loadGasLedger(); }}
-                disabled={isSyncing}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 dark:text-blue-300 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-lg hover:bg-blue-100/50 dark:hover:bg-blue-900/40 disabled:opacity-50 transition-colors cursor-pointer"
-                title="Synchronize ledger with Google Sheets"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                <span>{isSyncing ? 'Syncing...' : 'Sync Google Sheet'}</span>
-              </button>
-            )}
+      {/* Unified Header & Query Filter Panel (Frozen sticky on desktop, static on mobile) */}
+      <div 
+        id="ledger-floating-filter-panel"
+        className={`relative md:sticky md:top-[94px] z-30 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-md transition-all duration-200 mb-4 ${
+          isScrolled ? 'px-3 py-2 sm:px-3.5 sm:py-2.5 space-y-0' : 'px-3.5 py-2.5 sm:px-4 sm:py-3 space-y-2 sm:space-y-2.5'
+        }`}
+      >
+        {/* Top Row: Title & Action Buttons (Hidden when scrolled) */}
+        {!isScrolled && (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h1 className="font-sans text-base sm:text-lg font-bold tracking-tight text-gray-950 dark:text-white leading-tight">
+                Production Update Ledger
+              </h1>
+              <p className="text-[9px] sm:text-[10px] font-bold text-gray-800 dark:text-slate-300 uppercase tracking-tight">
+                MONITOR, SEARCH, EDIT AND MANAGE DAILY PRODUCTION RECORDS.
+              </p>
+            </div>
 
-            {/* 1. Upload Excel File Button - ONLY ADMIN USER CAN SEE AND USE */}
-            {isAdmin && (
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+              {/* Sync Google Sheet Button */}
+              {isGasMode && (
+                <button
+                  type="button"
+                  onClick={() => { void loadGasLedger(); }}
+                  disabled={isSyncing}
+                  className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50/70 hover:bg-blue-100/80 dark:bg-blue-950/40 dark:hover:bg-blue-900/50 border border-blue-200 dark:border-blue-800 rounded-lg transition-all shadow-2xs cursor-pointer disabled:opacity-50"
+                  title="Synchronize ledger with Google Sheets"
+                  id="sync-google-sheet-btn"
+                >
+                  <RefreshCw className={`h-3 w-3 text-blue-600 dark:text-blue-400 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span>{isSyncing ? 'Syncing...' : 'Sync Google Sheet'}</span>
+                </button>
+              )}
+
+              {/* Upload Excel File Button - Admin Only */}
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setIsUploadExcelModalOpen(true)}
+                  className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50/70 hover:bg-emerald-100/80 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 border border-emerald-300 dark:border-emerald-700 rounded-lg transition-all shadow-2xs cursor-pointer"
+                  title="Upload Excel File to import production records (Admin Only)"
+                  id="upload-excel-btn"
+                >
+                  <Upload className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+                  <span>Upload Excel File</span>
+                </button>
+              )}
+
+              {/* Download Excel File Button */}
               <button
                 type="button"
-                onClick={() => setIsUploadExcelModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors cursor-pointer shadow-2xs"
-                title="Upload Excel File to import production records (Admin Only)"
-                id="upload-excel-btn"
+                onClick={handleExportExcel}
+                className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/80 border border-slate-300 dark:border-slate-700 rounded-lg transition-all shadow-2xs cursor-pointer"
+                title="Download Excel File (.xlsx)"
+                id="download-excel-header-btn"
               >
-                <Upload className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span>Upload Excel File</span>
+                <Download className="h-3 w-3 text-slate-700 dark:text-slate-300" />
+                <span>Download Excel File</span>
               </button>
-            )}
+            </div>
+          </div>
+        )}
 
-            {/* 2. Download Excel File Button */}
+        {/* Filter Criteria Form Controls & Download Action */}
+        <div className="flex flex-wrap items-end gap-2.5 sm:gap-3">
+          {/* Unit selection */}
+          <div className="min-w-[150px] sm:min-w-[180px] flex-1 space-y-0.5">
+            <label className="text-[9px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-400 flex items-center justify-between">
+              <span className="flex items-center gap-1">
+                <span>🏭</span> FACTORY FLOOR / UNIT
+              </span>
+              {filterUnit !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => setFilterUnit('all')}
+                  className="text-[9px] text-red-500 hover:underline cursor-pointer"
+                  title="Clear Unit Filter"
+                >
+                  Clear
+                </button>
+              )}
+            </label>
+            <select
+              value={filterUnit}
+              onChange={(e) => setFilterUnit(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs font-semibold text-gray-800 dark:text-slate-100 transition-colors focus:border-[#0F4C81] focus:outline-hidden"
+              id="filter-unit-dropdown"
+            >
+              <option value="all">All Units</option>
+              <optgroup label="Summary Groups">
+                <option value="In-House">In-House (All)</option>
+                <option value="Sub-Contact">Sub-Contact</option>
+              </optgroup>
+              <optgroup label="Factory Units">
+                {availableUnits.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+          </div>
+
+          {/* Year Filter */}
+          <div className="w-[110px] sm:w-[130px] space-y-0.5">
+            <label className="text-[9px] font-bold uppercase tracking-wider text-gray-400 dark:text-slate-400 flex items-center justify-between">
+              <span className="flex items-center gap-1">
+                <span>📅</span> YEAR
+              </span>
+              {filterYear !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => setFilterYear('all')}
+                  className="text-[9px] text-red-500 hover:underline cursor-pointer"
+                  title="Clear Year Filter"
+                >
+                  Clear
+                </button>
+              )}
+            </label>
+            <select
+              value={filterYear}
+              onChange={(e) => setFilterYear(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs font-semibold text-gray-800 dark:text-slate-100 transition-colors focus:border-[#0F4C81] focus:outline-hidden"
+              id="filter-year-dropdown"
+            >
+              <option value="all">All Years</option>
+              {availableYears.map((yr) => (
+                <option key={yr} value={yr}>
+                  {yr}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* From Date Calendar Picker */}
+          <div className="w-[140px] sm:w-[165px]">
+            <LedgerCalendarDatePicker
+              id="filter-from-date-picker"
+              label="FROM DATE"
+              value={filterFromDate}
+              onChange={handleFromDateChange}
+              allowedDates={availableLedgerDates}
+              minDate={minAvailableDate}
+              maxDate={maxAvailableDate}
+              placeholder="Select From Date"
+            />
+          </div>
+
+          {/* To Date Calendar Picker */}
+          <div className="w-[140px] sm:w-[165px]">
+            <LedgerCalendarDatePicker
+              id="filter-to-date-picker"
+              label="TO DATE"
+              value={filterToDate}
+              onChange={handleToDateChange}
+              allowedDates={availableLedgerDates}
+              minDate={filterFromDate || minAvailableDate}
+              maxDate={maxAvailableDate}
+              placeholder="Select To Date"
+            />
+          </div>
+
+          {/* Action buttons (Apply & Reset) */}
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <button
+              type="button"
+              onClick={handleApplyFilters}
+              className="inline-flex items-center justify-center gap-1 rounded-lg bg-[#0F4C81] hover:bg-[#0b3861] text-white px-3 sm:px-4 py-1.5 text-xs font-bold transition-all shadow-xs cursor-pointer h-[34px] whitespace-nowrap"
+              id="apply-ledger-filter-btn"
+            >
+              <Filter className="h-3 w-3" />
+              <span>Apply Criteria</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              className="inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-200 px-3 py-1.5 text-xs font-bold transition-all cursor-pointer h-[34px] whitespace-nowrap"
+              id="reset-ledger-filter-btn"
+            >
+              <span>Reset</span>
+            </button>
+          </div>
+
+          {/* Download Excel File Button */}
+          <div className="flex items-center sm:ml-auto">
             <button
               type="button"
               onClick={handleExportExcel}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700/80 transition-colors cursor-pointer shadow-2xs"
+              className="inline-flex items-center justify-center gap-1 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 px-3 py-1.5 text-xs font-bold transition-all shadow-xs cursor-pointer h-[34px] whitespace-nowrap"
               title="Download Excel File (.xlsx)"
-              id="download-excel-header-btn"
+              id="download-excel-btn"
             >
-              <Download className="h-3.5 w-3.5 text-[#0F4C81] dark:text-sky-400" />
+              <Download className="h-3 w-3 text-emerald-700 dark:text-emerald-400" />
               <span>Download Excel File</span>
             </button>
           </div>
@@ -2419,7 +2867,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         </div>
       )}
 
-      {/* 2. Top 6 KPI Cards: Top Row (3 Production Summary Cards) + Bottom Row (Machine Status, Quality Status, Attendance) */}
+      {/* 3. Top 6 KPI Cards: Top Row (3 Production Summary Cards) + Bottom Row (Machine Status, Quality Status, Attendance) */}
       <div className="space-y-4" id="ledger-kpi-dashboard">
         {/* Top Row: In-House, Sub-Contact, Total In-House & Sub */}
         <ProductionTargetSummaryCard 
@@ -2429,10 +2877,10 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
           inHouseBulkTarget={summaryKPIs.inHouseBulkTarget}
           inHouseSampleProduction={summaryKPIs.inHouseSampleProduction}
           inHouseProdLossForSample={summaryKPIs.inHouseLossForSample}
-          inHouseAchievementPct={(summaryKPIs.inHouseTotalTarget || summaryKPIs.inHouseTarget) > 0 ? Math.round((summaryKPIs.inHouseTotalProduction / (summaryKPIs.inHouseTotalTarget || summaryKPIs.inHouseTarget)) * 100) : 79}
+          inHouseAchievementPct={(summaryKPIs.inHouseTotalTarget || summaryKPIs.inHouseTarget) > 0 ? Math.round((summaryKPIs.inHouseTotalProduction / (summaryKPIs.inHouseTotalTarget || summaryKPIs.inHouseTarget)) * 100) : 0}
           subContactTarget={summaryKPIs.subContactTarget}
           subContactProduction={summaryKPIs.subContactBulkProduction}
-          subContactAchievementPct={summaryKPIs.subContactTarget > 0 ? Math.round((summaryKPIs.subContactBulkProduction / summaryKPIs.subContactTarget) * 100) : 89}
+          subContactAchievementPct={summaryKPIs.subContactTarget > 0 ? Math.round((summaryKPIs.subContactBulkProduction / summaryKPIs.subContactTarget) * 100) : 0}
           overallTarget={summaryKPIs.combinedOverallTarget}
           overallProduction={summaryKPIs.combinedOverallProd}
           overallBulkProduction={summaryKPIs.combinedOverallBulkProd}
@@ -2509,160 +2957,277 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
           {floorSummaries.map((f) => (
             <div 
               key={f.name}
-              className="rounded-xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-4.5 shadow-xs hover:shadow-md transition-all duration-200 w-80 flex-shrink-0"
+              className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-3.5 sm:p-4 shadow-xs hover:shadow-md transition-all duration-200 w-[310px] sm:w-[335px] flex-shrink-0 flex flex-col justify-between text-xs"
             >
-              <div className="flex items-center justify-between border-b border-gray-50 dark:border-slate-800 pb-2 mb-2.5">
-                <span className="text-xs font-black text-gray-900 dark:text-white tracking-wide">{f.name} Unit</span>
-                <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-sm ${
-                  f.achievementPct >= 95 
-                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' 
-                    : f.achievementPct >= 80 
-                      ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' 
-                      : 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400'
-                }`}>
-                  {f.achievementPct}% Achieved
+              {/* Header: EKL UNIT (left) | Achieved 81.8% (right) */}
+              <div className="flex items-center justify-between border-b border-slate-300 dark:border-slate-700 pb-2 mb-2.5">
+                <div>
+                  <span className="text-sm sm:text-base font-black text-gray-950 dark:text-white tracking-wider uppercase block">
+                    {f.name} UNIT
+                  </span>
+                  <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block -mt-0.5">
+                    {summaryKPIs.monthName || 'August 2026'}
+                  </span>
+                </div>
+                <span className="text-xs sm:text-sm font-black text-emerald-600 dark:text-emerald-400">
+                  Achieved {f.achievementPct}%
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-xs">
-                <div>
-                  <span className="text-gray-400 text-[10px] uppercase font-bold block">Target</span>
-                  <span className="font-mono font-black text-gray-800 dark:text-slate-200">
-                    {f.target.toLocaleString()} <span className="text-[9px] text-gray-400">Kg</span>
-                  </span>
-                </div>
-                <div>
-                  <span className="text-gray-400 text-[10px] uppercase font-bold block">Production</span>
-                  <span className="font-mono font-black text-gray-900 dark:text-white">
-                    {f.production.toLocaleString()} <span className="text-[9px] text-gray-400">Kg</span>
-                  </span>
-                </div>
-                <div>
-                  <span className="text-gray-400 text-[10px] uppercase font-bold block">Running M/C</span>
-                  <span className="font-mono font-semibold text-gray-800 dark:text-slate-200">
-                    {f.runningMachine} <span className="text-[9px] text-gray-400">Active</span>
-                  </span>
-                </div>
-                <div>
-                  <span className="text-gray-400 text-[10px] uppercase font-bold block">Idle M/C</span>
-                  <span className="font-mono font-semibold text-amber-600 dark:text-amber-400">
-                    {f.idleMachine} <span className="text-[9px] text-gray-400">Setup</span>
-                  </span>
-                </div>
-                <div>
-                  <span className="text-gray-400 text-[10px] uppercase font-bold block">QA Reject / Hold</span>
-                  <span className="font-mono font-semibold text-red-600 dark:text-red-400">
-                    {f.reject} <span className="text-gray-400 text-[9px]">/</span> {f.hold} <span className="text-[9px] text-gray-400">Kg</span>
-                  </span>
-                </div>
-                <div>
-                  <span className="text-gray-400 text-[10px] uppercase font-bold block">Absent Operators</span>
-                  <span className="font-mono font-semibold text-orange-600 dark:text-orange-400">
-                    {f.absent} <span className="text-[9px] text-gray-400">({f.absentPct}%)</span>
-                  </span>
-                </div>
-              </div>
-
-              <div className="border-t border-gray-50 dark:border-slate-800 pt-2 mt-3 flex items-center justify-between text-[10px] font-bold text-gray-400">
-                <span>Database Allocation: Online</span>
-                {f.dateStatus.isLive ? (
-                  <span className="inline-flex items-center gap-1.5 font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200/50 dark:border-emerald-800/40">
-                    <span className="relative flex h-1.5 w-1.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+              {/* Card Body */}
+              {f.isSubContact ? (
+                /* Sub-Contact Dedicated 5-Row Layout */
+                <div className="grid grid-cols-2 gap-y-3 gap-x-3 text-xs my-auto py-1">
+                  {/* Row 1 */}
+                  <div className="space-y-0.5">
+                    <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                      Total Target/Production
                     </span>
+                    <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                      {f.target.toLocaleString()}Kg / {f.production.toLocaleString()}Kg
+                    </span>
+                  </div>
+
+                  <div className="space-y-0.5">
+                    <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                      Bulk Production
+                    </span>
+                    <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                      {f.bulkProd.toLocaleString()}Kg
+                    </span>
+                  </div>
+
+                  {/* Row 2 */}
+                  <div className="space-y-0.5">
+                    <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                      Sample Prod.
+                    </span>
+                    <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                      {f.sampleProd.toLocaleString()} Kg
+                    </span>
+                  </div>
+
+                  <div className="space-y-0.5">
+                    <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                      Flat Knit Production
+                    </span>
+                    <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                      {f.productionFlatKnit.toLocaleString()}pcs
+                    </span>
+                  </div>
+
+                  {/* Row 3 */}
+                  <div className="space-y-0.5">
+                    <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                      Total Machine Run.
+                    </span>
+                    <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                      {f.runningMachine}pcs
+                    </span>
+                  </div>
+
+                  <div className="space-y-0.5">
+                    <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                      Running Factory.
+                    </span>
+                    <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                      {f.runningFactories}pcs
+                    </span>
+                  </div>
+
+                  {/* Row 4 */}
+                  <div className="space-y-0.5">
+                    <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                      Number Vehicles
+                    </span>
+                    <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                      {f.numberVehicles}pcs
+                    </span>
+                  </div>
+
+                  <div className="space-y-0.5">
+                    <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                      Party Returned
+                    </span>
+                    <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                      {f.partyReturned.toLocaleString()}Kg
+                    </span>
+                  </div>
+
+                  {/* Row 5 */}
+                  <div className="space-y-0.5">
+                    <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                      QA Reject/Hold
+                    </span>
+                    <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                      {f.reject} <span className="text-red-600 dark:text-red-500 font-bold">({f.rejectPct}%)</span>/{f.hold} <span className="text-red-600 dark:text-red-500 font-bold">({f.holdPct}%)</span>
+                    </span>
+                  </div>
+
+                  <div className="space-y-0.5">
+                    <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                      Total/Absent Staff
+                    </span>
+                    <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                      {f.totalOperator} / {f.absent}<span className="text-red-600 dark:text-red-500 font-bold">({f.absentPct}%)</span>
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                /* In-House Standard Layout */
+                <>
+                  {/* Top Primary Metrics (2-Columns) */}
+                  <div className="grid grid-cols-2 gap-y-2.5 gap-x-3 text-xs">
+                    {/* Row 1 */}
+                    <div className="space-y-0.5">
+                      <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                        Total Target/Production
+                      </span>
+                      <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                        {f.target.toLocaleString()}Kg / {f.production.toLocaleString()}Kg
+                      </span>
+                    </div>
+
+                    <div className="space-y-0.5">
+                      <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                        Bulk Target/Production
+                      </span>
+                      <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                        {f.bulkTarget.toLocaleString()}Kg / {f.bulkProd.toLocaleString()}Kg
+                      </span>
+                    </div>
+
+                    {/* Row 2 */}
+                    <div className="space-y-0.5">
+                      <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                        Sample Prod. / M/C Run
+                      </span>
+                      <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                        {f.sampleProd.toLocaleString()}Kg / {f.runningSample}pcs
+                      </span>
+                    </div>
+
+                    <div className="space-y-0.5">
+                      <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                        Loss For Sample
+                      </span>
+                      <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                        {f.prodLossForSample.toLocaleString()}Kg
+                      </span>
+                    </div>
+
+                    {/* Row 3 */}
+                    <div className="space-y-0.5">
+                      <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                        Total Machine/Running
+                      </span>
+                      <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                        {f.totalMachines}pcs / {f.runningMachine}pcs
+                      </span>
+                    </div>
+
+                    <div className="space-y-0.5">
+                      <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                        Idle Machine%
+                      </span>
+                      <span className="font-black text-red-600 dark:text-red-500 text-xs block">
+                        {f.idleMachinePct}%
+                      </span>
+                    </div>
+
+                    {/* Row 4 */}
+                    <div className="space-y-0.5">
+                      <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                        QA Reject/Hold
+                      </span>
+                      <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                        {f.reject}<span className="text-red-600 dark:text-red-500 font-bold">({f.rejectPct}%)</span>/{f.hold}<span className="text-red-600 dark:text-red-500 font-bold">({f.holdPct}%)</span>
+                      </span>
+                    </div>
+
+                    <div className="space-y-0.5">
+                      <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                        Total/Absent Operators
+                      </span>
+                      <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                        {f.totalOperator} / {f.absent}<span className="text-red-600 dark:text-red-500 font-bold">({f.absentPct}%)</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Middle Section Divider: Secondary Element Consumption. */}
+                  <div className="border-y border-slate-300 dark:border-slate-700 py-1.5 my-2.5 text-center">
+                    <span className="font-serif text-xs sm:text-[13px] font-medium text-gray-900 dark:text-slate-100 tracking-wide">
+                      Secondary Element Consumption.
+                    </span>
+                  </div>
+
+                  {/* Bottom Secondary Metrics (2-Columns) */}
+                  <div className="grid grid-cols-2 gap-y-2.5 gap-x-3 text-xs">
+                    {/* Row 1 */}
+                    <div className="space-y-0.5">
+                      <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                        Needel Broken/Per KG
+                      </span>
+                      <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                        {f.needleBroken}pcs / {f.needlePerKg.toLocaleString()} Kg
+                      </span>
+                    </div>
+
+                    <div className="space-y-0.5">
+                      <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                        Sinker Broken/Per KG
+                      </span>
+                      <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                        {f.sinkerBroken} pcs / {f.sinkerPerKg.toLocaleString()} Kg
+                      </span>
+                    </div>
+
+                    {/* Row 2 */}
+                    <div className="space-y-0.5">
+                      <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                        Oil Consume/Per KG
+                      </span>
+                      <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                        {f.oilConsumption}lt / {f.oilPerKg.toLocaleString()} Kg
+                      </span>
+                    </div>
+
+                    <div className="space-y-0.5">
+                      <span className="text-slate-400 dark:text-slate-400 text-[11px] block">
+                        Belt Broken/Per KG
+                      </span>
+                      <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
+                        {f.beltBroken}pcs / {f.beltPerKg.toLocaleString()}Kg
+                      </span>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Card Footer */}
+              <div className="border-t border-slate-300 dark:border-slate-700 pt-2.5 mt-2.5 flex items-center justify-between text-[11px] text-slate-400 dark:text-slate-500">
+                <span className="font-medium text-slate-500 dark:text-slate-400">Database: Online</span>
+                {f.dateStatus.isLive ? (
+                  <span 
+                    className="inline-flex items-center gap-1.5 font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/60 px-2.5 py-0.5 rounded-md text-[10px] shadow-2xs"
+                    title={`Last updated: ${f.dateStatus.dateStr ? formatSingleDate(f.dateStatus.dateStr) : 'Today/Yesterday'} (Live)`}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
                     Live
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1 font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/80 px-2 py-0.5 rounded-md">
-                    <Calendar className="h-2.5 w-2.5 text-slate-400" />
+                  <span 
+                    className="inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md text-[10px]"
+                    title="Last Production Update Date"
+                  >
+                    <Calendar className="h-2.5 w-2.5 text-slate-500 dark:text-slate-400" />
                     {f.dateStatus.label}
                   </span>
                 )}
               </div>
             </div>
           ))}
-        </div>
-      </div>
-
-      {/* 3. Filter Criteria Panel */}
-      <div className="rounded-2xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
-        <div className="flex items-center justify-between border-b border-gray-50 dark:border-slate-800 pb-2.5">
-          <div className="flex items-center gap-2">
-            <SlidersHorizontal className="h-4 w-4 text-[#0F4C81]" />
-            <h3 className="font-sans text-xs font-black text-gray-900 dark:text-white uppercase tracking-wider">
-              Ledger Query Filter Panel
-            </h3>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-4 items-end">
-          {/* Unit selection */}
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">🏭 Factory Floor / Unit</label>
-            <select
-              value={filterUnit}
-              onChange={(e) => setFilterUnit(e.target.value)}
-              className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 px-3 py-2 text-xs font-bold text-gray-700 dark:text-slate-200 transition-colors focus:border-[#0F4C81] focus:bg-white dark:focus:bg-slate-900 focus:outline-hidden"
-              id="filter-unit-dropdown"
-            >
-              <option value="all">All Units</option>
-              <option value="EKL">EKL</option>
-              <option value="EFL">EFL</option>
-              <option value="EFL-2">EFL-2</option>
-              <option value="Auto Stripe">Auto Stripe</option>
-              <option value="EFL-Extension">EFL-Extension</option>
-              <option value="ESL-Extension">ESL-Extension</option>
-              <option value="Sub-Contact">Sub-Contact</option>
-            </select>
-          </div>
-
-          {/* From Date picker */}
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">📅 From Date</label>
-            <div className="relative">
-              <input
-                type="date"
-                value={filterFromDate}
-                onChange={(e) => setFilterFromDate(e.target.value)}
-                className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 px-3 py-2 text-xs font-bold text-gray-700 dark:text-slate-200 transition-colors focus:border-[#0F4C81] focus:bg-white dark:focus:bg-slate-900 focus:outline-hidden"
-                id="filter-from-date-input"
-              />
-            </div>
-          </div>
-
-          {/* To Date picker */}
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">📅 To Date</label>
-            <div className="relative">
-              <input
-                type="date"
-                value={filterToDate}
-                onChange={(e) => setFilterToDate(e.target.value)}
-                className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 px-3 py-2 text-xs font-bold text-gray-700 dark:text-slate-200 transition-colors focus:border-[#0F4C81] focus:bg-white dark:focus:bg-slate-900 focus:outline-hidden"
-                id="filter-to-date-input"
-              />
-            </div>
-          </div>
-
-          {/* Action buttons (Adjusted fully responsive for mobile stacking) */}
-          <div className="flex flex-col sm:flex-row gap-2">
-            <button
-              onClick={handleApplyFilters}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#0F4C81] hover:bg-[#0b3861] text-white px-4 py-2.5 text-xs font-bold transition-all shadow-xs cursor-pointer w-full"
-              id="apply-ledger-filter-btn"
-            >
-              <Filter className="h-4 w-4" />
-              <span>Apply Criteria</span>
-            </button>
-            <button
-              onClick={handleResetFilters}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-200 px-4 py-2.5 text-xs font-bold transition-all cursor-pointer w-full"
-              id="reset-ledger-filter-btn"
-            >
-              <span>Reset</span>
-            </button>
-          </div>
         </div>
       </div>
 

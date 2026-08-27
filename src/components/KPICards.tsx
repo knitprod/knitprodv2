@@ -150,8 +150,8 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
     });
   }
 
-  // Active records fallback if empty
-  const activeRecords = targetRecords.length > 0 ? targetRecords : ledger;
+  // Active records - strictly use targetRecords matching the active filter criteria
+  const activeRecords = targetRecords;
 
   const inHouseRecords = activeRecords.filter((r) => r.floor !== 'Sub-Contact' && r.unit !== 'Sub-Contact' && !(r.remarks && r.remarks.toLowerCase().includes('sub-contact')));
   const subContactRecords = activeRecords.filter((r) => r.floor === 'Sub-Contact' || r.unit === 'Sub-Contact' || (r.remarks && r.remarks.toLowerCase().includes('sub-contact')));
@@ -162,79 +162,79 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
       ? Number(r.target) 
       : ((r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : 0) + Number((r as any).sampleTarget || 0));
     return sum + (Number.isNaN(t) ? 0 : t);
-  }, 0) || 819040;
+  }, 0);
 
   const inHouseBulkTarget = inHouseRecords.reduce((sum, r) => {
     const b = r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : (Number(r.target) || 0);
     return sum + (Number.isNaN(b) ? 0 : b);
-  }, 0) || 784760;
+  }, 0);
 
   // In-House Production (Bulk, Sample, Total, and Loss for Sample)
   const inHouseBulkProd = inHouseRecords.reduce((sum, r) => {
     const b = r.bulkProd !== undefined && r.bulkProd !== null ? Number(r.bulkProd) : (Number(r.totalProduction) || 0);
     return sum + (Number.isNaN(b) ? 0 : b);
-  }, 0) || 663940;
+  }, 0);
 
   const inHouseSampleProd = inHouseRecords.reduce((sum, r) => {
     const s = r.sampleProd !== undefined && r.sampleProd !== null 
       ? Number(r.sampleProd) 
       : (r.totalProduction !== undefined && r.bulkProd !== undefined ? Math.max(0, Number(r.totalProduction) - Number(r.bulkProd)) : 0);
     return sum + (Number.isNaN(s) ? 0 : s);
-  }, 0) || 23485;
+  }, 0);
 
   const inHouseProdTotal = inHouseRecords.reduce((sum, r) => {
     const t = r.totalProduction !== undefined && r.totalProduction !== null && Number(r.totalProduction) > 0 
       ? Number(r.totalProduction) 
       : (Number(r.bulkProd || 0) + Number(r.sampleProd || 0));
     return sum + (Number.isNaN(t) ? 0 : t);
-  }, 0) || (inHouseBulkProd + inHouseSampleProd || 687425);
+  }, 0) || (inHouseBulkProd + inHouseSampleProd);
 
   const inHouseLossForSample = inHouseRecords.reduce((sum, r) => {
     const l = r.prodLossForSample !== undefined && r.prodLossForSample !== null ? Number(r.prodLossForSample) : 0;
     return sum + (Number.isNaN(l) ? 0 : l);
-  }, 0) || 67298;
+  }, 0);
 
-  const inHouseAchievePct = inHouseTotalTarget > 0 ? Math.round((inHouseProdTotal / inHouseTotalTarget) * 100) : 79;
+  const inHouseAchievePct = inHouseTotalTarget > 0 ? Math.round((inHouseProdTotal / inHouseTotalTarget) * 100) : 0;
 
   // Sub-Contact Target & Production
   const subContactTarget = subContactRecords.reduce((sum, r) => {
     const b = r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : (Number(r.target) || 0);
     return sum + (Number.isNaN(b) ? 0 : b);
-  }, 0) || 575000;
+  }, 0);
 
   const subContactBulkProd = subContactRecords.reduce((sum, r) => {
     const b = r.bulkProd !== undefined && r.bulkProd !== null ? Number(r.bulkProd) : (Number(r.totalProduction) || 0);
     return sum + (Number.isNaN(b) ? 0 : b);
-  }, 0) || 510931;
+  }, 0);
 
-  const subContactAchievePct = subContactTarget > 0 ? Math.round((subContactBulkProd / subContactTarget) * 100) : 89;
+  const subContactAchievePct = subContactTarget > 0 ? Math.round((subContactBulkProd / subContactTarget) * 100) : 0;
 
   // Overall Combined totals (In-House + Sub-Contact)
   const overallTotalTarget = inHouseTotalTarget + subContactTarget;
   const overallTotalProduction = inHouseProdTotal + subContactBulkProd;
   const overallBulkProduction = inHouseBulkProd + subContactBulkProd;
   const overallSampleProduction = inHouseSampleProd;
-  const overallAchievementPct = overallTotalTarget > 0 ? Math.round((overallTotalProduction / overallTotalTarget) * 100) : 83;
+  const overallAchievementPct = overallTotalTarget > 0 ? Math.round((overallTotalProduction / overallTotalTarget) * 100) : 0;
 
   const totalFlatKnitPcs = activeRecords.reduce((sum, r) => {
     const fk = r.productionFlatKnit !== undefined && r.productionFlatKnit !== null ? Number(r.productionFlatKnit) : 0;
     return sum + (Number.isNaN(fk) ? 0 : fk);
-  }, 0) || 12450;
+  }, 0);
 
   // Efficiency & Capacity
   const effKpi = kpis.find(k => k.id === 'efficiency');
   const capKpi = kpis.find(k => k.id === 'capacity_utilization' || k.id === 'capacity');
 
-  let efficiencyVal = 84.14;
-  if (effKpi && effKpi.value) {
-    efficiencyVal = parseFloat(String(effKpi.value).replace(/[^0-9.]/g, '')) || 84.14;
+  let efficiencyVal = 0;
+  if (effKpi && effKpi.value && activeRecords.length > 0) {
+    efficiencyVal = parseFloat(String(effKpi.value).replace(/[^0-9.]/g, '')) || 0;
   } else if (inHouseBulkTarget > 0) {
     efficiencyVal = parseFloat(((inHouseBulkProd / inHouseBulkTarget) * 100).toFixed(1));
   }
 
-  let capacityVal = 80.58;
-  if (capKpi && capKpi.value) {
-    capacityVal = parseFloat(String(capKpi.value).replace(/[^0-9.]/g, '')) || 80.58;
+  let capacityVal = 0;
+  if (capKpi && capKpi.value && activeRecords.length > 0) {
+    capacityVal = parseFloat(String(capKpi.value).replace(/[^0-9.]/g, '')) || 0;
   }
 
   // Machine Status
@@ -248,7 +248,7 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
       inHouseTotalMachines = distinctFloors.reduce((sum: number, f: string) => sum + getTotalMachinesForUnit(f, 45), 0);
     } else {
       const inHouseConfigs = getUnitConfigs().filter(u => !u.unitName.toLowerCase().includes('sub'));
-      inHouseTotalMachines = inHouseConfigs.reduce((sum, u) => sum + Number(u.totalMachine || 0), 0) || 261;
+      inHouseTotalMachines = inHouseConfigs.reduce((sum, u) => sum + Number(u.totalMachine || 0), 0) || (activeRecords.length > 0 ? 261 : 0);
     }
   }
 
@@ -273,12 +273,12 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
   const sumSampleRun = inHouseDateKeys.reduce((acc, d) => acc + inHouseDateMap[d].sampleRun, 0);
   const sumTotalRun = inHouseDateKeys.reduce((acc, d) => acc + inHouseDateMap[d].totalRun, 0);
 
-  const inHouseBulkRunning = sumBulkRun / inHouseDaysCount;
-  const inHouseSampleRunning = sumSampleRun / inHouseDaysCount;
-  const inHouseRunningMachines = sumTotalRun / inHouseDaysCount;
+  const inHouseBulkRunning = inHouseDateKeys.length > 0 ? (sumBulkRun / inHouseDaysCount) : 0;
+  const inHouseSampleRunning = inHouseDateKeys.length > 0 ? (sumSampleRun / inHouseDaysCount) : 0;
+  const inHouseRunningMachines = inHouseDateKeys.length > 0 ? (sumTotalRun / inHouseDaysCount) : 0;
 
   // Idle Machine %
-  const inHouseIdleMachinePct = inHouseTotalMachines > 0
+  const inHouseIdleMachinePct = inHouseTotalMachines > 0 && inHouseRunningMachines > 0
     ? ((inHouseRunningMachines - inHouseTotalMachines) / inHouseTotalMachines) * 100
     : 0;
   const inHouseIdleCount = Math.max(0, inHouseTotalMachines - inHouseRunningMachines);
@@ -290,9 +290,9 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
     if (!scDateMap[d]) {
       scDateMap[d] = { actFactories: 0, mcRun: 0, vehicles: 0 };
     }
-    const actF = Number(r.totalRunningFactories) || Number(r.runningFactories) || (Number(r.totalOperator) > 0 ? Number(r.totalOperator) : 18);
-    const mc = Number(r.runningMachine) || (Number(r.runningBulk || 0) + Number(r.runningSample || 0)) || 153;
-    const veh = Number(r.numberVehicles) || 8;
+    const actF = Number(r.totalRunningFactories) || Number(r.runningFactories) || (Number(r.totalOperator) > 0 ? Number(r.totalOperator) : 0);
+    const mc = Number(r.runningMachine) || (Number(r.runningBulk || 0) + Number(r.runningSample || 0)) || 0;
+    const veh = Number(r.numberVehicles) || 0;
 
     scDateMap[d].actFactories += actF;
     scDateMap[d].mcRun += mc;
@@ -306,24 +306,24 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
   const sumScMc = scDateKeys.reduce((acc, d) => acc + scDateMap[d].mcRun, 0);
   const sumScVeh = scDateKeys.reduce((acc, d) => acc + scDateMap[d].vehicles, 0);
 
-  const subContactActiveFactories = scDateKeys.length > 0 ? (sumScFactories / scDaysCount) : 18;
-  const subContactTotalMachineRun = scDateKeys.length > 0 ? (sumScMc / scDaysCount) : 153;
-  const subContactActiveVehicles = scDateKeys.length > 0 ? (sumScVeh / scDaysCount) : 8;
+  const subContactActiveFactories = scDateKeys.length > 0 ? (sumScFactories / scDaysCount) : 0;
+  const subContactTotalMachineRun = scDateKeys.length > 0 ? (sumScMc / scDaysCount) : 0;
+  const subContactActiveVehicles = scDateKeys.length > 0 ? (sumScVeh / scDaysCount) : 0;
 
   // In-House Quality Status Metrics
   const rawInHouseReject = inHouseRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.reject)) ? 0 : Number(r.reject || 0)), 0);
   const rawInHouseHold = inHouseRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.hold)) ? 0 : Number(r.hold || 0)), 0);
   const rawInHouseJhute = inHouseRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.jhuteCutpcs)) ? 0 : Number(r.jhuteCutpcs || 0)), 0);
 
-  const inHouseReject = Math.round(rawInHouseReject > 0 ? rawInHouseReject : 3240);
-  const inHouseHold = Math.round(rawInHouseHold > 0 ? rawInHouseHold : 38150);
-  const inHouseJhute = Math.round(rawInHouseJhute > 0 ? rawInHouseJhute : 540);
+  const inHouseReject = Math.round(rawInHouseReject);
+  const inHouseHold = Math.round(rawInHouseHold);
+  const inHouseJhute = Math.round(rawInHouseJhute);
 
-  const inHouseRejectPct = inHouseProdTotal > 0 ? parseFloat(((inHouseReject / inHouseProdTotal) * 100).toFixed(2)) : 0.07;
-  const inHouseHoldPct = inHouseProdTotal > 0 ? parseFloat(((inHouseHold / inHouseProdTotal) * 100).toFixed(1)) : 0.8;
-  const inHouseJhutePct = inHouseProdTotal > 0 ? parseFloat(((inHouseJhute / inHouseProdTotal) * 100).toFixed(2)) : 0.01;
+  const inHouseRejectPct = inHouseProdTotal > 0 ? parseFloat(((inHouseReject / inHouseProdTotal) * 100).toFixed(2)) : 0;
+  const inHouseHoldPct = inHouseProdTotal > 0 ? parseFloat(((inHouseHold / inHouseProdTotal) * 100).toFixed(1)) : 0;
+  const inHouseJhutePct = inHouseProdTotal > 0 ? parseFloat(((inHouseJhute / inHouseProdTotal) * 100).toFixed(2)) : 0;
   const inHouseScrapPct = parseFloat((inHouseRejectPct + inHouseHoldPct + inHouseJhutePct).toFixed(2));
-  const inHousePassRatePct = Math.max(0, Math.min(100, 100 - inHouseScrapPct));
+  const inHousePassRatePct = inHouseProdTotal > 0 ? Math.max(0, Math.min(100, 100 - inHouseScrapPct)) : 0;
 
   // Sub-Contact Quality Status Metrics (Sub-Contact only has Reject; Hold & Jhute/CutPcs do not apply)
   const rawSubContactReject = subContactRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.reject)) ? 0 : Number(r.reject || 0)), 0);
@@ -335,7 +335,7 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
   const subContactHoldPct = 0;
   const subContactJhutePct = 0;
   const subContactScrapPct = subContactRejectPct;
-  const subContactPassRatePct = Math.max(0, Math.min(100, 100 - subContactScrapPct));
+  const subContactPassRatePct = subContactBulkProd > 0 ? Math.max(0, Math.min(100, 100 - subContactScrapPct)) : 0;
 
   // Combined Quality Totals (In-House has Reject, Hold, Jhute; Sub-Contact only contributes Reject)
   const totalReject = inHouseReject + subContactReject;
@@ -353,11 +353,11 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
   const sumStaff = activeStaffRecords.reduce((acc, r) => acc + (Number(r.totalOperator) || Number((r as any).totalStaff) || Number((r as any).manpower) || 0), 0);
   const sumAbsent = activeStaffRecords.reduce((acc, r) => acc + (Number(r.absent) || 0), 0);
 
-  const avgStaff = sumStaff > 0 ? Math.round(sumStaff / activeStaffRecordsCount) : 51;
-  const avgAbsent = sumStaff > 0 ? Math.round(sumAbsent / activeStaffRecordsCount) : 2;
+  const avgStaff = activeStaffRecords.length > 0 ? Math.round(sumStaff / activeStaffRecordsCount) : 0;
+  const avgAbsent = activeStaffRecords.length > 0 ? Math.round(sumAbsent / activeStaffRecordsCount) : 0;
   const avgPresent = Math.max(0, avgStaff - avgAbsent);
-  const absentPct = avgStaff > 0 ? parseFloat(((avgAbsent / avgStaff) * 100).toFixed(1)) : 3.9;
-  const presentPct = avgStaff > 0 ? parseFloat(((avgPresent / avgStaff) * 100).toFixed(1)) : 96.1;
+  const absentPct = avgStaff > 0 ? parseFloat(((avgAbsent / avgStaff) * 100).toFixed(1)) : 0;
+  const presentPct = avgStaff > 0 ? parseFloat(((avgPresent / avgStaff) * 100).toFixed(1)) : 0;
 
   return (
     <div className="space-y-4" id="dashboard-kpi-cards-container">

@@ -47,9 +47,16 @@ export default function AttendanceCard({
           <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
             <Users className="h-3.5 w-3.5" />
           </div>
-          <span className="font-sans text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">
-            ATTENDANCE
-          </span>
+          <div>
+            <span className="font-sans text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white block">
+              ATTENDANCE
+            </span>
+            {periodLabel && (
+              <span className="font-sans text-[10px] font-semibold text-slate-500 dark:text-slate-400 block -mt-0.5">
+                {periodLabel}
+              </span>
+            )}
+          </div>
         </div>
         
         {/* Orange Users Badge */}

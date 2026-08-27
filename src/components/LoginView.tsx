@@ -94,7 +94,7 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
       }
 
       if (!match) {
-        setError(`Access Denied: UID "${inputIdentifier}" was not found in the User Directory. Try clicking one of the Quick Login buttons below.`);
+        setError(`Access Denied: UID "${inputIdentifier}" was not found in the User Directory.`);
         setLoading(false);
         return;
       }
@@ -117,7 +117,7 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
         enteredPass === 'admin';
 
       if (!isPasswordMatch) {
-        setError("Access Denied: Invalid credentials provided. (Default Admin Password: Password@2026)");
+        setError("Access Denied: Invalid UID or password provided. Please verify your credentials.");
         setLoading(false);
         return;
       }

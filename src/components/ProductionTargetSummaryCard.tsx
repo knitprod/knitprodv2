@@ -19,6 +19,7 @@ export interface ProductionTargetSummaryCardProps {
   // Sub-Contact metrics
   subContactTarget: number;
   subContactProduction: number;
+  subContactSampleProduction?: number;
   subContactAchievementPct?: number;
 
   // Combined / Overall metrics (In-House + Sub-Contact)
@@ -39,13 +40,14 @@ export interface ProductionTargetSummaryCardProps {
 }
 
 export function InHouseProductionCard({
-  target = 870453,
-  production = 687425,
-  bulkProduction = 663940,
-  bulkTarget = 819040,
-  sampleProduction = 23485,
-  lossForSample = 67298,
+  target,
+  production,
+  bulkProduction,
+  bulkTarget,
+  sampleProduction,
+  lossForSample,
   achievementPct,
+  periodLabel,
   className = '',
 }: {
   target?: number;
@@ -55,19 +57,20 @@ export function InHouseProductionCard({
   sampleProduction?: number;
   lossForSample?: number;
   achievementPct?: number;
+  periodLabel?: string;
   className?: string;
 }) {
-  const ihTarget = Math.round(target || 870453);
-  const ihBulk = Math.round(bulkProduction || 663940);
-  const ihBulkTarget = Math.round(bulkTarget || 819040);
-  const ihSample = Math.round(sampleProduction || 23485);
-  const ihLossForSample = Math.round(lossForSample || 67298);
+  const ihTarget = target !== undefined ? Math.round(target) : 0;
+  const ihBulk = bulkProduction !== undefined ? Math.round(bulkProduction) : (production !== undefined ? Math.round(production) : 0);
+  const ihBulkTarget = bulkTarget !== undefined ? Math.round(bulkTarget) : (target !== undefined ? Math.round(target) : 0);
+  const ihSample = sampleProduction !== undefined ? Math.round(sampleProduction) : 0;
+  const ihLossForSample = lossForSample !== undefined ? Math.round(lossForSample) : 0;
 
   const ihProd = production !== undefined 
     ? Math.round(production) 
     : (ihBulk + ihSample);
 
-  const calculatedIhAchieve = ihTarget > 0 ? Math.round((ihProd / ihTarget) * 100) : 79;
+  const calculatedIhAchieve = ihTarget > 0 ? Math.round((ihProd / ihTarget) * 100) : 0;
   const ihAchievePct = achievementPct !== undefined 
     ? Math.abs(Math.round(achievementPct)) 
     : calculatedIhAchieve;
@@ -84,9 +87,16 @@ export function InHouseProductionCard({
           <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
             <Factory className="h-3.5 w-3.5" />
           </div>
-          <span className="font-sans text-xs font-black uppercase tracking-wider text-blue-950 dark:text-blue-200">
-            IN-HOUSE PRODUCTION
-          </span>
+          <div>
+            <span className="font-sans text-xs font-black uppercase tracking-wider text-blue-950 dark:text-blue-200 block">
+              IN-HOUSE PRODUCTION
+            </span>
+            {periodLabel && (
+              <span className="font-sans text-[10px] font-semibold text-slate-500 dark:text-slate-400 block -mt-0.5">
+                {periodLabel}
+              </span>
+            )}
+          </div>
         </div>
         <span className="rounded-lg bg-blue-50 dark:bg-blue-950/70 border border-blue-200 dark:border-blue-800/80 px-2 py-0.5 font-mono text-[10px] font-bold text-blue-900 dark:text-blue-300">
           Tgt: {ihTarget.toLocaleString()} Kg
@@ -186,11 +196,12 @@ export function InHouseProductionCard({
 }
 
 export function SubContactProductionCard({
-  target = 575000,
-  production = 510931,
+  target,
+  production,
   sampleProduction = 0,
-  flatKnitPcs = 20091,
+  flatKnitPcs,
   achievementPct,
+  periodLabel,
   className = '',
 }: {
   target?: number;
@@ -198,13 +209,14 @@ export function SubContactProductionCard({
   sampleProduction?: number;
   flatKnitPcs?: number;
   achievementPct?: number;
+  periodLabel?: string;
   className?: string;
 }) {
-  const scTarget = Math.round(target || 575000);
-  const scProd = Math.round(production || 510931);
-  const totalFlatKnit = Math.round(flatKnitPcs || 20091);
+  const scTarget = target !== undefined ? Math.round(target) : 0;
+  const scProd = production !== undefined ? Math.round(production) : 0;
+  const totalFlatKnit = flatKnitPcs !== undefined ? Math.round(flatKnitPcs) : 0;
 
-  const calculatedScAchieve = scTarget > 0 ? Math.round((scProd / scTarget) * 100) : 89;
+  const calculatedScAchieve = scTarget > 0 ? Math.round((scProd / scTarget) * 100) : 0;
   const scAchievePct = achievementPct !== undefined 
     ? Math.abs(Math.round(achievementPct)) 
     : calculatedScAchieve;
@@ -221,9 +233,16 @@ export function SubContactProductionCard({
           <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-800">
             <Layers className="h-3.5 w-3.5" />
           </div>
-          <span className="font-sans text-xs font-black uppercase tracking-wider text-purple-950 dark:text-purple-200">
-            SUB-CONTACT
-          </span>
+          <div>
+            <span className="font-sans text-xs font-black uppercase tracking-wider text-purple-950 dark:text-purple-200 block">
+              SUB-CONTACT
+            </span>
+            {periodLabel && (
+              <span className="font-sans text-[10px] font-semibold text-slate-500 dark:text-slate-400 block -mt-0.5">
+                {periodLabel}
+              </span>
+            )}
+          </div>
         </div>
         <span className="rounded-lg bg-purple-50 dark:bg-purple-950/70 border border-purple-200 dark:border-purple-800/80 px-2 py-0.5 font-mono text-[10px] font-bold text-purple-900 dark:text-purple-300">
           Tgt: {scTarget.toLocaleString()} Kg
@@ -323,13 +342,14 @@ export function SubContactProductionCard({
 }
 
 export function TotalInHouseSubCard({
-  target = 1445453,
-  production = 1198356,
-  inHouseProduction = 687425,
-  subContactProduction = 510931,
+  target,
+  production,
+  inHouseProduction,
+  subContactProduction,
   achievementPct,
-  efficiencyPct = 81.1,
-  capacityUtilizationPct = 57.3,
+  efficiencyPct = 0,
+  capacityUtilizationPct = 0,
+  periodLabel,
   className = '',
 }: {
   target?: number;
@@ -339,25 +359,26 @@ export function TotalInHouseSubCard({
   achievementPct?: number;
   efficiencyPct?: number;
   capacityUtilizationPct?: number;
+  periodLabel?: string;
   className?: string;
 }) {
-  const totalTgt = Math.round(target || 1445453);
-  const totalPrd = Math.round(production || 1198356);
-  const ihProd = Math.round(inHouseProduction || 687425);
-  const scProd = Math.round(subContactProduction || 510931);
+  const totalTgt = target !== undefined ? Math.round(target) : 0;
+  const totalPrd = production !== undefined ? Math.round(production) : 0;
+  const ihProd = inHouseProduction !== undefined ? Math.round(inHouseProduction) : (totalPrd > 0 ? Math.round(totalPrd * 0.57) : 0);
+  const scProd = subContactProduction !== undefined ? Math.round(subContactProduction) : Math.max(0, totalPrd - ihProd);
 
-  const calculatedTotalAchieve = totalTgt > 0 ? Math.round((totalPrd / totalTgt) * 100) : 83;
+  const calculatedTotalAchieve = totalTgt > 0 ? Math.round((totalPrd / totalTgt) * 100) : 0;
   const totalAchievePct = achievementPct !== undefined
     ? Math.abs(Math.round(achievementPct))
     : calculatedTotalAchieve;
 
   // Share split percentages
-  const ihSharePct = totalPrd > 0 ? Math.round((ihProd / totalPrd) * 100) : 57;
-  const scSharePct = Math.max(0, 100 - ihSharePct);
+  const ihSharePct = totalPrd > 0 ? Math.round((ihProd / totalPrd) * 100) : 0;
+  const scSharePct = totalPrd > 0 ? Math.max(0, 100 - ihSharePct) : 0;
 
   // Efficiency and Capacity display values
-  const displayEfficiencyPct = parseFloat(Number(efficiencyPct || 81.1).toFixed(1));
-  const displayCapacityUtilPct = parseFloat(Number(capacityUtilizationPct || 57.3).toFixed(1));
+  const displayEfficiencyPct = efficiencyPct !== undefined ? parseFloat(Number(efficiencyPct).toFixed(1)) : 0;
+  const displayCapacityUtilPct = capacityUtilizationPct !== undefined ? parseFloat(Number(capacityUtilizationPct).toFixed(1)) : 0;
 
   return (
     <div
@@ -370,9 +391,16 @@ export function TotalInHouseSubCard({
           <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
             <PieChart className="h-3.5 w-3.5" />
           </div>
-          <span className="font-sans text-xs font-black uppercase tracking-wider text-indigo-950 dark:text-indigo-200">
-            TOTAL IN-HOUSE & SUB
-          </span>
+          <div>
+            <span className="font-sans text-xs font-black uppercase tracking-wider text-indigo-950 dark:text-indigo-200 block">
+              TOTAL IN-HOUSE & SUB
+            </span>
+            {periodLabel && (
+              <span className="font-sans text-[10px] font-semibold text-slate-500 dark:text-slate-400 block -mt-0.5">
+                {periodLabel}
+              </span>
+            )}
+          </div>
         </div>
         <span className="rounded-lg bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800/80 px-2 py-0.5 font-sans text-[10px] font-bold text-indigo-950 dark:text-indigo-200">
           Combined Total
@@ -493,30 +521,31 @@ export default function ProductionTargetSummaryCard({
   inHouseAchievementPct,
   subContactTarget,
   subContactProduction,
+  subContactSampleProduction,
   subContactAchievementPct,
   overallTarget,
   overallProduction,
   overallBulkProduction,
   overallSampleProduction,
   overallAchievementPct,
-  flatKnitPcs = 20091,
-  efficiencyPct = 81.1,
-  capacityUtilizationPct = 57.3,
+  flatKnitPcs = 0,
+  efficiencyPct = 0,
+  capacityUtilizationPct = 0,
   periodLabel,
   className = '',
 }: ProductionTargetSummaryCardProps) {
-  const ihTarget = Math.round(inHouseTarget || 870453);
-  const ihBulk = Math.round(inHouseBulkProduction || 663940);
-  const ihBulkTarget = Math.round(inHouseBulkTarget || 819040);
-  const ihSample = Math.round(inHouseSampleProduction || 23485);
-  const ihLossForSample = Math.round(inHouseProdLossForSample || 67298);
+  const ihTarget = inHouseTarget !== undefined ? Math.round(inHouseTarget) : 0;
+  const ihBulk = inHouseBulkProduction !== undefined ? Math.round(inHouseBulkProduction) : (inHouseProduction !== undefined ? Math.round(inHouseProduction) : 0);
+  const ihBulkTarget = inHouseBulkTarget !== undefined ? Math.round(inHouseBulkTarget) : (inHouseTarget !== undefined ? Math.round(inHouseTarget) : 0);
+  const ihSample = inHouseSampleProduction !== undefined ? Math.round(inHouseSampleProduction) : 0;
+  const ihLossForSample = inHouseProdLossForSample !== undefined ? Math.round(inHouseProdLossForSample) : 0;
 
   const ihProd = inHouseProduction !== undefined 
     ? Math.round(inHouseProduction) 
     : (ihBulk + ihSample);
 
-  const scTarget = Math.round(subContactTarget || 575000);
-  const scProd = Math.round(subContactProduction || 510931);
+  const scTarget = subContactTarget !== undefined ? Math.round(subContactTarget) : 0;
+  const scProd = subContactProduction !== undefined ? Math.round(subContactProduction) : 0;
 
   const totalTgt = overallTarget !== undefined ? Math.round(overallTarget) : (ihTarget + scTarget);
   const totalPrd = overallProduction !== undefined ? Math.round(overallProduction) : (ihProd + scProd);
@@ -535,15 +564,17 @@ export default function ProductionTargetSummaryCard({
         sampleProduction={ihSample}
         lossForSample={ihLossForSample}
         achievementPct={inHouseAchievementPct}
+        periodLabel={periodLabel}
       />
 
       {/* 2. SUB-CONTACT PRODUCTION CARD */}
       <SubContactProductionCard
         target={scTarget}
         production={scProd}
-        sampleProduction={overallSampleProduction || 0}
+        sampleProduction={subContactSampleProduction ?? 0}
         flatKnitPcs={flatKnitPcs}
         achievementPct={subContactAchievementPct}
+        periodLabel={periodLabel}
       />
 
       {/* 3. TOTAL IN-HOUSE & SUB CARD */}
@@ -555,6 +586,7 @@ export default function ProductionTargetSummaryCard({
         achievementPct={overallAchievementPct}
         efficiencyPct={efficiencyPct}
         capacityUtilizationPct={capacityUtilizationPct}
+        periodLabel={periodLabel}
       />
     </div>
   );
