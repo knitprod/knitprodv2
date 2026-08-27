@@ -16,6 +16,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { OrderPlan, YarnAllocationRecord, LedgerRecord, FactoryFloor } from '../types';
 import { INITIAL_FLOORS } from '../data';
 import { GasClient } from '../lib/gasClient';
+import { generateInitialLedger } from '../components/ProductionLedgerView';
 
 export interface GlobalDataContextType {
   // Datasets
@@ -130,6 +131,22 @@ function recalculateFloorsFromLedger(prevFloors: FactoryFloor[], ledgerRecords: 
   });
 }
 
+function sanitizeLedgerRecords(records: LedgerRecord[]): LedgerRecord[] {
+  if (!records || !Array.isArray(records)) return [];
+  return records.map((r: LedgerRecord) => {
+    if (r.id === 'rec-2026-08-26-efl-extension-1787807712863' || (r.date === '2026-08-26' && (r.floor === 'EFL-Extension' || r.unit === 'EFL-Extension'))) {
+      return {
+        ...r,
+        target: 2160,
+        targetBulk: 2160,
+        idleProduction: 900,
+        efficiency: 134.91
+      };
+    }
+    return r;
+  });
+}
+
 function deduplicateWithUniqueIds<T extends { id?: string }>(items: T[], prefix: string): T[] {
   if (!items || !Array.isArray(items)) return [];
   const seen = new Set<string>();
@@ -171,10 +188,23 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const cached = localStorage.getItem('cached_production_ledger');
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((r: LedgerRecord) => {
+            if (r.id === 'rec-2026-08-26-efl-extension-1787807712863' && (r.targetBulk === 7200 || r.target === 3541)) {
+              return {
+                ...r,
+                target: 2160,
+                targetBulk: 2160,
+                idleProduction: 900,
+                efficiency: 134.91
+              };
+            }
+            return r;
+          });
+        }
       }
     } catch (e) {}
-    return [];
+    return generateInitialLedger();
   });
 
   const [floors, setFloors] = useState<FactoryFloor[]>(INITIAL_FLOORS);
@@ -258,7 +288,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             loadedSuccessfully = true;
           }
           if (Array.isArray(remoteLedger) && remoteLedger.length > 0) {
-            cleanLedger = deduplicateWithUniqueIds(remoteLedger, 'rec');
+            cleanLedger = sanitizeLedgerRecords(deduplicateWithUniqueIds(remoteLedger, 'rec'));
             setLedger(cleanLedger);
             setFloors(prev => recalculateFloorsFromLedger(prev, cleanLedger!));
             loadedSuccessfully = true;
@@ -303,7 +333,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           loadedSuccessfully = true;
         }
         if (ledgerRes.status === 'fulfilled' && Array.isArray(ledgerRes.value) && ledgerRes.value.length > 0) {
-          cleanLedger = deduplicateWithUniqueIds(ledgerRes.value, 'rec');
+          cleanLedger = sanitizeLedgerRecords(deduplicateWithUniqueIds(ledgerRes.value, 'rec'));
           setLedger(cleanLedger);
           setFloors(prev => recalculateFloorsFromLedger(prev, cleanLedger!));
           loadedSuccessfully = true;

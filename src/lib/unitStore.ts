@@ -12,12 +12,12 @@ export interface UnitThresholdConfig {
 }
 
 export const INITIAL_UNIT_CONFIGS: UnitThresholdConfig[] = [
-  { id: 'unit-ekl', unitName: 'EKL', productionCapacity: 7500, totalMachine: 29, avgProdPerMachine: 258.62 },
-  { id: 'unit-efl', unitName: 'EFL', productionCapacity: 15000, totalMachine: 40, avgProdPerMachine: 375 },
-  { id: 'unit-efl2', unitName: 'EFL-2', productionCapacity: 15000, totalMachine: 35, avgProdPerMachine: 428.57 },
-  { id: 'unit-autostripe', unitName: 'Auto Stripe', productionCapacity: 12000, totalMachine: 20, avgProdPerMachine: 600 },
-  { id: 'unit-eflext', unitName: 'EFL-Extension', productionCapacity: 15000, totalMachine: 25, avgProdPerMachine: 600 },
-  { id: 'unit-eslext', unitName: 'ESL-Extension', productionCapacity: 10000, totalMachine: 16, avgProdPerMachine: 625 },
+  { id: 'unit-ekl', unitName: 'EKL', productionCapacity: 7500, totalMachine: 29, avgProdPerMachine: 230 },
+  { id: 'unit-efl', unitName: 'EFL', productionCapacity: 15000, totalMachine: 40, avgProdPerMachine: 230 },
+  { id: 'unit-efl2', unitName: 'EFL-2', productionCapacity: 15000, totalMachine: 35, avgProdPerMachine: 280 },
+  { id: 'unit-autostripe', unitName: 'Auto Stripe', productionCapacity: 12000, totalMachine: 20, avgProdPerMachine: 120 },
+  { id: 'unit-eflext', unitName: 'EFL-Extension', productionCapacity: 15000, totalMachine: 25, avgProdPerMachine: 180 },
+  { id: 'unit-eslext', unitName: 'ESL-Extension', productionCapacity: 10000, totalMachine: 16, avgProdPerMachine: 200 },
   { id: 'unit-subcontact', unitName: 'Sub-Contact', productionCapacity: 25000, totalMachine: 153, avgProdPerMachine: 163.4 }
 ];
 

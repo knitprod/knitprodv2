@@ -50,9 +50,11 @@ import ProductionLedgerView from './components/ProductionLedgerView';
 import PlanOrderFollowupView from './components/PlanOrderFollowupView';
 import YarnAllocationView from './components/YarnAllocationView';
 import DashboardFilterToolbar, { FilterState } from './components/DashboardFilterToolbar';
+import { useGlobalData } from './context/GlobalDataContext';
 import { GasClient } from './lib/gasClient';
 import { SupabaseSync } from './lib/supabaseClient';
 import { getTargetKgForUnit, getTotalMachinesForUnit, saveUnitConfigs, getUnitConfigs } from './lib/unitStore';
+import { calculateLedgerEfficiency, calculateLedgerCapacityUtilization, calculateEffectiveDays, isSubContactRecord } from './lib/productionMetrics';
 import { saveBuyers } from './lib/buyerStore';
 
 import { FactoryFloor, ProductionEntry, ActivityLog } from './types';
@@ -525,16 +527,14 @@ export default function App() {
 
   // Dashboard filtering state
   const [filterState, setFilterState] = useState<FilterState>(() => {
-    const yesterday = getRelativeDateString(1);
-    const sevenDaysAgo = getRelativeDateString(7);
     return {
-      unit: 'EKL',
-      dateMode: 'single',
-      singleDate: yesterday, // Default to Today()-1 (Yesterday)
-      dateFrom: sevenDaysAgo,
-      dateTo: yesterday,
-      month: yesterday.substring(0, 7),
-      year: yesterday.substring(0, 4)
+      unit: 'all',
+      dateMode: 'range',
+      singleDate: '',
+      dateFrom: '',
+      dateTo: '',
+      month: '',
+      year: 'all'
     };
   });
   const [dashboardLoading, setDashboardLoading] = useState<boolean>(false);
@@ -548,11 +548,149 @@ export default function App() {
     return Math.abs(Math.sin(hash) * multiplier) + offset;
   };
 
+  const globalData = useGlobalData();
+  const globalLedger = globalData?.ledger || [];
+
   // Compute live cumulative KPIs dynamically based on current filters and state
   const kpis = useMemo(() => {
-    const { unit, dateMode } = filterState;
+    const { unit = 'all', dateMode = 'range' } = filterState;
+
+    if (globalLedger.length > 0) {
+      let filteredRows = [...globalLedger];
+      
+      // Date filter
+      if (filterState.dateFrom && filterState.dateTo) {
+        filteredRows = filteredRows.filter(r => r.date >= filterState.dateFrom && r.date <= filterState.dateTo);
+      } else if (filterState.dateFrom) {
+        filteredRows = filteredRows.filter(r => r.date >= filterState.dateFrom);
+      } else if (filterState.dateTo) {
+        filteredRows = filteredRows.filter(r => r.date <= filterState.dateTo);
+      } else if (filterState.dateMode === 'single' && filterState.singleDate) {
+        filteredRows = filteredRows.filter(r => r.date === filterState.singleDate);
+      } else if (filterState.year && filterState.year !== 'all') {
+        filteredRows = filteredRows.filter(r => r.date && r.date.startsWith(filterState.year));
+      } else if (filterState.dateMode === 'month' && filterState.month) {
+        filteredRows = filteredRows.filter(r => r.date && r.date.startsWith(filterState.month));
+      }
+
+      // Unit filter
+      const activeUnit = filterState.unit || 'all';
+      if (activeUnit !== 'all') {
+        if (activeUnit === 'In-House' || activeUnit === 'in-house') {
+          filteredRows = filteredRows.filter(r => !isSubContactRecord(r));
+        } else if (activeUnit === 'Sub-Contact' || activeUnit === 'sub-contact') {
+          filteredRows = filteredRows.filter(r => isSubContactRecord(r));
+        } else {
+          filteredRows = filteredRows.filter(r => 
+            (r.floor && r.floor.trim().toLowerCase() === activeUnit.trim().toLowerCase()) ||
+            (r.unit && r.unit.trim().toLowerCase() === activeUnit.trim().toLowerCase())
+          );
+        }
+      }
+
+      if (filteredRows.length > 0) {
+        const ihRows = filteredRows.filter(r => !isSubContactRecord(r));
+        const scRows = filteredRows.filter(r => isSubContactRecord(r));
+
+        const inHouseTarget = ihRows.reduce((sum, r) => sum + (r.target != null && Number(r.target) > 0 ? Number(r.target) : (Number(r.targetBulk) || 0)), 0);
+        const subContactTarget = scRows.reduce((sum, r) => sum + (r.target != null && Number(r.target) > 0 ? Number(r.target) : (Number(r.targetBulk) || 0)), 0);
+        const totalTarget = inHouseTarget + subContactTarget;
+
+        const inHouseTotalProd = ihRows.reduce((sum, r) => sum + (r.totalProduction != null && Number(r.totalProduction) > 0 ? Number(r.totalProduction) : (Number(r.bulkProd || 0) + Number(r.sampleProd || 0))), 0);
+        const subContactTotalProd = scRows.reduce((sum, r) => sum + (r.totalProduction != null && Number(r.totalProduction) > 0 ? Number(r.totalProduction) : (Number(r.bulkProd || 0) + Number(r.sampleProd || 0))), 0);
+        const totalProd = inHouseTotalProd + subContactTotalProd;
+
+        const achievement = totalTarget > 0 ? parseFloat(((totalProd / totalTarget) * 100).toFixed(1)) : 0;
+
+        const effectiveDays = calculateEffectiveDays(filteredRows, filterState);
+        const efficiency = calculateLedgerEfficiency(ihRows, scRows, activeUnit);
+        const capacity = calculateLedgerCapacityUtilization(ihRows, activeUnit, effectiveDays);
+
+        let totalMachines = 0;
+        if (activeUnit !== 'all' && !activeUnit.toLowerCase().includes('in-house')) {
+          totalMachines = getTotalMachinesForUnit(activeUnit, 66);
+        } else {
+          const distinctFloors = Array.from(new Set(ihRows.map(r => r.floor).filter(Boolean))) as string[];
+          if (distinctFloors.length > 0) {
+            totalMachines = distinctFloors.reduce((sum: number, f: string) => sum + getTotalMachinesForUnit(f, 45), 0);
+          } else {
+            const inHouseConfigs = getUnitConfigs().filter(u => !u.unitName.toLowerCase().includes('sub'));
+            totalMachines = inHouseConfigs.reduce((sum, u) => sum + Number(u.totalMachine || 0), 0) || 261;
+          }
+        }
+
+        const inHouseRunning = ihRows.reduce((sum, r) => sum + Number(r.runningMachine || 0), 0);
+        const dateCount = Math.max(1, new Set(ihRows.map(r => r.date).filter(Boolean)).size);
+        const avgRunning = Math.round(inHouseRunning / dateCount);
+
+        return [
+          {
+            id: 'target',
+            label: 'Target',
+            value: totalTarget.toLocaleString(),
+            unit: 'Kg',
+            description: 'Planned for the period',
+            change: 'From Ledger',
+            isPositive: true,
+            color: 'blue' as const,
+            iconName: 'Target'
+          },
+          {
+            id: 'production',
+            label: 'Production',
+            value: totalProd.toLocaleString(),
+            unit: 'Kg',
+            description: 'Actual knitted output',
+            change: 'From Ledger',
+            isPositive: true,
+            color: 'green' as const,
+            iconName: 'Layers'
+          },
+          {
+            id: 'achievement',
+            label: 'Achievement %',
+            value: `${achievement}%`,
+            description: 'Plan achievement rate',
+            change: `${achievement >= 85 ? 'On Target' : 'Needs Focus'}`,
+            isPositive: achievement >= 85,
+            color: 'green' as const,
+            iconName: 'TrendingUp'
+          },
+          {
+            id: 'machine_status',
+            label: 'Machine Status',
+            value: `${avgRunning} / ${totalMachines}`,
+            description: 'Active circular knitting frames',
+            change: `${Math.max(0, totalMachines - avgRunning)} idle`,
+            isPositive: true,
+            color: 'blue' as const,
+            iconName: 'Cpu'
+          },
+          {
+            id: 'capacity',
+            label: 'Capacity Utilization',
+            value: `${capacity.toFixed(1)}%`,
+            description: 'Capacity quota utilization',
+            change: capacity >= 85 ? 'Optimal' : 'Normal',
+            isPositive: capacity >= 60,
+            color: 'orange' as const,
+            iconName: 'Activity'
+          },
+          {
+            id: 'efficiency',
+            label: 'Efficiency %',
+            value: `${efficiency.toFixed(1)}%`,
+            description: 'Operating efficiency ratio',
+            change: efficiency >= 85 ? 'Optimal' : 'Standard',
+            isPositive: efficiency >= 75,
+            color: 'orange' as const,
+            iconName: 'Percent'
+          }
+        ];
+      }
+    }
     
-    // Determine base values
+    // Determine fallback base values if ledger empty
     let baseTarget = 25000;
     let baseProd = 24150;
     let running = 45;
@@ -681,7 +819,7 @@ export default function App() {
         iconName: 'Percent'
       }
     ];
-  }, [filterState]);
+  }, [filterState, globalLedger]);
 
   const handleApplyFilters = (newFilters: FilterState) => {
     setDashboardLoading(true);
@@ -697,7 +835,7 @@ export default function App() {
       const yesterday = getRelativeDateString(1);
       const sevenDaysAgo = getRelativeDateString(7);
       setFilterState({
-        unit: 'EKL',
+        unit: 'all',
         dateMode: 'single',
         singleDate: yesterday,
         dateFrom: sevenDaysAgo,
@@ -1136,7 +1274,12 @@ export default function App() {
             {currentPage === 'Dashboard' && (
               <div className="space-y-6 animate-fade-in">
                 {/* Large Welcome banner */}
-                <WelcomeBanner floors={floors} onNavigate={setCurrentPage} />
+                <WelcomeBanner 
+                  floors={floors} 
+                  filterState={filterState} 
+                  onFilterChange={handleApplyFilters} 
+                  onNavigate={setCurrentPage} 
+                />
 
                 {/* ERP-grade Filter Toolbar */}
                 <DashboardFilterToolbar 

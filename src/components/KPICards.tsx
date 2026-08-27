@@ -12,6 +12,7 @@ import QualityStatusCard from './QualityStatusCard';
 import AttendanceCard from './AttendanceCard';
 import { useGlobalData } from '../context/GlobalDataContext';
 import { getUnitConfigs, getProductionCapacityForUnit, getAvgProdPerMachineForUnit, getTotalMachinesForUnit } from '../lib/unitStore';
+import { calculateLedgerEfficiency, calculateLedgerCapacityUtilization, calculateEffectiveDays } from '../lib/productionMetrics';
 import { FilterState } from './DashboardFilterToolbar';
 
 interface KPICardsProps {
@@ -97,19 +98,40 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
   if (filterState) {
     const { unit, dateMode, singleDate, dateFrom, dateTo, month, year } = filterState;
 
-    if (dateMode === 'single' && singleDate) {
+    if (dateFrom && dateTo) {
+      periodLabel = formatDateRange(dateFrom, dateTo);
+      isMonthScope = false;
+      targetRecords = ledger.filter(r => {
+        const matchUnit = unit === 'all' || r.floor === unit || r.unit === unit;
+        return matchUnit && r.date >= dateFrom && r.date <= dateTo;
+      });
+    } else if (dateFrom) {
+      periodLabel = `From ${formatSingleDate(dateFrom)}`;
+      isMonthScope = false;
+      targetRecords = ledger.filter(r => {
+        const matchUnit = unit === 'all' || r.floor === unit || r.unit === unit;
+        return matchUnit && r.date >= dateFrom;
+      });
+    } else if (dateTo) {
+      periodLabel = `Up to ${formatSingleDate(dateTo)}`;
+      isMonthScope = false;
+      targetRecords = ledger.filter(r => {
+        const matchUnit = unit === 'all' || r.floor === unit || r.unit === unit;
+        return matchUnit && r.date <= dateTo;
+      });
+    } else if (dateMode === 'single' && singleDate) {
       periodLabel = formatSingleDate(singleDate);
       isMonthScope = false;
       targetRecords = ledger.filter(r => {
         const matchUnit = unit === 'all' || r.floor === unit || r.unit === unit;
         return matchUnit && r.date === singleDate;
       });
-    } else if (dateMode === 'range' && dateFrom && dateTo) {
-      periodLabel = formatDateRange(dateFrom, dateTo);
+    } else if (year && year !== 'all') {
+      periodLabel = `Year ${year}`;
       isMonthScope = false;
       targetRecords = ledger.filter(r => {
         const matchUnit = unit === 'all' || r.floor === unit || r.unit === unit;
-        return matchUnit && r.date >= dateFrom && r.date <= dateTo;
+        return matchUnit && String(r.year || (r.date ? r.date.substring(0, 4) : '')) === String(year);
       });
     } else if (dateMode === 'month' && month) {
       const parts = month.split('-');
@@ -122,13 +144,6 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
         const matchUnit = unit === 'all' || r.floor === unit || r.unit === unit;
         const recMonth = (r.month && r.month.trim() !== '') ? r.month : getMonthNameFromDateStr(r.date);
         return matchUnit && recMonth.toLowerCase() === periodLabel.toLowerCase();
-      });
-    } else if (dateMode === 'year' && year) {
-      periodLabel = `Year ${year}`;
-      isMonthScope = false;
-      targetRecords = ledger.filter(r => {
-        const matchUnit = unit === 'all' || r.floor === unit || r.unit === unit;
-        return matchUnit && String(r.year || (r.date ? r.date.substring(0, 4) : '')) === String(year);
       });
     } else {
       // Default: Running Month (August)
@@ -156,16 +171,18 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
   const inHouseRecords = activeRecords.filter((r) => r.floor !== 'Sub-Contact' && r.unit !== 'Sub-Contact' && !(r.remarks && r.remarks.toLowerCase().includes('sub-contact')));
   const subContactRecords = activeRecords.filter((r) => r.floor === 'Sub-Contact' || r.unit === 'Sub-Contact' || (r.remarks && r.remarks.toLowerCase().includes('sub-contact')));
 
-  // In-House Target (Total Target & Bulk Target)
+  // In-House Target (Total Target & Bulk Target from Ledger)
   const inHouseTotalTarget = inHouseRecords.reduce((sum, r) => {
     const t = r.target !== undefined && r.target !== null && Number(r.target) > 0 
       ? Number(r.target) 
-      : ((r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : 0) + Number((r as any).sampleTarget || 0));
+      : (r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : 0);
     return sum + (Number.isNaN(t) ? 0 : t);
   }, 0);
 
   const inHouseBulkTarget = inHouseRecords.reduce((sum, r) => {
-    const b = r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : (Number(r.target) || 0);
+    const b = r.targetBulk !== undefined && r.targetBulk !== null && Number(r.targetBulk) > 0 
+      ? Number(r.targetBulk) 
+      : (Number(r.target) || 0);
     return sum + (Number.isNaN(b) ? 0 : b);
   }, 0);
 
@@ -198,7 +215,7 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
 
   // Sub-Contact Target & Production
   const subContactTarget = subContactRecords.reduce((sum, r) => {
-    const b = r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : (Number(r.target) || 0);
+    const b = r.target !== undefined && r.target !== null && Number(r.target) > 0 ? Number(r.target) : (Number(r.targetBulk) || 0);
     return sum + (Number.isNaN(b) ? 0 : b);
   }, 0);
 
@@ -207,11 +224,18 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
     return sum + (Number.isNaN(b) ? 0 : b);
   }, 0);
 
-  const subContactAchievePct = subContactTarget > 0 ? Math.round((subContactBulkProd / subContactTarget) * 100) : 0;
+  const subContactProdTotal = subContactRecords.reduce((sum, r) => {
+    const t = r.totalProduction !== undefined && r.totalProduction !== null && Number(r.totalProduction) > 0 
+      ? Number(r.totalProduction) 
+      : (Number(r.bulkProd || 0) + Number(r.sampleProd || 0));
+    return sum + (Number.isNaN(t) ? 0 : t);
+  }, 0) || subContactBulkProd;
+
+  const subContactAchievePct = subContactTarget > 0 ? Math.round((subContactProdTotal / subContactTarget) * 100) : 0;
 
   // Overall Combined totals (In-House + Sub-Contact)
   const overallTotalTarget = inHouseTotalTarget + subContactTarget;
-  const overallTotalProduction = inHouseProdTotal + subContactBulkProd;
+  const overallTotalProduction = inHouseProdTotal + subContactProdTotal;
   const overallBulkProduction = inHouseBulkProd + subContactBulkProd;
   const overallSampleProduction = inHouseSampleProd;
   const overallAchievementPct = overallTotalTarget > 0 ? Math.round((overallTotalProduction / overallTotalTarget) * 100) : 0;
@@ -221,21 +245,11 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
     return sum + (Number.isNaN(fk) ? 0 : fk);
   }, 0);
 
-  // Efficiency & Capacity
-  const effKpi = kpis.find(k => k.id === 'efficiency');
-  const capKpi = kpis.find(k => k.id === 'capacity_utilization' || k.id === 'capacity');
-
-  let efficiencyVal = 0;
-  if (effKpi && effKpi.value && activeRecords.length > 0) {
-    efficiencyVal = parseFloat(String(effKpi.value).replace(/[^0-9.]/g, '')) || 0;
-  } else if (inHouseBulkTarget > 0) {
-    efficiencyVal = parseFloat(((inHouseBulkProd / inHouseBulkTarget) * 100).toFixed(1));
-  }
-
-  let capacityVal = 0;
-  if (capKpi && capKpi.value && activeRecords.length > 0) {
-    capacityVal = parseFloat(String(capKpi.value).replace(/[^0-9.]/g, '')) || 0;
-  }
+  // Efficiency & Capacity (Strictly identical to Production Ledger formulas)
+  const appliedUnit = filterState?.unit || 'all';
+  const effectiveDays = calculateEffectiveDays(activeRecords, filterState);
+  const efficiencyVal = calculateLedgerEfficiency(inHouseRecords, subContactRecords, appliedUnit);
+  const capacityVal = calculateLedgerCapacityUtilization(inHouseRecords, appliedUnit, effectiveDays);
 
   // Machine Status
   let inHouseTotalMachines = 0;

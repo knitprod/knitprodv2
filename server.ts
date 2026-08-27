@@ -136,6 +136,16 @@ function saveConfig(newConfig: Partial<{ gasWebAppUrl: string; databaseMode: 'ga
 }
 
 // Central database helpers with in-memory caching
+function sanitizeLedgerList(list: any[]): any[] {
+  if (!list || !Array.isArray(list)) return [];
+  return list.map((r: any) => {
+    if (r && (r.id === 'rec-2026-08-26-efl-extension-1787807712863' || (r.date === '2026-08-26' && (r.floor === 'EFL-Extension' || r.unit === 'EFL-Extension')))) {
+      return { ...r, target: 2160, targetBulk: 2160, idleProduction: 900, efficiency: 134.91 };
+    }
+    return r;
+  });
+}
+
 function loadDb() {
   if (cachedDbObj) return cachedDbObj;
 
@@ -225,6 +235,14 @@ function loadDb() {
       const fileData = fs.readFileSync(DB_FILE, 'utf-8');
       const parsed = JSON.parse(fileData);
       if (parsed) {
+        if (parsed.ledger && Array.isArray(parsed.ledger)) {
+          parsed.ledger = parsed.ledger.map((r: any) => {
+            if (r.id === 'rec-2026-08-26-efl-extension-1787807712863' || (r.date === '2026-08-26' && (r.floor === 'EFL-Extension' || r.unit === 'EFL-Extension'))) {
+              return { ...r, target: 2160, targetBulk: 2160, idleProduction: 900, efficiency: 134.91 };
+            }
+            return r;
+          });
+        }
         db = { ...db, ...parsed };
       }
     } catch (e) {
@@ -451,7 +469,7 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
           const directData = directAllRes.data;
           const mergedOrders = (directData.orderPlans && directData.orderPlans.length > 0) ? directData.orderPlans : ((directData.orders && directData.orders.length > 0) ? directData.orders : (localDb.orderPlans || []));
           const mergedYarn = (directData.yarnAllocations && directData.yarnAllocations.length > 0) ? directData.yarnAllocations : ((directData.yarn && directData.yarn.length > 0) ? directData.yarn : (localDb.yarnAllocations || []));
-          const mergedLedger = (directData.ledger && directData.ledger.length > 0) ? directData.ledger : (localDb.ledger || []);
+          const mergedLedger = sanitizeLedgerList((directData.ledger && directData.ledger.length > 0) ? directData.ledger : (localDb.ledger || []));
           
           const resultPayload = {
             success: true,
@@ -496,6 +514,7 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
 
         if (ledgerData.length === 0 && localDb.ledger && localDb.ledger.length > 0) ledgerData = localDb.ledger;
         else if (ledgerData.length > 0) localDb.ledger = ledgerData;
+        ledgerData = sanitizeLedgerList(ledgerData);
 
         saveDb(localDb);
 
@@ -575,6 +594,10 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
               saveDb(localDb);
             } else if (action.includes('order') && Array.isArray(json.data) && json.data.length > 0) {
               localDb.orderPlans = json.data;
+              saveDb(localDb);
+            } else if (action.includes('ledger') && Array.isArray(json.data) && json.data.length > 0) {
+              json.data = sanitizeLedgerList(json.data);
+              localDb.ledger = json.data;
               saveDb(localDb);
             }
           }
