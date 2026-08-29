@@ -36,7 +36,7 @@ interface AddProductionRecordModalProps {
   isOpen: boolean;
   onClose: () => void;
   record: LedgerRecord | null;
-  onChange: (field: keyof LedgerRecord, value: any) => void;
+  onChange: (field: keyof LedgerRecord | Partial<LedgerRecord>, value?: any) => void;
   onSave: (e: React.FormEvent) => void;
   errors: Record<string, string>;
   isEdit?: boolean;
@@ -87,19 +87,23 @@ function parseSparePartsString(rawName?: string, rawQty?: number): SparePartItem
 }
 
 function formatSpareParts(items: SparePartItem[]): { formattedName: string; totalQty: number } {
-  const validItems = items.filter(it => it.name.trim() !== '' || (typeof it.qty === 'number' && it.qty > 0));
-  if (validItems.length === 0) {
+  const activeItems = items.filter(it => it.name.trim() !== '' || (typeof it.qty === 'number' && it.qty > 0) || (typeof it.qty === 'string' && it.qty.trim() !== ''));
+  if (activeItems.length === 0) {
     return { formattedName: '', totalQty: 0 };
   }
 
-  const totalQty = validItems.reduce((acc, curr) => acc + (typeof curr.qty === 'number' ? curr.qty : (parseFloat(String(curr.qty)) || 0)), 0);
+  const totalQty = activeItems.reduce((acc, curr) => {
+    const q = typeof curr.qty === 'number' ? curr.qty : (parseFloat(String(curr.qty)) || 0);
+    return acc + q;
+  }, 0);
 
-  const formattedItems = validItems.map(it => {
+  const formattedItems = activeItems.map(it => {
     const q = typeof it.qty === 'number' ? it.qty : (parseFloat(String(it.qty)) || 0);
-    return `${it.name.trim()}(${q})`;
+    const name = it.name.trim() || 'Spare Part';
+    return `${name}(${q})`;
   });
 
-  const formattedName = `${formattedItems.join(', ')}, Total ${totalQty}`;
+  const formattedName = formattedItems.join(', ');
   return { formattedName, totalQty };
 }
 
@@ -184,9 +188,21 @@ export default function AddProductionRecordModal({
   // Sync spare parts when modal opens or record changes
   React.useEffect(() => {
     if (isOpen && record) {
-      setSparePartsList(parseSparePartsString(record.otherSparePartsName, record.otherSparePartsQty));
+      const parsed = parseSparePartsString(record.otherSparePartsName, record.otherSparePartsQty);
+      setSparePartsList(parsed);
+      const { formattedName, totalQty } = formatSpareParts(parsed);
+      if (formattedName !== (record.otherSparePartsName || '') || totalQty !== (record.otherSparePartsQty || 0)) {
+        onChange({
+          otherSparePartsName: formattedName,
+          otherSparePartsQty: totalQty
+        });
+      }
     }
   }, [isOpen, record?.id]);
+
+  const liveSparePartsSummary = React.useMemo(() => {
+    return formatSpareParts(sparePartsList);
+  }, [sparePartsList]);
 
   const handleUpdateSparePart = (id: string, field: 'name' | 'qty', val: any) => {
     const updated = sparePartsList.map(item => {
@@ -197,8 +213,10 @@ export default function AddProductionRecordModal({
     });
     setSparePartsList(updated);
     const { formattedName, totalQty } = formatSpareParts(updated);
-    onChange('otherSparePartsName', formattedName);
-    onChange('otherSparePartsQty', totalQty);
+    onChange({
+      otherSparePartsName: formattedName,
+      otherSparePartsQty: totalQty
+    });
   };
 
   const handleAddSparePart = () => {
@@ -209,8 +227,10 @@ export default function AddProductionRecordModal({
     ];
     setSparePartsList(updated);
     const { formattedName, totalQty } = formatSpareParts(updated);
-    onChange('otherSparePartsName', formattedName);
-    onChange('otherSparePartsQty', totalQty);
+    onChange({
+      otherSparePartsName: formattedName,
+      otherSparePartsQty: totalQty
+    });
   };
 
   const handleRemoveSparePart = (id: string) => {
@@ -218,8 +238,20 @@ export default function AddProductionRecordModal({
     const updated: SparePartItem[] = filtered.length > 0 ? filtered : [{ id: `sp-${Date.now()}`, name: '', qty: '' }];
     setSparePartsList(updated);
     const { formattedName, totalQty } = formatSpareParts(updated);
-    onChange('otherSparePartsName', formattedName);
-    onChange('otherSparePartsQty', totalQty);
+    onChange({
+      otherSparePartsName: formattedName,
+      otherSparePartsQty: totalQty
+    });
+  };
+
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const { formattedName, totalQty } = formatSpareParts(sparePartsList);
+    onChange({
+      otherSparePartsName: formattedName,
+      otherSparePartsQty: totalQty
+    });
+    onSave(e);
   };
 
   if (!isOpen || !record) return null;
@@ -386,7 +418,7 @@ export default function AddProductionRecordModal({
         </div>
 
         {/* Scrollable Form Body with Organized Sections */}
-        <form onSubmit={onSave} className="space-y-4 overflow-y-auto pr-1 flex-1">
+        <form onSubmit={handleFormSubmit} className="space-y-4 overflow-y-auto pr-1 flex-1">
           
           {/* SECTION 1: GENERAL & DATES (Date, Floor, Month, Year) */}
           <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3">
@@ -877,7 +909,7 @@ export default function AddProductionRecordModal({
                   <div className="flex items-center justify-between">
                     <label className="text-[10px] font-extrabold text-gray-600 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                       <span>Other Spare Parts (Multi-Item)</span>
-                      <span className="text-[9px] font-normal text-gray-400 dark:text-gray-500">e.g. Bearing(60), Nozel (20), Total 80</span>
+                      <span className="text-[9px] font-normal text-gray-400 dark:text-gray-500">e.g. Bearing(60), Nozel(20)</span>
                     </label>
                     <button
                       type="button"
@@ -936,13 +968,13 @@ export default function AddProductionRecordModal({
                   </div>
 
                   {/* Formatted Output / Sheet preview badge */}
-                  {(record.otherSparePartsName || (record.otherSparePartsQty !== undefined && record.otherSparePartsQty > 0)) && (
-                    <div className="mt-1.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[10px] bg-gray-50 dark:bg-slate-900/60 rounded-md px-2.5 py-1 text-gray-600 dark:text-slate-400 border border-gray-100 dark:border-slate-800">
+                  {(liveSparePartsSummary.formattedName || liveSparePartsSummary.totalQty > 0 || record.otherSparePartsName || (record.otherSparePartsQty !== undefined && record.otherSparePartsQty > 0)) && (
+                    <div className="mt-1.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[10px] bg-blue-50/60 dark:bg-slate-900/60 rounded-md px-2.5 py-1 text-gray-700 dark:text-slate-300 border border-blue-100 dark:border-slate-800">
                       <span className="font-mono truncate">
-                        <strong className="text-gray-700 dark:text-slate-200">Ledger & Sheet format:</strong> {record.otherSparePartsName || 'None'}
+                        <strong className="text-gray-800 dark:text-slate-200">Ledger & Sheet format:</strong> {liveSparePartsSummary.formattedName || record.otherSparePartsName || 'None'}
                       </span>
                       <span className="font-mono font-bold text-[#0F4C81] dark:text-blue-400 whitespace-nowrap">
-                        Total QTY: {record.otherSparePartsQty || 0}
+                        Total QTY: {liveSparePartsSummary.totalQty || record.otherSparePartsQty || 0}
                       </span>
                     </div>
                   )}

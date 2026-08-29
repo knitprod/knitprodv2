@@ -718,8 +718,6 @@ export class GasClient {
       otherSparePartsQty: isSubContact ? undefined : record.otherSparePartsQty,
       setChangeNeedle: isSubContact ? undefined : (record.setChangeNeedle ?? 0),
       setChangeSinker: isSubContact ? undefined : (record.setChangeSinker ?? 0),
-      setChange: isSubContact ? undefined : record.setChange,
-      setChangePcs: isSubContact ? undefined : record.setChangePcs,
       productionLossForEff: isSubContact ? undefined : record.productionLossForEff,
       productionLossForEfficiency: isSubContact ? undefined : record.productionLossForEfficiency,
       capacityUtilization: isSubContact ? undefined : record.capacityUtilization,

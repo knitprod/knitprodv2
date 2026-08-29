@@ -129,7 +129,8 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       beltBroken: 0,
       otherSparePartsName: '',
       otherSparePartsQty: 0,
-      setChangePcs: 0,
+      setChangeNeedle: 0,
+      setChangeSinker: 0,
       productionLossForEff: 0,
       capacityUtilization: 81.04,
       totalOperator: 13,
@@ -182,7 +183,8 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       beltBroken: 0,
       otherSparePartsName: '',
       otherSparePartsQty: 0,
-      setChangePcs: 0,
+      setChangeNeedle: 0,
+      setChangeSinker: 0,
       productionLossForEff: -30865.13,
       capacityUtilization: 63.49,
       totalOperator: 49,
@@ -232,7 +234,8 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       beltBroken: 0,
       otherSparePartsName: '',
       otherSparePartsQty: 0,
-      setChangePcs: 0,
+      setChangeNeedle: 0,
+      setChangeSinker: 0,
       productionLossForEff: 0,
       capacityUtilization: 109.16,
       totalOperator: 0,
@@ -285,7 +288,8 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       beltBroken: 0,
       otherSparePartsName: '',
       otherSparePartsQty: 0,
-      setChangePcs: 0,
+      setChangeNeedle: 0,
+      setChangeSinker: 0,
       productionLossForEff: -32886.16,
       capacityUtilization: 62.80,
       totalOperator: 52,
@@ -335,7 +339,8 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       beltBroken: 0,
       otherSparePartsName: '',
       otherSparePartsQty: 0,
-      setChangePcs: 0,
+      setChangeNeedle: 0,
+      setChangeSinker: 0,
       productionLossForEff: -2960,
       capacityUtilization: 76.4,
       totalOperator: 53,
@@ -386,7 +391,8 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       beltBroken: 0,
       otherSparePartsName: '',
       otherSparePartsQty: 0,
-      setChangePcs: 0,
+      setChangeNeedle: 0,
+      setChangeSinker: 0,
       productionLossForEff: 0,
       capacityUtilization: 0,
       totalOperator: 0,
@@ -437,7 +443,8 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       beltBroken: 0,
       otherSparePartsName: '',
       otherSparePartsQty: 0,
-      setChangePcs: 0,
+      setChangeNeedle: 0,
+      setChangeSinker: 0,
       productionLossForEff: -4543,
       capacityUtilization: 67.7,
       totalOperator: 51,
@@ -488,7 +495,8 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       beltBroken: 0,
       otherSparePartsName: '',
       otherSparePartsQty: 0,
-      setChangePcs: 0,
+      setChangeNeedle: 0,
+      setChangeSinker: 0,
       productionLossForEff: 3115,
       capacityUtilization: 63.9,
       totalOperator: 50,
@@ -539,7 +547,8 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       beltBroken: 0,
       otherSparePartsName: '',
       otherSparePartsQty: 0,
-      setChangePcs: 0,
+      setChangeNeedle: 0,
+      setChangeSinker: 0,
       productionLossForEff: 395,
       prodLossForSample: 1710.67,
       capacityUtilization: 20.97,
@@ -595,7 +604,8 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       beltBroken: 0,
       otherSparePartsName: '',
       otherSparePartsQty: 0,
-      setChangePcs: 0,
+      setChangeNeedle: 0,
+      setChangeSinker: 0,
       productionLossForEff: 1085,
       prodLossForSample: 662.78,
       capacityUtilization: 61.43,
@@ -651,7 +661,8 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       beltBroken: 0,
       otherSparePartsName: '',
       otherSparePartsQty: 0,
-      setChangePcs: 0,
+      setChangeNeedle: 0,
+      setChangeSinker: 0,
       productionLossForEff: 0,
       prodLossForSample: 0,
       capacityUtilization: 89.92,
@@ -737,7 +748,6 @@ const PRODUCTION_LEDGER_COLUMNS: ColumnDef[] = [
   { id: 'otherSparePartsQty', label: 'Other Spare parts QTY', defaultWidth: 125 },
   { id: 'setChangeNeedle', label: 'Set Change Needle(Pcs)', defaultWidth: 135 },
   { id: 'setChangeSinker', label: 'Set Change Sinker(Pcs)', defaultWidth: 135 },
-  { id: 'setChangePcs', label: 'Set Change(Pcs)', defaultWidth: 105 },
   { id: 'productionLossForEff', label: 'Production Loss For Eff', defaultWidth: 130 },
   { id: 'prodLossForSample', label: 'Production Loss for Sample', defaultWidth: 135 },
   { id: 'capacityUtilization', label: 'Capacity Utilization', defaultWidth: 120 },
@@ -1071,8 +1081,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         beltBroken: undefined,
         otherSparePartsName: undefined,
         otherSparePartsQty: undefined,
-        setChange: undefined,
-        setChangePcs: undefined,
+        setChangeNeedle: undefined,
+        setChangeSinker: undefined,
         productionLossForEff: undefined,
         productionLossForEfficiency: undefined,
         capacityUtilization: undefined,
@@ -2374,8 +2384,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       beltBroken: isSub ? undefined : 0,
       otherSparePartsName: isSub ? undefined : '',
       otherSparePartsQty: isSub ? undefined : 0,
-      setChangePcs: isSub ? undefined : 0,
-      setChange: isSub ? undefined : 0,
+      setChangeNeedle: isSub ? undefined : 0,
+      setChangeSinker: isSub ? undefined : 0,
       productionLossForEff: isSub ? undefined : 0,
       productionLossForEfficiency: isSub ? undefined : targetKg,
       capacityUtilization: isSub ? undefined : 100,
@@ -2396,97 +2406,104 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     return recalculateRecordFields(initial);
   };
 
-  const handleCreateChange = (field: keyof LedgerRecord, value: any) => {
-    if (!creatingRecord) return;
-    
-    let updated = { ...creatingRecord, [field]: value };
+  const handleCreateChange = (fieldOrFields: keyof LedgerRecord | Partial<LedgerRecord>, value?: any) => {
+    setCreatingRecord(prev => {
+      if (!prev) return prev;
+      let updated: LedgerRecord;
 
-    if (field === 'date') {
-      const dateParts = value.split('-');
-      if (dateParts.length === 3) {
-         const yearNum = parseInt(dateParts[0]);
-         const monthNum = parseInt(dateParts[1]);
-         const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-         updated.month = months[monthNum - 1] || 'August';
-         updated.year = yearNum;
-         const dObj = new Date(value + 'T00:00:00');
-         const dNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-         if (!isNaN(dObj.getDay())) {
-           updated.day = dNames[dObj.getDay()];
-         }
-      }
-    } else if (field === 'floor') {
-      const isSub = value === 'Sub-Contact';
-      const targetKg = getTargetForFloor(value);
-      const totalM = getTotalMachinesForFloor(value);
-      const operatorsMap: Record<string, number> = {
-        'EKL': 110,
-        'EFL': 95,
-        'EFL-2': 85,
-        'Auto Stripe': 50,
-        'EFL-Extension': 65,
-        'ESL-Extension': 40,
-        'Sub-Contact': 0,
-      };
-      updated.target = targetKg;
-      updated.totalOperator = operatorsMap[value] || (isSub ? 0 : 90);
-      updated.totalMachines = isSub ? undefined : totalM;
-      updated.runningMachine = isSub ? (updated.runningMachine || 0) : totalM;
-      updated.runningSample = isSub ? undefined : 0;
-      updated.runningBulk = isSub ? undefined : totalM;
-      updated.unit = isSub ? 'Sub-Contact' : 'In-House';
-      
-      // Initialize sub-contact fields if floor changes to Sub-Contact
-      if (isSub) {
-        updated.shiftA = undefined;
-        updated.shiftB = undefined;
-        updated.shiftC = undefined;
-        updated.targetBulk = undefined;
-        updated.productionFlatKnit = updated.productionFlatKnit ?? 0;
-        updated.yarnIssued = updated.yarnIssued ?? 0;
-        updated.runningFactories = updated.runningFactories ?? 0;
-        updated.totalRunningFactories = updated.totalRunningFactories ?? 0;
-        updated.fabricReturn = updated.fabricReturn ?? 0;
-      }
-    }
+      if (typeof fieldOrFields === 'object' && fieldOrFields !== null) {
+        updated = { ...prev, ...fieldOrFields };
+      } else {
+        const field = fieldOrFields as keyof LedgerRecord;
+        updated = { ...prev, [field]: value };
 
-    // Auto-sum shifts into total production if not Sub-Contact
-    if (field === 'shiftA' || field === 'shiftB' || field === 'shiftC') {
-      if (updated.floor !== 'Sub-Contact' && updated.unit !== 'Sub-Contact') {
-        updated.totalProduction = (Number(updated.shiftA) || 0) + (Number(updated.shiftB) || 0) + (Number(updated.shiftC) || 0);
-      }
-    }
+        if (field === 'date') {
+          const dateParts = (value || '').split('-');
+          if (dateParts.length === 3) {
+            const yearNum = parseInt(dateParts[0]);
+            const monthNum = parseInt(dateParts[1]);
+            const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+            updated.month = months[monthNum - 1] || 'August';
+            updated.year = yearNum;
+            const dObj = new Date(value + 'T00:00:00');
+            const dNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            if (!isNaN(dObj.getDay())) {
+              updated.day = dNames[dObj.getDay()];
+            }
+          }
+        } else if (field === 'floor') {
+          const isSub = value === 'Sub-Contact';
+          const targetKg = getTargetForFloor(value);
+          const totalM = getTotalMachinesForFloor(value);
+          const operatorsMap: Record<string, number> = {
+            'EKL': 110,
+            'EFL': 95,
+            'EFL-2': 85,
+            'Auto Stripe': 50,
+            'EFL-Extension': 65,
+            'ESL-Extension': 40,
+            'Sub-Contact': 0,
+          };
+          updated.target = targetKg;
+          updated.totalOperator = operatorsMap[value] || (isSub ? 0 : 90);
+          updated.totalMachines = isSub ? undefined : totalM;
+          updated.runningMachine = isSub ? (updated.runningMachine || 0) : totalM;
+          updated.runningSample = isSub ? undefined : 0;
+          updated.runningBulk = isSub ? undefined : totalM;
+          updated.unit = isSub ? 'Sub-Contact' : 'In-House';
+          
+          // Initialize sub-contact fields if floor changes to Sub-Contact
+          if (isSub) {
+            updated.shiftA = undefined;
+            updated.shiftB = undefined;
+            updated.shiftC = undefined;
+            updated.targetBulk = undefined;
+            updated.productionFlatKnit = updated.productionFlatKnit ?? 0;
+            updated.yarnIssued = updated.yarnIssued ?? 0;
+            updated.runningFactories = updated.runningFactories ?? 0;
+            updated.totalRunningFactories = updated.totalRunningFactories ?? 0;
+            updated.fabricReturn = updated.fabricReturn ?? 0;
+          }
+        }
 
-    // Machine updates:
-    const isSubContactFloor = updated.floor === 'Sub-Contact' || updated.unit === 'Sub-Contact';
-    if (isSubContactFloor) {
-      if (field === 'runningMachine') {
-        updated.runningMachine = Number(value) || 0;
-        updated.runningBulk = undefined;
-        updated.runningSample = undefined;
-      }
-    } else {
-      if (field === 'runningMachine') {
-        const rM = Number(value) || 0;
-        const rS = Number(updated.runningSample) || 0;
-        updated.runningMachine = rM;
-        updated.runningBulk = Math.max(0, rM - rS);
-      } else if (field === 'runningSample') {
-        const rS = Number(value) || 0;
-        const rM = Number(updated.runningMachine) || 0;
-        updated.runningSample = rS;
-        // Changes should be made in Running Bulk (MC) instead of changing Total Active Machine
-        updated.runningBulk = Math.max(0, rM - rS);
-      } else if (field === 'runningBulk') {
-        const rB = Number(value) || 0;
-        const rS = Number(updated.runningSample) || 0;
-        updated.runningBulk = rB;
-        updated.runningMachine = rB + rS;
-      }
-    }
+        // Auto-sum shifts into total production if not Sub-Contact
+        if (field === 'shiftA' || field === 'shiftB' || field === 'shiftC') {
+          if (updated.floor !== 'Sub-Contact' && updated.unit !== 'Sub-Contact') {
+            updated.totalProduction = (Number(updated.shiftA) || 0) + (Number(updated.shiftB) || 0) + (Number(updated.shiftC) || 0);
+          }
+        }
 
-    updated = recalculateRecordFields(updated);
-    setCreatingRecord(updated);
+        // Machine updates:
+        const isSubContactFloor = updated.floor === 'Sub-Contact' || updated.unit === 'Sub-Contact';
+        if (isSubContactFloor) {
+          if (field === 'runningMachine') {
+            updated.runningMachine = Number(value) || 0;
+            updated.runningBulk = undefined;
+            updated.runningSample = undefined;
+          }
+        } else {
+          if (field === 'runningMachine') {
+            const rM = Number(value) || 0;
+            const rS = Number(updated.runningSample) || 0;
+            updated.runningMachine = rM;
+            updated.runningBulk = Math.max(0, rM - rS);
+          } else if (field === 'runningSample') {
+            const rS = Number(value) || 0;
+            const rM = Number(updated.runningMachine) || 0;
+            updated.runningSample = rS;
+            // Changes should be made in Running Bulk (MC) instead of changing Total Active Machine
+            updated.runningBulk = Math.max(0, rM - rS);
+          } else if (field === 'runningBulk') {
+            const rB = Number(value) || 0;
+            const rS = Number(updated.runningSample) || 0;
+            updated.runningBulk = rB;
+            updated.runningMachine = rB + rS;
+          }
+        }
+      }
+
+      return recalculateRecordFields(updated);
+    });
   };
 
   const handleSaveCreate = (e: React.FormEvent) => {
@@ -2559,94 +2576,101 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     setIsEditModalOpen(true);
   };
 
-  const handleEditChange = (field: keyof LedgerRecord, value: any) => {
-    if (!editingRecord) return;
-    
-    let updated = { ...editingRecord, [field]: value };
+  const handleEditChange = (fieldOrFields: keyof LedgerRecord | Partial<LedgerRecord>, value?: any) => {
+    setEditingRecord(prev => {
+      if (!prev) return prev;
+      let updated: LedgerRecord;
 
-    if (field === 'date') {
-      const dateParts = value.split('-');
-      if (dateParts.length === 3) {
-        const yearNum = parseInt(dateParts[0]);
-        const monthNum = parseInt(dateParts[1]);
-        const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-        updated.month = months[monthNum - 1] || 'August';
-        updated.year = yearNum;
-        const dObj = new Date(value + 'T00:00:00');
-        const dNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        if (!isNaN(dObj.getDay())) {
-          updated.day = dNames[dObj.getDay()];
+      if (typeof fieldOrFields === 'object' && fieldOrFields !== null) {
+        updated = { ...prev, ...fieldOrFields };
+      } else {
+        const field = fieldOrFields as keyof LedgerRecord;
+        updated = { ...prev, [field]: value };
+
+        if (field === 'date') {
+          const dateParts = (value || '').split('-');
+          if (dateParts.length === 3) {
+            const yearNum = parseInt(dateParts[0]);
+            const monthNum = parseInt(dateParts[1]);
+            const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+            updated.month = months[monthNum - 1] || 'August';
+            updated.year = yearNum;
+            const dObj = new Date(value + 'T00:00:00');
+            const dNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            if (!isNaN(dObj.getDay())) {
+              updated.day = dNames[dObj.getDay()];
+            }
+          }
+        } else if (field === 'floor') {
+          const isSub = value === 'Sub-Contact';
+          const targetKg = getTargetForFloor(value);
+          const totalM = getTotalMachinesForFloor(value);
+          const operatorsMap: Record<string, number> = {
+            'EKL': 110,
+            'EFL': 95,
+            'EFL-2': 85,
+            'Auto Stripe': 50,
+            'EFL-Extension': 65,
+            'ESL-Extension': 40,
+            'Sub-Contact': 0,
+          };
+          updated.target = targetKg;
+          updated.totalOperator = operatorsMap[value] || (isSub ? 0 : 90);
+          updated.totalMachines = isSub ? undefined : totalM;
+          updated.unit = isSub ? 'Sub-Contact' : 'In-House';
+          
+          if (isSub) {
+            updated.shiftA = undefined;
+            updated.shiftB = undefined;
+            updated.shiftC = undefined;
+            updated.targetBulk = undefined;
+            updated.runningBulk = undefined;
+            updated.runningSample = undefined;
+            updated.productionFlatKnit = updated.productionFlatKnit ?? 0;
+            updated.yarnIssued = updated.yarnIssued ?? 0;
+            updated.runningFactories = updated.runningFactories ?? 0;
+            updated.totalRunningFactories = updated.totalRunningFactories ?? 0;
+            updated.fabricReturn = updated.fabricReturn ?? 0;
+          }
+        }
+
+        // Auto-sum shifts into total production if not Sub-Contact
+        if (field === 'shiftA' || field === 'shiftB' || field === 'shiftC') {
+          if (updated.floor !== 'Sub-Contact' && updated.unit !== 'Sub-Contact') {
+            updated.totalProduction = (Number(updated.shiftA) || 0) + (Number(updated.shiftB) || 0) + (Number(updated.shiftC) || 0);
+          }
+        }
+
+        // Machine updates:
+        const isSubContactFloor = updated.floor === 'Sub-Contact' || updated.unit === 'Sub-Contact';
+        if (isSubContactFloor) {
+          if (field === 'runningMachine') {
+            updated.runningMachine = Number(value) || 0;
+            updated.runningBulk = undefined;
+            updated.runningSample = undefined;
+          }
+        } else {
+          if (field === 'runningMachine') {
+            const rM = Number(value) || 0;
+            const rS = Number(updated.runningSample) || 0;
+            updated.runningMachine = rM;
+            updated.runningBulk = Math.max(0, rM - rS);
+          } else if (field === 'runningSample') {
+            const rS = Number(value) || 0;
+            const rM = Number(updated.runningMachine) || 0;
+            updated.runningSample = rS;
+            updated.runningBulk = Math.max(0, rM - rS);
+          } else if (field === 'runningBulk') {
+            const rB = Number(value) || 0;
+            const rS = Number(updated.runningSample) || 0;
+            updated.runningBulk = rB;
+            updated.runningMachine = rB + rS;
+          }
         }
       }
-    } else if (field === 'floor') {
-      const isSub = value === 'Sub-Contact';
-      const targetKg = getTargetForFloor(value);
-      const totalM = getTotalMachinesForFloor(value);
-      const operatorsMap: Record<string, number> = {
-        'EKL': 110,
-        'EFL': 95,
-        'EFL-2': 85,
-        'Auto Stripe': 50,
-        'EFL-Extension': 65,
-        'ESL-Extension': 40,
-        'Sub-Contact': 0,
-      };
-      updated.target = targetKg;
-      updated.totalOperator = operatorsMap[value] || (isSub ? 0 : 90);
-      updated.totalMachines = isSub ? undefined : totalM;
-      updated.unit = isSub ? 'Sub-Contact' : 'In-House';
-      
-      if (isSub) {
-        updated.shiftA = undefined;
-        updated.shiftB = undefined;
-        updated.shiftC = undefined;
-        updated.targetBulk = undefined;
-        updated.runningBulk = undefined;
-        updated.runningSample = undefined;
-        updated.productionFlatKnit = updated.productionFlatKnit ?? 0;
-        updated.yarnIssued = updated.yarnIssued ?? 0;
-        updated.runningFactories = updated.runningFactories ?? 0;
-        updated.totalRunningFactories = updated.totalRunningFactories ?? 0;
-        updated.fabricReturn = updated.fabricReturn ?? 0;
-      }
-    }
 
-    // Auto-sum shifts into total production if not Sub-Contact
-    if (field === 'shiftA' || field === 'shiftB' || field === 'shiftC') {
-      if (updated.floor !== 'Sub-Contact' && updated.unit !== 'Sub-Contact') {
-        updated.totalProduction = (Number(updated.shiftA) || 0) + (Number(updated.shiftB) || 0) + (Number(updated.shiftC) || 0);
-      }
-    }
-
-    // Machine updates:
-    const isSubContactFloor = updated.floor === 'Sub-Contact' || updated.unit === 'Sub-Contact';
-    if (isSubContactFloor) {
-      if (field === 'runningMachine') {
-        updated.runningMachine = Number(value) || 0;
-        updated.runningBulk = undefined;
-        updated.runningSample = undefined;
-      }
-    } else {
-      if (field === 'runningMachine') {
-        const rM = Number(value) || 0;
-        const rS = Number(updated.runningSample) || 0;
-        updated.runningMachine = rM;
-        updated.runningBulk = Math.max(0, rM - rS);
-      } else if (field === 'runningSample') {
-        const rS = Number(value) || 0;
-        const rM = Number(updated.runningMachine) || 0;
-        updated.runningSample = rS;
-        updated.runningBulk = Math.max(0, rM - rS);
-      } else if (field === 'runningBulk') {
-        const rB = Number(value) || 0;
-        const rS = Number(updated.runningSample) || 0;
-        updated.runningBulk = rB;
-        updated.runningMachine = rB + rS;
-      }
-    }
-
-    updated = recalculateRecordFields(updated);
-    setEditingRecord(updated);
+      return recalculateRecordFields(updated);
+    });
   };
 
   const handleSaveEdit = (e: React.FormEvent) => {
@@ -2781,7 +2805,6 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         r.otherSparePartsQty ?? 0,                          // Other Spare parts QTY
         r.setChangeNeedle ?? 0,                             // Set Change Needle(Pcs)
         r.setChangeSinker ?? 0,                             // Set Change Sinker(Pcs)
-        r.setChangePcs ?? (r.setChange ?? 0),               // Set Change(Pcs)
         r.productionLossForEff ?? 0,                        // Production Loss For Eff
         r.prodLossForSample ?? 0,                           // Production Loss for Sample
         r.capacityUtilization ?? 0,                         // Capacity Utilization
@@ -3714,11 +3737,6 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                   {isColVisible('setChangeSinker') && (
                     <td style={{ width: `${getColWidth('setChangeSinker')}px`, minWidth: `${getColWidth('setChangeSinker')}px`, maxWidth: `${getColWidth('setChangeSinker')}px`, ...getStickyStyle('setChangeSinker') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('setChangeSinker')}`}>
                       {r.setChangeSinker !== undefined && r.setChangeSinker !== null ? r.setChangeSinker.toLocaleString() : ''}
-                    </td>
-                  )}
-                  {isColVisible('setChangePcs') && (
-                    <td style={{ width: `${getColWidth('setChangePcs')}px`, minWidth: `${getColWidth('setChangePcs')}px`, maxWidth: `${getColWidth('setChangePcs')}px`, ...getStickyStyle('setChangePcs') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('setChangePcs')}`}>
-                      {r.setChangePcs !== undefined ? r.setChangePcs.toLocaleString() : (r.setChange !== undefined ? r.setChange.toLocaleString() : '')}
                     </td>
                   )}
                   {isColVisible('productionLossForEff') && (

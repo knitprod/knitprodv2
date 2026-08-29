@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  * 
  * Epyllion Knitex Ltd. - Knitting Performance System
- * High-Concurrency Production Google Apps Script (GAS) Web App Backend (v5.0.0-AtomicFresh)
+ * High-Concurrency Production Google Apps Script (GAS) Web App Backend (v5.1.0-SplitSetChange)
  * 
  * Key Features:
  * 1. Atomic Idempotent Upserts: Prevents double entries and data loss by key-based row updates.
@@ -11,12 +11,13 @@
  * 3. LockService Concurrency: 30-second write lock prevents race conditions from simultaneous edits.
  * 4. Flexible Multi-Field Key Resolution: Robust date formatting & case-insensitive header matching.
  * 5. Automatic Read Cache Purging: Ensures multi-device real-time consistency on write mutations.
+ * 6. Updated Ledger Schema: Split Set Change Needle & Sinker, formatted multi-item Spare Parts.
  */
 
 // ==========================================================
 // CONFIGURATION & GLOBAL CONSTANTS
 // ==========================================================
-var VERSION = "5.0.0-AtomicFresh";
+var VERSION = "5.1.0-SplitSetChange";
 var CACHE_TTL_SECONDS = 10; // 10-second read cache
 var LOCK_TIMEOUT_MS = 30000; // 30,000ms timeout for script write lock
 
@@ -348,9 +349,11 @@ function normalizeHeaderName(raw) {
   if (str === "sinkerperkg" || str === "sinkerbrokenkg") return "sinkerPerKg";
   if (str === "oilconsumption" || str === "oil") return "oilConsumption";
   if (str === "beltbroken" || str === "belt") return "beltBroken";
-  if (str === "othersparepartsname" || str === "sparepartsname" || str === "sparename") return "otherSparePartsName";
-  if (str === "othersparepartsqty" || str === "sparepartsqty" || str === "spareqty") return "otherSparePartsQty";
-  if (str === "setchangepcs" || str === "setchange") return "setChangePcs";
+  if (str === "othersparepartsname" || str === "otherspareparts" || str === "sparepartsname" || str === "sparename" || str === "othersparepart") return "otherSparePartsName";
+  if (str === "othersparepartsqty" || str === "othersparepartqty" || str === "sparepartsqty" || str === "spareqty") return "otherSparePartsQty";
+  if (str === "setchangeneedle" || str === "setchangeneedlepcs" || str === "needlesetchange" || str === "setchangeneedles" || str === "setchangeneedle_pcs") return "setChangeNeedle";
+  if (str === "setchangesinker" || str === "setchangesinkerpcs" || str === "sinkersetchange" || str === "setchangesinkers" || str === "setchangesinker_pcs") return "setChangeSinker";
+  if (str === "setchangepcs" || str === "setchange") return "legacySetChangePcs";
   if (str === "productionlossforeff" || str === "productionlossforefficiency" || str === "prodlossforeff") return "productionLossForEff";
   if (str === "prodlossforsample" || str === "productionlossforsample") return "prodLossForSample";
   if (str === "capacityutilization" || str === "capacityutilizationpct") return "capacityUtilization";
@@ -998,7 +1001,7 @@ function handleSaveLedgerRecordsInternal(ss, records, isReplace) {
     "runningMachine", "idleMc", "machineUtilization", "idleMcPct", "idleProduction", "efficiency", 
     "proPerMc", "reject", "rejectPct", "hold", "holdPct", "jhuteCutpcs", "jhuteCutpcsPct", 
     "needleBroken", "needlePerKg", "sinkerBroken", "sinkerPerKg", "oilConsumption", "beltBroken", 
-    "otherSparePartsName", "otherSparePartsQty", "setChangePcs", "productionLossForEff", 
+    "otherSparePartsName", "otherSparePartsQty", "setChangeNeedle", "setChangeSinker", "productionLossForEff", 
     "prodLossForSample", "capacityUtilization", "totalOperator", "absent", "absentPct", 
     "productionFlatKnit", "achievmentCircular", "otd", "yarnIssued", "totalRunningFactories", 
     "numberVehicles", "fabricReturn", "remarks", "lastUpdated"
@@ -1013,7 +1016,27 @@ function handleSaveLedgerRecordsInternal(ss, records, isReplace) {
   var rawHeaders = data[0].map(function(h) { return h ? h.toString().trim() : ""; });
   var normHeaders = rawHeaders.map(function(h) { return normalizeHeaderName(h); });
 
-  // Auto-expand sheet headers if any default headers are missing
+  // AUTO-MIGRATION: Detect legacy "setChangePcs" or "setChange" in Google Sheet header row
+  var hasSetChangeNeedle = normHeaders.indexOf("setChangeNeedle") !== -1;
+  for (var c = 0; c < rawHeaders.length; c++) {
+    var rawH = rawHeaders[c];
+    var normH = normalizeHeaderName(rawH);
+    if (normH === "legacySetChangePcs" || normH === "legacysetchangepcs" || normH === "setchangepcs" || normH === "setchange") {
+      if (!hasSetChangeNeedle) {
+        // Upgrade legacy column header to setChangeNeedle directly in the sheet
+        sheet.getRange(1, c + 1).setValue("setChangeNeedle");
+        rawHeaders[c] = "setChangeNeedle";
+        normHeaders[c] = "setChangeNeedle";
+        hasSetChangeNeedle = true;
+      } else {
+        sheet.getRange(1, c + 1).setValue("deprecated_setChangePcs");
+        rawHeaders[c] = "deprecated_setChangePcs";
+        normHeaders[c] = "deprecated_setChangePcs";
+      }
+    }
+  }
+
+  // Auto-expand sheet headers if any default headers are missing (e.g. setChangeSinker, setChangeNeedle)
   var missingHeaders = [];
   defaultHeaders.forEach(function(dh) {
     var normDh = normalizeHeaderName(dh);
@@ -1143,7 +1166,10 @@ function extractLedgerColumnValue(rec, normKey, origHeader) {
     if (normKey === "idleMc") val = rec.idleMachine;
     else if (normKey === "idleMcPct") val = rec.idleMachinePct;
     else if (normKey === "proPerMc") val = rec.productionPerMachine;
-    else if (normKey === "setChangePcs") val = rec.setChange;
+    else if (normKey === "setChangeNeedle") val = rec.setChangeNeedle !== undefined ? rec.setChangeNeedle : rec.setChangeNeedlePcs;
+    else if (normKey === "setChangeSinker") val = rec.setChangeSinker !== undefined ? rec.setChangeSinker : rec.setChangeSinkerPcs;
+    else if (normKey === "otherSparePartsName") val = rec.otherSparePartsName || rec.sparePartsName;
+    else if (normKey === "otherSparePartsQty") val = rec.otherSparePartsQty !== undefined ? rec.otherSparePartsQty : rec.sparePartsQty;
     else if (normKey === "productionLossForEff") val = rec.productionLossForEfficiency;
     else if (normKey === "totalRunningFactories") val = rec.runningFactories;
     else if (normKey === "achievmentCircular") val = rec.achievementCircular;
@@ -1306,19 +1332,46 @@ function initializeDatabase() {
 
   // 3. Production Ledger
   var ledgerSheet = ss.getSheetByName("Production Ledger") || ss.getSheetByName("Production_Ledger") || ss.getSheetByName("Ledger");
+  var ledgerHeaders = [
+    "id", "unit", "year", "month", "date", "day", "floor", "target", "shiftA", "shiftB", "shiftC", 
+    "totalProduction", "targetBulk", "bulkProd", "sampleProd", "totalMachines", "runningBulk", "runningSample", 
+    "runningMachine", "idleMc", "machineUtilization", "idleMcPct", "idleProduction", "efficiency", 
+    "proPerMc", "reject", "rejectPct", "hold", "holdPct", "jhuteCutpcs", "jhuteCutpcsPct", 
+    "needleBroken", "needlePerKg", "sinkerBroken", "sinkerPerKg", "oilConsumption", "beltBroken", 
+    "otherSparePartsName", "otherSparePartsQty", "setChangeNeedle", "setChangeSinker", "productionLossForEff", 
+    "prodLossForSample", "capacityUtilization", "totalOperator", "absent", "absentPct", 
+    "productionFlatKnit", "achievmentCircular", "otd", "yarnIssued", "totalRunningFactories", 
+    "numberVehicles", "fabricReturn", "remarks", "lastUpdated"
+  ];
   if (!ledgerSheet) {
     ledgerSheet = ss.insertSheet("Production Ledger");
-    var ledgerHeaders = [
-      "id", "unit", "year", "month", "date", "day", "floor", "target", "shiftA", "shiftB", "shiftC", 
-      "totalProduction", "targetBulk", "bulkProd", "sampleProd", "totalMachines", "runningBulk", "runningSample", 
-      "runningMachine", "idleMc", "machineUtilization", "idleMcPct", "idleProduction", "efficiency", 
-      "proPerMc", "reject", "rejectPct", "hold", "holdPct", "jhuteCutpcs", "jhuteCutpcsPct", 
-      "needleBroken", "needlePerKg", "sinkerBroken", "sinkerPerKg", "oilConsumption", "beltBroken", 
-      "otherSparePartsName", "otherSparePartsQty", "setChangePcs", "productionLossForEff", 
-      "prodLossForSample", "capacityUtilization", "totalOperator", "absent", "absentPct", 
-      "productionFlatKnit", "achievmentCircular", "otd", "yarnIssued", "totalRunningFactories", 
-      "numberVehicles", "fabricReturn", "remarks", "lastUpdated"
-    ];
     ledgerSheet.getRange(1, 1, 1, ledgerHeaders.length).setValues([ledgerHeaders]);
+  } else {
+    // If sheet exists, check and auto-migrate headers
+    var existingData = ledgerSheet.getDataRange().getValues();
+    if (existingData && existingData.length > 0 && existingData[0] && existingData[0].length > 0) {
+      var rawH = existingData[0].map(function(h) { return h ? h.toString().trim() : ""; });
+      var normH = rawH.map(function(h) { return normalizeHeaderName(h); });
+      var hasNeedle = normH.indexOf("setChangeNeedle") !== -1;
+      for (var k = 0; k < rawH.length; k++) {
+        var n = normalizeHeaderName(rawH[k]);
+        if (n === "legacySetChangePcs" || n === "legacysetchangepcs" || n === "setchangepcs" || n === "setchange") {
+          if (!hasNeedle) {
+            ledgerSheet.getRange(1, k + 1).setValue("setChangeNeedle");
+            normH[k] = "setChangeNeedle";
+            hasNeedle = true;
+          }
+        }
+      }
+      var missing = [];
+      ledgerHeaders.forEach(function(dh) {
+        if (normH.indexOf(normalizeHeaderName(dh)) === -1) {
+          missing.push(dh);
+        }
+      });
+      if (missing.length > 0) {
+        ledgerSheet.getRange(1, ledgerSheet.getLastColumn() + 1, 1, missing.length).setValues([missing]);
+      }
+    }
   }
 }
