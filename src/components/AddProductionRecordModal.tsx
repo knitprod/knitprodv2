@@ -46,6 +46,63 @@ interface AddProductionRecordModalProps {
   currentUser?: UserRecord | null;
 }
 
+interface SparePartItem {
+  id: string;
+  name: string;
+  qty: number | '';
+}
+
+function parseSparePartsString(rawName?: string, rawQty?: number): SparePartItem[] {
+  if (!rawName || rawName.trim() === '') {
+    if (rawQty && rawQty > 0) {
+      return [{ id: 'sp-1', name: 'Spare Parts', qty: rawQty }];
+    }
+    return [{ id: 'sp-1', name: '', qty: '' }];
+  }
+
+  // Check if string contains comma-separated parts like "Bearing(60), Nozel (20), Total 80"
+  const parts = rawName.split(',').map(s => s.trim()).filter(Boolean);
+  const items: SparePartItem[] = [];
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (/^total\b/i.test(part)) continue;
+    const match = part.match(/^(.+?)\s*\(\s*(\d+(?:\.\d+)?)\s*\)$/);
+    if (match) {
+      items.push({
+        id: `sp-${i}-${Date.now()}`,
+        name: match[1].trim(),
+        qty: parseFloat(match[2]) || ''
+      });
+    } else {
+      items.push({
+        id: `sp-${i}-${Date.now()}`,
+        name: part,
+        qty: (parts.length === 1 && rawQty && rawQty > 0) ? rawQty : ''
+      });
+    }
+  }
+
+  return items.length > 0 ? items : [{ id: 'sp-1', name: '', qty: '' }];
+}
+
+function formatSpareParts(items: SparePartItem[]): { formattedName: string; totalQty: number } {
+  const validItems = items.filter(it => it.name.trim() !== '' || (typeof it.qty === 'number' && it.qty > 0));
+  if (validItems.length === 0) {
+    return { formattedName: '', totalQty: 0 };
+  }
+
+  const totalQty = validItems.reduce((acc, curr) => acc + (typeof curr.qty === 'number' ? curr.qty : (parseFloat(String(curr.qty)) || 0)), 0);
+
+  const formattedItems = validItems.map(it => {
+    const q = typeof it.qty === 'number' ? it.qty : (parseFloat(String(it.qty)) || 0);
+    return `${it.name.trim()}(${q})`;
+  });
+
+  const formattedName = `${formattedItems.join(', ')}, Total ${totalQty}`;
+  return { formattedName, totalQty };
+}
+
 export default function AddProductionRecordModal({
   isOpen,
   onClose,
@@ -118,6 +175,52 @@ export default function AddProductionRecordModal({
       }
     }
   }, [isOpen, record?.floor, floors]);
+
+  // Local state for dynamic spare parts items
+  const [sparePartsList, setSparePartsList] = React.useState<SparePartItem[]>(() => 
+    parseSparePartsString(record?.otherSparePartsName, record?.otherSparePartsQty)
+  );
+
+  // Sync spare parts when modal opens or record changes
+  React.useEffect(() => {
+    if (isOpen && record) {
+      setSparePartsList(parseSparePartsString(record.otherSparePartsName, record.otherSparePartsQty));
+    }
+  }, [isOpen, record?.id]);
+
+  const handleUpdateSparePart = (id: string, field: 'name' | 'qty', val: any) => {
+    const updated = sparePartsList.map(item => {
+      if (item.id === id) {
+        return { ...item, [field]: val };
+      }
+      return item;
+    });
+    setSparePartsList(updated);
+    const { formattedName, totalQty } = formatSpareParts(updated);
+    onChange('otherSparePartsName', formattedName);
+    onChange('otherSparePartsQty', totalQty);
+  };
+
+  const handleAddSparePart = () => {
+    const newItem: SparePartItem = { id: `sp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`, name: '', qty: '' };
+    const updated: SparePartItem[] = [
+      ...sparePartsList,
+      newItem
+    ];
+    setSparePartsList(updated);
+    const { formattedName, totalQty } = formatSpareParts(updated);
+    onChange('otherSparePartsName', formattedName);
+    onChange('otherSparePartsQty', totalQty);
+  };
+
+  const handleRemoveSparePart = (id: string) => {
+    const filtered = sparePartsList.filter(item => item.id !== id);
+    const updated: SparePartItem[] = filtered.length > 0 ? filtered : [{ id: `sp-${Date.now()}`, name: '', qty: '' }];
+    setSparePartsList(updated);
+    const { formattedName, totalQty } = formatSpareParts(updated);
+    onChange('otherSparePartsName', formattedName);
+    onChange('otherSparePartsQty', totalQty);
+  };
 
   if (!isOpen || !record) return null;
 
@@ -674,21 +777,11 @@ export default function AddProductionRecordModal({
                       className="w-full rounded-lg border border-gray-100 dark:border-slate-800 bg-gray-100/70 dark:bg-slate-800/50 px-3 py-1.5 text-xs font-mono font-bold text-gray-600 dark:text-slate-300 outline-hidden"
                     />
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Set Change(Pcs)</label>
-                    <input
-                      type="number"
-                      value={record.setChangePcs !== undefined ? (record.setChangePcs === 0 ? '' : record.setChangePcs) : (record.setChange === 0 ? '' : (record.setChange ?? ''))}
-                      onChange={(e) => onChange('setChangePcs', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
-                      placeholder="0"
-                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                    />
-                  </div>
                 </div>
               </div>
 
-              {/* SECTION 5: CONSUMABLES & SPARES (Needle Broken, Needle/Per Kg, Sinker Broken, Sinker/Per Kg, Oil Consumption, Belt Broken, Other Spare parts Name, Other Spare parts QTY) */}
-              <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3">
+              {/* SECTION 5: CONSUMABLES, NEEDLES, SINKERS, SET CHANGES & SPARE PARTS */}
+              <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-4">
                 <h4 className="font-sans text-[11px] font-black text-purple-700 dark:text-purple-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1.5 flex items-center gap-1.5">
                   <Wrench className="h-3.5 w-3.5" /> 5. Consumables, Needles, Sinkers & Spare Parts
                 </h4>
@@ -758,25 +851,101 @@ export default function AddProductionRecordModal({
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Other Spare parts Name</label>
-                    <input
-                      type="text"
-                      value={record.otherSparePartsName ?? ''}
-                      onChange={(e) => onChange('otherSparePartsName', e.target.value)}
-                      placeholder="e.g. Bearing 6002"
-                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Other Spare parts QTY</label>
+                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Set Change Needle(Pcs)</label>
                     <input
                       type="number"
-                      value={record.otherSparePartsQty === 0 || record.otherSparePartsQty === undefined ? '' : record.otherSparePartsQty}
-                      onChange={(e) => onChange('otherSparePartsQty', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
+                      value={record.setChangeNeedle === 0 || record.setChangeNeedle === undefined ? '' : record.setChangeNeedle}
+                      onChange={(e) => onChange('setChangeNeedle', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
                       placeholder="0"
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Set Change Sinker(Pcs)</label>
+                    <input
+                      type="number"
+                      value={record.setChangeSinker === 0 || record.setChangeSinker === undefined ? '' : record.setChangeSinker}
+                      onChange={(e) => onChange('setChangeSinker', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
+                      placeholder="0"
+                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
+                    />
+                  </div>
+                </div>
+
+                {/* Other Spare Parts Dynamic Multiple Entries with + Button */}
+                <div className="rounded-lg border border-gray-200 dark:border-slate-700/60 bg-white/70 dark:bg-slate-800/40 p-3 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-extrabold text-gray-600 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <span>Other Spare Parts (Multi-Item)</span>
+                      <span className="text-[9px] font-normal text-gray-400 dark:text-gray-500">e.g. Bearing(60), Nozel (20), Total 80</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleAddSparePart}
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-[#0F4C81] dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 px-2.5 py-1 rounded-md transition-colors shadow-xs cursor-pointer"
+                    >
+                      <Plus className="h-3 w-3" /> Add Spare Part
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {sparePartsList.map((item, idx) => (
+                      <div key={item.id} className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <input
+                            type="text"
+                            value={item.name}
+                            onChange={(e) => handleUpdateSparePart(item.id, 'name', e.target.value)}
+                            placeholder={`Spare Part #${idx + 1} Name (e.g. Bearing, Nozel)`}
+                            className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
+                          />
+                        </div>
+                        <div className="w-28 sm:w-32">
+                          <input
+                            type="number"
+                            value={item.qty === 0 || item.qty === '' ? '' : item.qty}
+                            onChange={(e) => handleUpdateSparePart(item.id, 'qty', e.target.value === '' ? '' : (parseInt(e.target.value) || 0))}
+                            placeholder="QTY"
+                            className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {idx === sparePartsList.length - 1 && (
+                            <button
+                              type="button"
+                              onClick={handleAddSparePart}
+                              title="Add Another Spare Part"
+                              className="h-8 w-8 rounded-lg bg-blue-50 dark:bg-blue-900/40 text-[#0F4C81] dark:text-blue-300 hover:bg-blue-100 flex items-center justify-center transition-colors cursor-pointer"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          {sparePartsList.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveSparePart(item.id)}
+                              title="Remove Spare Part"
+                              className="h-8 w-8 rounded-lg bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 hover:bg-rose-100 flex items-center justify-center transition-colors cursor-pointer"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Formatted Output / Sheet preview badge */}
+                  {(record.otherSparePartsName || (record.otherSparePartsQty !== undefined && record.otherSparePartsQty > 0)) && (
+                    <div className="mt-1.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[10px] bg-gray-50 dark:bg-slate-900/60 rounded-md px-2.5 py-1 text-gray-600 dark:text-slate-400 border border-gray-100 dark:border-slate-800">
+                      <span className="font-mono truncate">
+                        <strong className="text-gray-700 dark:text-slate-200">Ledger & Sheet format:</strong> {record.otherSparePartsName || 'None'}
+                      </span>
+                      <span className="font-mono font-bold text-[#0F4C81] dark:text-blue-400 whitespace-nowrap">
+                        Total QTY: {record.otherSparePartsQty || 0}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 

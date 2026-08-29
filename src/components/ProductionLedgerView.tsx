@@ -735,6 +735,8 @@ const PRODUCTION_LEDGER_COLUMNS: ColumnDef[] = [
   { id: 'beltBroken', label: 'Belt Broken', defaultWidth: 90 },
   { id: 'otherSparePartsName', label: 'Other Spare parts Name', defaultWidth: 135 },
   { id: 'otherSparePartsQty', label: 'Other Spare parts QTY', defaultWidth: 125 },
+  { id: 'setChangeNeedle', label: 'Set Change Needle(Pcs)', defaultWidth: 135 },
+  { id: 'setChangeSinker', label: 'Set Change Sinker(Pcs)', defaultWidth: 135 },
   { id: 'setChangePcs', label: 'Set Change(Pcs)', defaultWidth: 105 },
   { id: 'productionLossForEff', label: 'Production Loss For Eff', defaultWidth: 130 },
   { id: 'prodLossForSample', label: 'Production Loss for Sample', defaultWidth: 135 },
@@ -2777,7 +2779,9 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         r.beltBroken ?? 0,                                  // Belt Broken
         r.otherSparePartsName || '',                        // Other Spare parts Name
         r.otherSparePartsQty ?? 0,                          // Other Spare parts QTY
-        r.setChange ?? 0,                                   // Set Change(Pcs)
+        r.setChangeNeedle ?? 0,                             // Set Change Needle(Pcs)
+        r.setChangeSinker ?? 0,                             // Set Change Sinker(Pcs)
+        r.setChangePcs ?? (r.setChange ?? 0),               // Set Change(Pcs)
         r.productionLossForEff ?? 0,                        // Production Loss For Eff
         r.prodLossForSample ?? 0,                           // Production Loss for Sample
         r.capacityUtilization ?? 0,                         // Capacity Utilization
@@ -3700,6 +3704,16 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                   {isColVisible('otherSparePartsQty') && (
                     <td style={{ width: `${getColWidth('otherSparePartsQty')}px`, minWidth: `${getColWidth('otherSparePartsQty')}px`, maxWidth: `${getColWidth('otherSparePartsQty')}px`, ...getStickyStyle('otherSparePartsQty') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('otherSparePartsQty')}`}>
                       {r.otherSparePartsQty !== undefined && r.otherSparePartsQty !== null ? r.otherSparePartsQty.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('setChangeNeedle') && (
+                    <td style={{ width: `${getColWidth('setChangeNeedle')}px`, minWidth: `${getColWidth('setChangeNeedle')}px`, maxWidth: `${getColWidth('setChangeNeedle')}px`, ...getStickyStyle('setChangeNeedle') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('setChangeNeedle')}`}>
+                      {r.setChangeNeedle !== undefined && r.setChangeNeedle !== null ? r.setChangeNeedle.toLocaleString() : ''}
+                    </td>
+                  )}
+                  {isColVisible('setChangeSinker') && (
+                    <td style={{ width: `${getColWidth('setChangeSinker')}px`, minWidth: `${getColWidth('setChangeSinker')}px`, maxWidth: `${getColWidth('setChangeSinker')}px`, ...getStickyStyle('setChangeSinker') }} className={`px-2.5 py-2 text-right font-mono text-gray-600 whitespace-nowrap ${getStickyClass('setChangeSinker')}`}>
+                      {r.setChangeSinker !== undefined && r.setChangeSinker !== null ? r.setChangeSinker.toLocaleString() : ''}
                     </td>
                   )}
                   {isColVisible('setChangePcs') && (

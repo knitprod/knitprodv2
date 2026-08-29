@@ -716,6 +716,8 @@ export class GasClient {
       beltBroken: isSubContact ? undefined : record.beltBroken,
       otherSparePartsName: isSubContact ? undefined : record.otherSparePartsName,
       otherSparePartsQty: isSubContact ? undefined : record.otherSparePartsQty,
+      setChangeNeedle: isSubContact ? undefined : (record.setChangeNeedle ?? 0),
+      setChangeSinker: isSubContact ? undefined : (record.setChangeSinker ?? 0),
       setChange: isSubContact ? undefined : record.setChange,
       setChangePcs: isSubContact ? undefined : record.setChangePcs,
       productionLossForEff: isSubContact ? undefined : record.productionLossForEff,

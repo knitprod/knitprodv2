@@ -133,6 +133,8 @@ export interface LedgerRecord extends SyncMetadata {
   beltBroken?: number;            // Belt Broken
   otherSparePartsName?: string;   // Other Spare parts Name
   otherSparePartsQty?: number;    // Other Spare parts QTY
+  setChangeNeedle?: number;       // Set Change Needle(Pcs)
+  setChangeSinker?: number;       // Set Change Sinker(Pcs)
   setChangePcs?: number;          // Set Change(Pcs)
   productionLossForEff?: number;  // Production Loss For Eff
   capacityUtilization?: number;   // Capacity Utilization %
