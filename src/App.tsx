@@ -35,7 +35,6 @@ import {
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import WelcomeBanner from './components/WelcomeBanner';
-import KPICards from './components/KPICards';
 import FactoryFloors from './components/FactoryFloors';
 import DashboardCharts from './components/DashboardCharts';
 import RightPanel from './components/RightPanel';
@@ -43,6 +42,7 @@ import FloorDashboardView from './components/FloorDashboardView';
 import ReportsView from './components/ReportsView';
 import UserManagementView, { UserRecord, INITIAL_USERS } from './components/UserManagementView';
 import LoginView from './components/LoginView';
+import PreLoginWelcomePage from './components/PreLoginWelcomePage';
 import SettingsView from './components/SettingsView';
 import DatabaseConnectionView from './components/DatabaseConnectionView';
 import AdminPanelView from './components/AdminPanelView';
@@ -50,6 +50,8 @@ import ProductionLedgerView from './components/ProductionLedgerView';
 import PlanOrderFollowupView from './components/PlanOrderFollowupView';
 import YarnAllocationView from './components/YarnAllocationView';
 import DashboardFilterToolbar, { FilterState } from './components/DashboardFilterToolbar';
+import DashboardUnitwiseCards from './components/DashboardUnitwiseCards';
+import FloatingKPIAndFilterHUD from './components/FloatingKPIAndFilterHUD';
 import { useGlobalData } from './context/GlobalDataContext';
 import { GasClient } from './lib/gasClient';
 import { SupabaseSync } from './lib/supabaseClient';
@@ -832,19 +834,17 @@ export default function App() {
   const handleResetFilters = () => {
     setDashboardLoading(true);
     setTimeout(() => {
-      const yesterday = getRelativeDateString(1);
-      const sevenDaysAgo = getRelativeDateString(7);
       setFilterState({
         unit: 'all',
-        dateMode: 'single',
-        singleDate: yesterday,
-        dateFrom: sevenDaysAgo,
-        dateTo: yesterday,
-        month: yesterday.substring(0, 7),
-        year: yesterday.substring(0, 4)
+        dateMode: 'range',
+        singleDate: '',
+        dateFrom: '',
+        dateTo: '',
+        month: '',
+        year: 'all'
       });
       setDashboardLoading(false);
-    }, 600);
+    }, 400);
   };
 
   // Handler: Drill down floor filter via sidebar click or notification click
@@ -945,7 +945,7 @@ export default function App() {
 
   if (!currentUser) {
     return (
-      <LoginView 
+      <PreLoginWelcomePage 
         inactivityNotice={inactivityNotice}
         onLoginSuccess={(user) => {
           // Strip plain password before storing session in memory for enterprise security
@@ -1273,24 +1273,35 @@ export default function App() {
             {/* Page View Switcher */}
             {currentPage === 'Dashboard' && (
               <div className="space-y-6 animate-fade-in">
+                {/* Floating KPI & Filter Matrix HUD (Floats when scrolled down past Filter Panel) */}
+                <FloatingKPIAndFilterHUD
+                  floors={floors}
+                  filterState={filterState}
+                  onApplyFilters={handleApplyFilters}
+                  onResetFilters={handleResetFilters}
+                  targetAnchorId="dashboard-filter-toolbar"
+                />
+
                 {/* Large Welcome banner */}
                 <WelcomeBanner 
                   floors={floors} 
                   filterState={filterState} 
                   onFilterChange={handleApplyFilters} 
+                  onResetFilter={handleResetFilters}
                   onNavigate={setCurrentPage} 
                 />
 
                 {/* ERP-grade Filter Toolbar */}
                 <DashboardFilterToolbar 
+                  filterState={filterState}
                   onApplyFilters={handleApplyFilters}
                   onResetFilters={handleResetFilters}
                   defaultUnit={filterState.unit}
                   defaultDate={filterState.singleDate}
                 />
 
-                {/* KPI metrics row */}
-                <KPICards kpis={kpis} filterState={filterState} />
+                {/* 3 Unitwise Overview Analytics Cards: Production Unitwise, Efficiency %, Capacity Utilization % */}
+                <DashboardUnitwiseCards filterState={filterState} />
 
                 {/* Floor indicators & Activity feed */}
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">

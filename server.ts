@@ -19,6 +19,55 @@ const CACHE_TTL_MS = 15000; // 15-second cache for GET requests
 
 const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbz6M8NmfDjG9GKdmkFMHggR6MGQwRU6Q42-hpd_gxEfbTQsjRL86mI_NavdqJB8Blzl/exec';
 
+// Safe JSON parsing with control character cleaning & recovery
+function safeParseJson(raw: string, fallback: any = null): any {
+  if (!raw || typeof raw !== 'string') return fallback;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    try {
+      // Step 1: Strip non-printable ASCII control characters (0x00-0x08, 0x0B, 0x0C, 0x0E-0x1F, 0x7F)
+      const sanitized = raw.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+      return JSON.parse(sanitized);
+    } catch {
+      try {
+        // Step 2: Handle raw unescaped newlines/carriage returns inside strings
+        const escaped = raw.replace(/[\x00-\x1F\x7F-\x9F]/g, (c) => {
+          if (c === '\n') return '\\n';
+          if (c === '\r') return '\\r';
+          if (c === '\t') return '\\t';
+          return '';
+        });
+        return JSON.parse(escaped);
+      } catch (finalErr) {
+        console.warn('safeParseJson could not recover JSON payload:', finalErr);
+        return fallback;
+      }
+    }
+  }
+}
+
+// Atomic file writing to guarantee readers never read a partially written file
+function atomicWriteFileSync(filePath: string, content: string): boolean {
+  const tempPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 7)}`;
+  try {
+    fs.writeFileSync(tempPath, content, 'utf-8');
+    fs.renameSync(tempPath, filePath);
+    return true;
+  } catch {
+    try {
+      fs.writeFileSync(filePath, content, 'utf-8');
+      if (fs.existsSync(tempPath)) {
+        try { fs.unlinkSync(tempPath); } catch {}
+      }
+      return true;
+    } catch (e) {
+      console.error(`Failed to write file ${filePath}:`, e);
+      return false;
+    }
+  }
+}
+
 // Helper to load persistent server configuration with in-memory caching
 function loadConfig() {
   if (cachedConfigObj) return cachedConfigObj;
@@ -33,7 +82,7 @@ function loadConfig() {
   if (fs.existsSync(CONFIG_FILE)) {
     try {
       const fileData = fs.readFileSync(CONFIG_FILE, 'utf-8');
-      const data = JSON.parse(fileData);
+      const data = safeParseJson(fileData, null);
       if (data) {
         if (typeof data.gasWebAppUrl === 'string' && data.gasWebAppUrl.trim()) {
           config.gasWebAppUrl = data.gasWebAppUrl.trim();
@@ -73,11 +122,7 @@ function saveConfig(newConfig: Partial<{ gasWebAppUrl: string; databaseMode: 'ga
   // Invalidate proxy cache on URL change
   gasProxyCache.clear();
 
-  try {
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(updated, null, 2), 'utf-8');
-  } catch (e) {
-    console.error('Error writing app_config.json file:', e);
-  }
+  atomicWriteFileSync(CONFIG_FILE, JSON.stringify(updated, null, 2));
 
   // Synchronize source code files (server.ts & gasClient.ts) so backend code uses exact same URL
   if (newConfig.gasWebAppUrl && typeof newConfig.gasWebAppUrl === 'string' && newConfig.gasWebAppUrl.trim()) {
@@ -92,8 +137,8 @@ function saveConfig(newConfig: Partial<{ gasWebAppUrl: string; databaseMode: 'ga
         let content = fs.readFileSync(serverPath, 'utf-8');
         const serverRegex = /(const DEFAULT_GAS_URL\s*=\s*)(['"])([\s\S]*?)\2;/g;
         if (serverRegex.test(content)) {
-          content = content.replace(serverRegex, `const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbz6M8NmfDjG9GKdmkFMHggR6MGQwRU6Q42-hpd_gxEfbTQsjRL86mI_NavdqJB8Blzl/exec';`);
-          fs.writeFileSync(serverPath, content, 'utf-8');
+          content = content.replace(serverRegex, `const DEFAULT_GAS_URL = '${newUrl}';`);
+          atomicWriteFileSync(serverPath, content);
         }
       } catch (e) {
         console.error('Error updating server.ts default URL:', e);
@@ -105,10 +150,15 @@ function saveConfig(newConfig: Partial<{ gasWebAppUrl: string; databaseMode: 'ga
     if (fs.existsSync(gasClientPath)) {
       try {
         let content = fs.readFileSync(gasClientPath, 'utf-8');
+        const gasClientRegex = /(const DEFAULT_GAS_URL\s*=\s*)(['"])([\s\S]*?)\2;/g;
+        if (gasClientRegex.test(content)) {
+          content = content.replace(gasClientRegex, `const DEFAULT_GAS_URL = '${newUrl}';`);
+          atomicWriteFileSync(gasClientPath, content);
+        }
         const clientRegex = /(static DEFAULT_URL\s*=\s*)(['"])([\s\S]*?)\2;/g;
         if (clientRegex.test(content)) {
           content = content.replace(clientRegex, `static DEFAULT_URL = '${newUrl}';`);
-          fs.writeFileSync(gasClientPath, content, 'utf-8');
+          atomicWriteFileSync(gasClientPath, content);
         }
       } catch (e) {
         console.error('Error updating gasClient.ts default URL:', e);
@@ -125,7 +175,7 @@ function saveConfig(newConfig: Partial<{ gasWebAppUrl: string; databaseMode: 'ga
         } else {
           envContent += `\nGAS_WEB_APP_URL="${newUrl}"\n`;
         }
-        fs.writeFileSync(envPath, envContent, 'utf-8');
+        atomicWriteFileSync(envPath, envContent);
       } catch (e) {
         console.error('Error updating .env file:', e);
       }
@@ -233,7 +283,7 @@ function loadDb() {
   if (fs.existsSync(DB_FILE)) {
     try {
       const fileData = fs.readFileSync(DB_FILE, 'utf-8');
-      const parsed = JSON.parse(fileData);
+      const parsed = safeParseJson(fileData, null);
       if (parsed) {
         if (parsed.ledger && Array.isArray(parsed.ledger)) {
           parsed.ledger = parsed.ledger.map((r: any) => {
@@ -244,11 +294,22 @@ function loadDb() {
           });
         }
         db = { ...db, ...parsed };
+      } else {
+        // Recover from corrupt file by writing back safe defaults
+        atomicWriteFileSync(DB_FILE, JSON.stringify(db, null, 2));
       }
     } catch (e) {
-      console.error('Error reading app_db.json:', e);
+      console.error('Error reading app_db.json, recovering with safe state:', e);
+      try {
+        atomicWriteFileSync(DB_FILE, JSON.stringify(db, null, 2));
+      } catch {}
     }
+  } else {
+    try {
+      atomicWriteFileSync(DB_FILE, JSON.stringify(db, null, 2));
+    } catch {}
   }
+
   cachedDbObj = db;
   return db;
 }
@@ -277,11 +338,7 @@ function saveDb(partial: any) {
     }
 
     cachedDbObj = updated;
-    fs.writeFile(DB_FILE, JSON.stringify(updated), 'utf-8', (err) => {
-      if (err) {
-        console.warn('Warning writing app_db.json:', err);
-      }
-    });
+    atomicWriteFileSync(DB_FILE, JSON.stringify(updated));
     return updated;
   } catch (e) {
     console.warn('Error saving to DB:', e);

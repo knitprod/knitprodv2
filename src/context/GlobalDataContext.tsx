@@ -133,18 +133,20 @@ function recalculateFloorsFromLedger(prevFloors: FactoryFloor[], ledgerRecords: 
 
 function sanitizeLedgerRecords(records: LedgerRecord[]): LedgerRecord[] {
   if (!records || !Array.isArray(records)) return [];
-  return records.map((r: LedgerRecord) => {
-    if (r.id === 'rec-2026-08-26-efl-extension-1787807712863' || (r.date === '2026-08-26' && (r.floor === 'EFL-Extension' || r.unit === 'EFL-Extension'))) {
-      return {
-        ...r,
-        target: 2160,
-        targetBulk: 2160,
-        idleProduction: 900,
-        efficiency: 134.91
-      };
-    }
-    return r;
-  });
+  return records
+    .filter((r: LedgerRecord) => r.id !== 'rec-2026-08-11-extension')
+    .map((r: LedgerRecord) => {
+      if (r.id === 'rec-2026-08-26-efl-extension-1787807712863' || (r.date === '2026-08-26' && (r.floor === 'EFL-Extension' || r.unit === 'EFL-Extension'))) {
+        return {
+          ...r,
+          target: 2160,
+          targetBulk: 2160,
+          idleProduction: 900,
+          efficiency: 134.91
+        };
+      }
+      return r;
+    });
 }
 
 function deduplicateWithUniqueIds<T extends { id?: string }>(items: T[], prefix: string): T[] {

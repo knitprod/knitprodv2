@@ -26,6 +26,8 @@ import {
 import { FilterState } from './DashboardFilterToolbar';
 import { LedgerRecord } from '../types';
 import { generateInitialLedger } from './ProductionLedgerView';
+import { useGlobalData } from '../context/GlobalDataContext';
+import { LedgerCalendarDatePicker } from './LedgerCalendarDatePicker';
 
 const getRelativeDateString = (daysOffset: number) => {
   const d = new Date();
@@ -726,6 +728,19 @@ export default function FloorDashboardView({
   filterState,
   isLoading = false
 }: FloorDashboardViewProps) {
+  const { ledger } = useGlobalData();
+
+  // Extract unique available dates present in the ledger
+  const availableLedgerDates = React.useMemo(() => {
+    const dates = new Set<string>();
+    (ledger || []).forEach(r => {
+      if (r.date && /^\d{4}-\d{2}-\d{2}$/.test(r.date)) {
+        dates.add(r.date);
+      }
+    });
+    return Array.from(dates).sort();
+  }, [ledger]);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'idle' | 'warning'>('all');
 
@@ -1483,13 +1498,15 @@ export default function FloorDashboardView({
                         <label className="block text-[10px] font-extrabold text-gray-400 dark:text-slate-400 uppercase tracking-wider mb-1">
                           Add Date to Selection
                         </label>
-                        <div className="flex gap-2">
-                          <input
-                            type="date"
-                            value={dateInputVal}
-                            onChange={(e) => setDateInputVal(e.target.value)}
-                            className="flex-1 rounded-lg border border-gray-250 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-900/40 px-3 py-1.5 text-xs font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-blue-500"
-                          />
+                        <div className="flex gap-2 items-center">
+                          <div className="flex-1">
+                            <LedgerCalendarDatePicker
+                              value={dateInputVal}
+                              onChange={(val) => setDateInputVal(val)}
+                              allowedDates={availableLedgerDates}
+                              placeholder="Select Ledger Date"
+                            />
+                          </div>
                           <button
                             type="button"
                             onClick={() => {
@@ -1497,7 +1514,7 @@ export default function FloorDashboardView({
                                 setSelectedDates([...selectedDates, dateInputVal]);
                               }
                             }}
-                            className="rounded-lg bg-[#0F4C81] dark:bg-blue-600 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-blue-800 transition cursor-pointer"
+                            className="rounded-lg bg-[#0F4C81] dark:bg-blue-600 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-blue-800 transition cursor-pointer shrink-0 h-[34px]"
                           >
                             Add
                           </button>

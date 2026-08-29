@@ -126,3 +126,18 @@
 .dark textarea::placeholder {
   color: #475569 !important; /* slate-600 */
 }
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-down {
+  animation: slideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}

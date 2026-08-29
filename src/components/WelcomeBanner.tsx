@@ -32,10 +32,8 @@ import { FactoryFloor, LedgerRecord } from '../types';
 import { useGlobalData } from '../context/GlobalDataContext';
 import { getTotalMachinesForUnit, getUnitConfigs, getProductionCapacityForUnit, getEffectiveDailyCapacity } from '../lib/unitStore';
 import { 
-  calculateLedgerEfficiency, 
-  calculateLedgerCapacityUtilization, 
-  calculateEffectiveDays, 
-  calculateLedgerPeriodCapacity,
+  filterLedgerByState,
+  calculateComprehensiveMetrics,
   isSubContactRecord 
 } from '../lib/productionMetrics';
 import { FilterState } from './DashboardFilterToolbar';
@@ -44,6 +42,7 @@ interface WelcomeBannerProps {
   floors?: FactoryFloor[];
   filterState?: FilterState;
   onFilterChange?: (filters: FilterState) => void;
+  onResetFilter?: () => void;
   onNavigate: (page: string) => void;
 }
 
@@ -247,6 +246,7 @@ export default function WelcomeBanner({
   floors, 
   filterState, 
   onFilterChange, 
+  onResetFilter,
   onNavigate 
 }: WelcomeBannerProps) {
   const globalData = useGlobalData();
@@ -337,348 +337,28 @@ export default function WelcomeBanner({
   // DYNAMIC FILTERING LINKED LIVE WITH PRODUCTION LEDGER
   // -----------------------------------------------------------------
   const { filteredRows, filterContextLabel, isFiltered } = useMemo(() => {
-    if (!ledger || ledger.length === 0) {
-      return { 
-        filteredRows: [], 
-        filterContextLabel: `Default: ${productionDateMeta.formatted}`,
-        isFiltered: false 
-      };
-    }
-
-    let rows = [...ledger];
-    let dateLabel = productionDateMeta.formatted;
-    let unitLabel = 'All Units';
-    let filtered = false;
-
-    // 1. Date Filtering
-    if (filterState && (filterState.dateFrom || filterState.dateTo || (filterState.year && filterState.year !== 'all') || filterState.singleDate)) {
-      if (filterState.dateFrom && filterState.dateTo) {
-        if (filterState.dateFrom === filterState.dateTo) {
-          rows = rows.filter(r => r.date === filterState.dateFrom);
-          dateLabel = filterState.dateFrom;
-        } else {
-          rows = rows.filter(r => r.date >= filterState.dateFrom && r.date <= filterState.dateTo);
-          dateLabel = `${filterState.dateFrom} ~ ${filterState.dateTo}`;
-        }
-        filtered = true;
-      } else if (filterState.dateFrom) {
-        rows = rows.filter(r => r.date >= filterState.dateFrom);
-        dateLabel = `From ${filterState.dateFrom}`;
-        filtered = true;
-      } else if (filterState.dateTo) {
-        rows = rows.filter(r => r.date <= filterState.dateTo);
-        dateLabel = `Up to ${filterState.dateTo}`;
-        filtered = true;
-      } else if (filterState.dateMode === 'single' && filterState.singleDate) {
-        rows = rows.filter(r => r.date === filterState.singleDate);
-        dateLabel = filterState.singleDate;
-        if (filterState.singleDate !== productionDateMeta.isoDate) filtered = true;
-      } else if (filterState.year && filterState.year !== 'all') {
-        rows = rows.filter(r => r.date && r.date.startsWith(filterState.year));
-        dateLabel = `Year: ${filterState.year}`;
-        filtered = true;
-      } else if (filterState.dateMode === 'month' && filterState.month) {
-        rows = rows.filter(r => r.date && r.date.startsWith(filterState.month));
-        dateLabel = `Month: ${filterState.month}`;
-        filtered = true;
-      }
-    } else {
-      // Default: match the 1-day reporting lag date if present, or latest available date
-      const lagRows = rows.filter(r => r.date === productionDateMeta.isoDate);
-      if (lagRows.length > 0) {
-        rows = lagRows;
-        dateLabel = productionDateMeta.formatted;
-      } else {
-        const dates = Array.from(new Set(rows.map(r => r.date).filter(Boolean))).sort().reverse();
-        const latestDate = dates[0];
-        if (latestDate) {
-          rows = rows.filter(r => r.date === latestDate);
-          dateLabel = latestDate;
-        }
-      }
-    }
-
-    // 2. Unit Filtering
-    const activeUnit = filterState?.unit || 'all';
-    if (activeUnit !== 'all') {
-      filtered = true;
-      if (activeUnit === 'In-House' || activeUnit === 'in-house') {
-        rows = rows.filter(r => !isSubContactRow(r));
-        unitLabel = 'In-House Units';
-      } else if (activeUnit === 'Sub-Contact' || activeUnit === 'sub-contact') {
-        rows = rows.filter(r => isSubContactRow(r));
-        unitLabel = 'Sub-Contact';
-      } else {
-        rows = rows.filter(r => 
-          (r.floor && r.floor.trim().toLowerCase() === activeUnit.trim().toLowerCase()) ||
-          (r.unit && r.unit.trim().toLowerCase() === activeUnit.trim().toLowerCase())
-        );
-        unitLabel = activeUnit;
-      }
-    }
-
-    return {
-      filteredRows: rows,
-      filterContextLabel: `${unitLabel} • ${dateLabel}`,
-      isFiltered: filtered
-    };
-  }, [ledger, filterState, productionDateMeta.isoDate, productionDateMeta.formatted]);
+    return filterLedgerByState(ledger, filterState, productionDateMeta.isoDate);
+  }, [ledger, filterState, productionDateMeta.isoDate]);
 
   // -----------------------------------------------------------------
   // CALCULATE ALL 7 KPIS ACCURATELY FROM THE FILTERED LEDGER RECORDS
   // -----------------------------------------------------------------
   const metrics = useMemo(() => {
-    let inHouseTarget = 0;
-    let inHouseBulkTarget = 0;
-    let subContactTarget = 0;
-    let subContactBulkTarget = 0;
-    let inHouseProd = 0;
-    let inHouseTotalProd = 0;
-    let subContactProd = 0;
-    let subContactTotalProd = 0;
-    let inHouseTotalMachines = 0;
-    let inHouseRunningMachines = 0;
-    let inHouseBulkRunning = 0;
-    let inHouseSampleRunning = 0;
-    let qualityReject = 0;
-    let qualityHold = 0;
-    let qualityJhute = 0;
-    let efficiency = 0;
-    let capacity = 0;
-    let totalDailyCapacity = 0;
-    let periodTotalCapacity = 0;
-    let sampleProduction = 0;
-    let inHouseSampleProd = 0;
-    let subContactSampleProd = 0;
-
-    const appliedUnit = filterState?.unit || 'all';
-
-    if (filteredRows.length > 0) {
-      const ihRows = filteredRows.filter(r => !isSubContactRecord(r));
-      const scRows = filteredRows.filter(r => isSubContactRecord(r));
-
-      // 1. Targets (strictly from the Production Ledger records)
-      inHouseTarget = ihRows.reduce((sum, r) => {
-        const t = r.target !== undefined && r.target !== null && Number(r.target) > 0 
-          ? Number(r.target) 
-          : (r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : 0);
-        return sum + (Number.isNaN(t) ? 0 : t);
-      }, 0);
-
-      inHouseBulkTarget = ihRows.reduce((sum, r) => {
-        const b = r.targetBulk !== undefined && r.targetBulk !== null && Number(r.targetBulk) > 0 
-          ? Number(r.targetBulk) 
-          : (Number(r.target) || 0);
-        return sum + (Number.isNaN(b) ? 0 : b);
-      }, 0);
-
-      subContactTarget = scRows.reduce((sum, r) => {
-        const b = r.target !== undefined && r.target !== null && Number(r.target) > 0
-          ? Number(r.target)
-          : (r.targetBulk !== undefined && r.targetBulk !== null ? Number(r.targetBulk) : 0);
-        return sum + (Number.isNaN(b) ? 0 : b);
-      }, 0);
-
-      subContactBulkTarget = scRows.reduce((sum, r) => {
-        const b = r.targetBulk !== undefined && r.targetBulk !== null && Number(r.targetBulk) > 0
-          ? Number(r.targetBulk)
-          : (Number(r.target) || 0);
-        return sum + (Number.isNaN(b) ? 0 : b);
-      }, 0);
-
-      // 2. Productions (matching Production Ledger)
-      inHouseProd = ihRows.reduce((sum, r) => {
-        const b = r.bulkProd !== undefined && r.bulkProd !== null ? Number(r.bulkProd) : (Number(r.totalProduction) || 0);
-        return sum + (Number.isNaN(b) ? 0 : b);
-      }, 0);
-
-      inHouseTotalProd = ihRows.reduce((sum, r) => {
-        const t = r.totalProduction !== undefined && r.totalProduction !== null && Number(r.totalProduction) > 0 
-          ? Number(r.totalProduction) 
-          : (Number(r.bulkProd || 0) + Number(r.sampleProd || 0));
-        return sum + (Number.isNaN(t) ? 0 : t);
-      }, 0) || inHouseProd;
-
-      subContactProd = scRows.reduce((sum, r) => {
-        const b = r.bulkProd !== undefined && r.bulkProd !== null ? Number(r.bulkProd) : (Number(r.totalProduction) || 0);
-        return sum + (Number.isNaN(b) ? 0 : b);
-      }, 0);
-
-      subContactTotalProd = scRows.reduce((sum, r) => {
-        const t = r.totalProduction !== undefined && r.totalProduction !== null && Number(r.totalProduction) > 0
-          ? Number(r.totalProduction)
-          : (Number(r.bulkProd || 0) + Number(r.sampleProd || 0));
-        return sum + (Number.isNaN(t) ? 0 : t);
-      }, 0) || subContactProd;
-
-      // 3. Efficiency & Capacity (Strictly identical to Production Ledger formulas)
-      const effectiveDays = calculateEffectiveDays(filteredRows, filterState);
-      efficiency = calculateLedgerEfficiency(ihRows, scRows, appliedUnit);
-      capacity = calculateLedgerCapacityUtilization(ihRows, appliedUnit, effectiveDays);
-
-      // Sample production
-      inHouseSampleProd = ihRows.reduce((sum, r) => sum + (Number(r.sampleProd) || 0), 0);
-      subContactSampleProd = scRows.reduce((sum, r) => sum + (Number(r.sampleProd) || 0), 0);
-      sampleProduction = inHouseSampleProd + subContactSampleProd;
-
-      // Daily capacity calculation from Setting Panel (defaults to 50K/day for In-House)
-      totalDailyCapacity = getEffectiveDailyCapacity(appliedUnit);
-      periodTotalCapacity = calculateLedgerPeriodCapacity(appliedUnit, effectiveDays);
-
-      // 4. In-House Total Machines from settings store
-      if (appliedUnit !== 'all' && !appliedUnit.toLowerCase().includes('in-house')) {
-        inHouseTotalMachines = getTotalMachinesForUnit(appliedUnit, 66);
-      } else {
-        const distinctFloors = Array.from(new Set(ihRows.map(r => r.floor).filter(Boolean))) as string[];
-        if (distinctFloors.length > 0) {
-          inHouseTotalMachines = distinctFloors.reduce((sum: number, f: string) => sum + getTotalMachinesForUnit(f, 45), 0);
-        } else {
-          const inHouseConfigs = getUnitConfigs().filter(u => !u.unitName.toLowerCase().includes('sub'));
-          inHouseTotalMachines = inHouseConfigs.reduce((sum, u) => sum + Number(u.totalMachine || 0), 0) || (filteredRows.length > 0 ? 261 : 0);
-        }
-      }
-
-      // Daily machine averages
-      const inHouseDateMap: Record<string, { bulkRun: number; sampleRun: number; totalRun: number }> = {};
-      ihRows.forEach(r => {
-        const d = r.date || 'default';
-        if (!inHouseDateMap[d]) {
-          inHouseDateMap[d] = { bulkRun: 0, sampleRun: 0, totalRun: 0 };
-        }
-        const bRun = Number(r.runningBulk) || Math.max(0, (Number(r.runningMachine) || 0) - (Number(r.runningSample) || 0));
-        const sRun = Number(r.runningSample) || 0;
-        inHouseDateMap[d].bulkRun += bRun;
-        inHouseDateMap[d].sampleRun += sRun;
-        inHouseDateMap[d].totalRun += (bRun + sRun);
-      });
-
-      const inHouseDateKeys = Object.keys(inHouseDateMap);
-      const inHouseDaysCount = Math.max(1, inHouseDateKeys.length);
-      const sumBulkRun = inHouseDateKeys.reduce((acc, d) => acc + inHouseDateMap[d].bulkRun, 0);
-      const sumSampleRun = inHouseDateKeys.reduce((acc, d) => acc + inHouseDateMap[d].sampleRun, 0);
-      const sumTotalRun = inHouseDateKeys.reduce((acc, d) => acc + inHouseDateMap[d].totalRun, 0);
-
-      inHouseBulkRunning = inHouseDateKeys.length > 0 ? Math.round(sumBulkRun / inHouseDaysCount) : 0;
-      inHouseSampleRunning = inHouseDateKeys.length > 0 ? Math.round(sumSampleRun / inHouseDaysCount) : 0;
-      inHouseRunningMachines = inHouseDateKeys.length > 0 ? Math.round(sumTotalRun / inHouseDaysCount) : 0;
-
-      // 5. Quality metrics (In-House + Sub-Contact)
-      const inHouseReject = Math.round(ihRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.reject)) ? 0 : Number(r.reject || 0)), 0));
-      const inHouseHold = Math.round(ihRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.hold)) ? 0 : Number(r.hold || 0)), 0));
-      const inHouseJhuteVal = Math.round(ihRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.jhuteCutpcs)) ? 0 : Number(r.jhuteCutpcs || 0)), 0));
-      const subContactReject = Math.round(scRows.reduce((sum, r) => sum + (Number.isNaN(Number(r.reject)) ? 0 : Number(r.reject || 0)), 0));
-
-      qualityReject = inHouseReject + subContactReject;
-      qualityHold = inHouseHold;
-      qualityJhute = inHouseJhuteVal;
-    } else if (floors && floors.length > 0) {
-      // Fallback to initial floor models if ledger empty
-      const ihFloors = floors.filter(f => !f.name.toLowerCase().includes('sub'));
-      const scFloors = floors.filter(f => f.name.toLowerCase().includes('sub'));
-      inHouseTarget = ihFloors.reduce((sum, f) => sum + f.targetKg, 0);
-      inHouseBulkTarget = inHouseTarget;
-      subContactTarget = scFloors.reduce((sum, f) => sum + f.targetKg, 0);
-      inHouseProd = ihFloors.reduce((sum, f) => sum + f.productionKg, 0);
-      inHouseTotalProd = inHouseProd;
-      subContactProd = scFloors.reduce((sum, f) => sum + f.productionKg, 0);
-      subContactTotalProd = subContactProd;
-      inHouseTotalMachines = ihFloors.reduce((sum, f) => sum + f.totalMachines, 0);
-      inHouseRunningMachines = ihFloors.reduce((sum, f) => sum + f.runningMachines, 0);
-      inHouseBulkRunning = Math.round(inHouseRunningMachines * 0.85);
-      inHouseSampleRunning = inHouseRunningMachines - inHouseBulkRunning;
-      efficiency = 84.6;
-      capacity = 78.4;
-      qualityReject = 180;
-      qualityHold = 110;
-      qualityJhute = 45;
-    }
-
-    const totalTarget = inHouseTarget + subContactTarget;
-    const bulkTarget = inHouseBulkTarget + subContactBulkTarget;
-    const primaryTarget = bulkTarget > 0 ? bulkTarget : totalTarget;
-    const bulkProduction = inHouseProd + subContactProd;
-    const totalProdCombined = inHouseTotalProd + subContactTotalProd;
-
-    // ACHIEVEMENT% = (Total Production / Total Target) * 100
-    const targetForAchievement = totalTarget > 0 ? totalTarget : (bulkTarget > 0 ? bulkTarget : 0);
-    const prodForAchievement = totalProdCombined > 0 ? totalProdCombined : bulkProduction;
-    const achievementPct = targetForAchievement > 0 
-      ? parseFloat(((prodForAchievement / targetForAchievement) * 100).toFixed(1)) 
-      : 0;
-
-    const balanceKg = Math.max(0, (totalTarget > 0 ? totalTarget : bulkTarget) - prodForAchievement);
-    
-    // Efficiency comparison vs 85.0% standard benchmark
-    const targetEfficiency = 85.0;
-    const efficiencyDiff = parseFloat((efficiency - targetEfficiency).toFixed(1));
-
-    // In-House Machine Utilization %
-    const inHouseUtilPct = inHouseTotalMachines > 0 
-      ? parseFloat(((inHouseRunningMachines / inHouseTotalMachines) * 100).toFixed(1))
-      : (appliedUnit.toLowerCase().includes('sub') ? 0 : 77.9);
-    const inHouseIdleMC = Math.max(0, inHouseTotalMachines - inHouseRunningMachines);
-
-    // Quality percentages
-    const qualityProdBase = totalProdCombined > 0 ? totalProdCombined : bulkProduction;
-    const qualityRejectPct = qualityProdBase > 0 ? parseFloat(((qualityReject / qualityProdBase) * 100).toFixed(2)) : 0;
-    const qualityHoldPct = qualityProdBase > 0 ? parseFloat(((qualityHold / qualityProdBase) * 100).toFixed(2)) : 0;
-    const qualityJhutePct = qualityProdBase > 0 ? parseFloat(((qualityJhute / qualityProdBase) * 100).toFixed(2)) : 0;
-    const cumulativeScrapPct = parseFloat((qualityRejectPct + qualityHoldPct + qualityJhutePct).toFixed(2));
-    const qualityPassRate = qualityProdBase > 0 
-      ? Math.max(0, Math.min(100, parseFloat((100 - cumulativeScrapPct).toFixed(1))))
-      : 100;
-
-    return {
-      totalTarget,
-      primaryTarget,
-      bulkTarget,
-      inHouseTarget,
-      inHouseBulkTarget,
-      subContactTarget,
-      bulkProduction,
-      totalProdCombined,
-      sampleProduction,
-      inHouseSampleProd,
-      subContactSampleProd,
-      inHouseProd,
-      inHouseTotalProd,
-      subContactProd,
-      subContactTotalProd,
-      balanceKg,
-      achievementPct,
-      efficiency,
-      targetEfficiency,
-      efficiencyDiff,
-      capacity,
-      totalDailyCapacity,
-      periodTotalCapacity,
-      inHouseTotalMachines,
-      inHouseRunningMachines,
-      inHouseBulkRunning,
-      inHouseSampleRunning,
-      inHouseUtilPct,
-      inHouseIdleMC,
-      qualityPassRate,
-      qualityReject,
-      qualityRejectPct,
-      qualityHold,
-      qualityHoldPct,
-      qualityJhute,
-      qualityJhutePct,
-      matchingCount: filteredRows.length
-    };
+    return calculateComprehensiveMetrics(filteredRows, filterState?.unit || 'all', filterState, floors);
   }, [filteredRows, floors, filterState]);
 
   const handleResetFilter = () => {
-    if (onFilterChange) {
+    if (onResetFilter) {
+      onResetFilter();
+    } else if (onFilterChange) {
       onFilterChange({
         unit: 'all',
-        dateMode: 'single',
-        singleDate: productionDateMeta.isoDate,
-        dateFrom: '2026-08-01',
-        dateTo: productionDateMeta.isoDate,
-        month: '2026-08',
-        year: '2026'
+        dateMode: 'range',
+        singleDate: '',
+        dateFrom: '',
+        dateTo: '',
+        month: '',
+        year: 'all'
       });
     }
   };

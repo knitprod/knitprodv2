@@ -222,13 +222,13 @@ export default function Header({
           {companyLogo ? (
             <div 
               onClick={() => fileInputRef.current?.click()}
-              className="group relative flex h-9 sm:h-10 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2 py-1 transition-all hover:border-blue-500 cursor-pointer shrink-0 shadow-2xs"
+              className="group relative flex h-10 sm:h-11 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2.5 py-1 transition-all hover:border-blue-500 cursor-pointer shrink-0 shadow-xs"
               title="Click to change company logo"
             >
               <img 
                 src={companyLogo} 
                 alt="Company Logo" 
-                className="h-7 sm:h-8 w-auto max-w-[110px] object-contain"
+                className="h-8 sm:h-9 md:h-10 w-auto max-w-[140px] sm:max-w-[160px] object-contain"
               />
               <div className="absolute inset-0 bg-blue-900/60 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                 <Upload className="h-4 w-4 text-white" />
@@ -237,15 +237,15 @@ export default function Header({
           ) : (
             <div 
               onClick={() => fileInputRef.current?.click()}
-              className="group relative flex h-9 w-9 sm:h-10 sm:w-10 cursor-pointer items-center justify-center rounded-lg border border-dashed border-blue-300 dark:border-blue-700 bg-blue-50/50 dark:bg-blue-950/20 transition-all hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 shrink-0"
+              className="group relative flex h-10 w-10 sm:h-11 sm:w-11 cursor-pointer items-center justify-center rounded-lg border border-dashed border-blue-300 dark:border-blue-700 bg-blue-50/50 dark:bg-blue-950/20 transition-all hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 shrink-0"
               title="Click to upload company logo"
             >
-              <span className="font-mono text-xs font-black tracking-tight text-blue-600 dark:text-blue-400 group-hover:scale-105 transition-transform">EKL</span>
-              <div className="absolute -bottom-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white shadow-2xs">
+              <span className="font-mono text-xs sm:text-sm font-black tracking-tight text-blue-600 dark:text-blue-400 group-hover:scale-105 transition-transform">EKL</span>
+              <div className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white shadow-2xs">
                 +
               </div>
               {/* Tooltip */}
-              <div className="absolute left-12 top-0 hidden w-48 rounded-xl bg-gray-900 p-2 text-[10px] text-white group-hover:block shadow-md z-50">
+              <div className="absolute left-14 top-0 hidden w-48 rounded-xl bg-gray-900 p-2 text-[10px] text-white group-hover:block shadow-md z-50">
                 Click to upload your official <strong>Epyllion Knitex Logo</strong> (PNG/JPEG)
               </div>
             </div>

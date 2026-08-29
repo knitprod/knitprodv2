@@ -16,13 +16,15 @@ import {
 import { UserRecord, INITIAL_USERS } from './UserManagementView';
 import { GasClient } from '../lib/gasClient';
 import { SupabaseSync } from '../lib/supabaseClient';
+import { OfficialEpyllionLogo } from './OfficialEpyllionLogo';
 
 interface LoginViewProps {
   onLoginSuccess: (user: UserRecord) => void;
   inactivityNotice?: string | null;
+  embedded?: boolean;
 }
 
-export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginViewProps) {
+export default function LoginView({ onLoginSuccess, inactivityNotice, embedded = false }: LoginViewProps) {
   const [uid, setUid] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -30,6 +32,7 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [userRoster, setUserRoster] = useState<UserRecord[]>(INITIAL_USERS);
+
 
   // Load user directory directly from Supabase / Server DB / Initial roster
   useEffect(() => {
@@ -164,8 +167,148 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
     }
   };
 
+  if (embedded) {
+    return (
+      <div className="w-full text-slate-100 p-3 sm:p-5">
+        {/* Header Badge */}
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-5">
+          <span className="text-xs font-black uppercase tracking-wider text-emerald-400">
+            Authorized Personnel Login
+          </span>
+          <span className="text-[10px] bg-slate-900 border border-slate-700 text-slate-300 font-bold px-2 py-0.5 rounded">
+            SECURE SSL
+          </span>
+        </div>
+
+        {/* Error, Inactivity & Success Alert Bars */}
+        {inactivityNotice && (
+          <div className="mb-4 rounded-xl bg-amber-950/40 border border-amber-800/60 p-3.5 text-xs text-amber-300 flex items-start gap-2.5 shadow-sm">
+            <ShieldAlert className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <span className="font-black block uppercase tracking-wider text-[11px] text-amber-200">
+                Session Inactivity Timeout
+              </span>
+              <span className="font-medium leading-relaxed">{inactivityNotice}</span>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="mb-4 rounded-xl bg-red-950/40 border border-red-900/60 p-3.5 text-xs text-red-300 flex items-start gap-2.5">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-red-400" />
+            <span className="font-semibold leading-relaxed">{error}</span>
+          </div>
+        )}
+
+        {success && (
+          <div className="mb-4 rounded-xl bg-emerald-950/40 border border-emerald-900/60 p-3.5 text-xs text-emerald-300 flex items-start gap-2.5">
+            <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5 text-emerald-400" />
+            <span className="font-bold">{success}</span>
+          </div>
+        )}
+
+        {/* Credential Form */}
+        <form onSubmit={handleLoginSubmit} className="space-y-4">
+          <div className="space-y-1">
+            <h2 className="text-lg sm:text-xl font-black tracking-tight text-white">
+              Sign In to Your Workspace
+            </h2>
+            <p className="text-xs text-slate-400 font-medium">
+              Please enter your factory UID and password credentials.
+            </p>
+          </div>
+
+          {/* UID Input */}
+          <div className="space-y-1.5 pt-2">
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
+              LOGIN UNIQUE ID (UID) *
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <User className="h-4 w-4" />
+              </div>
+              <input
+                type="text"
+                placeholder="e.g. EKL001"
+                value={uid}
+                onChange={(e) => setUid(e.target.value)}
+                className="w-full rounded-xl border border-slate-800 bg-slate-900/80 py-3 pl-10 pr-3.5 text-xs font-bold text-slate-100 placeholder-slate-500 transition-all focus:border-emerald-500 focus:bg-slate-900 focus:outline-hidden uppercase focus:ring-1 focus:ring-emerald-500/50"
+                disabled={loading}
+              />
+            </div>
+          </div>
+
+          {/* Password Input */}
+          <div className="space-y-1.5">
+            <div className="flex justify-between items-center">
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                PASSWORD *
+              </label>
+              <span className="text-[10px] text-slate-500 font-bold uppercase cursor-default">
+                Contact Admin For Reset
+              </span>
+            </div>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <Lock className="h-4 w-4" />
+              </div>
+              <input
+                type={showPassword ? "text" : "password"}
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded-xl border border-slate-800 bg-slate-900/80 py-3 pl-10 pr-10 text-xs font-bold text-slate-100 placeholder-slate-500 transition-all focus:border-emerald-500 focus:bg-slate-900 focus:outline-hidden focus:ring-1 focus:ring-emerald-500/50"
+                disabled={loading}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-200 cursor-pointer"
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+
+          {/* Submit button */}
+          <button
+            type="submit"
+            disabled={loading}
+            className={`w-full inline-flex items-center justify-center gap-2.5 rounded-xl text-white py-3.5 px-4 text-xs font-black uppercase tracking-wider transition-all shadow-lg active:scale-98 disabled:cursor-not-allowed cursor-pointer mt-4 relative overflow-hidden ${
+              loading 
+                ? 'bg-slate-800 border border-slate-700' 
+                : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600 hover:from-emerald-500 hover:to-teal-500 border border-emerald-500/40 shadow-[0_4px_20px_rgba(16,185,129,0.3)]'
+            }`}
+          >
+            {loading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin text-emerald-400 shrink-0" />
+                <span className="animate-pulse tracking-widest text-slate-100">Verifying Credentials...</span>
+                <span className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-400 to-sky-400 animate-pulse w-full" />
+              </>
+            ) : (
+              <>
+                <span>Secure Authorize Portal</span>
+                <ChevronRight className="h-4 w-4" />
+              </>
+            )}
+          </button>
+        </form>
+
+        {/* Compliance Footer */}
+        <div className="mt-6 pt-4 border-t border-slate-800 flex items-start gap-2.5 text-[10px] text-slate-500 leading-normal">
+          <ShieldAlert className="h-4 w-4 shrink-0 text-emerald-400" />
+          <p className="font-semibold">
+            Authorized access only. Real-time encryption active. All activities are recorded for audit compliance under Epyllion Group InfoSec.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-[#0B132B] px-4 py-12 relative overflow-hidden transition-colors duration-300">
+
       
       {/* Visual decorative background mesh */}
       <div className="absolute inset-0 z-0 opacity-[0.03] dark:opacity-[0.05] pointer-events-none">
@@ -195,16 +338,10 @@ export default function LoginView({ onLoginSuccess, inactivityNotice }: LoginVie
 
           <div className="space-y-6">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-xl bg-white/15 backdrop-blur-md border border-white/20 flex items-center justify-center font-black text-white text-lg tracking-wider">
-                EKL
-              </div>
-              <div>
-                <span className="block font-black text-sm uppercase tracking-widest text-sky-300">Epyllion Group</span>
-                <span className="block text-[11px] font-bold text-white/70 uppercase tracking-widest">Knitwear Manufacturing Division</span>
-              </div>
+              <OfficialEpyllionLogo width={180} height={46} theme="dark" id="login-modal-logo" />
             </div>
 
-            <div className="space-y-2 pt-6">
+            <div className="space-y-2 pt-4">
               <h1 className="text-2xl sm:text-3xl font-black tracking-tight leading-none text-white">
                 Knitting Performance
               </h1>

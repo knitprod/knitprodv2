@@ -11,6 +11,8 @@ interface LedgerCalendarDatePickerProps {
   maxDate?: string;
   placeholder?: string;
   className?: string;
+  buttonClassName?: string;
+  align?: 'left' | 'right';
 }
 
 export const LedgerCalendarDatePicker: React.FC<LedgerCalendarDatePickerProps> = ({
@@ -23,6 +25,8 @@ export const LedgerCalendarDatePicker: React.FC<LedgerCalendarDatePickerProps> =
   maxDate,
   placeholder = 'Select Date',
   className = '',
+  buttonClassName = '',
+  align = 'left',
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -211,7 +215,7 @@ export const LedgerCalendarDatePicker: React.FC<LedgerCalendarDatePickerProps> =
           isOpen
             ? 'border-[#0F4C81] ring-2 ring-[#0F4C81]/20'
             : 'border-gray-200 dark:border-slate-700 hover:border-gray-300 dark:hover:border-slate-600'
-        } ${value ? 'text-gray-900 dark:text-slate-100' : 'text-gray-400 dark:text-slate-500'}`}
+        } ${value ? 'text-gray-900 dark:text-slate-100' : 'text-gray-400 dark:text-slate-500'} ${buttonClassName}`}
       >
         <span className="truncate">{formattedDisplay || placeholder}</span>
         <div className="flex items-center gap-1 ml-1 shrink-0">
@@ -230,7 +234,7 @@ export const LedgerCalendarDatePicker: React.FC<LedgerCalendarDatePickerProps> =
 
       {/* Calendar Popover */}
       {isOpen && (
-        <div className="absolute left-0 top-full mt-1.5 z-50 w-72 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 shadow-xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-100">
+        <div className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1.5 z-50 w-72 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 shadow-xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-100`}>
           {/* Calendar Header: Month & Year Navigator */}
           <div className="flex items-center justify-between mb-2.5 pb-2 border-b border-slate-100 dark:border-slate-800">
             <button

@@ -58,13 +58,17 @@ export function saveUnitConfigs(configs: UnitThresholdConfig[]): void {
 
 export function getUnitConfigByName(unitName: string): UnitThresholdConfig | undefined {
   const configs = getUnitConfigs();
-  const normalized = (unitName || '').trim().toLowerCase();
+  const normalized = (unitName || '').trim().toLowerCase().replace(/[-_\s]+/g, '');
   
-  // Exact or normalized match
-  return configs.find(u => u.unitName.toLowerCase() === normalized || 
-    (normalized === 'sub-contact' && u.unitName.toLowerCase().includes('sub')) ||
-    (normalized === 'extension' && u.unitName.toLowerCase().includes('extension'))
-  );
+  return configs.find(u => {
+    const configNorm = u.unitName.toLowerCase().replace(/[-_\s]+/g, '');
+    if (configNorm === normalized) return true;
+    if (normalized.includes('sub') && configNorm.includes('sub')) return true;
+    if (normalized === 'autostripe' || normalized === 'auto') return configNorm.includes('stripe');
+    if (normalized === 'eflextension' || normalized === 'eflext' || normalized === 'extension') return configNorm.includes('eflext');
+    if (normalized === 'eslextension' || normalized === 'eslext' || normalized === 'esl') return configNorm.includes('eslext');
+    return false;
+  });
 }
 
 export function getTargetKgForUnit(unitName: string, defaultVal: number = 15000): number {
@@ -115,9 +119,14 @@ export function getInHouseTotalDailyCapacity(): number {
   return sum > 0 ? sum : 50000;
 }
 
-export function getEffectiveDailyCapacity(unitFilter?: string): number {
+export function getEffectiveDailyCapacity(unitFilter?: string, activeFloors?: string[]): number {
   if (unitFilter && unitFilter !== 'all' && !unitFilter.toLowerCase().includes('in-house')) {
     return getProductionCapacityForUnit(unitFilter, 10000);
+  }
+  if (activeFloors && activeFloors.length > 0) {
+    const distinctFloors = Array.from(new Set(activeFloors.filter(Boolean)));
+    const sum = distinctFloors.reduce((acc, f) => acc + getProductionCapacityForUnit(f, 10000), 0);
+    if (sum > 0) return sum;
   }
   return getInHouseTotalDailyCapacity();
 }

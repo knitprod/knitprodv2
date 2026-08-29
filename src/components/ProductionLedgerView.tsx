@@ -148,57 +148,6 @@ export const generateInitialLedger = (): LedgerRecord[] => {
       productionLossForEfficiency: 0,
     },
     {
-      id: 'rec-2026-08-11-extension',
-      unit: 'In-House',
-      year: 2026,
-      month: 'August',
-      date: '2026-08-11',
-      floor: 'Extension',
-      target: 4787,
-      shiftA: 1377,
-      shiftB: 1502,
-      shiftC: 1324,
-      totalProduction: 4203,
-      targetBulk: 3960,
-      bulkProd: 4023,
-      sampleProd: 180,
-      runningBulk: 22,
-      runningSample: 4,
-      idleMc: 12,
-      machineUtilization: 58,
-      idleMcPct: 32,
-      prodLossForSample: 0,
-      idleProduction: 552,
-      efficiency: 102,
-      proPerMc: 191.05,
-      reject: 2,
-      rejectPct: 0.05,
-      hold: 61,
-      holdPct: 1.45,
-      jhuteCutpcs: 0,
-      jhuteCutpcsPct: 0,
-      needleBroken: 201,
-      needlePerKg: 20.9,
-      sinkerBroken: 0,
-      sinkerPerKg: 0,
-      oilConsumption: 10,
-      beltBroken: 0,
-      otherSparePartsName: '',
-      otherSparePartsQty: 0,
-      setChangeNeedle: 0,
-      setChangeSinker: 0,
-      productionLossForEff: -30865.13,
-      capacityUtilization: 63.49,
-      totalOperator: 49,
-      absent: 2,
-      absentPct: 4.08,
-      remarks: '',
-      idleMachine: 12,
-      idleMachinePct: 32,
-      productionPerMachine: 191.05,
-      productionLossForEfficiency: -30865.13,
-    },
-    {
       id: 'rec-2026-08-11-sub-contact-2',
       unit: 'Sub-Contact',
       year: 2026,
@@ -1853,7 +1802,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
     const totalInHouseProd = inHouseRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0);
 
-    const totalDailyCapacity = getEffectiveDailyCapacity(appliedUnit);
+    const distinctFloors = Array.from(new Set(inHouseRecords.map(r => r.floor || r.unit).filter(Boolean))) as string[];
+    const totalDailyCapacity = getEffectiveDailyCapacity(appliedUnit, distinctFloors);
     const periodTotalCapacity = totalDailyCapacity * effectiveDays;
 
     let calculatedCapacityUtilizationPct = 0;

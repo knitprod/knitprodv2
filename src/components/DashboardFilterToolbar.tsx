@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Building2, 
   Calendar, 
@@ -13,11 +13,14 @@ import {
   Table, 
   ChevronDown, 
   Check, 
-  Search,
+  Search, 
   Filter
 } from 'lucide-react';
+import { useGlobalData } from '../context/GlobalDataContext';
+import { LedgerCalendarDatePicker } from './LedgerCalendarDatePicker';
 
 interface DashboardFilterToolbarProps {
+  filterState?: FilterState;
   onApplyFilters: (filters: FilterState) => void;
   onResetFilters: () => void;
   defaultUnit?: string;
@@ -54,27 +57,49 @@ const YEARS = [
 ];
 
 export default function DashboardFilterToolbar({ 
+  filterState,
   onApplyFilters, 
   onResetFilters,
   defaultUnit = 'all',
   defaultDate = ''
 }: DashboardFilterToolbarProps) {
+  const { ledger } = useGlobalData();
+
+  // Extract unique available dates present in the ledger
+  const availableLedgerDates = useMemo(() => {
+    const dates = new Set<string>();
+    (ledger || []).forEach(r => {
+      if (r.date && /^\d{4}-\d{2}-\d{2}$/.test(r.date)) {
+        dates.add(r.date);
+      }
+    });
+    return Array.from(dates).sort();
+  }, [ledger]);
+
+  const minAvailableDate = availableLedgerDates[0] || '';
+  const maxAvailableDate = availableLedgerDates[availableLedgerDates.length - 1] || '';
+
   // Local filter states
-  const [unit, setUnit] = useState<string>(defaultUnit);
-  const [year, setYear] = useState<string>('all');
-  const [dateFrom, setDateFrom] = useState<string>('');
-  const [dateTo, setDateTo] = useState<string>('');
+  const [unit, setUnit] = useState<string>(filterState?.unit || defaultUnit);
+  const [year, setYear] = useState<string>(filterState?.year || 'all');
+  const [dateFrom, setDateFrom] = useState<string>(filterState?.dateFrom || '');
+  const [dateTo, setDateTo] = useState<string>(filterState?.dateTo || '');
 
   // Searchable dropdown state for Units
   const [showUnitDropdown, setShowUnitDropdown] = useState<boolean>(false);
   const [unitSearch, setUnitSearch] = useState<string>('');
 
-  // Sync state if default changes
+  // Sync state whenever filterState or default changes
   useEffect(() => {
-    if (defaultUnit) {
+    if (filterState) {
+      setUnit(filterState.unit || 'all');
+      setYear(filterState.year || 'all');
+      setDateFrom(filterState.dateFrom || '');
+      setDateTo(filterState.dateTo || '');
+    } else if (defaultUnit) {
       setUnit(defaultUnit);
     }
-  }, [defaultUnit]);
+  }, [filterState, defaultUnit]);
 
   const filteredUnits = UNITS.filter(u => 
     u.name.toLowerCase().includes(unitSearch.toLowerCase())
@@ -87,7 +112,7 @@ export default function DashboardFilterToolbar({
     if (dateFrom && dateTo) {
       computedDateMode = dateFrom === dateTo ? 'single' : 'range';
     } else if (dateFrom || dateTo) {
-      computedDateMode = 'single';
+      computedDateMode = 'range';
     } else if (year && year !== 'all') {
       computedDateMode = 'year';
     } else {
@@ -97,7 +122,7 @@ export default function DashboardFilterToolbar({
     onApplyFilters({
       unit,
       dateMode: computedDateMode,
-      singleDate: dateFrom || dateTo || defaultDate || '2026-08-26',
+      singleDate: dateFrom && dateTo && dateFrom === dateTo ? dateFrom : (dateFrom || dateTo || defaultDate || '2026-08-26'),
       dateFrom,
       dateTo,
       month: dateFrom ? dateFrom.substring(0, 7) : '',
@@ -214,35 +239,36 @@ export default function DashboardFilterToolbar({
         </div>
 
         {/* 3. FROM DATE */}
-        <div className="w-full sm:w-[160px] lg:w-[180px] space-y-1.5 relative shrink-0">
+        <div className="w-full sm:w-[160px] lg:w-[175px] space-y-1.5 relative shrink-0">
           <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 tracking-wide flex items-center gap-1.5 uppercase">
             <span>📅</span>
             <span>FROM DATE</span>
           </label>
-          <div className="relative">
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/90 px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100 shadow-2xs hover:border-slate-300 dark:hover:border-slate-600 focus:outline-hidden cursor-pointer placeholder:text-slate-400"
-            />
-          </div>
+          <LedgerCalendarDatePicker
+            id="dashboard-filter-from-date"
+            value={dateFrom}
+            onChange={(val) => setDateFrom(val)}
+            allowedDates={availableLedgerDates}
+            maxDate={dateTo || maxAvailableDate}
+            placeholder="Select From Date"
+          />
         </div>
 
         {/* 4. TO DATE */}
-        <div className="w-full sm:w-[160px] lg:w-[180px] space-y-1.5 relative shrink-0">
+        <div className="w-full sm:w-[160px] lg:w-[175px] space-y-1.5 relative shrink-0">
           <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 tracking-wide flex items-center gap-1.5 uppercase">
             <span>📅</span>
             <span>TO DATE</span>
           </label>
-          <div className="relative">
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/90 px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100 shadow-2xs hover:border-slate-300 dark:hover:border-slate-600 focus:outline-hidden cursor-pointer placeholder:text-slate-400"
-            />
-          </div>
+          <LedgerCalendarDatePicker
+            id="dashboard-filter-to-date"
+            value={dateTo}
+            onChange={(val) => setDateTo(val)}
+            allowedDates={availableLedgerDates}
+            minDate={dateFrom || minAvailableDate}
+            maxDate={maxAvailableDate}
+            placeholder="Select To Date"
+          />
         </div>
 
         {/* 5. Action Buttons */}
