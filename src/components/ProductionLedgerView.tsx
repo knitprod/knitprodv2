@@ -63,6 +63,8 @@ import {
   getTotalMachinesForUnit, 
   getAvgProdPerMachineForUnit, 
   getProductionCapacityForUnit,
+  getInHouseTotalDailyCapacity,
+  getEffectiveDailyCapacity,
   getUnitConfigs,
   saveUnitConfigs,
   UnitThresholdConfig
@@ -1831,40 +1833,27 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     }
 
     // Capacity Utilization Formula:
-    // Total In-House Production / (Active Unit(s) Daily Capacity * Last Production Entry Day Number in Period) * 100%
+    // Total In-House Production / (Active Unit(s) Daily Capacity * Filtered Days in Period) * 100%
     let effectiveDays = 1;
-    if (appliedFromDate && appliedToDate && appliedFromDate !== appliedToDate) {
-      const d1 = new Date(appliedFromDate).getTime();
-      const d2 = new Date(appliedToDate).getTime();
-      effectiveDays = Math.max(1, Math.round((d2 - d1) / (1000 * 3600 * 24)) + 1);
+    if (appliedFromDate && appliedToDate) {
+      if (appliedFromDate === appliedToDate) {
+        effectiveDays = 1;
+      } else {
+        const d1 = new Date(appliedFromDate).getTime();
+        const d2 = new Date(appliedToDate).getTime();
+        effectiveDays = Math.max(1, Math.round((d2 - d1) / (1000 * 3600 * 24)) + 1);
+      }
     } else if (appliedFromDate || appliedToDate) {
-      effectiveDays = 1;
-    } else {
-      // Month scope or default running month: find the latest entry date (day of month, e.g. 24 for Aug 24)
       const datesInPeriod = targetPeriodRecords.map(r => r.date).filter(Boolean);
-      const maxDay = datesInPeriod.reduce((max, d) => {
-        const parts = d.split('-');
-        const day = parts.length === 3 ? parseInt(parts[2], 10) : 0;
-        return Math.max(max, isNaN(day) ? 0 : day);
-      }, 0);
-      effectiveDays = maxDay > 0 ? maxDay : Math.max(1, new Set(datesInPeriod).size);
+      effectiveDays = Math.max(1, new Set(datesInPeriod).size);
+    } else {
+      const datesInPeriod = targetPeriodRecords.map(r => r.date).filter(Boolean);
+      effectiveDays = Math.max(1, new Set(datesInPeriod).size);
     }
 
     const totalInHouseProd = inHouseRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.totalProduction)) ? 0 : Number(r.totalProduction || 0)), 0);
 
-    let totalDailyCapacity = 0;
-    if (appliedUnit !== 'all') {
-      totalDailyCapacity = getProductionCapacityForUnit(appliedUnit, 6350);
-    } else {
-      const distinctFloors = Array.from(new Set(inHouseRecords.map(r => r.floor).filter(Boolean))) as string[];
-      if (distinctFloors.length > 0) {
-        totalDailyCapacity = distinctFloors.reduce((sum: number, f: string) => sum + getProductionCapacityForUnit(f, 15000), 0);
-      } else {
-        const inHouseUnits = getUnitConfigs().filter(u => !u.unitName.toLowerCase().includes('sub'));
-        totalDailyCapacity = inHouseUnits.reduce((sum, u) => sum + Number(u.productionCapacity || 0), 0) || (inHouseRecords.length > 0 ? 74500 : 0);
-      }
-    }
-
+    const totalDailyCapacity = getEffectiveDailyCapacity(appliedUnit);
     const periodTotalCapacity = totalDailyCapacity * effectiveDays;
 
     let calculatedCapacityUtilizationPct = 0;

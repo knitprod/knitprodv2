@@ -8,7 +8,9 @@ import {
   getUnitConfigs, 
   getProductionCapacityForUnit, 
   getAvgProdPerMachineForUnit, 
-  getTotalMachinesForUnit 
+  getTotalMachinesForUnit,
+  getInHouseTotalDailyCapacity,
+  getEffectiveDailyCapacity
 } from './unitStore';
 
 // In-House Floor standard multipliers fallback (Kg / Machine / Day)
@@ -37,10 +39,10 @@ export function isSubContactRecord(r: LedgerRecord): boolean {
 }
 
 /**
- * Calculates effective days in the given period matching Production Ledger logic:
+ * Calculates effective days in the given period:
  * - Single Date: 1 day
- * - Date Range: (to - from) in days + 1
- * - Month Scope / Default: Latest day of the month with data (e.g. 26 for Aug 26), or distinct dates count
+ * - Date Range: (dateTo - dateFrom) in days + 1 (e.g. 26 Aug to 27 Aug = 2 days, 26 to 28 = 3 days)
+ * - Month Scope / Other Filters: Exact count of unique active dates with records in that period
  */
 export function calculateEffectiveDays(
   records: LedgerRecord[],
@@ -59,16 +61,8 @@ export function calculateEffectiveDays(
     }
   }
 
-  const datesInPeriod = records.map(r => r.date).filter(Boolean) as string[];
-  if (datesInPeriod.length === 0) return 1;
-
-  const maxDay = datesInPeriod.reduce((max, d) => {
-    const parts = d.split('-');
-    const day = parts.length === 3 ? parseInt(parts[2], 10) : 0;
-    return Math.max(max, isNaN(day) ? 0 : day);
-  }, 0);
-
-  return maxDay > 0 ? maxDay : Math.max(1, new Set(datesInPeriod).size);
+  const distinctDates = new Set(records.map(r => r.date).filter(Boolean));
+  return Math.max(1, distinctDates.size);
 }
 
 /**
@@ -133,6 +127,19 @@ export function calculateLedgerEfficiency(
 }
 
 /**
+ * Calculates Total Planned Period Capacity in Kg:
+ * Formula: Daily Capacity * Effective Days
+ * (e.g. 50K * 1 day = 50K, 50K * 2 days = 100K, 50K * 3 days = 150K)
+ */
+export function calculateLedgerPeriodCapacity(
+  appliedUnit: string = 'all',
+  effectiveDays: number = 1
+): number {
+  const dailyCapacity = getEffectiveDailyCapacity(appliedUnit);
+  return dailyCapacity * Math.max(1, effectiveDays);
+}
+
+/**
  * Calculates Capacity Utilization % identical to Production Ledger:
  * Formula: (Total In-House Production / (Active Unit(s) Daily Capacity * Effective Days)) * 100
  * With individual row override if single record has pre-calculated capacityUtilization.
@@ -155,20 +162,7 @@ export function calculateLedgerCapacityUtilization(
     return sum + (Number.isNaN(t) ? 0 : t);
   }, 0);
 
-  let totalDailyCapacity = 0;
-  if (appliedUnit !== 'all' && !appliedUnit.toLowerCase().includes('in-house')) {
-    totalDailyCapacity = getProductionCapacityForUnit(appliedUnit, 6350);
-  } else {
-    const distinctFloors = Array.from(new Set(inHouseRecords.map(r => r.floor).filter(Boolean))) as string[];
-    if (distinctFloors.length > 0) {
-      totalDailyCapacity = distinctFloors.reduce((sum: number, f: string) => sum + getProductionCapacityForUnit(f, 15000), 0);
-    } else {
-      const inHouseUnits = getUnitConfigs().filter(u => !u.unitName.toLowerCase().includes('sub'));
-      totalDailyCapacity = inHouseUnits.reduce((sum, u) => sum + Number(u.productionCapacity || 0), 0) || (inHouseRecords.length > 0 ? 74500 : 0);
-    }
-  }
-
-  const periodTotalCapacity = totalDailyCapacity * Math.max(1, effectiveDays);
+  const periodTotalCapacity = calculateLedgerPeriodCapacity(appliedUnit, effectiveDays);
 
   if (totalInHouseProd > 0 && periodTotalCapacity > 0) {
     return parseFloat(((totalInHouseProd / periodTotalCapacity) * 100).toFixed(2));

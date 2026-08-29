@@ -13,11 +13,11 @@ export interface UnitThresholdConfig {
 
 export const INITIAL_UNIT_CONFIGS: UnitThresholdConfig[] = [
   { id: 'unit-ekl', unitName: 'EKL', productionCapacity: 7500, totalMachine: 29, avgProdPerMachine: 230 },
-  { id: 'unit-efl', unitName: 'EFL', productionCapacity: 15000, totalMachine: 40, avgProdPerMachine: 230 },
-  { id: 'unit-efl2', unitName: 'EFL-2', productionCapacity: 15000, totalMachine: 35, avgProdPerMachine: 280 },
-  { id: 'unit-autostripe', unitName: 'Auto Stripe', productionCapacity: 12000, totalMachine: 20, avgProdPerMachine: 120 },
-  { id: 'unit-eflext', unitName: 'EFL-Extension', productionCapacity: 15000, totalMachine: 25, avgProdPerMachine: 180 },
-  { id: 'unit-eslext', unitName: 'ESL-Extension', productionCapacity: 10000, totalMachine: 16, avgProdPerMachine: 200 },
+  { id: 'unit-efl', unitName: 'EFL', productionCapacity: 12500, totalMachine: 40, avgProdPerMachine: 230 },
+  { id: 'unit-efl2', unitName: 'EFL-2', productionCapacity: 12000, totalMachine: 35, avgProdPerMachine: 280 },
+  { id: 'unit-autostripe', unitName: 'Auto Stripe', productionCapacity: 4000, totalMachine: 20, avgProdPerMachine: 120 },
+  { id: 'unit-eflext', unitName: 'EFL-Extension', productionCapacity: 8000, totalMachine: 25, avgProdPerMachine: 180 },
+  { id: 'unit-eslext', unitName: 'ESL-Extension', productionCapacity: 6000, totalMachine: 16, avgProdPerMachine: 200 },
   { id: 'unit-subcontact', unitName: 'Sub-Contact', productionCapacity: 25000, totalMachine: 153, avgProdPerMachine: 163.4 }
 ];
 
@@ -103,7 +103,22 @@ export function getAvgProdPerMachineForUnit(unitName: string, defaultVal: number
   return defaultVal;
 }
 
-export function getProductionCapacityForUnit(unitName: string, defaultVal: number = 15000): number {
+export function getProductionCapacityForUnit(unitName: string, defaultVal: number = 10000): number {
   const config = getUnitConfigByName(unitName);
   return config ? Number(config.productionCapacity) : defaultVal;
 }
+
+export function getInHouseTotalDailyCapacity(): number {
+  const configs = getUnitConfigs();
+  const inHouseConfigs = configs.filter(u => !u.unitName.toLowerCase().includes('sub'));
+  const sum = inHouseConfigs.reduce((acc, u) => acc + (Number(u.productionCapacity) || 0), 0);
+  return sum > 0 ? sum : 50000;
+}
+
+export function getEffectiveDailyCapacity(unitFilter?: string): number {
+  if (unitFilter && unitFilter !== 'all' && !unitFilter.toLowerCase().includes('in-house')) {
+    return getProductionCapacityForUnit(unitFilter, 10000);
+  }
+  return getInHouseTotalDailyCapacity();
+}
+

@@ -30,11 +30,12 @@ import {
 } from 'lucide-react';
 import { FactoryFloor, LedgerRecord } from '../types';
 import { useGlobalData } from '../context/GlobalDataContext';
-import { getTotalMachinesForUnit, getUnitConfigs, getProductionCapacityForUnit } from '../lib/unitStore';
+import { getTotalMachinesForUnit, getUnitConfigs, getProductionCapacityForUnit, getEffectiveDailyCapacity } from '../lib/unitStore';
 import { 
   calculateLedgerEfficiency, 
   calculateLedgerCapacityUtilization, 
   calculateEffectiveDays, 
+  calculateLedgerPeriodCapacity,
   isSubContactRecord 
 } from '../lib/productionMetrics';
 import { FilterState } from './DashboardFilterToolbar';
@@ -520,20 +521,9 @@ export default function WelcomeBanner({
       subContactSampleProd = scRows.reduce((sum, r) => sum + (Number(r.sampleProd) || 0), 0);
       sampleProduction = inHouseSampleProd + subContactSampleProd;
 
-      // Daily capacity calculation
-      if (appliedUnit !== 'all' && !appliedUnit.toLowerCase().includes('in-house')) {
-        totalDailyCapacity = getProductionCapacityForUnit(appliedUnit, 6350);
-      } else {
-        const distinctFloors = Array.from(new Set(ihRows.map(r => r.floor).filter(Boolean))) as string[];
-        if (distinctFloors.length > 0) {
-          totalDailyCapacity = distinctFloors.reduce((sum: number, f: string) => sum + getProductionCapacityForUnit(f, 15000), 0);
-        } else {
-          const inHouseUnits = getUnitConfigs().filter(u => !u.unitName.toLowerCase().includes('sub'));
-          totalDailyCapacity = inHouseUnits.reduce((sum, u) => sum + Number(u.productionCapacity || 0), 0) || (ihRows.length > 0 ? 74500 : 0);
-        }
-      }
-
-      periodTotalCapacity = totalDailyCapacity * Math.max(1, effectiveDays);
+      // Daily capacity calculation from Setting Panel (defaults to 50K/day for In-House)
+      totalDailyCapacity = getEffectiveDailyCapacity(appliedUnit);
+      periodTotalCapacity = calculateLedgerPeriodCapacity(appliedUnit, effectiveDays);
 
       // 4. In-House Total Machines from settings store
       if (appliedUnit !== 'all' && !appliedUnit.toLowerCase().includes('in-house')) {
