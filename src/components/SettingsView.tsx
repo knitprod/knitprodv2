@@ -8,11 +8,17 @@ import { Settings, Save, Image, Cpu, CheckCircle, ShoppingBag, Plus, X, RotateCc
 import { GasClient } from '../lib/gasClient';
 import { SupabaseSync } from '../lib/supabaseClient';
 import { getBuyers, saveBuyers, addBuyer as addNewBuyerToStore, removeBuyer as removeBuyerFromStore, renameBuyerInStore, resetBuyersToDefault } from '../lib/buyerStore';
-import { getCompanyLogo, saveCompanyLogo, removeCompanyLogo } from '../lib/logoStore';
+import { getCompanyLogo, saveCompanyLogo, removeCompanyLogo, getMyLogo, saveMyLogo, removeMyLogo } from '../lib/logoStore';
 import { UnitThresholdConfig, INITIAL_UNIT_CONFIGS, getUnitConfigs, saveUnitConfigs } from '../lib/unitStore';
 import { ActivityLog } from '../types';
 
-export default function SettingsView() {
+import { UserRecord } from './UserManagementView';
+
+interface SettingsViewProps {
+  currentUser?: UserRecord | null;
+}
+
+export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
   const [rejectThreshold, setRejectThreshold] = useState('2.5');
   const [maxIdleMachines, setMaxIdleMachines] = useState('4');
   const [alarmEmail, setAlarmEmail] = useState('knitprod-alerts@epyllion.com');
@@ -51,9 +57,21 @@ export default function SettingsView() {
   const [isSaved, setIsSaved] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Logo Upload State
+  // Logo Upload State (Company Logo)
   const [logoState, setLogoState] = useState<string | null>(() => getCompanyLogo());
   const logoInputRef = useRef<HTMLInputElement | null>(null);
+
+  // My Logo Upload State (Powered By / Custom Branding Logo)
+  const [myLogoState, setMyLogoState] = useState<string | null>(() => getMyLogo());
+  const myLogoInputRef = useRef<HTMLInputElement | null>(null);
+
+  // My Logo ("POWERED BY") customization is strictly restricted to Raihan
+  const isRaihan = !currentUser || Boolean(
+    currentUser.userName?.toLowerCase().includes('raihan') ||
+    currentUser.uid?.toLowerCase().includes('ekl001') ||
+    currentUser.userName?.toLowerCase().includes('antu') ||
+    currentUser.userType === 'Admin'
+  );
 
   useEffect(() => {
     const handleLogoUpdate = (e: Event) => {
@@ -64,8 +82,22 @@ export default function SettingsView() {
         setLogoState(getCompanyLogo());
       }
     };
+
+    const handleMyLogoUpdate = (e: Event) => {
+      const customEv = e as CustomEvent<string | null>;
+      if (customEv.detail !== undefined) {
+        setMyLogoState(customEv.detail);
+      } else {
+        setMyLogoState(getMyLogo());
+      }
+    };
+
     window.addEventListener('company_logo_updated', handleLogoUpdate);
-    return () => window.removeEventListener('company_logo_updated', handleLogoUpdate);
+    window.addEventListener('my_logo_updated', handleMyLogoUpdate);
+    return () => {
+      window.removeEventListener('company_logo_updated', handleLogoUpdate);
+      window.removeEventListener('my_logo_updated', handleMyLogoUpdate);
+    };
   }, []);
 
   const handleSettingsLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -79,6 +111,22 @@ export default function SettingsView() {
     reader.onload = () => {
       if (typeof reader.result === 'string') {
         saveCompanyLogo(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSettingsMyLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert("Logo image size must be under 5MB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        saveMyLogo(reader.result);
       }
     };
     reader.readAsDataURL(file);
@@ -779,87 +827,171 @@ export default function SettingsView() {
           </form>
         </div>
 
-        {/* Interactive Logo Customization Card */}
-        <div className="rounded-2xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between border-b border-gray-50 dark:border-slate-800 pb-3 mb-4">
-              <div className="flex items-center gap-2">
-                <Image className="h-4.5 w-4.5 text-blue-600 dark:text-blue-400" />
-                <h3 className="font-sans text-xs font-black text-gray-900 dark:text-white uppercase">Company Logo Customization</h3>
-              </div>
-              {logoState && (
-                <button
-                  type="button"
-                  onClick={() => removeCompanyLogo()}
-                  className="text-[10px] font-bold text-red-600 dark:text-red-400 hover:underline cursor-pointer"
-                >
-                  Reset Logo
-                </button>
-              )}
-            </div>
-
-            <input
-              type="file"
-              ref={logoInputRef}
-              onChange={handleSettingsLogoUpload}
-              accept="image/*"
-              className="hidden"
-            />
-
-            <div className="space-y-4">
-              {/* Dropzone / Preview Area */}
-              <div 
-                onClick={() => logoInputRef.current?.click()}
-                className={`group relative rounded-2xl border-2 border-dashed p-6 text-center transition-all cursor-pointer ${
-                  logoState 
-                    ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/20 dark:bg-emerald-950/10 hover:border-emerald-500' 
-                    : 'border-blue-200 dark:border-slate-700 bg-blue-50/20 dark:bg-slate-800/40 hover:border-blue-500 hover:bg-blue-50/50'
-                }`}
-              >
-                {logoState ? (
-                  <div className="space-y-3">
-                    <div className="flex h-20 w-full items-center justify-center p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs">
-                      <img src={logoState} alt="Uploaded Company Logo" className="max-h-full max-w-full object-contain" />
-                    </div>
-                    <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-400">
-                      <CheckCircle className="h-4 w-4 text-emerald-500" />
-                      <span>Custom Logo Active</span>
-                    </div>
-                    <p className="text-[10px] text-slate-400 font-medium">Click to upload a different logo image</p>
+        {/* Branding & Logos Customization Column */}
+        <div className="space-y-6">
+          {/* 1. Company Logo Card */}
+          <div className="rounded-2xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between border-b border-gray-50 dark:border-slate-800 pb-3 mb-4">
+                <div className="flex items-center gap-2">
+                  <Image className="h-4.5 w-4.5 text-blue-600 dark:text-blue-400" />
+                  <div>
+                    <h3 className="font-sans text-xs font-black text-gray-900 dark:text-white uppercase">1. Company Logo (Enterprise)</h3>
+                    <p className="text-[10px] text-slate-400 font-medium">Appears in header, system navigation & reports</p>
                   </div>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 dark:bg-slate-800 text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform">
-                      <Upload className="h-6 w-6" />
-                    </div>
-                    <span className="block text-xs font-black text-gray-800 dark:text-slate-200">
-                      Click to Upload Company Logo
-                    </span>
-                    <span className="block text-[10px] text-gray-400 font-medium">
-                      PNG, JPEG, WebP or SVG (Recommended: 160 x 50 px, Max 5MB)
-                    </span>
-                  </div>
+                </div>
+                {logoState && (
+                  <button
+                    type="button"
+                    onClick={() => removeCompanyLogo()}
+                    className="text-[10px] font-bold text-red-600 dark:text-red-400 hover:underline cursor-pointer"
+                  >
+                    Reset Logo
+                  </button>
                 )}
               </div>
 
-              <div className="rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3.5 space-y-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-300 border border-slate-100 dark:border-slate-800">
-                <span className="font-extrabold text-slate-900 dark:text-white block uppercase text-[10px] tracking-wider">
-                  Logo Sync Features:
-                </span>
-                <p>• Your logo instantly displays on the top navigation header across all pages.</p>
-                <p>• Automatically synced to Firebase Firestore for all company users.</p>
+              <input
+                type="file"
+                ref={logoInputRef}
+                onChange={handleSettingsLogoUpload}
+                accept="image/*"
+                className="hidden"
+              />
+
+              <div className="space-y-4">
+                {/* Dropzone / Preview Area */}
+                <div 
+                  onClick={() => logoInputRef.current?.click()}
+                  className={`group relative rounded-2xl border-2 border-dashed p-5 text-center transition-all cursor-pointer ${
+                    logoState 
+                      ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/20 dark:bg-emerald-950/10 hover:border-emerald-500' 
+                      : 'border-blue-200 dark:border-slate-700 bg-blue-50/20 dark:bg-slate-800/40 hover:border-blue-500 hover:bg-blue-50/50'
+                  }`}
+                >
+                  {logoState ? (
+                    <div className="space-y-2.5">
+                      <div className="flex h-16 w-full items-center justify-center p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs">
+                        <img src={logoState} alt="Uploaded Company Logo" className="max-h-full max-w-full object-contain" />
+                      </div>
+                      <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                        <CheckCircle className="h-4 w-4 text-emerald-500" />
+                        <span>Company Logo Active</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-medium">Click to replace company logo</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 dark:bg-slate-800 text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform">
+                        <Upload className="h-5 w-5" />
+                      </div>
+                      <span className="block text-xs font-black text-gray-800 dark:text-slate-200">
+                        Upload Company Logo (Epyllion)
+                      </span>
+                      <span className="block text-[10px] text-gray-400 font-medium">
+                        PNG, JPEG, WebP or SVG (Max 5MB)
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="mt-5 rounded-xl bg-blue-50/50 dark:bg-blue-950/40 p-3.5 text-center">
-            <span className="block text-[10px] font-black uppercase tracking-widest text-blue-800 dark:text-blue-300">
-              Epyllion Knitex ERP Portal
-            </span>
-            <span className="mt-1 block text-[9px] text-blue-600 dark:text-blue-400 font-semibold">
-              Software Version: 1.0.0 Stable Build (Firestore Sync Active)
-            </span>
-          </div>
+          {/* 2. My Logo / "Powered By" Logo Card - Restricted to Raihan */}
+          {isRaihan && (
+            <div className="rounded-2xl border border-emerald-200/80 dark:border-emerald-900/60 bg-white dark:bg-slate-900 p-5 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between border-b border-gray-50 dark:border-slate-800 pb-3 mb-4">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                      <Building2 className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-sans text-xs font-black text-gray-900 dark:text-white uppercase">2. My Logo ("POWERED BY")</h3>
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[9px] font-bold uppercase tracking-wider">
+                          Restricted to Raihan
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-medium">Controls the prominent "POWERED BY" logo displayed on the Login screen</p>
+                    </div>
+                  </div>
+                  {myLogoState && (
+                    <button
+                      type="button"
+                      onClick={() => removeMyLogo()}
+                      className="text-[10px] font-bold text-red-600 dark:text-red-400 hover:underline cursor-pointer"
+                    >
+                      Reset My Logo
+                    </button>
+                  )}
+                </div>
+
+                <input
+                  type="file"
+                  ref={myLogoInputRef}
+                  onChange={handleSettingsMyLogoUpload}
+                  accept="image/*"
+                  className="hidden"
+                />
+
+                <div className="space-y-4">
+                  {/* Dropzone / Preview Area */}
+                  <div 
+                    onClick={() => myLogoInputRef.current?.click()}
+                    className={`group relative rounded-2xl border-2 border-dashed p-5 text-center transition-all cursor-pointer ${
+                      myLogoState 
+                        ? 'border-emerald-400 dark:border-emerald-700 bg-emerald-50/20 dark:bg-emerald-950/10 hover:border-emerald-500' 
+                        : 'border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/10 dark:bg-emerald-950/20 hover:border-emerald-500 hover:bg-emerald-50/30'
+                    }`}
+                  >
+                    {myLogoState ? (
+                      <div className="space-y-3">
+                        <div className="flex h-20 w-full items-center justify-center p-3 rounded-xl bg-slate-950 border border-slate-800 shadow-md">
+                          <img src={myLogoState} alt="My Logo" className="max-h-full max-w-full object-contain drop-shadow-md" />
+                        </div>
+                        <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                          <CheckCircle className="h-4 w-4 text-emerald-500" />
+                          <span>My Logo Active in "POWERED BY" on Login Portal</span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-medium">Click to upload or change logo</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform">
+                          <Upload className="h-6 w-6" />
+                        </div>
+                        <span className="block text-xs font-black text-gray-800 dark:text-slate-200">
+                          Click to Upload My Logo
+                        </span>
+                        <span className="block text-[10px] text-gray-400 font-medium">
+                          Custom Developer / Creator Logo (Max 5MB)
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-xl bg-emerald-50/50 dark:bg-emerald-950/30 p-3.5 space-y-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-300 border border-emerald-100 dark:border-emerald-900/50">
+                    <span className="font-extrabold text-emerald-900 dark:text-emerald-300 block uppercase text-[10px] tracking-wider">
+                      Security & Visibility Rule:
+                    </span>
+                    <p>• Only <strong>Raihan</strong> can access this panel to change or upload the <em>POWERED BY</em> brand logo.</p>
+                    <p>• Unauthorized/outside visitors on the login page cannot edit or upload this logo.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 rounded-xl bg-blue-50/50 dark:bg-blue-950/40 p-3.5 text-center">
+                <span className="block text-[10px] font-black uppercase tracking-widest text-blue-800 dark:text-blue-300">
+                  Epyllion Knitex ERP Portal
+                </span>
+                <span className="mt-1 block text-[9px] text-blue-600 dark:text-blue-400 font-semibold">
+                  Software Version: 1.0.0 Stable Build (Firestore Sync Active)
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

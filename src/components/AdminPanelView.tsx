@@ -131,7 +131,7 @@ export default function AdminPanelView({ currentUser, initialTab = 'user-managem
         )}
 
         {activeTab === 'settings' && (
-          <SettingsView />
+          <SettingsView currentUser={currentUser} />
         )}
       </div>
     </div>

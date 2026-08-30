@@ -17,6 +17,7 @@ import { UserRecord, INITIAL_USERS } from './UserManagementView';
 import { GasClient } from '../lib/gasClient';
 import { SupabaseSync } from '../lib/supabaseClient';
 import { OfficialEpyllionLogo } from './OfficialEpyllionLogo';
+import { PoweredByLogoBadge } from './PoweredByLogoBadge';
 
 interface LoginViewProps {
   onLoginSuccess: (user: UserRecord) => void;
@@ -209,13 +210,22 @@ export default function LoginView({ onLoginSuccess, inactivityNotice, embedded =
 
         {/* Credential Form */}
         <form onSubmit={handleLoginSubmit} className="space-y-4">
-          <div className="space-y-1">
-            <h2 className="text-lg sm:text-xl font-black tracking-tight text-white">
-              Sign In to Your Workspace
-            </h2>
-            <p className="text-xs text-slate-400 font-medium">
-              Please enter your factory UID and password credentials.
-            </p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1">
+            <div className="space-y-1">
+              <h2 className="text-lg sm:text-xl font-black tracking-tight text-white">
+                Sign In to Your Workspace
+              </h2>
+              <p className="text-xs text-slate-400 font-medium">
+                Please enter your factory UID and password credentials.
+              </p>
+            </div>
+
+            {/* Powered By Logo Badge (In the designated right header area) */}
+            <PoweredByLogoBadge
+              theme="dark"
+              id="login-embedded-powered-by"
+              className="self-start sm:self-center shrink-0"
+            />
           </div>
 
           {/* UID Input */}
@@ -409,13 +419,22 @@ export default function LoginView({ onLoginSuccess, inactivityNotice, embedded =
 
             {/* Credential Form */}
             <form onSubmit={handleLoginSubmit} className="space-y-4">
-              <div className="space-y-1">
-                <h2 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">
-                  Sign In to Your Workspace
-                </h2>
-                <p className="text-xs text-gray-400 dark:text-slate-400 font-medium">
-                  Please enter your factory UID and password credentials.
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1">
+                <div className="space-y-1">
+                  <h2 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">
+                    Sign In to Your Workspace
+                  </h2>
+                  <p className="text-xs text-gray-400 dark:text-slate-400 font-medium">
+                    Please enter your factory UID and password credentials.
+                  </p>
+                </div>
+
+                {/* Powered By Logo Badge */}
+                <PoweredByLogoBadge
+                  theme="dark"
+                  id="login-standalone-powered-by"
+                  className="self-start sm:self-center shrink-0"
+                />
               </div>
 
               {/* UID Input */}
