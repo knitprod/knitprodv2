@@ -17,7 +17,7 @@ let cachedDbObj: any = null;
 const gasProxyCache = new Map<string, { timestamp: number; data: any }>();
 const CACHE_TTL_MS = 15000; // 15-second cache for GET requests
 
-const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbz6M8NmfDjG9GKdmkFMHggR6MGQwRU6Q42-hpd_gxEfbTQsjRL86mI_NavdqJB8Blzl/exec';
+const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbxFWAAfakjwAFV9V4AdZr6WvXOBXfWO3yAHSJkxSKxyTgOeSqW04d2sewbbtFRxd2Cn/exec';
 
 // Safe JSON parsing with control character cleaning & recovery
 function safeParseJson(raw: string, fallback: any = null): any {
@@ -137,7 +137,7 @@ function saveConfig(newConfig: Partial<{ gasWebAppUrl: string; databaseMode: 'ga
         let content = fs.readFileSync(serverPath, 'utf-8');
         const serverRegex = /(const DEFAULT_GAS_URL\s*=\s*)(['"])([\s\S]*?)\2;/g;
         if (serverRegex.test(content)) {
-          content = content.replace(serverRegex, `const DEFAULT_GAS_URL = '${newUrl}';`);
+          content = content.replace(serverRegex, `const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbxFWAAfakjwAFV9V4AdZr6WvXOBXfWO3yAHSJkxSKxyTgOeSqW04d2sewbbtFRxd2Cn/exec';`);
           atomicWriteFileSync(serverPath, content);
         }
       } catch (e) {
@@ -152,7 +152,7 @@ function saveConfig(newConfig: Partial<{ gasWebAppUrl: string; databaseMode: 'ga
         let content = fs.readFileSync(gasClientPath, 'utf-8');
         const gasClientRegex = /(const DEFAULT_GAS_URL\s*=\s*)(['"])([\s\S]*?)\2;/g;
         if (gasClientRegex.test(content)) {
-          content = content.replace(gasClientRegex, `const DEFAULT_GAS_URL = '${newUrl}';`);
+          content = content.replace(gasClientRegex, `const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbxFWAAfakjwAFV9V4AdZr6WvXOBXfWO3yAHSJkxSKxyTgOeSqW04d2sewbbtFRxd2Cn/exec';`);
           atomicWriteFileSync(gasClientPath, content);
         }
         const clientRegex = /(static DEFAULT_URL\s*=\s*)(['"])([\s\S]*?)\2;/g;
@@ -275,6 +275,10 @@ function loadDb() {
         lastUpdated: '2026-07-13 09:10 AM'
       }
     ],
+    branding: {
+      companyLogo: '',
+      myLogo: ''
+    },
     ledger: [],
     productionEntries: [],
     activityLogs: []
@@ -422,6 +426,41 @@ app.get('/api/db', (req, res) => {
 app.post('/api/db', (req, res) => {
   const updated = saveDb(req.body || {});
   res.json({ success: true, db: updated });
+});
+
+// Central Branding & Logo endpoints for immediate cross-device sync
+app.get('/api/branding', (req, res) => {
+  const db = loadDb();
+  res.json({
+    success: true,
+    branding: {
+      companyLogo: db?.branding?.companyLogo || db?.settings?.companyLogo || null,
+      myLogo: db?.branding?.myLogo || db?.settings?.myLogo || null
+    }
+  });
+});
+
+app.post('/api/branding', (req, res) => {
+  const { companyLogo, myLogo } = req.body || {};
+  const currentDb = loadDb();
+  const currentBranding = currentDb.branding || {};
+  const updatedBranding = {
+    ...currentBranding,
+    ...(companyLogo !== undefined ? { companyLogo: companyLogo || '' } : {}),
+    ...(myLogo !== undefined ? { myLogo: myLogo || '' } : {})
+  };
+  const updated = saveDb({
+    branding: updatedBranding,
+    settings: {
+      ...(currentDb.settings || {}),
+      ...(companyLogo !== undefined ? { companyLogo: companyLogo || '' } : {}),
+      ...(myLogo !== undefined ? { myLogo: myLogo || '' } : {})
+    }
+  });
+  res.json({
+    success: true,
+    branding: updated.branding
+  });
 });
 
 // Helper to query individual GAS endpoints with timeout

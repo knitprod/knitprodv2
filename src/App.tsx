@@ -32,6 +32,7 @@ import {
   Database,
   Loader2
 } from 'lucide-react';
+import { initBrandingSync } from './lib/logoStore';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import WelcomeBanner from './components/WelcomeBanner';
@@ -169,9 +170,10 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<UserRecord | null>(null);
   const lastActivityRef = useRef<number>(Date.now());
 
-  // Automatic Authentication state restoration on startup and page refresh
+  // Automatic Authentication state restoration & Central Branding sync on startup
   useEffect(() => {
     let isMounted = true;
+    initBrandingSync().catch(() => {});
 
     const restoreSession = async () => {
       try {

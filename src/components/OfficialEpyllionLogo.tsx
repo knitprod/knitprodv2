@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getCompanyLogo } from '../lib/logoStore';
+import { getCompanyLogo, initBrandingSync } from '../lib/logoStore';
 
 interface OfficialEpyllionLogoProps {
   className?: string;
@@ -21,6 +21,7 @@ export const OfficialEpyllionLogo: React.FC<OfficialEpyllionLogoProps> = ({
   const [customLogo, setCustomLogo] = useState<string | null>(() => getCompanyLogo());
 
   useEffect(() => {
+    initBrandingSync().catch(() => {});
     const handleUpdate = (e: Event) => {
       const customEvent = e as CustomEvent<string | null>;
       setCustomLogo(customEvent.detail ?? getCompanyLogo());

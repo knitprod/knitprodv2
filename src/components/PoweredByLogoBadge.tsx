@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getMyLogo } from '../lib/logoStore';
+import { getMyLogo, initBrandingSync } from '../lib/logoStore';
 import { OfficialEpyllionLogo } from './OfficialEpyllionLogo';
 
 interface PoweredByLogoBadgeProps {
@@ -16,6 +16,7 @@ export const PoweredByLogoBadge: React.FC<PoweredByLogoBadgeProps> = ({
   const [myLogo, setMyLogo] = useState<string | null>(() => getMyLogo());
 
   useEffect(() => {
+    initBrandingSync().catch(() => {});
     const handleUpdate = (e: Event) => {
       const customEvent = e as CustomEvent<string | null>;
       setMyLogo(customEvent.detail ?? getMyLogo());

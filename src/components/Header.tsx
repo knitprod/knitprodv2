@@ -36,7 +36,7 @@ import { ActivityLog } from '../types';
 import { UserRecord } from './UserManagementView';
 import { GasClient } from '../lib/gasClient';
 import { SupabaseSync } from '../lib/supabaseClient';
-import { getCompanyLogo, saveCompanyLogo } from '../lib/logoStore';
+import { getCompanyLogo, saveCompanyLogo, initBrandingSync } from '../lib/logoStore';
 import TopNavMenu from './TopNavMenu';
 
 interface HeaderProps {
@@ -87,6 +87,7 @@ export default function Header({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
+    initBrandingSync().catch(() => {});
     const handleLogoUpdate = (e: Event) => {
       const customEv = e as CustomEvent<string | null>;
       if (customEv.detail !== undefined) {
