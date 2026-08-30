@@ -415,6 +415,7 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     }
   }, [globalYarn]);
   const [yarnSearchQuery, setYarnSearchQuery] = useState('');
+  const [yarnOrderFilter, setYarnOrderFilter] = useState('All');
   const [yarnBuyerFilter, setYarnBuyerFilter] = useState('All');
   const [yarnFabricFilter, setYarnFabricFilter] = useState('All');
   const [yarnSpinnerFilter, setYarnSpinnerFilter] = useState('All');
@@ -500,7 +501,7 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
   const userAssignedBuyers = useMemo(() => {
     if (!currentUser || currentUser.userType === 'Admin') return null;
     if (currentUser.assignedBuyers && Array.isArray(currentUser.assignedBuyers) && currentUser.assignedBuyers.length > 0) {
-      const trimmed = currentUser.assignedBuyers.map(b => b.trim().toLowerCase()).filter(Boolean);
+      const trimmed = currentUser.assignedBuyers.map(b => String(b || '').trim().toLowerCase()).filter(Boolean);
       if (trimmed.includes('all') || trimmed.length === 0) return null;
       return trimmed;
     }
@@ -510,7 +511,22 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
   // Reset pagination when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [yarnSearchQuery, yarnBuyerFilter, yarnFabricFilter, yarnSpinnerFilter, pageSize]);
+  }, [yarnSearchQuery, yarnOrderFilter, yarnBuyerFilter, yarnFabricFilter, yarnSpinnerFilter, pageSize]);
+
+  const uniqueOrders = useMemo(() => {
+    const set = new Set(
+      yarnAllocations
+        .filter(a => {
+          if (!userAssignedBuyers) return true;
+          if (!a.buyer) return false;
+          const bNorm = String(a.buyer || '').trim().toLowerCase();
+          return userAssignedBuyers.some(ub => ub === bNorm || bNorm.includes(ub) || ub.includes(bNorm));
+        })
+        .map(a => String(a.orderNumber || '').trim())
+        .filter(Boolean)
+    );
+    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  }, [yarnAllocations, userAssignedBuyers]);
 
   const uniqueBuyers = useMemo(() => {
     const set = new Set(
@@ -518,21 +534,21 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
         .filter(a => {
           if (!userAssignedBuyers) return true;
           if (!a.buyer) return false;
-          const bNorm = a.buyer.trim().toLowerCase();
+          const bNorm = String(a.buyer || '').trim().toLowerCase();
           return userAssignedBuyers.some(ub => ub === bNorm || bNorm.includes(ub) || ub.includes(bNorm));
         })
-        .map(a => a.buyer)
+        .map(a => String(a.buyer || '').trim())
         .filter(Boolean)
     );
     return Array.from(set).sort();
   }, [yarnAllocations, userAssignedBuyers]);
 
   const uniqueFabrics = useMemo(() => {
-    return Array.from(new Set(yarnAllocations.map(a => a.fabricsType))).filter(Boolean).sort();
+    return Array.from(new Set(yarnAllocations.map(a => String(a.fabricsType || '').trim()))).filter(Boolean).sort();
   }, [yarnAllocations]);
 
   const uniqueSpinners = useMemo(() => {
-    return Array.from(new Set(yarnAllocations.map(a => a.spinnersName))).filter(Boolean).sort();
+    return Array.from(new Set(yarnAllocations.map(a => String(a.spinnersName || '').trim()))).filter(Boolean).sort();
   }, [yarnAllocations]);
 
   const filteredYarnAllocations = useMemo(() => {
@@ -541,35 +557,38 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     return yarnAllocations.filter(item => {
       // User-based Buyer Access Restriction
       if (userAssignedBuyers && item.buyer) {
-        const itemBuyerNorm = item.buyer.trim().toLowerCase();
+        const itemBuyerNorm = String(item.buyer || '').trim().toLowerCase();
         const isAllowed = userAssignedBuyers.some(ub => ub === itemBuyerNorm || itemBuyerNorm.includes(ub) || ub.includes(itemBuyerNorm));
         if (!isAllowed) return false;
       }
 
-      const matchesBuyer = yarnBuyerFilter === 'All' || item.buyer === yarnBuyerFilter;
+      const matchesOrder = yarnOrderFilter === 'All' || String(item.orderNumber || '').trim() === yarnOrderFilter;
+      if (!matchesOrder) return false;
+
+      const matchesBuyer = yarnBuyerFilter === 'All' || String(item.buyer || '').trim() === yarnBuyerFilter;
       if (!matchesBuyer) return false;
 
-      const matchesFabric = yarnFabricFilter === 'All' || item.fabricsType === yarnFabricFilter;
+      const matchesFabric = yarnFabricFilter === 'All' || String(item.fabricsType || '').trim() === yarnFabricFilter;
       if (!matchesFabric) return false;
 
-      const matchesSpinner = yarnSpinnerFilter === 'All' || item.spinnersName === yarnSpinnerFilter;
+      const matchesSpinner = yarnSpinnerFilter === 'All' || String(item.spinnersName || '').trim() === yarnSpinnerFilter;
       if (!matchesSpinner) return false;
 
       if (!q) return true;
 
       return (
-        (item.orderNumber && item.orderNumber.toLowerCase().includes(q)) ||
-        (item.buyer && item.buyer.toLowerCase().includes(q)) ||
-        (item.fabricsType && item.fabricsType.toLowerCase().includes(q)) ||
-        (item.yarnRequired && item.yarnRequired.toLowerCase().includes(q)) ||
-        (item.allocatedYarn && item.allocatedYarn.toLowerCase().includes(q)) ||
-        (item.lotNo && item.lotNo.toLowerCase().includes(q)) ||
-        (item.spinnersName && item.spinnersName.toLowerCase().includes(q)) ||
-        (item.allocationNo && item.allocationNo.toLowerCase().includes(q)) ||
-        (item.remarks && item.remarks.toLowerCase().includes(q))
+        String(item.orderNumber || '').toLowerCase().includes(q) ||
+        String(item.buyer || '').toLowerCase().includes(q) ||
+        String(item.fabricsType || '').toLowerCase().includes(q) ||
+        String(item.yarnRequired || '').toLowerCase().includes(q) ||
+        String(item.allocatedYarn || '').toLowerCase().includes(q) ||
+        String(item.lotNo || '').toLowerCase().includes(q) ||
+        String(item.spinnersName || '').toLowerCase().includes(q) ||
+        String(item.allocationNo || '').toLowerCase().includes(q) ||
+        String(item.remarks || '').toLowerCase().includes(q)
       );
     });
-  }, [yarnAllocations, yarnSearchQuery, yarnBuyerFilter, yarnFabricFilter, yarnSpinnerFilter, userAssignedBuyers]);
+  }, [yarnAllocations, yarnSearchQuery, yarnOrderFilter, yarnBuyerFilter, yarnFabricFilter, yarnSpinnerFilter, userAssignedBuyers]);
 
   const totalPages = Math.max(1, Math.ceil(filteredYarnAllocations.length / (pageSize === 0 ? 1 : pageSize)));
 
@@ -1336,7 +1355,31 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
         </div>
 
         {/* Row 2: Filter Selects & Controls (Responsive Grid for Mobile & Desktop) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 w-full items-center">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5 w-full items-center">
+          {/* Order # Filter */}
+          <div className="w-full">
+            <label className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1 lg:hidden">
+              Order Filter
+            </label>
+            <select
+              value={yarnOrderFilter}
+              onChange={(e) => {
+                setYarnOrderFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className={`w-full rounded-xl border px-3 py-2 text-xs font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer ${
+                yarnOrderFilter !== 'All'
+                  ? 'border-blue-500 bg-blue-50/80 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold'
+                  : 'border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 text-slate-700 dark:text-slate-200'
+              }`}
+            >
+              <option value="All">All Orders ({uniqueOrders.length})</option>
+              {uniqueOrders.map(ord => (
+                <option key={ord} value={ord}>{ord}</option>
+              ))}
+            </select>
+          </div>
+
           {/* Buyer Filter */}
           <div className="w-full">
             <label className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1 lg:hidden">
@@ -1429,11 +1472,12 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
                 />
               </div>
 
-              {(yarnSearchQuery !== '' || yarnBuyerFilter !== 'All' || yarnFabricFilter !== 'All' || yarnSpinnerFilter !== 'All') && (
+              {(yarnSearchQuery !== '' || yarnOrderFilter !== 'All' || yarnBuyerFilter !== 'All' || yarnFabricFilter !== 'All' || yarnSpinnerFilter !== 'All') && (
                 <button
                   type="button"
                   onClick={() => {
                     setYarnSearchQuery('');
+                    setYarnOrderFilter('All');
                     setYarnBuyerFilter('All');
                     setYarnFabricFilter('All');
                     setYarnSpinnerFilter('All');

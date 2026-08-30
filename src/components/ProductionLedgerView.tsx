@@ -1377,11 +1377,11 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       if (globalSearch.trim() !== '') {
         const query = globalSearch.toLowerCase();
         matchesSearch = 
-          r.date.toLowerCase().includes(query) ||
-          r.floor.toLowerCase().includes(query) ||
-          r.remarks.toLowerCase().includes(query) ||
-          r.month.toLowerCase().includes(query) ||
-          r.year.toString().includes(query);
+          String(r.date || '').toLowerCase().includes(query) ||
+          String(r.floor || '').toLowerCase().includes(query) ||
+          String(r.remarks || '').toLowerCase().includes(query) ||
+          String(r.month || '').toLowerCase().includes(query) ||
+          String(r.year || '').includes(query);
       }
 
       return matchesUnit && matchesYear && matchesDate && matchesSearch;
