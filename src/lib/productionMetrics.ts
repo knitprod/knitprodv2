@@ -40,17 +40,17 @@ export function isSubContactRecord(r: LedgerRecord): boolean {
 
 export function isRecordMatchingFloor(r: LedgerRecord, floorName: string): boolean {
   if (!r) return false;
-  if (!floorName || floorName === 'all') return true;
-  if (floorName === 'In-House' || floorName === 'in-house') {
+  if (!floorName || floorName.toLowerCase() === 'all') return true;
+  const cleanFloor = floorName.trim().toLowerCase();
+  if (cleanFloor === 'in-house' || cleanFloor === 'in house' || cleanFloor === 'inhouse') {
     return !isSubContactRecord(r);
   }
-  if (floorName === 'Sub-Contact' || floorName === 'sub-contact') {
+  if (cleanFloor === 'sub-contact' || cleanFloor === 'sub contact' || cleanFloor === 'subcontact' || cleanFloor === 'sub') {
     return isSubContactRecord(r);
   }
-  const cleanFloor = floorName.trim().toLowerCase();
   const rFloor = (r.floor || '').trim().toLowerCase();
   const rUnit = (r.unit || '').trim().toLowerCase();
-  return rFloor === cleanFloor || rUnit === cleanFloor;
+  return rFloor === cleanFloor || rUnit === cleanFloor || rFloor.includes(cleanFloor) || rUnit.includes(cleanFloor);
 }
 
 export interface FilterStateInput {

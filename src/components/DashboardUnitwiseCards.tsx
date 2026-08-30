@@ -26,6 +26,7 @@ import { FilterState } from './DashboardFilterToolbar';
 import { 
   filterLedgerByState, 
   isRecordMatchingFloor, 
+  isSubContactRecord,
   calculateLedgerEfficiency, 
   calculateLedgerCapacityUtilization,
   calculateEffectiveDays,
@@ -119,13 +120,14 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
       { key: 'efl-2', name: 'EFL-2', matchKeys: ['efl-2', 'efl2', 'efl 2'] },
       { key: 'auto', name: 'AUTO-STRIPE', matchKeys: ['auto', 'auto stripe', 'auto-stripe', 'autostripe'] },
       { key: 'efl-ext', name: 'EFL-EXTENSION', matchKeys: ['efl-extension', 'efl extension', 'efl-ext', 'eflextension', 'efl ext'] },
-      { key: 'esl-ext', name: 'ESL-EXTENSION', matchKeys: ['esl-extension', 'esl extension', 'esl-ext', 'eslextension', 'esl ext', 'esl'] }
+      { key: 'esl-ext', name: 'ESL-EXTENSION', matchKeys: ['esl-extension', 'esl extension', 'esl-ext', 'eslextension', 'esl ext', 'esl'] },
+      { key: 'sub-contact', name: 'SUB-CONTACT', matchKeys: ['sub-contact', 'sub contact', 'subcontact', 'sub'] }
     ];
 
     const result: UnitMetricData[] = [];
     const matchedRecordIndices = new Set<number>();
 
-    // 1. Process known standard units if and ONLY IF they have records in filteredRows
+    // Process all standard factory units
     for (const u of knownUnitDefinitions) {
       const matchingRowIndices: number[] = [];
       const rows: LedgerRecord[] = [];
@@ -160,26 +162,20 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
           }
         }
 
+        if (u.key === 'sub-contact' || u.key === 'sub') {
+          if (isSubContactRecord(r)) {
+            matchingRowIndices.push(idx);
+            rows.push(r);
+            return;
+          }
+        }
+
         const isMatch = u.matchKeys.some(k => floor === k || unit === k || floor.includes(k) || isRecordMatchingFloor(r, u.name));
         if (isMatch) {
           matchingRowIndices.push(idx);
           rows.push(r);
         }
       });
-
-      // STRICT USER DIRECTIVE: If this unit has no records or has zero production activity, DO NOT SHOW IT!
-      if (rows.length === 0) {
-        continue;
-      }
-
-      const totProd = rows.reduce((sum, r) => sum + (Number(r.totalProduction) || 0), 0);
-      const bProd = rows.reduce((sum, r) => sum + (Number(r.bulkProd) || 0), 0);
-      const tBulk = rows.reduce((sum, r) => sum + (Number(r.targetBulk) || Number(r.target) || 0), 0);
-      const runMachines = rows.reduce((sum, r) => sum + (Number(r.runningMachine) || 0), 0);
-
-      if (totProd === 0 && bProd === 0 && tBulk === 0 && runMachines === 0) {
-        continue;
-      }
 
       matchingRowIndices.forEach(i => matchedRecordIndices.add(i));
 
@@ -261,7 +257,7 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
         sampleLoss: Math.round(sampleLoss),
         efficiencyPct: Math.min(100, Math.max(0, efficiencyPct)),
         capacityUtilizationPct: Math.min(100, Math.max(0, capacityUtilizationPct)),
-        hasLedgerData: true
+        hasLedgerData: rows.length > 0
       });
     }
 
@@ -359,17 +355,37 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
     return result;
   }, [ledger, filterState]);
 
-  // Overall totals and averages
+  // In-House units only for Efficiency and Capacity Utilization (Sub-Contact is external contract production)
+  const inHouseUnitData = useMemo(() => {
+    return unitData.filter(u => {
+      const k = (u.key || '').toLowerCase();
+      const n = (u.unit || '').toLowerCase();
+      return !k.includes('sub') && !n.includes('sub');
+    });
+  }, [unitData]);
+
+  // Overall totals and Canonical Efficiency / Capacity (Identical to Top KPI HUD Cards)
   const totalTargetBulk = useMemo(() => unitData.reduce((sum, u) => sum + u.targetBulk, 0), [unitData]);
   const totalBulkProd = useMemo(() => unitData.reduce((sum, u) => sum + u.bulkProduction, 0), [unitData]);
-  const avgEfficiency = useMemo(() => {
-    if (unitData.length === 0) return 0;
-    return Math.round(unitData.reduce((sum, u) => sum + u.efficiencyPct, 0) / unitData.length);
-  }, [unitData]);
-  const avgCapacityUtil = useMemo(() => {
-    if (unitData.length === 0) return 0;
-    return Math.round(unitData.reduce((sum, u) => sum + u.capacityUtilizationPct, 0) / unitData.length);
-  }, [unitData]);
+
+  const canonicalMetrics = useMemo(() => {
+    if (!ledger || ledger.length === 0) return { efficiency: 0, capacity: 0 };
+    const { filteredRows } = filterLedgerByState(ledger, filterState);
+    if (!filteredRows || filteredRows.length === 0) return { efficiency: 0, capacity: 0 };
+
+    const ihRows = filteredRows.filter(r => !isSubContactRecord(r));
+    const scRows = filteredRows.filter(r => isSubContactRecord(r));
+    const appliedUnit = filterState?.unit || 'all';
+    const effectiveDays = calculateEffectiveDays(filteredRows, filterState);
+
+    const eff = calculateLedgerEfficiency(ihRows, scRows, appliedUnit);
+    const cap = calculateLedgerCapacityUtilization(ihRows, appliedUnit, effectiveDays);
+
+    return {
+      efficiency: eff,
+      capacity: cap,
+    };
+  }, [ledger, filterState]);
 
   // Max value calculation for Bar Chart scaling
   const maxBarValue = useMemo(() => {
@@ -443,9 +459,9 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
             </div>
           ) : (
             <div className="w-full overflow-x-auto scrollbar-none">
-              <div className="min-w-[320px] h-[225px] relative flex">
+              <div className="w-full min-w-[340px] h-[225px] relative flex">
                 {/* Y-Axis scale */}
-                <div className="w-12 h-[180px] flex flex-col justify-between items-end pr-2 text-[10px] font-semibold text-slate-400 dark:text-slate-500 select-none pb-5 border-r border-slate-200 dark:border-slate-800">
+                <div className="w-11 sm:w-12 h-[180px] flex flex-col justify-between items-end pr-1.5 sm:pr-2 text-[10px] font-semibold text-slate-400 dark:text-slate-500 select-none pb-5 border-r border-slate-200 dark:border-slate-800">
                   <span>{(maxBarValue).toLocaleString()}</span>
                   <span>{Math.round(maxBarValue * 0.66).toLocaleString()}</span>
                   <span>{Math.round(maxBarValue * 0.33).toLocaleString()}</span>
@@ -453,7 +469,7 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
                 </div>
 
                 {/* Bars container */}
-                <div className="flex-1 h-[180px] flex items-end justify-between px-2 pt-6 relative border-b border-slate-200 dark:border-slate-800">
+                <div className="flex-1 h-[180px] flex items-end justify-between px-1 sm:px-2 pt-6 relative border-b border-slate-200 dark:border-slate-800">
                   {/* Horizontal reference lines */}
                   <div className="absolute inset-0 pointer-events-none flex flex-col justify-between opacity-30 pb-5">
                     <div className="w-full border-b border-dashed border-slate-300 dark:border-slate-700"></div>
@@ -473,7 +489,7 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
                     return (
                       <div 
                         key={item.unit}
-                        className={`flex-1 flex flex-col items-center justify-end h-full px-1 group cursor-pointer transition-all duration-150 rounded-t-lg ${
+                        className={`flex-1 flex flex-col items-center justify-end h-full px-0.5 group cursor-pointer transition-all duration-150 rounded-t-lg ${
                           isHovered ? 'bg-amber-500/10 dark:bg-amber-400/10' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
                         }`}
                         onMouseEnter={() => setHoveredUnit(item.unit)}
@@ -481,10 +497,10 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
                         title={`${item.unit}\n• Target Bulk: ${item.targetBulk.toLocaleString()} Kg\n• Bulk Production: ${item.bulkProduction.toLocaleString()} Kg\n• Sample Loss: ${item.sampleLoss.toLocaleString()} Kg\n• Achievement: ${Math.round((item.bulkProduction / (item.targetBulk || 1)) * 100)}%`}
                       >
                         {/* Grouped 3 Bars */}
-                        <div className="w-full flex items-end justify-center gap-[3.5px] h-full pb-0.5">
+                        <div className="w-full flex items-end justify-center gap-[2px] sm:gap-[3px] h-full pb-0.5">
                           {/* 1. Target Bulk Bar */}
-                          <div className="flex flex-col items-center justify-end h-full w-[13px] sm:w-[15px] relative">
-                            <span className="text-[7.5px] font-bold text-slate-700 dark:text-slate-300 select-none absolute -top-4.5 whitespace-nowrap z-10 transition-transform group-hover:scale-110">
+                          <div className="flex flex-col items-center justify-end h-full w-[10px] sm:w-[13px] relative">
+                            <span className="text-[7px] sm:text-[7.5px] font-bold text-slate-700 dark:text-slate-300 select-none absolute -top-4.5 whitespace-nowrap z-10 transition-transform group-hover:scale-110">
                               {item.targetBulk >= 1000 ? `${(item.targetBulk / 1000).toFixed(item.targetBulk % 1000 === 0 ? 0 : 1)}k` : item.targetBulk}
                             </span>
                             <div 
@@ -494,8 +510,8 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
                           </div>
 
                           {/* 2. Bulk Production Bar */}
-                          <div className="flex flex-col items-center justify-end h-full w-[13px] sm:w-[15px] relative">
-                            <span className="text-[7.5px] font-extrabold text-[#D35400] dark:text-[#E67E22] select-none absolute -top-4.5 whitespace-nowrap z-10 transition-transform group-hover:scale-110">
+                          <div className="flex flex-col items-center justify-end h-full w-[10px] sm:w-[13px] relative">
+                            <span className="text-[7px] sm:text-[7.5px] font-extrabold text-[#D35400] dark:text-[#E67E22] select-none absolute -top-4.5 whitespace-nowrap z-10 transition-transform group-hover:scale-110">
                               {item.bulkProduction >= 1000 ? `${(item.bulkProduction / 1000).toFixed(item.bulkProduction % 1000 === 0 ? 0 : 1)}k` : item.bulkProduction}
                             </span>
                             <div 
@@ -505,9 +521,9 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
                           </div>
 
                           {/* 3. Production Loss For Sample Bar */}
-                          <div className="flex flex-col items-center justify-end h-full w-[13px] sm:w-[15px] relative">
+                          <div className="flex flex-col items-center justify-end h-full w-[10px] sm:w-[13px] relative">
                             {item.sampleLoss > 0 && (
-                              <span className="text-[7.5px] font-bold text-[#15803D] dark:text-[#22c55e] select-none absolute -top-4.5 whitespace-nowrap z-10 transition-transform group-hover:scale-110">
+                              <span className="text-[7px] sm:text-[7.5px] font-bold text-[#15803D] dark:text-[#22c55e] select-none absolute -top-4.5 whitespace-nowrap z-10 transition-transform group-hover:scale-110">
                                 {item.sampleLoss >= 1000 ? `${(item.sampleLoss / 1000).toFixed(1)}k` : item.sampleLoss}
                               </span>
                             )}
@@ -520,7 +536,7 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
 
                         {/* X-Axis Unit Label */}
                         <div className="w-full text-center mt-2 pt-1 border-t border-transparent">
-                          <span className={`text-[9.5px] font-bold uppercase tracking-tight block truncate transition-colors ${
+                          <span className={`text-[8.5px] sm:text-[9.5px] font-bold uppercase tracking-tight block truncate transition-colors ${
                             isHovered ? 'text-amber-600 dark:text-amber-400 font-extrabold' : 'text-slate-700 dark:text-slate-300'
                           }`}>
                             {item.label}
@@ -564,7 +580,7 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
           </div>
           <div className="text-right">
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white border border-white/30 backdrop-blur-xs">
-              Avg: {avgEfficiency}%
+              Overall: {canonicalMetrics.efficiency.toFixed(1)}%
             </span>
           </div>
         </div>
@@ -580,7 +596,7 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
 
         {/* Line Chart Area */}
         <div className="p-3 sm:p-4 flex-1 flex flex-col justify-end">
-          {unitData.length === 0 ? (
+          {inHouseUnitData.length === 0 ? (
             <div className="flex flex-col items-center justify-center text-center p-6 h-[225px] text-slate-400 dark:text-slate-500">
               <Layers className="w-7 h-7 mb-2 opacity-40 text-[#B95D18]" />
               <p className="text-xs font-bold text-slate-600 dark:text-slate-300">No Unit Data in Ledger</p>
@@ -592,13 +608,15 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
             <div className="w-full overflow-x-auto scrollbar-none">
               <div className="min-w-[320px] h-[225px] relative flex">
                 {/* Y-Axis scale */}
-                <div className="w-11 h-[160px] flex flex-col justify-between items-end pr-2 text-[10px] font-semibold text-slate-400 dark:text-slate-500 select-none pb-1 border-r border-slate-200 dark:border-slate-800">
-                  <span>100%</span>
-                  <span>80%</span>
-                  <span>60%</span>
-                  <span>40%</span>
-                  <span>20%</span>
-                  <span>0%</span>
+                <div className="w-11 h-[160px] relative select-none border-r border-slate-200 dark:border-slate-800">
+                  <div className="absolute top-[30px] bottom-[15px] left-0 right-0 flex flex-col justify-between items-end pr-2 text-[10px] font-semibold text-slate-400 dark:text-slate-500">
+                    <span>100%</span>
+                    <span>80%</span>
+                    <span>60%</span>
+                    <span>40%</span>
+                    <span>20%</span>
+                    <span>0%</span>
+                  </div>
                 </div>
 
                 {/* SVG Line Chart Canvas */}
@@ -613,7 +631,7 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
 
                     {/* Grid lines */}
                     {[0, 20, 40, 60, 80, 100].map((pct) => {
-                      const y = 148 - (pct / 100) * 128;
+                      const y = 145 - (pct / 100) * 110;
                       return (
                         <line 
                           key={`eff-grid-${pct}`} 
@@ -632,25 +650,25 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
 
                     {/* Area Fill */}
                     {(() => {
-                      if (unitData.length === 1) {
-                        const y = 148 - (Math.min(100, Math.max(0, unitData[0].efficiencyPct)) / 100) * 128;
+                      if (inHouseUnitData.length === 1) {
+                        const y = 145 - (Math.min(100, Math.max(0, inHouseUnitData[0].efficiencyPct)) / 100) * 110;
                         return (
                           <polygon
                             fill="url(#effGradient)"
-                            points={`130,148 130,${y} 190,${y} 190,148`}
+                            points={`130,145 130,${y} 190,${y} 190,145`}
                           />
                         );
                       }
-                      const step = 320 / unitData.length;
-                      const points = unitData.map((d, i) => {
+                      const step = 320 / inHouseUnitData.length;
+                      const points = inHouseUnitData.map((d, i) => {
                         const x = i * step + step / 2;
-                        const y = 148 - (Math.min(100, Math.max(0, d.efficiencyPct)) / 100) * 128;
+                        const y = 145 - (Math.min(100, Math.max(0, d.efficiencyPct)) / 100) * 110;
                         return `${x},${y}`;
                       }).join(' ');
 
                       const firstX = step / 2;
-                      const lastX = (unitData.length - 1) * step + step / 2;
-                      const areaPoints = `${firstX},148 ${points} ${lastX},148`;
+                      const lastX = (inHouseUnitData.length - 1) * step + step / 2;
+                      const areaPoints = `${firstX},145 ${points} ${lastX},145`;
 
                       return (
                         <polygon
@@ -662,11 +680,11 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
 
                     {/* Connected Polyline */}
                     {(() => {
-                      if (unitData.length <= 1) return null;
-                      const step = 320 / unitData.length;
-                      const points = unitData.map((d, i) => {
+                      if (inHouseUnitData.length <= 1) return null;
+                      const step = 320 / inHouseUnitData.length;
+                      const points = inHouseUnitData.map((d, i) => {
                         const x = i * step + step / 2;
-                        const y = 148 - (Math.min(100, Math.max(0, d.efficiencyPct)) / 100) * 128;
+                        const y = 145 - (Math.min(100, Math.max(0, d.efficiencyPct)) / 100) * 110;
                         return `${x},${y}`;
                       }).join(' ');
 
@@ -681,68 +699,53 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
                         />
                       );
                     })()}
-
-                    {/* Data Points (Diamond Markers) and Top Percentage Labels */}
-                    {unitData.map((d, i) => {
-                      const step = 320 / unitData.length;
-                      const x = unitData.length === 1 ? 160 : i * step + step / 2;
-                      const y = 148 - (Math.min(100, Math.max(0, d.efficiencyPct)) / 100) * 128;
-                      const isHovered = hoveredUnit === d.unit;
-
-                      return (
-                        <g 
-                          key={`eff-${d.unit}`} 
-                          className="cursor-pointer group"
-                          onMouseEnter={() => setHoveredUnit(d.unit)}
-                          onMouseLeave={() => setHoveredUnit(null)}
-                        >
-                          {/* Percentage Label with Background Badge for high contrast */}
-                          <g transform={`translate(${x}, ${y - 12})`}>
-                            <rect 
-                              x="-14" 
-                              y="-9" 
-                              width="28" 
-                              height="13" 
-                              rx="3" 
-                              fill={isHovered ? '#0F4C75' : '#ffffff'} 
-                              stroke={isHovered ? '#ffffff' : '#0F4C75'}
-                              strokeWidth="1"
-                              className="dark:fill-slate-900 shadow-xs transition-colors"
-                            />
-                            <text
-                              x="0"
-                              y="1"
-                              textAnchor="middle"
-                              className={`text-[9.5px] font-extrabold select-none ${
-                                isHovered ? 'fill-white' : 'fill-slate-900 dark:fill-white'
-                              }`}
-                              style={{ fontSize: '9px', fontWeight: 800 }}
-                            >
-                              {d.efficiencyPct}%
-                            </text>
-                          </g>
-
-                          {/* Yellow Diamond Marker */}
-                          <polygon
-                            points={`${x},${y - 4.5} ${x + 4.5},${y} ${x},${y + 4.5} ${x - 4.5},${y}`}
-                            fill={isHovered ? '#FFA500' : '#F6D000'}
-                            stroke="#0F4C75"
-                            strokeWidth="1.75"
-                            className="transition-transform group-hover:scale-125 duration-150"
-                          />
-                        </g>
-                      );
-                    })}
                   </svg>
 
+                  {/* Crisp HTML Data Point Markers & Top Percentage Badges */}
+                  {inHouseUnitData.map((d, i) => {
+                    const pctX = inHouseUnitData.length === 1 ? 50 : ((i + 0.5) / inHouseUnitData.length) * 100;
+                    const yPx = 145 - (Math.min(100, Math.max(0, d.efficiencyPct)) / 100) * 110;
+                    const isHovered = hoveredUnit === d.unit;
+
+                    return (
+                      <div
+                        key={`eff-marker-${d.unit}`}
+                        className="absolute flex items-center justify-center cursor-pointer group z-10"
+                        style={{ left: `${pctX}%`, top: `${yPx}px`, transform: 'translate(-50%, -50%)' }}
+                        onMouseEnter={() => setHoveredUnit(d.unit)}
+                        onMouseLeave={() => setHoveredUnit(null)}
+                      >
+                        {/* High-Contrast Non-Stretched Percentage Pill Badge */}
+                        <div 
+                          className={`absolute bottom-full mb-1.5 px-1.5 py-0.5 rounded-md border text-[9px] font-black tracking-tight select-none shadow-xs transition-all whitespace-nowrap pointer-events-none ${
+                            isHovered
+                              ? 'bg-[#0F4C75] text-white border-[#0F4C75] scale-110 shadow-sm z-20'
+                              : 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 border-[#0F4C75]/60 dark:border-[#0F4C75] z-10'
+                          }`}
+                        >
+                          {d.efficiencyPct}%
+                        </div>
+
+                        {/* Yellow Diamond Point Marker exactly on line vertex */}
+                        <div 
+                          className={`w-2.5 h-2.5 rotate-45 border-[2px] transition-transform duration-150 shadow-2xs ${
+                            isHovered
+                              ? 'bg-amber-400 border-[#0F4C75] scale-125'
+                              : 'bg-[#F6D000] border-[#0F4C75]'
+                          }`}
+                        />
+                      </div>
+                    );
+                  })}
+
                   {/* X-Axis Slanted Labels */}
-                  <div className="w-full flex justify-between absolute top-[154px] left-0 right-0">
-                    {unitData.map((d) => {
+                  <div className="w-full flex justify-between absolute top-[150px] left-0 right-0">
+                    {inHouseUnitData.map((d) => {
                       const isHovered = hoveredUnit === d.unit;
                       return (
                         <div key={`lbl-eff-${d.unit}`} className="flex-1 flex justify-center">
                           <span 
-                            className={`text-[9.5px] uppercase select-none whitespace-nowrap transform -rotate-45 origin-top-left translate-y-1.5 transition-colors ${
+                            className={`text-[9px] uppercase select-none whitespace-nowrap transform -rotate-45 origin-top-left translate-y-1 transition-colors ${
                               isHovered ? 'text-amber-600 dark:text-amber-400 font-extrabold' : 'text-slate-700 dark:text-slate-300 font-bold'
                             }`}
                             style={{ display: 'inline-block' }}
@@ -788,7 +791,7 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
           </div>
           <div className="text-right">
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white border border-white/30 backdrop-blur-xs">
-              Avg: {avgCapacityUtil}%
+              Overall: {canonicalMetrics.capacity.toFixed(1)}%
             </span>
           </div>
         </div>
@@ -804,7 +807,7 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
 
         {/* Line Chart Area */}
         <div className="p-3 sm:p-4 flex-1 flex flex-col justify-end">
-          {unitData.length === 0 ? (
+          {inHouseUnitData.length === 0 ? (
             <div className="flex flex-col items-center justify-center text-center p-6 h-[225px] text-slate-400 dark:text-slate-500">
               <Layers className="w-7 h-7 mb-2 opacity-40 text-[#B95D18]" />
               <p className="text-xs font-bold text-slate-600 dark:text-slate-300">No Unit Data in Ledger</p>
@@ -816,13 +819,15 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
             <div className="w-full overflow-x-auto scrollbar-none">
               <div className="min-w-[320px] h-[225px] relative flex">
                 {/* Y-Axis scale */}
-                <div className="w-11 h-[160px] flex flex-col justify-between items-end pr-2 text-[10px] font-semibold text-slate-400 dark:text-slate-500 select-none pb-1 border-r border-slate-200 dark:border-slate-800">
-                  <span>100%</span>
-                  <span>80%</span>
-                  <span>60%</span>
-                  <span>40%</span>
-                  <span>20%</span>
-                  <span>0%</span>
+                <div className="w-11 h-[160px] relative select-none border-r border-slate-200 dark:border-slate-800">
+                  <div className="absolute top-[30px] bottom-[15px] left-0 right-0 flex flex-col justify-between items-end pr-2 text-[10px] font-semibold text-slate-400 dark:text-slate-500">
+                    <span>100%</span>
+                    <span>80%</span>
+                    <span>60%</span>
+                    <span>40%</span>
+                    <span>20%</span>
+                    <span>0%</span>
+                  </div>
                 </div>
 
                 {/* SVG Line Chart Canvas */}
@@ -837,7 +842,7 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
 
                     {/* Grid lines */}
                     {[0, 20, 40, 60, 80, 100].map((pct) => {
-                      const y = 148 - (pct / 100) * 128;
+                      const y = 145 - (pct / 100) * 110;
                       return (
                         <line 
                           key={`cap-grid-${pct}`} 
@@ -856,25 +861,25 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
 
                     {/* Area Fill */}
                     {(() => {
-                      if (unitData.length === 1) {
-                        const y = 148 - (Math.min(100, Math.max(0, unitData[0].capacityUtilizationPct)) / 100) * 128;
+                      if (inHouseUnitData.length === 1) {
+                        const y = 145 - (Math.min(100, Math.max(0, inHouseUnitData[0].capacityUtilizationPct)) / 100) * 110;
                         return (
                           <polygon
                             fill="url(#capGradient)"
-                            points={`130,148 130,${y} 190,${y} 190,148`}
+                            points={`130,145 130,${y} 190,${y} 190,145`}
                           />
                         );
                       }
-                      const step = 320 / unitData.length;
-                      const points = unitData.map((d, i) => {
+                      const step = 320 / inHouseUnitData.length;
+                      const points = inHouseUnitData.map((d, i) => {
                         const x = i * step + step / 2;
-                        const y = 148 - (Math.min(100, Math.max(0, d.capacityUtilizationPct)) / 100) * 128;
+                        const y = 145 - (Math.min(100, Math.max(0, d.capacityUtilizationPct)) / 100) * 110;
                         return `${x},${y}`;
                       }).join(' ');
 
                       const firstX = step / 2;
-                      const lastX = (unitData.length - 1) * step + step / 2;
-                      const areaPoints = `${firstX},148 ${points} ${lastX},148`;
+                      const lastX = (inHouseUnitData.length - 1) * step + step / 2;
+                      const areaPoints = `${firstX},145 ${points} ${lastX},145`;
 
                       return (
                         <polygon
@@ -886,11 +891,11 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
 
                     {/* Connected Polyline */}
                     {(() => {
-                      if (unitData.length <= 1) return null;
-                      const step = 320 / unitData.length;
-                      const points = unitData.map((d, i) => {
+                      if (inHouseUnitData.length <= 1) return null;
+                      const step = 320 / inHouseUnitData.length;
+                      const points = inHouseUnitData.map((d, i) => {
                         const x = i * step + step / 2;
-                        const y = 148 - (Math.min(100, Math.max(0, d.capacityUtilizationPct)) / 100) * 128;
+                        const y = 145 - (Math.min(100, Math.max(0, d.capacityUtilizationPct)) / 100) * 110;
                         return `${x},${y}`;
                       }).join(' ');
 
@@ -905,68 +910,53 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
                         />
                       );
                     })()}
-
-                    {/* Data Points (Diamond Markers) and Top Percentage Labels */}
-                    {unitData.map((d, i) => {
-                      const step = 320 / unitData.length;
-                      const x = unitData.length === 1 ? 160 : i * step + step / 2;
-                      const y = 148 - (Math.min(100, Math.max(0, d.capacityUtilizationPct)) / 100) * 128;
-                      const isHovered = hoveredUnit === d.unit;
-
-                      return (
-                        <g 
-                          key={`cap-${d.unit}`} 
-                          className="cursor-pointer group"
-                          onMouseEnter={() => setHoveredUnit(d.unit)}
-                          onMouseLeave={() => setHoveredUnit(null)}
-                        >
-                          {/* Percentage Label with Background Badge */}
-                          <g transform={`translate(${x}, ${y - 12})`}>
-                            <rect 
-                              x="-14" 
-                              y="-9" 
-                              width="28" 
-                              height="13" 
-                              rx="3" 
-                              fill={isHovered ? '#0F4C75' : '#ffffff'} 
-                              stroke={isHovered ? '#ffffff' : '#0F4C75'}
-                              strokeWidth="1"
-                              className="dark:fill-slate-900 shadow-xs transition-colors"
-                            />
-                            <text
-                              x="0"
-                              y="1"
-                              textAnchor="middle"
-                              className={`text-[9.5px] font-extrabold select-none ${
-                                isHovered ? 'fill-white' : 'fill-slate-900 dark:fill-white'
-                              }`}
-                              style={{ fontSize: '9px', fontWeight: 800 }}
-                            >
-                              {d.capacityUtilizationPct}%
-                            </text>
-                          </g>
-
-                          {/* Yellow Diamond Marker */}
-                          <polygon
-                            points={`${x},${y - 4.5} ${x + 4.5},${y} ${x},${y + 4.5} ${x - 4.5},${y}`}
-                            fill={isHovered ? '#FFA500' : '#F6D000'}
-                            stroke="#0F4C75"
-                            strokeWidth="1.75"
-                            className="transition-transform group-hover:scale-125 duration-150"
-                          />
-                        </g>
-                      );
-                    })}
                   </svg>
 
+                  {/* Crisp HTML Data Point Markers & Top Percentage Badges */}
+                  {inHouseUnitData.map((d, i) => {
+                    const pctX = inHouseUnitData.length === 1 ? 50 : ((i + 0.5) / inHouseUnitData.length) * 100;
+                    const yPx = 145 - (Math.min(100, Math.max(0, d.capacityUtilizationPct)) / 100) * 110;
+                    const isHovered = hoveredUnit === d.unit;
+
+                    return (
+                      <div
+                        key={`cap-marker-${d.unit}`}
+                        className="absolute flex items-center justify-center cursor-pointer group z-10"
+                        style={{ left: `${pctX}%`, top: `${yPx}px`, transform: 'translate(-50%, -50%)' }}
+                        onMouseEnter={() => setHoveredUnit(d.unit)}
+                        onMouseLeave={() => setHoveredUnit(null)}
+                      >
+                        {/* High-Contrast Non-Stretched Percentage Pill Badge */}
+                        <div 
+                          className={`absolute bottom-full mb-1.5 px-1.5 py-0.5 rounded-md border text-[9px] font-black tracking-tight select-none shadow-xs transition-all whitespace-nowrap pointer-events-none ${
+                            isHovered
+                              ? 'bg-[#0F4C75] text-white border-[#0F4C75] scale-110 shadow-sm z-20'
+                              : 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 border-[#0F4C75]/60 dark:border-[#0F4C75] z-10'
+                          }`}
+                        >
+                          {d.capacityUtilizationPct}%
+                        </div>
+
+                        {/* Yellow Diamond Point Marker exactly on line vertex */}
+                        <div 
+                          className={`w-2.5 h-2.5 rotate-45 border-[2px] transition-transform duration-150 shadow-2xs ${
+                            isHovered
+                              ? 'bg-amber-400 border-[#0F4C75] scale-125'
+                              : 'bg-[#F6D000] border-[#0F4C75]'
+                          }`}
+                        />
+                      </div>
+                    );
+                  })}
+
                   {/* X-Axis Slanted Labels */}
-                  <div className="w-full flex justify-between absolute top-[154px] left-0 right-0">
-                    {unitData.map((d) => {
+                  <div className="w-full flex justify-between absolute top-[150px] left-0 right-0">
+                    {inHouseUnitData.map((d) => {
                       const isHovered = hoveredUnit === d.unit;
                       return (
                         <div key={`lbl-cap-${d.unit}`} className="flex-1 flex justify-center">
                           <span 
-                            className={`text-[9.5px] uppercase select-none whitespace-nowrap transform -rotate-45 origin-top-left translate-y-1.5 transition-colors ${
+                            className={`text-[9px] uppercase select-none whitespace-nowrap transform -rotate-45 origin-top-left translate-y-1 transition-colors ${
                               isHovered ? 'text-amber-600 dark:text-amber-400 font-extrabold' : 'text-slate-700 dark:text-slate-300 font-bold'
                             }`}
                             style={{ display: 'inline-block' }}

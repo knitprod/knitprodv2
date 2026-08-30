@@ -51,6 +51,8 @@ import PlanOrderFollowupView from './components/PlanOrderFollowupView';
 import YarnAllocationView from './components/YarnAllocationView';
 import DashboardFilterToolbar, { FilterState } from './components/DashboardFilterToolbar';
 import DashboardUnitwiseCards from './components/DashboardUnitwiseCards';
+import DashboardQualityLossCards from './components/DashboardQualityLossCards';
+import DashboardSecondaryElementCards from './components/DashboardSecondaryElementCards';
 import FloatingKPIAndFilterHUD from './components/FloatingKPIAndFilterHUD';
 import { useGlobalData } from './context/GlobalDataContext';
 import { GasClient } from './lib/gasClient';
@@ -1303,63 +1305,11 @@ export default function App() {
                 {/* 3 Unitwise Overview Analytics Cards: Production Unitwise, Efficiency %, Capacity Utilization % */}
                 <DashboardUnitwiseCards filterState={filterState} />
 
-                {/* Floor indicators & Activity feed */}
-                <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-                  <div className="lg:col-span-2 space-y-6">
-                    <FactoryFloors 
-                      floors={floors} 
-                      selectedFloorId={selectedFloorId} 
-                      onSelectFloor={handleSelectFloor} 
-                    />
-                    
-                    {/* Integrated dashboard graphs */}
-                    <DashboardCharts 
-                      filterUnit={filterState.unit}
-                      filterDateMode={filterState.dateMode}
-                      filterSingleDate={filterState.singleDate}
-                      filterDateFrom={filterState.dateFrom}
-                      filterDateTo={filterState.dateTo}
-                      filterMonth={filterState.month}
-                      filterYear={filterState.year}
-                      isLoading={dashboardLoading}
-                    />
+                {/* 3 Executive Quality, Wastage & Absenteeism Cards: Hold Summary, Wastage Summary, Absent Summary */}
+                <DashboardQualityLossCards filterState={filterState} />
 
-                    {/* Dynamic Summary Panel */}
-                    <div className="rounded-2xl border border-blue-100 bg-blue-50/20 dark:border-blue-900/30 dark:bg-blue-950/10 p-5 shadow-xs" id="dashboard-summary-panel">
-                      <h3 className="font-sans text-xs font-black uppercase tracking-wider text-[#0F4C81] dark:text-blue-400 flex items-center gap-1.5 mb-3">
-                        <Info className="h-4 w-4" />
-                        <span>Unit Summary & Directives Panel</span>
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-semibold text-gray-700 dark:text-slate-300">
-                        <div className="space-y-1.5 p-3 rounded-xl bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800">
-                          <span className="block text-[10px] font-bold text-gray-400 uppercase">Yield Status</span>
-                          <p>
-                            {filterState.unit} has completed <strong className="text-emerald-600 font-bold">{kpis[2].value}</strong> of its target plan during this period. Yield curve remains consistent with target profiles.
-                          </p>
-                        </div>
-                        <div className="space-y-1.5 p-3 rounded-xl bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800">
-                          <span className="block text-[10px] font-bold text-gray-400 uppercase">Quality Assessment</span>
-                          <p>
-                            Scrap rate is steady at <strong className="text-red-500 font-bold">1.4%</strong>. Active alerts count is normal. Tension adjustment on machine sets recommended.
-                          </p>
-                        </div>
-                        <div className="space-y-1.5 p-3 rounded-xl bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800">
-                          <span className="block text-[10px] font-bold text-gray-400 uppercase">Directives & Roster</span>
-                          <p>
-                            Shift supervisors must audit Lycra feeds every 4 hours. Ensure rigger speed for next-set changes remains under 45 minutes.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="lg:col-span-1">
-                    <RightPanel 
-                      activityLogs={activityLogs} 
-                      onNotificationClick={handleSelectFloor} 
-                    />
-                  </div>
-                </div>
+                {/* Secondary Element Consumption Section & Cards: Needle Broken, Sinker Broken, Oil Consumption & Spare Parts */}
+                <DashboardSecondaryElementCards filterState={filterState} />
               </div>
             )}
 
