@@ -30,7 +30,8 @@ import {
   calculateLedgerEfficiency, 
   calculateLedgerCapacityUtilization,
   calculateEffectiveDays,
-  getFloorMultiplier
+  getFloorMultiplier,
+  getLast7Dates
 } from '../lib/productionMetrics';
 
 interface DashboardUnitwiseCardsProps {
@@ -61,14 +62,39 @@ const formatDateFriendly = (dateStr: string) => {
   return `${day} ${monthName} ${year}`;
 };
 
+const formatShortDate = (dateStr: string) => {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  const monthNum = parseInt(parts[1], 10);
+  const day = parseInt(parts[2], 10);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthName = months[monthNum - 1] || parts[1];
+  return `${day} ${monthName}`;
+};
+
 export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwiseCardsProps) {
   const globalData = useGlobalData();
   const [hoveredUnit, setHoveredUnit] = useState<string | null>(null);
 
   const ledger = globalData?.ledger || [];
 
+  const isUnitSelected = Boolean(filterState?.unit && filterState.unit.toLowerCase() !== 'all');
+  const selectedUnitName = isUnitSelected ? filterState!.unit : '';
+
+  // Compute 7 days if unit is selected
+  const last7Dates = useMemo(() => {
+    if (!isUnitSelected) return [];
+    const explicitTargetDate = filterState?.dateTo || (filterState?.dateMode === 'single' ? filterState?.singleDate : '') || filterState?.dateFrom || '';
+    return getLast7Dates(ledger, selectedUnitName, explicitTargetDate);
+  }, [ledger, isUnitSelected, selectedUnitName, filterState]);
+
   // Determine active display date for Card Headers
   const activeDateDisplay = useMemo(() => {
+    if (isUnitSelected && last7Dates.length > 0) {
+      return `${formatShortDate(last7Dates[0])} – ${formatShortDate(last7Dates[last7Dates.length - 1])}`;
+    }
+
     if (filterState?.dateMode === 'single' && filterState.singleDate) {
       return formatDateFriendly(filterState.singleDate);
     }
@@ -98,15 +124,115 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
     }
 
     return 'Latest Production';
-  }, [filterState, ledger]);
+  }, [filterState, ledger, isUnitSelected, last7Dates]);
 
-  // Compute unit-wise data dynamically connected directly with Production Ledger Data
-  // STRICT RULE: Do NOT include any unit that does not have records in the Production Ledger
+  // Compute unit-wise OR Last 7 Days data dynamically connected directly with Production Ledger Data
   const unitData: UnitMetricData[] = useMemo(() => {
     if (!ledger || ledger.length === 0) {
       return [];
     }
 
+    // SCENARIO A: A specific Unit is selected -> Show Last 7 Days for this unit
+    if (isUnitSelected) {
+      if (last7Dates.length === 0) return [];
+
+      return last7Dates.map(date => {
+        const rows = ledger.filter(r => {
+          if (r.date !== date) return false;
+          if (selectedUnitName.toLowerCase().includes('sub')) {
+            return isSubContactRecord(r);
+          }
+          return isRecordMatchingFloor(r, selectedUnitName);
+        });
+
+        // 1. Target Bulk calculation
+        let targetBulk = rows.reduce((sum, r) => {
+          if (r.targetBulk !== undefined && r.targetBulk !== null && Number(r.targetBulk) > 0) {
+            return sum + Number(r.targetBulk);
+          }
+          if (r.target !== undefined && r.target !== null && Number(r.target) > 0) {
+            return sum + Number(r.target);
+          }
+          const mult = getFloorMultiplier(selectedUnitName);
+          const rBulk = r.runningBulk !== undefined && r.runningBulk !== null 
+            ? Number(r.runningBulk) 
+            : Math.max(0, (Number(r.runningMachine) || 0) - (Number(r.runningSample) || 0));
+          return sum + (rBulk * mult);
+        }, 0);
+
+        // 2. Bulk Production calculation
+        const bulkProduction = rows.reduce((sum, r) => {
+          const b = r.bulkProd !== undefined && r.bulkProd !== null
+            ? Number(r.bulkProd)
+            : Math.max(0, (Number(r.totalProduction) || 0) - (Number(r.sampleProd) || 0));
+          return sum + (Number.isNaN(b) ? 0 : b);
+        }, 0);
+
+        // 3. Sample Loss calculation
+        const sampleLoss = rows.reduce((sum, r) => {
+          const l = r.prodLossForSample !== undefined && r.prodLossForSample !== null
+            ? Number(r.prodLossForSample)
+            : (Number(r.sampleProd) ? Math.round(Number(r.sampleProd) * 0.8) : 0);
+          return sum + (Number.isNaN(l) ? 0 : l);
+        }, 0);
+
+        // 4. Efficiency % calculation
+        let efficiencyPct = 0;
+        const effFromCanonical = calculateLedgerEfficiency(rows, [], selectedUnitName);
+        if (effFromCanonical > 0) {
+          efficiencyPct = Math.round(effFromCanonical);
+        } else if (targetBulk > 0 && bulkProduction > 0) {
+          efficiencyPct = Math.min(100, Math.round((bulkProduction / targetBulk) * 100));
+        } else {
+          const validEffRows = rows.filter(r => r.efficiency !== undefined && Number(r.efficiency) > 0);
+          if (validEffRows.length > 0) {
+            const avg = validEffRows.reduce((sum, r) => {
+              let v = Number(r.efficiency) || 0;
+              if (v > 0 && v <= 1.5) v = v * 100;
+              return sum + v;
+            }, 0) / validEffRows.length;
+            efficiencyPct = Math.round(avg);
+          }
+        }
+
+        // 5. Capacity Utilization % calculation
+        let capacityUtilizationPct = 0;
+        const capFromCanonical = calculateLedgerCapacityUtilization(rows, selectedUnitName, 1);
+        if (capFromCanonical > 0) {
+          capacityUtilizationPct = Math.round(capFromCanonical);
+        } else {
+          const validCapRows = rows.filter(r => r.capacityUtilization !== undefined && Number(r.capacityUtilization) > 0);
+          if (validCapRows.length > 0) {
+            const avg = validCapRows.reduce((sum, r) => {
+              let v = Number(r.capacityUtilization) || 0;
+              if (v > 0 && v <= 1.5) v = v * 100;
+              return sum + v;
+            }, 0) / validCapRows.length;
+            capacityUtilizationPct = Math.round(avg);
+          } else {
+            const runM = rows.reduce((sum, r) => sum + (Number(r.runningMachine) || 0), 0);
+            const totM = rows.reduce((sum, r) => sum + (Number(r.totalMachines) || 0), 0);
+            if (totM > 0 && runM > 0) {
+              capacityUtilizationPct = Math.min(100, Math.round((runM / totM) * 100));
+            }
+          }
+        }
+
+        return {
+          key: date,
+          unit: date,
+          label: formatShortDate(date),
+          targetBulk: Math.round(targetBulk),
+          bulkProduction: Math.round(bulkProduction),
+          sampleLoss: Math.round(sampleLoss),
+          efficiencyPct: Math.min(100, Math.max(0, efficiencyPct)),
+          capacityUtilizationPct: Math.min(100, Math.max(0, capacityUtilizationPct)),
+          hasLedgerData: rows.length > 0
+        };
+      });
+    }
+
+    // SCENARIO B: All Units overview
     const { filteredRows } = filterLedgerByState(ledger, filterState);
     if (!filteredRows || filteredRows.length === 0) {
       return [];
@@ -212,16 +338,20 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
 
       // 4. Efficiency % calculation from ledger
       let efficiencyPct = 0;
-      const validEffRows = rows.filter(r => r.efficiency !== undefined && Number(r.efficiency) > 0);
-      if (validEffRows.length > 0) {
-        const avg = validEffRows.reduce((sum, r) => sum + Number(r.efficiency), 0) / validEffRows.length;
-        efficiencyPct = Math.round(avg);
+      const effFromCanonical = calculateLedgerEfficiency(rows, [], u.name);
+      if (effFromCanonical > 0) {
+        efficiencyPct = Math.round(effFromCanonical);
+      } else if (targetBulk > 0 && bulkProduction > 0) {
+        efficiencyPct = Math.min(100, Math.round((bulkProduction / targetBulk) * 100));
       } else {
-        const effFromCanonical = calculateLedgerEfficiency(rows, [], u.name);
-        if (effFromCanonical > 0) {
-          efficiencyPct = Math.round(effFromCanonical);
-        } else if (targetBulk > 0 && bulkProduction > 0) {
-          efficiencyPct = Math.min(100, Math.round((bulkProduction / targetBulk) * 100));
+        const validEffRows = rows.filter(r => r.efficiency !== undefined && Number(r.efficiency) > 0);
+        if (validEffRows.length > 0) {
+          const avg = validEffRows.reduce((sum, r) => {
+            let v = Number(r.efficiency) || 0;
+            if (v > 0 && v <= 1.5) v = v * 100;
+            return sum + v;
+          }, 0) / validEffRows.length;
+          efficiencyPct = Math.round(avg);
         } else {
           efficiencyPct = 0;
         }
@@ -229,14 +359,18 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
 
       // 5. Capacity Utilization % calculation from ledger
       let capacityUtilizationPct = 0;
-      const validCapRows = rows.filter(r => r.capacityUtilization !== undefined && Number(r.capacityUtilization) > 0);
-      if (validCapRows.length > 0) {
-        const avg = validCapRows.reduce((sum, r) => sum + Number(r.capacityUtilization), 0) / validCapRows.length;
-        capacityUtilizationPct = Math.round(avg);
+      const capFromCanonical = calculateLedgerCapacityUtilization(rows, u.name, effectiveDays);
+      if (capFromCanonical > 0) {
+        capacityUtilizationPct = Math.round(capFromCanonical);
       } else {
-        const capFromCanonical = calculateLedgerCapacityUtilization(rows, u.name, effectiveDays);
-        if (capFromCanonical > 0) {
-          capacityUtilizationPct = Math.round(capFromCanonical);
+        const validCapRows = rows.filter(r => r.capacityUtilization !== undefined && Number(r.capacityUtilization) > 0);
+        if (validCapRows.length > 0) {
+          const avg = validCapRows.reduce((sum, r) => {
+            let v = Number(r.capacityUtilization) || 0;
+            if (v > 0 && v <= 1.5) v = v * 100;
+            return sum + v;
+          }, 0) / validCapRows.length;
+          capacityUtilizationPct = Math.round(avg);
         } else {
           const runM = rows.reduce((sum, r) => sum + (Number(r.runningMachine) || 0), 0);
           const totM = rows.reduce((sum, r) => sum + (Number(r.totalMachines) || 0), 0);
@@ -261,7 +395,7 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
       });
     }
 
-    // 2. Also check if there are any remaining records in filteredRows with distinct unit/floor names (e.g. Sub-Contact)
+    // Also check remaining rows with distinct unit/floor names
     const remainingRowsWithIndex = filteredRows
       .map((r, idx) => ({ r, idx }))
       .filter(({ idx }) => !matchedRecordIndices.has(idx));
@@ -317,24 +451,42 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
         }, 0);
 
         let efficiencyPct = 0;
-        const validEffRows = rows.filter(r => r.efficiency !== undefined && Number(r.efficiency) > 0);
-        if (validEffRows.length > 0) {
-          const avg = validEffRows.reduce((sum, r) => sum + Number(r.efficiency), 0) / validEffRows.length;
-          efficiencyPct = Math.round(avg);
+        const effFromCanonical = calculateLedgerEfficiency(rows, [], name);
+        if (effFromCanonical > 0) {
+          efficiencyPct = Math.round(effFromCanonical);
         } else if (targetBulk > 0 && bulkProduction > 0) {
           efficiencyPct = Math.min(100, Math.round((bulkProduction / targetBulk) * 100));
+        } else {
+          const validEffRows = rows.filter(r => r.efficiency !== undefined && Number(r.efficiency) > 0);
+          if (validEffRows.length > 0) {
+            const avg = validEffRows.reduce((sum, r) => {
+              let v = Number(r.efficiency) || 0;
+              if (v > 0 && v <= 1.5) v = v * 100;
+              return sum + v;
+            }, 0) / validEffRows.length;
+            efficiencyPct = Math.round(avg);
+          }
         }
 
         let capacityUtilizationPct = 0;
-        const validCapRows = rows.filter(r => r.capacityUtilization !== undefined && Number(r.capacityUtilization) > 0);
-        if (validCapRows.length > 0) {
-          const avg = validCapRows.reduce((sum, r) => sum + Number(r.capacityUtilization), 0) / validCapRows.length;
-          capacityUtilizationPct = Math.round(avg);
+        const capFromCanonical = calculateLedgerCapacityUtilization(rows, name, effectiveDays);
+        if (capFromCanonical > 0) {
+          capacityUtilizationPct = Math.round(capFromCanonical);
         } else {
-          const runM = rows.reduce((sum, r) => sum + (Number(r.runningMachine) || 0), 0);
-          const totM = rows.reduce((sum, r) => sum + (Number(r.totalMachines) || 0), 0);
-          if (totM > 0 && runM > 0) {
-            capacityUtilizationPct = Math.min(100, Math.round((runM / totM) * 100));
+          const validCapRows = rows.filter(r => r.capacityUtilization !== undefined && Number(r.capacityUtilization) > 0);
+          if (validCapRows.length > 0) {
+            const avg = validCapRows.reduce((sum, r) => {
+              let v = Number(r.capacityUtilization) || 0;
+              if (v > 0 && v <= 1.5) v = v * 100;
+              return sum + v;
+            }, 0) / validCapRows.length;
+            capacityUtilizationPct = Math.round(avg);
+          } else {
+            const runM = rows.reduce((sum, r) => sum + (Number(r.runningMachine) || 0), 0);
+            const totM = rows.reduce((sum, r) => sum + (Number(r.totalMachines) || 0), 0);
+            if (totM > 0 && runM > 0) {
+              capacityUtilizationPct = Math.min(100, Math.round((runM / totM) * 100));
+            }
           }
         }
 
@@ -353,7 +505,7 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
     }
 
     return result;
-  }, [ledger, filterState]);
+  }, [ledger, filterState, isUnitSelected, selectedUnitName, last7Dates]);
 
   // In-House units only for Efficiency and Capacity Utilization (Sub-Contact is external contract production)
   const inHouseUnitData = useMemo(() => {
@@ -411,14 +563,16 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold text-sm sm:text-base tracking-tight text-white leading-tight">
-                  Production Unitwise
+                  {isUnitSelected ? `${selectedUnitName} Production Trend` : 'Production Unitwise'}
                 </h3>
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white border border-white/30 backdrop-blur-xs">
                   <Calendar className="w-2.5 h-2.5" />
                   {activeDateDisplay}
                 </span>
               </div>
-              <p className="text-[10px] text-amber-100/90 font-medium">Target vs Bulk Output vs Loss</p>
+              <p className="text-[10px] text-amber-100/90 font-medium">
+                {isUnitSelected ? 'Daily 7-Day Target vs Bulk Output vs Loss' : 'Target vs Bulk Output vs Loss'}
+              </p>
             </div>
           </div>
           <div className="text-right">
@@ -430,7 +584,9 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
 
         {/* Legend */}
         <div className="pt-2.5 px-3.5 pb-1 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/40">
-          <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Unit Metrics (Kg)</span>
+          <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+            {isUnitSelected ? 'Daily Metrics (Kg)' : 'Unit Metrics (Kg)'}
+          </span>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200">
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-xs bg-[#0F4C75] inline-block shadow-2xs"></span>
@@ -568,14 +724,16 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold text-sm sm:text-base tracking-tight text-white leading-tight">
-                  Efficiency %
+                  {isUnitSelected ? `${selectedUnitName} Efficiency %` : 'Efficiency %'}
                 </h3>
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white border border-white/30 backdrop-blur-xs">
                   <Calendar className="w-2.5 h-2.5" />
                   {activeDateDisplay}
                 </span>
               </div>
-              <p className="text-[10px] text-amber-100/90 font-medium">Output vs Planned Capacity</p>
+              <p className="text-[10px] text-amber-100/90 font-medium">
+                {isUnitSelected ? 'Daily 7-Day Output vs Planned Capacity' : 'Output vs Planned Capacity'}
+              </p>
             </div>
           </div>
           <div className="text-right">
@@ -779,14 +937,16 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold text-sm sm:text-base tracking-tight text-white leading-tight">
-                  Capacity Utilization %
+                  {isUnitSelected ? `${selectedUnitName} Capacity Utilization %` : 'Capacity Utilization %'}
                 </h3>
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white border border-white/30 backdrop-blur-xs">
                   <Calendar className="w-2.5 h-2.5" />
                   {activeDateDisplay}
                 </span>
               </div>
-              <p className="text-[10px] text-amber-100/90 font-medium">Daily Asset Workload Rate</p>
+              <p className="text-[10px] text-amber-100/90 font-medium">
+                {isUnitSelected ? 'Daily 7-Day Asset Workload Rate' : 'Daily Asset Workload Rate'}
+              </p>
             </div>
           </div>
           <div className="text-right">

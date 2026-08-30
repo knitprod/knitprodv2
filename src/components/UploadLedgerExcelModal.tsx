@@ -190,6 +190,14 @@ export default function UploadLedgerExcelModal({
     return isNaN(parsed) ? 0 : parsed;
   };
 
+  const cleanPct = (val: any): number => {
+    const n = cleanNum(val);
+    if (n > 0 && n <= 1.5) {
+      return parseFloat((n * 100).toFixed(2));
+    }
+    return n;
+  };
+
   // Compare uploaded headers with App Headers
   const evaluateHeaders = (sheetHeaders: string[]): HeaderMatchResult => {
     const matchedColumns: { appCol: AppColumnDefinition; sheetHeader: string; sheetIndex: number }[] = [];
@@ -411,20 +419,20 @@ export default function UploadLedgerExcelModal({
               runningBulk: isSubContact ? undefined : runningBulk,
               runningSample: isSubContact ? undefined : runningSample,
               idleMc: isSubContact ? undefined : idleMc,
-              machineUtilization: isSubContact ? undefined : (cleanNum(getVal(row, 'machineUtilization')) || (totalMachines > 0 ? parseFloat((((runningBulk + runningSample) / totalMachines) * 100).toFixed(1)) : 0)),
-              idleMcPct: isSubContact ? undefined : (cleanNum(getVal(row, 'idleMcPct')) || (totalMachines > 0 ? parseFloat(((idleMc / totalMachines) * 100).toFixed(1)) : 0)),
+              machineUtilization: isSubContact ? undefined : (cleanPct(getVal(row, 'machineUtilization')) || (totalMachines > 0 ? parseFloat((((runningBulk + runningSample) / totalMachines) * 100).toFixed(1)) : 0)),
+              idleMcPct: isSubContact ? undefined : (cleanPct(getVal(row, 'idleMcPct')) || (totalMachines > 0 ? parseFloat(((idleMc / totalMachines) * 100).toFixed(1)) : 0)),
               prodLossForSample: isSubContact ? undefined : cleanNum(getVal(row, 'prodLossForSample')),
               idleProduction: isSubContact ? undefined : cleanNum(getVal(row, 'idleProduction')),
               efficiency: isSubContact 
-                ? (cleanNum(getVal(row, 'achievmentCircular')) || (target > 0 ? parseFloat(((totalProduction / target) * 100).toFixed(1)) : 0))
-                : (cleanNum(getVal(row, 'efficiency')) || (target > 0 ? parseFloat(((totalProduction / target) * 100).toFixed(1)) : 0)),
+                ? (cleanPct(getVal(row, 'achievmentCircular')) || (target > 0 ? parseFloat(((totalProduction / target) * 100).toFixed(1)) : 0))
+                : (cleanPct(getVal(row, 'efficiency')) || (target > 0 ? parseFloat(((totalProduction / target) * 100).toFixed(1)) : 0)),
               proPerMc: isSubContact ? undefined : (cleanNum(getVal(row, 'proPerMc')) || ((runningBulk + runningSample) > 0 ? Math.round(totalProduction / (runningBulk + runningSample)) : 0)),
               reject: cleanNum(getVal(row, 'reject')),
-              rejectPct: cleanNum(getVal(row, 'rejectPct')),
+              rejectPct: cleanPct(getVal(row, 'rejectPct')),
               hold: cleanNum(getVal(row, 'hold')),
-              holdPct: cleanNum(getVal(row, 'holdPct')),
+              holdPct: cleanPct(getVal(row, 'holdPct')),
               jhuteCutpcs: cleanNum(getVal(row, 'jhuteCutpcs')),
-              jhuteCutpcsPct: cleanNum(getVal(row, 'jhuteCutpcsPct')),
+              jhuteCutpcsPct: cleanPct(getVal(row, 'jhuteCutpcsPct')),
               needleBroken: isSubContact ? undefined : cleanNum(getVal(row, 'needleBroken')),
               needlePerKg: isSubContact ? undefined : cleanNum(getVal(row, 'needlePerKg')),
               sinkerBroken: isSubContact ? undefined : cleanNum(getVal(row, 'sinkerBroken')),
@@ -436,12 +444,12 @@ export default function UploadLedgerExcelModal({
               setChangeNeedle: isSubContact ? undefined : cleanNum(getVal(row, 'setChangeNeedle')),
               setChangeSinker: isSubContact ? undefined : cleanNum(getVal(row, 'setChangeSinker')),
               productionLossForEff: isSubContact ? undefined : cleanNum(getVal(row, 'productionLossForEff')),
-              capacityUtilization: isSubContact ? undefined : cleanNum(getVal(row, 'capacityUtilization')),
+              capacityUtilization: isSubContact ? undefined : cleanPct(getVal(row, 'capacityUtilization')),
               totalOperator: cleanNum(getVal(row, 'totalOperator')),
               absent: cleanNum(getVal(row, 'absent')),
-              absentPct: cleanNum(getVal(row, 'absentPct')),
+              absentPct: cleanPct(getVal(row, 'absentPct')),
               productionFlatKnit: cleanNum(getVal(row, 'productionFlatKnit')),
-              achievmentCircular: cleanNum(getVal(row, 'achievmentCircular')) || (isSubContact && target > 0 ? parseFloat(((totalProduction / target) * 100).toFixed(1)) : undefined),
+              achievmentCircular: cleanPct(getVal(row, 'achievmentCircular')) || (isSubContact && target > 0 ? parseFloat(((totalProduction / target) * 100).toFixed(1)) : undefined),
               otd: String(getVal(row, 'otd') || '').trim(),
               yarnIssued: cleanNum(getVal(row, 'yarnIssued')),
               runningFactories: cleanNum(getVal(row, 'totalRunningFactories')) || cleanNum(getVal(row, 'runningFactories')),

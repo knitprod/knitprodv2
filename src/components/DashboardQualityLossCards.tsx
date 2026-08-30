@@ -23,7 +23,9 @@ import { LedgerRecord } from '../types';
 import { FilterState } from './DashboardFilterToolbar';
 import { 
   filterLedgerByState, 
-  isRecordMatchingFloor
+  isRecordMatchingFloor,
+  isSubContactRecord,
+  getLast7Dates
 } from '../lib/productionMetrics';
 
 interface DashboardQualityLossCardsProps {
@@ -64,6 +66,17 @@ const formatDateFriendly = (dateStr: string) => {
   return `${day} ${monthName} ${year}`;
 };
 
+const formatShortDate = (dateStr: string) => {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  const monthNum = parseInt(parts[1], 10);
+  const day = parseInt(parts[2], 10);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthName = months[monthNum - 1] || parts[1];
+  return `${day} ${monthName}`;
+};
+
 const formatUnitLabel = (name: string): string => {
   const n = (name || '').trim().toLowerCase();
   if (n.includes('sub')) return 'Sub-Contact';
@@ -82,8 +95,21 @@ export default function DashboardQualityLossCards({ filterState }: DashboardQual
 
   const ledger = globalData?.ledger || [];
 
+  const isUnitSelected = Boolean(filterState?.unit && filterState.unit.toLowerCase() !== 'all');
+  const selectedUnitName = isUnitSelected ? filterState!.unit : '';
+
+  const last7Dates = useMemo(() => {
+    if (!isUnitSelected) return [];
+    const explicitTargetDate = filterState?.dateTo || (filterState?.dateMode === 'single' ? filterState?.singleDate : '') || filterState?.dateFrom || '';
+    return getLast7Dates(ledger, selectedUnitName, explicitTargetDate);
+  }, [ledger, isUnitSelected, selectedUnitName, filterState]);
+
   // Determine active display date for Card Headers
   const activeDateDisplay = useMemo(() => {
+    if (isUnitSelected && last7Dates.length > 0) {
+      return `${formatShortDate(last7Dates[0])} – ${formatShortDate(last7Dates[last7Dates.length - 1])}`;
+    }
+
     if (filterState?.dateMode === 'single' && filterState.singleDate) {
       return formatDateFriendly(filterState.singleDate);
     }
@@ -111,12 +137,114 @@ export default function DashboardQualityLossCards({ filterState }: DashboardQual
     }
 
     return 'Latest Production';
-  }, [filterState, ledger]);
+  }, [filterState, ledger, isUnitSelected, last7Dates]);
 
   // Compute unit-wise loss & quality data dynamically connected to Production Ledger
   const lossData: UnitLossMetric[] = useMemo(() => {
     if (!ledger || ledger.length === 0) return [];
 
+    // SCENARIO A: A specific unit is selected -> Show Last 7 Days
+    if (isUnitSelected) {
+      if (last7Dates.length === 0) return [];
+
+      return last7Dates.map(date => {
+        const rows = ledger.filter(r => {
+          if (r.date !== date) return false;
+          if (selectedUnitName.toLowerCase().includes('sub')) {
+            return isSubContactRecord(r);
+          }
+          return isRecordMatchingFloor(r, selectedUnitName);
+        });
+
+        const totProd = rows.reduce((sum, r) => sum + (Number(r.totalProduction) || 0), 0);
+        const holdQty = rows.reduce((sum, r) => sum + (Number(r.hold) || 0), 0);
+        let holdPct = 0;
+        const validHoldPctRows = rows.filter(r => r.holdPct !== undefined && r.holdPct !== null && Number(r.holdPct) > 0);
+        if (validHoldPctRows.length > 0 && rows.length === 1) {
+          let hp = Number(validHoldPctRows[0].holdPct);
+          if (hp > 0 && hp <= 1.5) hp = hp * 100;
+          holdPct = hp;
+        } else if (totProd > 0 && holdQty > 0) {
+          holdPct = (holdQty / totProd) * 100;
+        } else if (validHoldPctRows.length > 0) {
+          holdPct = validHoldPctRows.reduce((sum, r) => {
+            let hp = Number(r.holdPct) || 0;
+            if (hp > 0 && hp <= 1.5) hp = hp * 100;
+            return sum + hp;
+          }, 0) / validHoldPctRows.length;
+        }
+
+        const rejectQty = rows.reduce((sum, r) => sum + (Number(r.reject) || 0), 0);
+        let rejectPct = 0;
+        const validRejectPctRows = rows.filter(r => r.rejectPct !== undefined && r.rejectPct !== null && Number(r.rejectPct) > 0);
+        if (validRejectPctRows.length > 0 && rows.length === 1) {
+          let rp = Number(validRejectPctRows[0].rejectPct);
+          if (rp > 0 && rp <= 1.5) rp = rp * 100;
+          rejectPct = rp;
+        } else if (totProd > 0 && rejectQty > 0) {
+          rejectPct = (rejectQty / totProd) * 100;
+        } else if (validRejectPctRows.length > 0) {
+          rejectPct = validRejectPctRows.reduce((sum, r) => {
+            let rp = Number(r.rejectPct) || 0;
+            if (rp > 0 && rp <= 1.5) rp = rp * 100;
+            return sum + rp;
+          }, 0) / validRejectPctRows.length;
+        }
+
+        const jhuteCutpcsQty = rows.reduce((sum, r) => sum + (Number(r.jhuteCutpcs) || 0), 0);
+        let jhuteCutpcsPct = 0;
+        const validJhutePctRows = rows.filter(r => r.jhuteCutpcsPct !== undefined && r.jhuteCutpcsPct !== null && Number(r.jhuteCutpcsPct) > 0);
+        if (validJhutePctRows.length > 0 && rows.length === 1) {
+          let jp = Number(validJhutePctRows[0].jhuteCutpcsPct);
+          if (jp > 0 && jp <= 1.5) jp = jp * 100;
+          jhuteCutpcsPct = jp;
+        } else if (totProd > 0 && jhuteCutpcsQty > 0) {
+          jhuteCutpcsPct = (jhuteCutpcsQty / totProd) * 100;
+        } else if (validJhutePctRows.length > 0) {
+          jhuteCutpcsPct = validJhutePctRows.reduce((sum, r) => {
+            let jp = Number(r.jhuteCutpcsPct) || 0;
+            if (jp > 0 && jp <= 1.5) jp = jp * 100;
+            return sum + jp;
+          }, 0) / validJhutePctRows.length;
+        }
+
+        const absentCount = rows.reduce((sum, r) => sum + (Number(r.absent) || 0), 0);
+        const totalOperator = rows.reduce((sum, r) => sum + (Number(r.totalOperator) || 0), 0);
+        let absentRatePct = 0;
+        const validAbsentPctRows = rows.filter(r => r.absentPct !== undefined && r.absentPct !== null && Number(r.absentPct) > 0);
+        if (validAbsentPctRows.length > 0 && rows.length === 1) {
+          let ap = Number(validAbsentPctRows[0].absentPct);
+          if (ap > 0 && ap <= 1.5) ap = ap * 100;
+          absentRatePct = ap;
+        } else if (totalOperator > 0 && absentCount > 0) {
+          absentRatePct = (absentCount / totalOperator) * 100;
+        } else if (validAbsentPctRows.length > 0) {
+          absentRatePct = validAbsentPctRows.reduce((sum, r) => {
+            let ap = Number(r.absentPct) || 0;
+            if (ap > 0 && ap <= 1.5) ap = ap * 100;
+            return sum + ap;
+          }, 0) / validAbsentPctRows.length;
+        }
+
+        return {
+          key: date,
+          unit: date,
+          label: formatShortDate(date),
+          totalProduction: totProd,
+          totalOperator,
+          holdQty: Math.round(holdQty),
+          holdPct: parseFloat(holdPct.toFixed(2)),
+          rejectQty: Math.round(rejectQty),
+          jhuteCutpcsQty: Math.round(jhuteCutpcsQty),
+          rejectPct: parseFloat(rejectPct.toFixed(2)),
+          jhuteCutpcsPct: parseFloat(jhuteCutpcsPct.toFixed(2)),
+          absentCount: Math.round(absentCount),
+          absentRatePct: parseFloat(absentRatePct.toFixed(2))
+        };
+      });
+    }
+
+    // SCENARIO B: All Units
     const { filteredRows } = filterLedgerByState(ledger, filterState);
     if (!filteredRows || filteredRows.length === 0) return [];
 
@@ -383,14 +511,16 @@ export default function DashboardQualityLossCards({ filterState }: DashboardQual
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold text-sm sm:text-base tracking-tight text-white leading-tight">
-                  Hold Summary
+                  {isUnitSelected ? `${selectedUnitName} Hold Summary` : 'Hold Summary'}
                 </h3>
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white border border-white/30 backdrop-blur-xs">
                   <Calendar className="w-2.5 h-2.5" />
                   {activeDateDisplay}
                 </span>
               </div>
-              <p className="text-[10px] text-amber-100/90 font-medium">Quality Hold Quantity & Rate %</p>
+              <p className="text-[10px] text-amber-100/90 font-medium">
+                {isUnitSelected ? 'Daily 7-Day Quality Hold Quantity & Rate %' : 'Quality Hold Quantity & Rate %'}
+              </p>
             </div>
           </div>
           <div className="text-right">
@@ -602,14 +732,16 @@ export default function DashboardQualityLossCards({ filterState }: DashboardQual
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold text-sm sm:text-base tracking-tight text-white leading-tight">
-                  Wastage Summary
+                  {isUnitSelected ? `${selectedUnitName} Wastage Summary` : 'Wastage Summary'}
                 </h3>
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white border border-white/30 backdrop-blur-xs">
                   <Calendar className="w-2.5 h-2.5" />
                   {activeDateDisplay}
                 </span>
               </div>
-              <p className="text-[10px] text-amber-100/90 font-medium">Reject & Jhute / Cut Pieces</p>
+              <p className="text-[10px] text-amber-100/90 font-medium">
+                {isUnitSelected ? 'Daily 7-Day Reject & Jhute / Cut Pieces' : 'Reject & Jhute / Cut Pieces'}
+              </p>
             </div>
           </div>
           <div className="text-right">
@@ -885,14 +1017,16 @@ export default function DashboardQualityLossCards({ filterState }: DashboardQual
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold text-sm sm:text-base tracking-tight text-white leading-tight">
-                  Absent Summary
+                  {isUnitSelected ? `${selectedUnitName} Absent Summary` : 'Absent Summary'}
                 </h3>
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white border border-white/30 backdrop-blur-xs">
                   <Calendar className="w-2.5 h-2.5" />
                   {activeDateDisplay}
                 </span>
               </div>
-              <p className="text-[10px] text-amber-100/90 font-medium">Workforce Absenteeism & Rate %</p>
+              <p className="text-[10px] text-amber-100/90 font-medium">
+                {isUnitSelected ? 'Daily 7-Day Workforce Absenteeism & Rate %' : 'Workforce Absenteeism & Rate %'}
+              </p>
             </div>
           </div>
           <div className="text-right">

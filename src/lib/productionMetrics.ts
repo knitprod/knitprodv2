@@ -30,12 +30,28 @@ export const getFloorMultiplier = (fName: string): number => {
   return getAvgProdPerMachineForUnit(fName, 230);
 };
 
+export function normalizeFloorKey(name: string): string {
+  if (!name) return '';
+  const raw = name.trim().toLowerCase();
+  const clean = raw.replace(/[-_\s.]+/g, '');
+  
+  if (clean === 'ekl') return 'ekl';
+  if (clean === 'efl2' || clean === 'efl-2' || clean === 'efl 2') return 'efl2';
+  if (clean.includes('eflext') || clean === 'eflextension' || clean === 'extension') return 'eflextension';
+  if (clean.includes('eslext') || clean === 'eslextension') return 'eslextension';
+  if (clean.includes('stripe') || clean === 'autostripe' || clean === 'auto') return 'autostripe';
+  if (clean.includes('sub')) return 'subcontact';
+  if (clean === 'efl' || clean === 'efl1' || clean === 'efl-1' || clean === 'efl 1') return 'efl';
+  
+  return clean;
+}
+
 export function isSubContactRecord(r: LedgerRecord): boolean {
   if (!r) return false;
   const unit = (r.unit || '').trim().toLowerCase();
   const floor = (r.floor || '').trim().toLowerCase();
   const remarks = (r.remarks || '').trim().toLowerCase();
-  return unit === 'sub-contact' || floor === 'sub-contact' || remarks.includes('sub-contact');
+  return unit === 'sub-contact' || floor === 'sub-contact' || remarks.includes('sub-contact') || normalizeFloorKey(unit) === 'subcontact' || normalizeFloorKey(floor) === 'subcontact';
 }
 
 export function isRecordMatchingFloor(r: LedgerRecord, floorName: string): boolean {
@@ -48,9 +64,13 @@ export function isRecordMatchingFloor(r: LedgerRecord, floorName: string): boole
   if (cleanFloor === 'sub-contact' || cleanFloor === 'sub contact' || cleanFloor === 'subcontact' || cleanFloor === 'sub') {
     return isSubContactRecord(r);
   }
-  const rFloor = (r.floor || '').trim().toLowerCase();
-  const rUnit = (r.unit || '').trim().toLowerCase();
-  return rFloor === cleanFloor || rUnit === cleanFloor || rFloor.includes(cleanFloor) || rUnit.includes(cleanFloor);
+
+  const targetKey = normalizeFloorKey(floorName);
+  const floorKey = normalizeFloorKey(r.floor || '');
+  const unitKey = normalizeFloorKey(r.unit || '');
+
+  // Exact key match to prevent "efl" from loosely matching "efl2" or "eflextension"
+  return floorKey === targetKey || unitKey === targetKey;
 }
 
 export interface FilterStateInput {
@@ -498,7 +518,9 @@ export function calculateLedgerEfficiency(
 
   // Single record pre-calculated efficiency priority
   if (inHouseRecords.length === 1 && inHouseRecords[0].efficiency !== undefined && inHouseRecords[0].efficiency !== null && Number(inHouseRecords[0].efficiency) > 0) {
-    return parseFloat(Number(inHouseRecords[0].efficiency).toFixed(2));
+    let eff = Number(inHouseRecords[0].efficiency);
+    if (eff > 0 && eff <= 1.5) eff = eff * 100;
+    return parseFloat(eff.toFixed(2));
   }
 
   let totalInHouseBulkProd = 0;
@@ -558,7 +580,9 @@ export function calculateLedgerCapacityUtilization(
   if (inHouseRecords.length === 0) return 0;
 
   if (inHouseRecords.length === 1 && inHouseRecords[0].capacityUtilization !== undefined && inHouseRecords[0].capacityUtilization !== null && Number(inHouseRecords[0].capacityUtilization) > 0) {
-    return parseFloat(Number(inHouseRecords[0].capacityUtilization).toFixed(2));
+    let cap = Number(inHouseRecords[0].capacityUtilization);
+    if (cap > 0 && cap <= 1.5) cap = cap * 100;
+    return parseFloat(cap.toFixed(2));
   }
 
   const totalInHouseProd = inHouseRecords.reduce((sum, r) => {
@@ -574,4 +598,63 @@ export function calculateLedgerCapacityUtilization(
     return parseFloat(((totalInHouseProd / periodTotalCapacity) * 100).toFixed(2));
   }
   return 0;
+}
+
+/**
+ * Resolves the last 7 chronological dates for a specific unit or overall dataset.
+ * If a target date is specified in filterState (singleDate, dateTo, or dateFrom),
+ * it returns the 7 days leading up to and including that target date.
+ * Otherwise, it returns the 7 most recent dates recorded in the ledger.
+ */
+export function getLast7Dates(
+  ledger: LedgerRecord[],
+  unit?: string,
+  targetDate?: string
+): string[] {
+  if (!ledger || ledger.length === 0) {
+    const end = targetDate && /^\d{4}-\d{2}-\d{2}$/.test(targetDate) ? new Date(targetDate) : new Date();
+    const generated: string[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(end);
+      d.setDate(d.getDate() - i);
+      generated.push(d.toISOString().slice(0, 10));
+    }
+    return generated;
+  }
+
+  // Filter for matching unit rows if unit is provided
+  const unitRows = unit && unit.toLowerCase() !== 'all'
+    ? ledger.filter(r => isRecordMatchingFloor(r, unit) || (unit.toLowerCase().includes('sub') && isSubContactRecord(r)))
+    : ledger;
+
+  const distinctDates = Array.from(
+    new Set(
+      unitRows
+        .map(r => r.date)
+        .filter((d): d is string => Boolean(d && /^\d{4}-\d{2}-\d{2}$/.test(d)))
+    )
+  ).sort();
+
+  if (distinctDates.length === 0) {
+    const allDates = Array.from(
+      new Set(
+        ledger
+          .map(r => r.date)
+          .filter((d): d is string => Boolean(d && /^\d{4}-\d{2}-\d{2}$/.test(d)))
+      )
+    ).sort();
+    if (allDates.length > 0) {
+      return allDates.slice(-7);
+    }
+  }
+
+  // If targetDate is specified and valid, take up to 7 dates ending on targetDate
+  if (targetDate && /^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+    const upToDates = distinctDates.filter(d => d <= targetDate);
+    if (upToDates.length >= 7) {
+      return upToDates.slice(-7);
+    }
+  }
+
+  return distinctDates.slice(-7);
 }

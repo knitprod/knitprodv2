@@ -232,116 +232,250 @@ export const LedgerCalendarDatePicker: React.FC<LedgerCalendarDatePickerProps> =
         </div>
       </button>
 
-      {/* Calendar Popover */}
+      {/* Calendar Popover (Desktop) & Responsive Centered Modal (Mobile) */}
       {isOpen && (
-        <div className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1.5 z-50 w-72 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 shadow-xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-100`}>
-          {/* Calendar Header: Month & Year Navigator */}
-          <div className="flex items-center justify-between mb-2.5 pb-2 border-b border-slate-100 dark:border-slate-800">
-            <button
-              type="button"
-              onClick={prevMonth}
-              className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
-              title="Previous Month"
+        <>
+          {/* Mobile Backdrop & Centered Dialog for Touch Devices */}
+          <div 
+            className="fixed inset-0 bg-black/60 z-50 sm:hidden flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in duration-150"
+            onClick={() => setIsOpen(false)}
+          >
+            <div 
+              className="w-full max-w-[310px] rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-2xl animate-in zoom-in-95 duration-150"
+              onClick={(e) => e.stopPropagation()}
             >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <span className="font-bold text-xs text-slate-900 dark:text-white">
-              {monthNames[viewMonth]} {viewYear}
-            </span>
-            <button
-              type="button"
-              onClick={nextMonth}
-              className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
-              title="Next Month"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-
-          {/* Weekday Labels */}
-          <div className="grid grid-cols-7 gap-1 text-center mb-1">
-            {daysOfWeek.map((day, idx) => (
-              <span
-                key={day}
-                className={`text-[10px] font-bold uppercase ${
-                  idx === 0 || idx === 6
-                    ? 'text-red-400 dark:text-red-400/80'
-                    : 'text-slate-400 dark:text-slate-500'
-                }`}
-              >
-                {day}
-              </span>
-            ))}
-          </div>
-
-          {/* Calendar Days Grid */}
-          <div className="grid grid-cols-7 gap-1 text-center">
-            {calendarDays.map((cell, idx) => {
-              if (!cell.isCurrentMonth) {
-                return (
-                  <div
-                    key={idx}
-                    className="h-7 flex items-center justify-center text-[11px] text-slate-300 dark:text-slate-700 select-none"
-                  >
-                    {cell.day}
-                  </div>
-                );
-              }
-
-              if (!cell.isAllowed) {
-                return (
-                  <div
-                    key={idx}
-                    className="h-7 flex items-center justify-center text-[11px] text-slate-300 dark:text-slate-600/50 cursor-not-allowed select-none rounded-md"
-                    title="No ledger entry for this date"
-                  >
-                    {cell.day}
-                  </div>
-                );
-              }
-
-              return (
+              {/* Calendar Header: Month & Year Navigator */}
+              <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100 dark:border-slate-800">
                 <button
-                  key={idx}
                   type="button"
-                  onClick={() => handleSelectDate(cell.dateStr)}
-                  className={`h-7 flex flex-col items-center justify-center rounded-lg text-[11px] font-bold transition-all cursor-pointer relative ${
-                    cell.isSelected
-                      ? 'bg-[#0F4C81] text-white shadow-xs'
-                      : 'text-slate-800 dark:text-slate-100 hover:bg-blue-50 dark:hover:bg-blue-950/60 hover:text-[#0F4C81] dark:hover:text-blue-300'
-                  } ${cell.isToday && !cell.isSelected ? 'border border-[#0F4C81]/40 dark:border-sky-500/40' : ''}`}
+                  onClick={prevMonth}
+                  className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                  title="Previous Month"
                 >
-                  <span>{cell.day}</span>
-                  {/* Subtle indicator dot for available ledger date */}
-                  <span
-                    className={`h-1 w-1 rounded-full -mt-0.5 ${
-                      cell.isSelected
-                        ? 'bg-white'
-                        : 'bg-emerald-500 dark:bg-emerald-400'
-                    }`}
-                  />
+                  <ChevronLeft className="h-5 w-5" />
                 </button>
-              );
-            })}
+                <div className="text-center">
+                  <span className="font-bold text-sm text-slate-900 dark:text-white block">
+                    {monthNames[viewMonth]} {viewYear}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                    {label ? label : 'Select Date'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={nextMonth}
+                  className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                  title="Next Month"
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Weekday Labels */}
+              <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                {daysOfWeek.map((day, idx) => (
+                  <span
+                    key={day}
+                    className={`text-[11px] font-bold uppercase ${
+                      idx === 0 || idx === 6
+                        ? 'text-red-500 dark:text-red-400'
+                        : 'text-slate-400 dark:text-slate-500'
+                    }`}
+                  >
+                    {day}
+                  </span>
+                ))}
+              </div>
+
+              {/* Calendar Days Grid */}
+              <div className="grid grid-cols-7 gap-1 text-center">
+                {calendarDays.map((cell, idx) => {
+                  if (!cell.isCurrentMonth) {
+                    return (
+                      <div
+                        key={idx}
+                        className="h-8 flex items-center justify-center text-xs text-slate-300 dark:text-slate-700 select-none"
+                      >
+                        {cell.day}
+                      </div>
+                    );
+                  }
+
+                  if (!cell.isAllowed) {
+                    return (
+                      <div
+                        key={idx}
+                        className="h-8 flex items-center justify-center text-xs text-slate-300 dark:text-slate-600/40 cursor-not-allowed select-none rounded-md"
+                        title="No ledger entry for this date"
+                      >
+                        {cell.day}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleSelectDate(cell.dateStr)}
+                      className={`h-8 flex flex-col items-center justify-center rounded-xl text-xs font-bold transition-all cursor-pointer relative ${
+                        cell.isSelected
+                          ? 'bg-[#0F4C81] text-white shadow-md'
+                          : 'text-slate-800 dark:text-slate-100 hover:bg-blue-50 dark:hover:bg-blue-950/60 hover:text-[#0F4C81]'
+                      } ${cell.isToday && !cell.isSelected ? 'border border-[#0F4C81]/60 dark:border-sky-500/60 font-black' : ''}`}
+                    >
+                      <span>{cell.day}</span>
+                      <span
+                        className={`h-1 w-1 rounded-full -mt-0.5 ${
+                          cell.isSelected
+                            ? 'bg-white'
+                            : 'bg-emerald-500 dark:bg-emerald-400'
+                        }`}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Footer Legend & Quick Actions */}
+              <div className="mt-3.5 pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 text-[11px]">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block" />
+                  <span>Entered in Ledger</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {value && (
+                    <button
+                      type="button"
+                      onClick={handleClear}
+                      className="font-bold text-red-500 hover:underline cursor-pointer px-1 py-0.5 text-xs"
+                    >
+                      Clear
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsOpen(false)}
+                    className="font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 px-3 py-1 rounded-lg cursor-pointer text-xs"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* Footer Legend & Quick Actions */}
-          <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px]">
-            <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block" />
-              <span>Entered in Ledger</span>
-            </div>
-            {value && (
+          {/* Desktop Popover */}
+          <div className={`hidden sm:block absolute ${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1.5 z-50 w-72 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 shadow-xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-100`}>
+            {/* Calendar Header: Month & Year Navigator */}
+            <div className="flex items-center justify-between mb-2.5 pb-2 border-b border-slate-100 dark:border-slate-800">
               <button
                 type="button"
-                onClick={handleClear}
-                className="font-bold text-red-500 hover:underline cursor-pointer"
+                onClick={prevMonth}
+                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                title="Previous Month"
               >
-                Clear
+                <ChevronLeft className="h-4 w-4" />
               </button>
-            )}
+              <span className="font-bold text-xs text-slate-900 dark:text-white">
+                {monthNames[viewMonth]} {viewYear}
+              </span>
+              <button
+                type="button"
+                onClick={nextMonth}
+                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                title="Next Month"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Weekday Labels */}
+            <div className="grid grid-cols-7 gap-1 text-center mb-1">
+              {daysOfWeek.map((day, idx) => (
+                <span
+                  key={day}
+                  className={`text-[10px] font-bold uppercase ${
+                    idx === 0 || idx === 6
+                      ? 'text-red-400 dark:text-red-400/80'
+                      : 'text-slate-400 dark:text-slate-500'
+                  }`}
+                >
+                  {day}
+                </span>
+              ))}
+            </div>
+
+            {/* Calendar Days Grid */}
+            <div className="grid grid-cols-7 gap-1 text-center">
+              {calendarDays.map((cell, idx) => {
+                if (!cell.isCurrentMonth) {
+                  return (
+                    <div
+                      key={idx}
+                      className="h-7 flex items-center justify-center text-[11px] text-slate-300 dark:text-slate-700 select-none"
+                    >
+                      {cell.day}
+                    </div>
+                  );
+                }
+
+                if (!cell.isAllowed) {
+                  return (
+                    <div
+                      key={idx}
+                      className="h-7 flex items-center justify-center text-[11px] text-slate-300 dark:text-slate-600/50 cursor-not-allowed select-none rounded-md"
+                      title="No ledger entry for this date"
+                    >
+                      {cell.day}
+                    </div>
+                  );
+                }
+
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleSelectDate(cell.dateStr)}
+                    className={`h-7 flex flex-col items-center justify-center rounded-lg text-[11px] font-bold transition-all cursor-pointer relative ${
+                      cell.isSelected
+                        ? 'bg-[#0F4C81] text-white shadow-xs'
+                        : 'text-slate-800 dark:text-slate-100 hover:bg-blue-50 dark:hover:bg-blue-950/60 hover:text-[#0F4C81] dark:hover:text-blue-300'
+                    } ${cell.isToday && !cell.isSelected ? 'border border-[#0F4C81]/40 dark:border-sky-500/40' : ''}`}
+                  >
+                    <span>{cell.day}</span>
+                    {/* Subtle indicator dot for available ledger date */}
+                    <span
+                      className={`h-1 w-1 rounded-full -mt-0.5 ${
+                        cell.isSelected
+                          ? 'bg-white'
+                          : 'bg-emerald-500 dark:bg-emerald-400'
+                      }`}
+                    />
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Footer Legend & Quick Actions */}
+            <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px]">
+              <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block" />
+                <span>Entered in Ledger</span>
+              </div>
+              {value && (
+                <button
+                  type="button"
+                  onClick={handleClear}
+                  className="font-bold text-red-500 hover:underline cursor-pointer"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

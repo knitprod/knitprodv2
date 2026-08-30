@@ -122,7 +122,7 @@ export default function DashboardFilterToolbar({
     onApplyFilters({
       unit,
       dateMode: computedDateMode,
-      singleDate: dateFrom && dateTo && dateFrom === dateTo ? dateFrom : (dateFrom || dateTo || defaultDate || '2026-08-26'),
+      singleDate: dateFrom && dateTo && dateFrom === dateTo ? dateFrom : (dateFrom || dateTo || defaultDate || ''),
       dateFrom,
       dateTo,
       month: dateFrom ? dateFrom.substring(0, 7) : '',

@@ -26,7 +26,8 @@ import { FilterState } from './DashboardFilterToolbar';
 import { 
   filterLedgerByState, 
   isRecordMatchingFloor, 
-  isSubContactRecord 
+  isSubContactRecord,
+  getLast7Dates
 } from '../lib/productionMetrics';
 import OtherSparePartsLedgerDrawer, { parseSparePartsFromLedger } from './OtherSparePartsLedgerDrawer';
 
@@ -64,14 +65,38 @@ const formatDateFriendly = (dateStr: string) => {
   return `${day} ${monthName} ${year}`;
 };
 
+const formatShortDate = (dateStr: string) => {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  const monthNum = parseInt(parts[1], 10);
+  const day = parseInt(parts[2], 10);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthName = months[monthNum - 1] || parts[1];
+  return `${day} ${monthName}`;
+};
+
 export default function DashboardSecondaryElementCards({ filterState }: DashboardSecondaryElementCardsProps) {
   const globalData = useGlobalData();
   const [hoveredUnit, setHoveredUnit] = useState<string | null>(null);
 
   const ledger = globalData?.ledger || [];
 
+  const isUnitSelected = Boolean(filterState?.unit && filterState.unit.toLowerCase() !== 'all');
+  const selectedUnitName = isUnitSelected ? filterState!.unit : '';
+
+  const last7Dates = useMemo(() => {
+    if (!isUnitSelected) return [];
+    const explicitTargetDate = filterState?.dateTo || (filterState?.dateMode === 'single' ? filterState?.singleDate : '') || filterState?.dateFrom || '';
+    return getLast7Dates(ledger, selectedUnitName, explicitTargetDate);
+  }, [ledger, isUnitSelected, selectedUnitName, filterState]);
+
   // Determine active display date for Card Headers
   const activeDateDisplay = useMemo(() => {
+    if (isUnitSelected && last7Dates.length > 0) {
+      return `${formatShortDate(last7Dates[0])} – ${formatShortDate(last7Dates[last7Dates.length - 1])}`;
+    }
+
     if (filterState?.dateMode === 'single' && filterState.singleDate) {
       return formatDateFriendly(filterState.singleDate);
     }
@@ -99,10 +124,57 @@ export default function DashboardSecondaryElementCards({ filterState }: Dashboar
     }
 
     return '29 Aug 2026';
-  }, [filterState, ledger]);
+  }, [filterState, ledger, isUnitSelected, last7Dates]);
 
   // Aggregate metrics per internal unit STRICTLY from filtered ledger rows (NO MOCK/DEFAULTS)
   const elementData = useMemo<SecondaryElementMetric[]>(() => {
+    // SCENARIO A: A specific unit is selected -> Show Last 7 Days
+    if (isUnitSelected) {
+      if (last7Dates.length === 0) return [];
+
+      return last7Dates.map(date => {
+        const rows = ledger.filter(r => {
+          if (r.date !== date) return false;
+          if (selectedUnitName.toLowerCase().includes('sub')) {
+            return isSubContactRecord(r);
+          }
+          return isRecordMatchingFloor(r, selectedUnitName);
+        });
+
+        const totProd = rows.reduce((sum, r) => sum + (Number(r.totalProduction) || 0), 0);
+        const needleBroken = rows.reduce((sum, r) => sum + (Number(r.needleBroken) || 0), 0);
+        const setChangeNeedle = rows.reduce((sum, r) => sum + (Number(r.setChangeNeedle) || 0), 0);
+        const sinkerBroken = rows.reduce((sum, r) => sum + (Number(r.sinkerBroken) || 0), 0);
+        const setChangeSinker = rows.reduce((sum, r) => sum + (Number(r.setChangeSinker) || 0), 0);
+        const oilConsumption = rows.reduce((sum, r) => sum + (Number(r.oilConsumption) || 0), 0);
+        const beltBroken = rows.reduce((sum, r) => sum + (Number(r.beltBroken) || 0), 0);
+
+        const needlePerKg = (needleBroken > 0 && totProd > 0) ? Math.round(totProd / needleBroken) : 0;
+        const sinkerPerKg = (sinkerBroken > 0 && totProd > 0) ? Math.round(totProd / sinkerBroken) : 0;
+        const oilPerKg = (oilConsumption > 0 && totProd > 0) ? Math.round(totProd / oilConsumption) : 0;
+        const beltPerKg = (beltBroken > 0 && totProd > 0) ? Math.round(totProd / beltBroken) : 0;
+
+        return {
+          key: date,
+          unit: date,
+          label: formatShortDate(date),
+          needleBroken,
+          setChangeNeedle,
+          needlePerKg,
+          sinkerBroken,
+          setChangeSinker,
+          sinkerPerKg,
+          oilConsumption,
+          oilPerKg,
+          beltBroken,
+          beltPerKg,
+          totalProduction: totProd,
+          recordCount: rows.length,
+        };
+      });
+    }
+
+    // SCENARIO B: All Units
     const { filteredRows } = filterLedgerByState(ledger, filterState);
     // Secondary elements are tracked on in-house manufacturing units
     const inHouseRows = filteredRows.filter(r => !isSubContactRecord(r));
@@ -186,7 +258,7 @@ export default function DashboardSecondaryElementCards({ filterState }: Dashboar
     }
 
     return result;
-  }, [ledger, filterState]);
+  }, [ledger, filterState, isUnitSelected, selectedUnitName, last7Dates]);
 
   // Overall totals
   const totalNeedleBroken = useMemo(() => elementData.reduce((sum, u) => sum + u.needleBroken, 0), [elementData]);
@@ -292,7 +364,7 @@ export default function DashboardSecondaryElementCards({ filterState }: Dashboar
           </span>
           <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-white text-[#C8681B] shadow-xs">
             <Sparkles className="w-3.5 h-3.5" />
-            6 In-House Units
+            {isUnitSelected ? `${selectedUnitName} (7-Day Trend)` : '6 In-House Units'}
           </span>
         </div>
       </div>
@@ -318,7 +390,7 @@ export default function DashboardSecondaryElementCards({ filterState }: Dashboar
               </div>
               <div>
                 <h3 className="text-xs sm:text-sm font-bold text-white tracking-wide truncate">
-                  Needle Broken (pcs)
+                  {isUnitSelected ? `${selectedUnitName} Needle Broken` : 'Needle Broken (pcs)'}
                 </h3>
               </div>
             </div>
@@ -544,7 +616,7 @@ export default function DashboardSecondaryElementCards({ filterState }: Dashboar
               </div>
               <div>
                 <h3 className="text-xs sm:text-sm font-bold text-white tracking-wide truncate">
-                  Sinker Broken (pcs)
+                  {isUnitSelected ? `${selectedUnitName} Sinker Broken` : 'Sinker Broken (pcs)'}
                 </h3>
               </div>
             </div>
@@ -770,7 +842,7 @@ export default function DashboardSecondaryElementCards({ filterState }: Dashboar
               </div>
               <div>
                 <h3 className="text-xs sm:text-sm font-bold text-white tracking-wide truncate">
-                  Oil Consumption (Ltr)
+                  {isUnitSelected ? `${selectedUnitName} Oil Consumption` : 'Oil Consumption (Ltr)'}
                 </h3>
               </div>
             </div>
@@ -940,7 +1012,7 @@ export default function DashboardSecondaryElementCards({ filterState }: Dashboar
               </div>
               <div>
                 <h3 className="text-xs sm:text-sm font-bold text-white tracking-wide truncate">
-                  Belt Broken (pcs)
+                  {isUnitSelected ? `${selectedUnitName} Belt Broken` : 'Belt Broken (pcs)'}
                 </h3>
               </div>
             </div>
