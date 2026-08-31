@@ -650,7 +650,7 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
                         }`}
                         onMouseEnter={() => setHoveredUnit(item.unit)}
                         onMouseLeave={() => setHoveredUnit(null)}
-                        title={`${item.unit}\n• Target Bulk: ${item.targetBulk.toLocaleString()} Kg\n• Bulk Production: ${item.bulkProduction.toLocaleString()} Kg\n• Sample Loss: ${item.sampleLoss.toLocaleString()} Kg\n• Achievement: ${Math.round((item.bulkProduction / (item.targetBulk || 1)) * 100)}%`}
+                        title={`${item.unit}\n• Target Bulk: ${(item.targetBulk ?? 0).toLocaleString()} Kg\n• Bulk Production: ${(item.bulkProduction ?? 0).toLocaleString()} Kg\n• Sample Loss: ${(item.sampleLoss ?? 0).toLocaleString()} Kg\n• Achievement: ${Math.round(((item.bulkProduction ?? 0) / (item.targetBulk || 1)) * 100)}%`}
                       >
                         {/* Grouped 3 Bars */}
                         <div className="w-full flex items-end justify-center gap-[2px] sm:gap-[3px] h-full pb-0.5">

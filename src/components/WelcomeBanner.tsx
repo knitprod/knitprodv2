@@ -466,7 +466,7 @@ export default function WelcomeBanner({
 
             <div className="my-1.5">
               <div className="font-mono text-xl xl:text-[21px] 2xl:text-2xl font-black text-white tracking-tight">
-                {metrics.bulkTarget.toLocaleString()} <span className="text-[11px] font-bold text-slate-400">Kg</span>
+                {(metrics?.bulkTarget ?? 0).toLocaleString()} <span className="text-[11px] font-bold text-slate-400">Kg</span>
               </div>
             </div>
 
@@ -474,11 +474,11 @@ export default function WelcomeBanner({
             <div className="border-t border-slate-800/80 pt-1.5 space-y-0.5 text-[11px]">
               <div className="flex items-center justify-between text-slate-300">
                 <span className="text-slate-400">In-House:</span>
-                <span className="font-mono font-semibold text-slate-100">{metrics.inHouseBulkTarget.toLocaleString()} Kg</span>
+                <span className="font-mono font-semibold text-slate-100">{(metrics?.inHouseBulkTarget ?? 0).toLocaleString()} Kg</span>
               </div>
               <div className="flex items-center justify-between text-slate-300">
                 <span className="text-slate-400">Sub-Contract:</span>
-                <span className="font-mono font-semibold text-slate-100">{metrics.subContactTarget.toLocaleString()} Kg</span>
+                <span className="font-mono font-semibold text-slate-100">{(metrics?.subContactTarget ?? 0).toLocaleString()} Kg</span>
               </div>
             </div>
           </div>
@@ -497,7 +497,7 @@ export default function WelcomeBanner({
 
             <div className="my-1.5">
               <div className="font-mono text-xl xl:text-[21px] 2xl:text-2xl font-black text-emerald-400 tracking-tight">
-                {metrics.bulkProduction.toLocaleString()} <span className="text-[11px] font-bold text-slate-400">Kg</span>
+                {(metrics?.bulkProduction ?? 0).toLocaleString()} <span className="text-[11px] font-bold text-slate-400">Kg</span>
               </div>
             </div>
 
@@ -505,15 +505,15 @@ export default function WelcomeBanner({
             <div className="border-t border-slate-800/80 pt-1.5 space-y-0.5 text-[11px]">
               <div className="flex items-center justify-between text-slate-300">
                 <span className="text-slate-400">In-House:</span>
-                <span className="font-mono font-semibold text-slate-100">{metrics.inHouseProd.toLocaleString()} Kg</span>
+                <span className="font-mono font-semibold text-slate-100">{(metrics?.inHouseProd ?? 0).toLocaleString()} Kg</span>
               </div>
               <div className="flex items-center justify-between text-slate-300">
                 <span className="text-slate-400">Sub-Contact:</span>
-                <span className="font-mono font-semibold text-slate-100">{metrics.subContactProd.toLocaleString()} Kg</span>
+                <span className="font-mono font-semibold text-slate-100">{(metrics?.subContactProd ?? 0).toLocaleString()} Kg</span>
               </div>
               <div className="flex items-center justify-between text-indigo-300/90 pt-0.5 border-t border-slate-800/50">
                 <span className="text-indigo-400 font-medium">Sample Prod:</span>
-                <span className="font-mono font-bold text-indigo-200">{metrics.sampleProduction.toLocaleString()} Kg</span>
+                <span className="font-mono font-bold text-indigo-200">{(metrics?.sampleProduction ?? 0).toLocaleString()} Kg</span>
               </div>
             </div>
           </div>
@@ -532,9 +532,9 @@ export default function WelcomeBanner({
 
             <div className="my-1 flex items-center justify-between gap-1">
               <div className="font-mono text-xl xl:text-[21px] 2xl:text-2xl font-black text-cyan-300 tracking-tight">
-                {metrics.achievementPct.toFixed(1)}%
+                {(metrics?.achievementPct ?? 0).toFixed(1)}%
               </div>
-              <CircularProgressRing percentage={metrics.achievementPct} />
+              <CircularProgressRing percentage={metrics?.achievementPct ?? 0} />
             </div>
 
             {/* Breakdown */}
@@ -542,13 +542,13 @@ export default function WelcomeBanner({
               <div className="flex items-center justify-between text-slate-300">
                 <span className="text-slate-400 truncate mr-1">Prod / Plan:</span>
                 <span className="font-mono font-semibold text-slate-100 shrink-0">
-                  {Math.round(metrics.totalProdCombined / 1000)}K / {Math.round((metrics.totalTarget || metrics.bulkTarget) / 1000)}K
+                  {Math.round((metrics?.totalProdCombined ?? 0) / 1000)}K / {Math.round(((metrics?.totalTarget ?? 0) || (metrics?.bulkTarget ?? 0)) / 1000)}K
                 </span>
               </div>
               <div className="flex items-center justify-between text-amber-300/90">
                 <span className="text-slate-400 truncate mr-1">Remaining:</span>
                 <span className="font-mono font-semibold text-amber-400 shrink-0">
-                  {metrics.balanceKg.toLocaleString()} Kg
+                  {(metrics?.balanceKg ?? 0).toLocaleString()} Kg
                 </span>
               </div>
             </div>
@@ -569,28 +569,28 @@ export default function WelcomeBanner({
             {/* Middle Row: Left big value + Right Semicircular Speedometer Gauge */}
             <div className="my-0.5 flex items-center justify-between gap-1">
               <div className="font-mono text-xl xl:text-[21px] 2xl:text-2xl font-black text-indigo-200 tracking-tight shrink-0">
-                {metrics.efficiency.toFixed(1)}%
+                {(metrics?.efficiency ?? 0).toFixed(1)}%
               </div>
-              <SpeedometerGauge value={metrics.efficiency} target={85} gaugeId="eff" />
+              <SpeedometerGauge value={metrics?.efficiency ?? 0} target={85} gaugeId="eff" />
             </div>
 
             {/* Breakdown / Target & Variance */}
             <div className="border-t border-slate-800/80 pt-1.5 space-y-0.5 text-[11px]">
               <div className="flex items-center justify-between text-slate-300">
                 <span className="text-slate-400">Target:</span>
-                <span className="font-mono font-bold text-white">{metrics.targetEfficiency.toFixed(1)}%</span>
+                <span className="font-mono font-bold text-white">{(metrics?.targetEfficiency ?? 85).toFixed(1)}%</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Variance:</span>
                 <span className={`font-mono font-bold inline-flex items-center gap-0.5 text-[10.5px] ${
-                  metrics.efficiencyDiff >= 0 ? 'text-emerald-400' : 'text-amber-400'
+                  (metrics?.efficiencyDiff ?? 0) >= 0 ? 'text-emerald-400' : 'text-amber-400'
                 }`}>
-                  {metrics.efficiencyDiff >= 0 ? (
+                  {(metrics?.efficiencyDiff ?? 0) >= 0 ? (
                     <TrendingUp className="h-2.5 w-2.5 inline shrink-0" />
                   ) : (
                     <TrendingDown className="h-2.5 w-2.5 inline shrink-0" />
                   )}
-                  <span>{metrics.efficiencyDiff >= 0 ? `+${metrics.efficiencyDiff}%` : `${metrics.efficiencyDiff}%`}</span>
+                  <span>{(metrics?.efficiencyDiff ?? 0) >= 0 ? `+${(metrics?.efficiencyDiff ?? 0)}%` : `${(metrics?.efficiencyDiff ?? 0)}%`}</span>
                 </span>
               </div>
             </div>
@@ -604,34 +604,34 @@ export default function WelcomeBanner({
                 <span className="truncate">CAPACITY</span>
               </span>
               <span className={`text-[9px] font-black px-1.5 py-0.5 rounded border shrink-0 ${
-                metrics.capacity >= 85 
+                (metrics?.capacity ?? 0) >= 85 
                   ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' 
-                  : metrics.capacity >= 60 
+                  : (metrics?.capacity ?? 0) >= 60 
                   ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' 
                   : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
               }`}>
-                {metrics.capacity >= 85 ? 'OPTIMAL' : metrics.capacity >= 60 ? 'NORMAL' : 'LOW'}
+                {(metrics?.capacity ?? 0) >= 85 ? 'OPTIMAL' : (metrics?.capacity ?? 0) >= 60 ? 'NORMAL' : 'LOW'}
               </span>
             </div>
 
             {/* Middle Row: Left big value + Right Semicircular Speedometer Gauge */}
             <div className="my-0.5 flex items-center justify-between gap-1">
               <div className="font-mono text-xl xl:text-[21px] 2xl:text-2xl font-black text-cyan-200 tracking-tight shrink-0">
-                {metrics.capacity.toFixed(1)}%
+                {(metrics?.capacity ?? 0).toFixed(1)}%
               </div>
-              <SpeedometerGauge value={metrics.capacity} target={85} gaugeId="cap" />
+              <SpeedometerGauge value={metrics?.capacity ?? 0} target={85} gaugeId="cap" />
             </div>
 
             {/* Breakdown: Available & Prod / Capacity */}
             <div className="border-t border-slate-800/80 pt-1.5 space-y-0.5 text-[11px]">
               <div className="flex items-center justify-between text-slate-300">
                 <span className="text-slate-400">Available:</span>
-                <span className="font-mono font-bold text-cyan-300">{(100 - metrics.capacity).toFixed(1)}%</span>
+                <span className="font-mono font-bold text-cyan-300">{(100 - (metrics?.capacity ?? 0)).toFixed(1)}%</span>
               </div>
               <div className="flex items-center justify-between text-slate-300">
                 <span className="text-slate-400 truncate mr-1">Prod / Cap:</span>
                 <span className="font-mono font-bold text-slate-200 shrink-0">
-                  {Math.round(metrics.inHouseTotalProd / 1000)}K / {Math.round(metrics.periodTotalCapacity / 1000)}K
+                  {Math.round((metrics?.inHouseTotalProd ?? 0) / 1000)}K / {Math.round((metrics?.periodTotalCapacity ?? 0) / 1000)}K
                 </span>
               </div>
             </div>
@@ -645,17 +645,17 @@ export default function WelcomeBanner({
                 <span className="truncate">IN-HOUSE M/C</span>
               </span>
               <span className="text-[9px] font-bold text-sky-300 bg-sky-500/10 border border-sky-400/20 px-1.5 py-0.5 rounded shrink-0">
-                {metrics.inHouseRunningMachines} Active
+                {metrics?.inHouseRunningMachines ?? 0} Active
               </span>
             </div>
 
             {/* Middle Row: Left big value + Right Semicircular Speedometer Gauge */}
             <div className="my-0.5 flex items-center justify-between gap-1">
               <div className="font-mono text-xl xl:text-[21px] 2xl:text-2xl font-black text-sky-200 tracking-tight shrink-0">
-                {metrics.inHouseUtilPct.toFixed(1)}%
+                {(metrics?.inHouseUtilPct ?? 0).toFixed(1)}%
               </div>
               <SpeedometerGauge 
-                value={metrics.inHouseUtilPct} 
+                value={metrics?.inHouseUtilPct ?? 0} 
                 target={85} 
                 gaugeId="ih_mc" 
                 startColor="#38BDF8"
@@ -668,11 +668,11 @@ export default function WelcomeBanner({
             <div className="border-t border-slate-800/80 pt-1.5 space-y-0.5 text-[11px]">
               <div className="flex items-center justify-between text-slate-300">
                 <span className="text-slate-400">Bulk / Sample:</span>
-                <span className="font-mono font-semibold text-slate-100">{metrics.inHouseBulkRunning} / {metrics.inHouseSampleRunning} M/C</span>
+                <span className="font-mono font-semibold text-slate-100">{metrics?.inHouseBulkRunning ?? 0} / {metrics?.inHouseSampleRunning ?? 0} M/C</span>
               </div>
               <div className="flex items-center justify-between text-slate-300">
                 <span className="text-slate-400">Total / Idle:</span>
-                <span className="font-mono font-semibold text-amber-300">{metrics.inHouseTotalMachines} ({metrics.inHouseIdleMC} Idle)</span>
+                <span className="font-mono font-semibold text-amber-300">{metrics?.inHouseTotalMachines ?? 0} ({metrics?.inHouseIdleMC ?? 0} Idle)</span>
               </div>
             </div>
           </div>
@@ -685,17 +685,17 @@ export default function WelcomeBanner({
                 <span className="truncate">QUALITY</span>
               </span>
               <span className="text-[9px] font-black text-emerald-300 bg-emerald-500/10 border border-emerald-400/20 px-1.5 py-0.5 rounded shrink-0">
-                {metrics.qualityPassRate >= 98 ? 'EXCELLENT' : 'PASS'}
+                {(metrics?.qualityPassRate ?? 0) >= 98 ? 'EXCELLENT' : 'PASS'}
               </span>
             </div>
 
             {/* Middle Row: Left big value + Right Semicircular Speedometer Gauge */}
             <div className="my-0.5 flex items-center justify-between gap-1">
               <div className="font-mono text-xl xl:text-[21px] 2xl:text-2xl font-black text-emerald-300 tracking-tight shrink-0">
-                {metrics.qualityPassRate.toFixed(1)}%
+                {(metrics?.qualityPassRate ?? 0).toFixed(1)}%
               </div>
               <SpeedometerGauge 
-                value={metrics.qualityPassRate} 
+                value={metrics?.qualityPassRate ?? 0} 
                 target={98} 
                 gaugeId="qual" 
                 startColor="#3B82F6"
@@ -708,11 +708,11 @@ export default function WelcomeBanner({
             <div className="border-t border-slate-800/80 pt-1.5 space-y-0.5 text-[11px]">
               <div className="flex items-center justify-between text-slate-300">
                 <span className="text-slate-400">Pass Rate:</span>
-                <span className="font-mono font-semibold text-emerald-400">{metrics.qualityPassRate}% Passed</span>
+                <span className="font-mono font-semibold text-emerald-400">{metrics?.qualityPassRate ?? 0}% Passed</span>
               </div>
               <div className="flex items-center justify-between text-slate-300">
                 <span className="text-slate-400">Reject / Hold:</span>
-                <span className="font-mono font-semibold text-rose-300">{metrics.qualityRejectPct}% / {metrics.qualityHoldPct}%</span>
+                <span className="font-mono font-semibold text-rose-300">{metrics?.qualityRejectPct ?? 0}% / {metrics?.qualityHoldPct ?? 0}%</span>
               </div>
             </div>
           </div>

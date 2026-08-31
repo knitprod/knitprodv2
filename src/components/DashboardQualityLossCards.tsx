@@ -525,7 +525,7 @@ export default function DashboardQualityLossCards({ filterState }: DashboardQual
           </div>
           <div className="text-right">
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white border border-white/30 backdrop-blur-xs">
-              Hold: {totalHold.toLocaleString()} Kg
+              Hold: {(totalHold ?? 0).toLocaleString()} Kg
             </span>
           </div>
         </div>
@@ -746,7 +746,7 @@ export default function DashboardQualityLossCards({ filterState }: DashboardQual
           </div>
           <div className="text-right">
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white border border-white/30 backdrop-blur-xs">
-              {(totalReject + totalJhute).toLocaleString()} Kg
+              {((totalReject ?? 0) + (totalJhute ?? 0)).toLocaleString()} Kg
             </span>
           </div>
         </div>

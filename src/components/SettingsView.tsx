@@ -569,18 +569,18 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right font-mono font-bold text-slate-800 dark:text-slate-100">
-                            {unit.productionCapacity.toLocaleString()} Kg
+                            {(unit.productionCapacity ?? 0).toLocaleString()} Kg
                           </td>
                           <td className="py-3 px-4 text-right font-mono font-semibold text-emerald-700 dark:text-emerald-400">
-                            {unit.avgProdPerMachine.toFixed(2)} Kg
+                            {(unit.avgProdPerMachine ?? 0).toFixed(2)} Kg
                           </td>
                           <td className="py-3 px-4 text-center font-bold">
                             <span className="px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
-                              {unit.totalMachine}
+                              {unit.totalMachine ?? 0}
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right font-mono font-bold text-indigo-700 dark:text-indigo-400">
-                            {calcCap.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Kg
+                            {(calcCap ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Kg
                           </td>
                           <td className="py-3 px-4 text-center">
                             <div className="inline-flex items-center justify-center gap-1.5">
@@ -621,18 +621,18 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
                           </span>
                         </td>
                         <td className="py-3.5 px-4 text-right font-mono text-xs sm:text-sm font-black text-blue-900 dark:text-blue-300">
-                          {totalCapacity.toLocaleString()} Kg
+                          {(totalCapacity ?? 0).toLocaleString()} Kg
                         </td>
                         <td className="py-3.5 px-4 text-right font-mono text-xs font-black text-emerald-700 dark:text-emerald-400">
-                          {totalAvgProdPerMachine.toFixed(2)} Kg
+                          {(totalAvgProdPerMachine ?? 0).toFixed(2)} Kg
                         </td>
                         <td className="py-3.5 px-4 text-center font-bold">
                           <span className="px-3 py-1 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-900 dark:text-blue-200 border border-blue-200 dark:border-blue-700 font-mono text-xs font-black">
-                            {totalMachines}
+                            {totalMachines ?? 0}
                           </span>
                         </td>
                         <td className="py-3.5 px-4 text-right font-mono text-xs sm:text-sm font-black text-indigo-900 dark:text-indigo-300">
-                          {totalCalculativeCapacity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Kg
+                          {(totalCalculativeCapacity ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Kg
                         </td>
                         <td className="py-3.5 px-4 text-center text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                           All Units Combined

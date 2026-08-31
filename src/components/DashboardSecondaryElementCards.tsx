@@ -490,7 +490,7 @@ export default function DashboardSecondaryElementCards({ filterState }: Dashboar
                           }`}
                           onMouseEnter={() => setHoveredUnit(item.unit)}
                           onMouseLeave={() => setHoveredUnit(null)}
-                          title={`${item.unit}\n• Set Change Needle: ${item.setChangeNeedle.toLocaleString()} pcs\n• Broken Needle: ${item.needleBroken.toLocaleString()} pcs\n• Needle/Kg: ${item.needlePerKg.toLocaleString()} Kg`}
+                          title={`${item.unit}\n• Set Change Needle: ${(item.setChangeNeedle ?? 0).toLocaleString()} pcs\n• Broken Needle: ${(item.needleBroken ?? 0).toLocaleString()} pcs\n• Needle/Kg: ${(item.needlePerKg ?? 0).toLocaleString()} Kg`}
                         >
                           {/* Set Change Orange Column */}
                           <div className="flex flex-col items-center justify-end h-full w-[13px] sm:w-[16px] relative pb-0.5">
@@ -716,13 +716,13 @@ export default function DashboardSecondaryElementCards({ filterState }: Dashboar
                           }`}
                           onMouseEnter={() => setHoveredUnit(item.unit)}
                           onMouseLeave={() => setHoveredUnit(null)}
-                          title={`${item.unit}\n• Set Change Sinker: ${item.setChangeSinker.toLocaleString()} pcs\n• Sinker Broken: ${item.sinkerBroken} pcs\n• Sinker/Kg: ${item.sinkerPerKg.toLocaleString()} Kg`}
+                          title={`${item.unit}\n• Set Change Sinker: ${(item.setChangeSinker ?? 0).toLocaleString()} pcs\n• Sinker Broken: ${(item.sinkerBroken ?? 0).toLocaleString()} pcs\n• Sinker/Kg: ${(item.sinkerPerKg ?? 0).toLocaleString()} Kg`}
                         >
                           {/* Set Change Sinker Column */}
                           <div className="flex flex-col items-center justify-end h-full w-[13px] sm:w-[16px] relative pb-0.5">
                             {item.setChangeSinker > 0 && (
                               <span className="text-[7px] font-bold text-[#0284C7] dark:text-[#38BDF8] select-none absolute -top-3.5 whitespace-nowrap z-10 transition-transform group-hover:scale-110">
-                                {item.setChangeSinker.toLocaleString()}
+                                {(item.setChangeSinker ?? 0).toLocaleString()}
                               </span>
                             )}
                             {barHeightPct > 0 ? (
