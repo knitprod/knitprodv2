@@ -419,6 +419,15 @@ export default function AddProductionRecordModal({
 
         {/* Scrollable Form Body with Organized Sections */}
         <form onSubmit={handleFormSubmit} className="space-y-4 overflow-y-auto pr-1 flex-1">
+          {errors.duplicate && (
+            <div className="flex items-start gap-2.5 p-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 text-xs shadow-xs animate-shake">
+              <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <span className="font-bold block">Double Entry Detected</span>
+                <span className="text-[11px] leading-relaxed">{errors.duplicate}</span>
+              </div>
+            </div>
+          )}
           
           {/* SECTION 1: GENERAL & DATES (Date, Floor, Month, Year) */}
           <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3">

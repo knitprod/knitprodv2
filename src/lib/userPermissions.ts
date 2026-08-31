@@ -97,3 +97,59 @@ export const isUserAuthorizedForFloor = (user: UserRecord | null | undefined, fl
   const targetNorm = normalizeFloorKey(floor);
   return allowed.some(f => normalizeFloorKey(f) === targetNorm);
 };
+
+/**
+ * Normalizes date string to YYYY-MM-DD format for reliable comparison.
+ */
+export const normalizeDateKey = (dateStr: string | null | undefined): string => {
+  if (!dateStr) return '';
+  const trimmed = dateStr.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+
+  // Handle M/D/YYYY or MM/DD/YYYY or DD/MM/YYYY
+  if (/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}$/.test(trimmed)) {
+    const parts = trimmed.split(/[\/\-\.]/);
+    const p0 = parseInt(parts[0], 10);
+    const p1 = parseInt(parts[1], 10);
+    const p2 = parseInt(parts[2], 10);
+    // If first part > 12, assume DD/MM/YYYY
+    let y = p2;
+    let m = p0 > 12 ? p1 : p0;
+    let d = p0 > 12 ? p0 : p1;
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+
+  const d = new Date(trimmed);
+  if (!isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  return trimmed;
+};
+
+/**
+ * Checks if a ledger record with the same Date and Unit (Floor) already exists.
+ * Returns the conflicting duplicate record if found, or undefined if no conflict.
+ */
+export const findDuplicateProductionRecord = (
+  records: Array<{ id?: string; date?: string; floor?: string; unit?: string }>,
+  date: string,
+  floor: string,
+  excludeId?: string
+): { id?: string; date?: string; floor?: string; unit?: string } | undefined => {
+  const normDate = normalizeDateKey(date);
+  const normFloor = normalizeFloorKey(floor);
+
+  if (!normDate || !normFloor) return undefined;
+
+  return records.find(r => {
+    if (excludeId && r.id === excludeId) return false;
+    const rDateNorm = normalizeDateKey(r.date);
+    const rFloorNorm = normalizeFloorKey(r.floor || r.unit || '');
+    return rDateNorm === normDate && rFloorNorm === normFloor;
+  });
+};
+

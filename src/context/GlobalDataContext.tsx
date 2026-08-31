@@ -17,6 +17,7 @@ import { OrderPlan, YarnAllocationRecord, LedgerRecord, FactoryFloor } from '../
 import { INITIAL_FLOORS } from '../data';
 import { GasClient } from '../lib/gasClient';
 import { generateInitialLedger } from '../components/ProductionLedgerView';
+import { normalizeDateKey, normalizeFloorKey } from '../lib/userPermissions';
 
 export interface GlobalDataContextType {
   // Datasets
@@ -498,7 +499,15 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // --- Production Ledger ---
   const saveLedgerRecord = async (record: LedgerRecord) => {
     setLedger(prev => {
-      const idx = prev.findIndex(r => r.id === record.id);
+      // Find matching record by ID first, or by identical Date + Floor to prevent duplicate rows
+      const targetDateKey = normalizeDateKey(record.date);
+      const targetFloorKey = normalizeFloorKey(record.floor || record.unit || '');
+      
+      const idx = prev.findIndex(r => {
+        if (r.id === record.id) return true;
+        return normalizeDateKey(r.date) === targetDateKey && normalizeFloorKey(r.floor || r.unit || '') === targetFloorKey;
+      });
+
       const next = idx >= 0 ? prev.map((r, i) => i === idx ? record : r) : [record, ...prev];
       setFloors(fl => recalculateFloorsFromLedger(fl, next));
       return next;
@@ -519,7 +528,24 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const bulkSaveLedgerRecords = async (records: LedgerRecord[], replace: boolean = false) => {
     setLedger(prev => {
-      const next = replace ? records : [...records, ...prev.filter(p => !records.some(r => r.id === p.id))];
+      if (replace) {
+        setFloors(fl => recalculateFloorsFromLedger(fl, records));
+        return records;
+      }
+      // Merge records by Date + Floor key to avoid duplicate entries
+      const recordMap = new Map<string, LedgerRecord>();
+      // Seed with existing records
+      prev.forEach(r => {
+        const key = `${normalizeDateKey(r.date)}_${normalizeFloorKey(r.floor || r.unit || '')}`;
+        recordMap.set(key, r);
+      });
+      // Upsert new incoming records
+      records.forEach(r => {
+        const key = `${normalizeDateKey(r.date)}_${normalizeFloorKey(r.floor || r.unit || '')}`;
+        recordMap.set(key, r);
+      });
+
+      const next = Array.from(recordMap.values());
       setFloors(fl => recalculateFloorsFromLedger(fl, next));
       return next;
     });

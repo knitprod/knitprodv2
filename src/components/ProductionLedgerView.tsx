@@ -56,7 +56,8 @@ import { LedgerCalendarDatePicker } from './LedgerCalendarDatePicker';
 import { 
   getUserAllowedFloorsForEntry, 
   isUserAuthorizedForFloor,
-  hasUserWritePermissionForTab
+  hasUserWritePermissionForTab,
+  findDuplicateProductionRecord
 } from '../lib/userPermissions';
 import { 
   getTargetKgForUnit, 
@@ -2463,6 +2464,15 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       triggerToast(`Access Denied: You are not assigned to unit ${creatingRecord.floor}.`);
       return;
     }
+
+    // Duplicate Prevention Check: Check for existing double entry on same date & unit
+    const existingDuplicate = findDuplicateProductionRecord(ledger, creatingRecord.date, creatingRecord.floor);
+    if (existingDuplicate) {
+      errors.duplicate = `Double Entry Blocked: A production entry for unit "${creatingRecord.floor}" on date "${creatingRecord.date}" already exists in the ledger. Please edit the existing entry instead of adding a duplicate.`;
+      setCreateErrors(errors);
+      triggerToast(`Duplicate Entry Error: ${creatingRecord.floor} on ${creatingRecord.date} already exists in the ledger!`);
+      return;
+    }
     
     if (creatingRecord.floor !== 'Sub-Contact') {
       if (creatingRecord.shiftA < 0) errors.shiftA = "Value cannot be negative.";
@@ -2627,6 +2637,15 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       errors.floor = `Access Restricted: You are only authorized to modify data for: ${allowedStr}`;
       setEditErrors(errors);
       triggerToast(`Access Denied: You cannot modify records for unit ${editingRecord.floor}.`);
+      return;
+    }
+
+    // Duplicate Prevention Check: Check for existing double entry on same date & unit (excluding current record id)
+    const existingDuplicate = findDuplicateProductionRecord(ledger, editingRecord.date, editingRecord.floor, editingRecord.id);
+    if (existingDuplicate) {
+      errors.duplicate = `Double Entry Blocked: Another production entry for unit "${editingRecord.floor}" on date "${editingRecord.date}" already exists in the ledger. You cannot change this entry to a duplicate date and unit.`;
+      setEditErrors(errors);
+      triggerToast(`Duplicate Entry Error: Unit ${editingRecord.floor} on ${editingRecord.date} already exists!`);
       return;
     }
     

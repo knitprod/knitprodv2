@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { LedgerRecord } from '../types';
+import { normalizeFloorKey, normalizeDateKey } from '../lib/userPermissions';
 
 export interface AppColumnDefinition {
   key: keyof LedgerRecord | string;
@@ -115,6 +116,7 @@ export default function UploadLedgerExcelModal({
   const [showMismatchDetails, setShowMismatchDetails] = useState<boolean>(false);
   const [activeMismatchTab, setActiveMismatchTab] = useState<'missing' | 'unrecognized' | 'matched'>('missing');
   const [importMode, setImportMode] = useState<'append' | 'replace'>('append');
+  const [internalDuplicatesCount, setInternalDuplicatesCount] = useState<number>(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
@@ -126,6 +128,7 @@ export default function UploadLedgerExcelModal({
     setUploadError(null);
     setIsParsing(false);
     setShowMismatchDetails(false);
+    setInternalDuplicatesCount(0);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -469,7 +472,22 @@ export default function UploadLedgerExcelModal({
             return;
           }
 
-          setParsedRecords(records);
+          // Double Entry Check within the uploaded sheet:
+          // Collapse duplicate entries having identical normalized (date + floor), keeping the latest row from the file.
+          const uniqueRecordMap = new Map<string, LedgerRecord>();
+          let dupsInSheet = 0;
+
+          records.forEach(rec => {
+            const key = `${normalizeDateKey(rec.date)}_${normalizeFloorKey(rec.floor || rec.unit || '')}`;
+            if (uniqueRecordMap.has(key)) {
+              dupsInSheet++;
+            }
+            uniqueRecordMap.set(key, rec);
+          });
+
+          const deduplicatedRecords = Array.from(uniqueRecordMap.values());
+          setInternalDuplicatesCount(dupsInSheet);
+          setParsedRecords(deduplicatedRecords);
           setIsParsing(false);
         } catch (err: any) {
           console.error('Error parsing Excel sheet:', err);
@@ -829,6 +847,15 @@ export default function UploadLedgerExcelModal({
                   <span className="text-xs font-black text-slate-900 dark:text-white">{uniqueDates.length} Dates</span>
                 </div>
               </div>
+
+              {internalDuplicatesCount > 0 && (
+                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 text-xs">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span>
+                    <strong>Double Entry Protected:</strong> {internalDuplicatesCount} duplicate row{internalDuplicatesCount > 1 ? 's' : ''} with identical Date & Floor in your file {internalDuplicatesCount > 1 ? 'were' : 'was'} automatically deduplicated to protect ledger integrity.
+                  </span>
+                </div>
+              )}
 
               {/* Import Mode Radio selection */}
               <div className="space-y-1.5 pt-2 border-t border-emerald-200/60 dark:border-emerald-800/60">
