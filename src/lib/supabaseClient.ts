@@ -316,31 +316,6 @@ export class SupabaseSync {
         }
       }
 
-      // 2. Also save extended metadata (tabPermissions & assignedBuyers) into app_settings for backup compatibility
-      try {
-        const currentSettings = (await this.fetchSettings()) || {};
-        const userMeta = currentSettings.user_metadata || currentSettings.user_permissions || {};
-        userMeta[cleanUid] = {
-          tabPermissions: user.tabPermissions || {},
-          assignedBuyers: user.assignedBuyers || [],
-          allowedTabs: user.allowedTabs || [],
-          assignedUnits: user.assignedUnits || [],
-          permission: user.permission || 'Read',
-          userType: user.userType,
-          designation: user.designation || '',
-          department: user.department || 'Knitting',
-          status: user.status || 'Active',
-          lastUpdated: user.lastUpdated || new Date().toISOString()
-        };
-
-        await this.saveSettings({
-          ...currentSettings,
-          user_metadata: userMeta
-        });
-      } catch (metaErr) {
-        console.warn('Supabase user metadata sync notice:', metaErr);
-      }
-
       return true;
     } catch (err) {
       console.warn('Supabase saveUser exception:', err);
@@ -356,45 +331,12 @@ export class SupabaseSync {
     const upperStr = rawStr.toUpperCase();
 
     try {
-      // 1. Delete from Supabase 'users' table explicitly by both UID and ID
+      // Delete from Supabase 'users' table explicitly by both UID and ID
       await client.from('users').delete().eq('uid', rawStr);
       await client.from('users').delete().eq('uid', upperStr);
       await client.from('users').delete().eq('id', rawStr);
       await client.from('users').delete().eq('id', upperStr);
       await client.from('users').delete().eq('id', `USR-${upperStr}`);
-
-      // 2. Also clean from app_settings user_metadata and users array
-      try {
-        const { data: appData } = await client.from('app_settings').select('settings_data').eq('id', 'global_settings').single();
-        if (appData && appData.settings_data) {
-          const sData = { ...appData.settings_data };
-          let changed = false;
-          
-          if (sData.user_metadata) {
-            delete sData.user_metadata[rawStr];
-            delete sData.user_metadata[upperStr];
-            changed = true;
-          }
-          if (Array.isArray(sData.users)) {
-            sData.users = sData.users.filter((u: any) => 
-              u.uid?.toUpperCase() !== upperStr && 
-              u.id !== rawStr && 
-              u.id !== `USR-${upperStr}`
-            );
-            changed = true;
-          }
-
-          if (changed) {
-            await client.from('app_settings').upsert({
-              id: 'global_settings',
-              settings_data: sData,
-              updated_at: new Date().toISOString()
-            });
-          }
-        }
-      } catch (metaErr) {
-        console.warn('Supabase app_settings cleanup notice on deleteUser:', metaErr);
-      }
 
       return true;
     } catch (err) {
@@ -431,6 +373,7 @@ export class SupabaseSync {
 
       // Delete from dedicated public.factory_units table
       await client.from('factory_units').delete().eq('unit_name', cleanStr);
+      await client.from('factory_units').delete().ilike('unit_name', cleanStr);
       await client.from('factory_units').delete().eq('id', cleanStr);
       await client.from('factory_units').delete().eq('id', `unit-${cleanStr.toLowerCase().replace(/[^a-z0-9]/g, '-')}`);
       return true;
@@ -441,7 +384,7 @@ export class SupabaseSync {
   }
 
   // ==========================================
-  // 2. APP SETTINGS & UNIT CONFIGURATIONS (STRUCTURED TABLES + FALLBACK)
+  // 2. APP SETTINGS & UNIT CONFIGURATIONS (SEPARATED STRUCTURED TABLES)
   // ==========================================
 
   static async fetchSettings(): Promise<any | null> {
@@ -450,48 +393,49 @@ export class SupabaseSync {
 
     try {
       let structuredSettings: any = {};
-      let hasUnitTable = false;
-      let hasBuyerTable = false;
 
-      // A. Try fetching factory units from dedicated public.factory_units table
+      // A. Fetch factory units from dedicated public.factory_units table
       try {
         const { data: unitRows, error: unitErr } = await client
           .from('factory_units')
           .select('*')
           .order('display_order', { ascending: true });
 
-        if (!unitErr && unitRows) {
-          hasUnitTable = true;
-          if (unitRows.length > 0) {
-            structuredSettings.unitConfigs = unitRows.map((u: any) => ({
-              name: u.unit_name,
-              capacityKgPerDay: Number(u.production_capacity) || 0,
-              totalMachines: Number(u.total_machine) || 0,
-              avgProdPerMachine: Number(u.avg_prod_per_machine) || 0,
-              targetEfficiency: Number(u.target_efficiency) || 85
-            }));
-          }
+        if (!unitErr && unitRows && unitRows.length > 0) {
+          structuredSettings.unitConfigs = unitRows.map((u: any, idx: number) => ({
+            id: u.id || `unit-${(u.unit_name || `u${idx}`).toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+            name: u.unit_name,
+            unitName: u.unit_name,
+            capacityKgPerDay: Number(u.production_capacity) || 0,
+            productionCapacity: Number(u.production_capacity) || 0,
+            totalMachines: Number(u.total_machine) || 0,
+            totalMachine: Number(u.total_machine) || 0,
+            avgProdPerMachine: Number(u.avg_prod_per_machine) || 0,
+            targetEfficiency: Number(u.target_efficiency) || 85,
+            displayOrder: Number(u.display_order) || idx + 1
+          }));
         }
-      } catch {}
+      } catch (err) {
+        console.warn('Error fetching factory_units:', err);
+      }
 
-      // B. Try fetching buyers from dedicated public.buyers table
+      // B. Fetch buyers from dedicated public.buyers table
       try {
         const { data: buyerRows, error: buyerErr } = await client
           .from('buyers')
           .select('*')
           .order('buyer_name', { ascending: true });
 
-        if (!buyerErr && buyerRows) {
-          hasBuyerTable = true;
-          if (buyerRows.length > 0) {
-            structuredSettings.buyers = buyerRows
-              .filter((b: any) => b.status !== 'Inactive')
-              .map((b: any) => b.buyer_name);
-          }
+        if (!buyerErr && buyerRows && buyerRows.length > 0) {
+          structuredSettings.buyers = buyerRows
+            .filter((b: any) => b.status !== 'Inactive')
+            .map((b: any) => b.buyer_name);
         }
-      } catch {}
+      } catch (err) {
+        console.warn('Error fetching buyers:', err);
+      }
 
-      // C. Try fetching system thresholds from dedicated public.system_settings table
+      // C. Fetch system thresholds from dedicated public.system_settings table
       try {
         const { data: sysRow, error: sysErr } = await client
           .from('system_settings')
@@ -506,31 +450,11 @@ export class SupabaseSync {
           if (sysRow.company_logo) structuredSettings.companyLogo = sysRow.company_logo;
           if (sysRow.my_logo) structuredSettings.myLogo = sysRow.my_logo;
         }
-      } catch {}
-
-      // D. Fetch from app_settings compatibility table
-      const { data: appData } = await client
-        .from('app_settings')
-        .select('*')
-        .eq('id', 'global_settings')
-        .single();
-
-      const jsonbData = appData?.settings_data || {};
-
-      // If dedicated tables exist, use their authoritative data; otherwise fall back to app_settings
-      const merged: any = {
-        ...jsonbData,
-        ...structuredSettings
-      };
-
-      if (hasBuyerTable && structuredSettings.buyers) {
-        merged.buyers = structuredSettings.buyers;
-      }
-      if (hasUnitTable && structuredSettings.unitConfigs) {
-        merged.unitConfigs = structuredSettings.unitConfigs;
+      } catch (err) {
+        console.warn('Error fetching system_settings:', err);
       }
 
-      return merged;
+      return structuredSettings;
     } catch {
       return null;
     }
@@ -541,37 +465,26 @@ export class SupabaseSync {
     if (!client) return false;
 
     try {
-      // 1. Fetch current settings from app_settings
-      let currentAppJson: any = {};
-      try {
-        const { data: appData } = await client
-          .from('app_settings')
-          .select('settings_data')
-          .eq('id', 'global_settings')
-          .single();
-        if (appData?.settings_data) {
-          currentAppJson = appData.settings_data;
-        }
-      } catch {}
-
-      const mergedData = {
-        ...currentAppJson,
-        ...settingsData
-      };
-
       // 1. Sync to dedicated public.factory_units table if unitConfigs are present
       if (Array.isArray(settingsData.unitConfigs)) {
         try {
-          const unitRows = settingsData.unitConfigs.map((u: any, idx: number) => ({
-            id: `unit-${(u.name || `u${idx}`).toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
-            unit_name: u.name,
-            production_capacity: Number(u.capacityKgPerDay) || 0,
-            total_machine: Number(u.totalMachines) || 0,
-            avg_prod_per_machine: Number(u.avgProdPerMachine) || 0,
-            target_efficiency: Number(u.targetEfficiency) || 85,
-            display_order: idx + 1,
-            updated_at: new Date().toISOString()
-          }));
+          const unitRows = settingsData.unitConfigs.map((u: any, idx: number) => {
+            const rawName = (u.name || u.unitName || `Unit ${idx + 1}`).trim();
+            const rawId = u.id && u.id.trim()
+              ? u.id.trim()
+              : `unit-${rawName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+
+            return {
+              id: rawId,
+              unit_name: rawName,
+              production_capacity: Number(u.capacityKgPerDay ?? u.productionCapacity) || 0,
+              total_machine: Number(u.totalMachines ?? u.totalMachine) || 0,
+              avg_prod_per_machine: Number(u.avgProdPerMachine) || 0,
+              target_efficiency: Number(u.targetEfficiency) || 85,
+              display_order: Number(u.displayOrder) || idx + 1,
+              updated_at: new Date().toISOString()
+            };
+          });
 
           // Upsert current valid units
           if (unitRows.length > 0) {
@@ -579,16 +492,16 @@ export class SupabaseSync {
           }
 
           // Clean removed units from factory_units table
-          const currentUnitNames = settingsData.unitConfigs.map((u: any) => u.name);
+          const currentUnitNames = settingsData.unitConfigs.map((u: any) => (u.name || u.unitName || '').trim().toUpperCase());
           const { data: existingUnits } = await client.from('factory_units').select('id, unit_name');
           if (existingUnits && existingUnits.length > 0) {
-            const unitsToDelete = existingUnits.filter((eu: any) => !currentUnitNames.includes(eu.unit_name));
+            const unitsToDelete = existingUnits.filter((eu: any) => !currentUnitNames.includes((eu.unit_name || '').trim().toUpperCase()));
             for (const u of unitsToDelete) {
               await client.from('factory_units').delete().eq('id', u.id);
             }
           }
         } catch (unitErr) {
-          // Silent catch if table does not exist yet before SQL migration
+          console.warn('factory_units sync error:', unitErr);
         }
       }
 
@@ -617,7 +530,7 @@ export class SupabaseSync {
             }
           }
         } catch (buyerErr) {
-          // Silent catch if table does not exist yet before SQL migration
+          console.warn('buyers sync error:', buyerErr);
         }
       }
 
@@ -625,31 +538,19 @@ export class SupabaseSync {
       try {
         const sysRow: any = {
           id: 'global_settings',
-          reject_threshold: mergedData.rejectThreshold !== undefined ? Number(mergedData.rejectThreshold) : 2.5,
-          max_idle_machines: mergedData.maxIdleMachines !== undefined ? Number(mergedData.maxIdleMachines) : 5,
-          alarm_email: mergedData.alarmEmail || 'knitprod@epylliongroup.com',
-          company_logo: mergedData.companyLogo || '',
-          my_logo: mergedData.myLogo || '',
+          reject_threshold: settingsData.rejectThreshold !== undefined ? Number(settingsData.rejectThreshold) : 2.5,
+          max_idle_machines: settingsData.maxIdleMachines !== undefined ? Number(settingsData.maxIdleMachines) : 5,
+          alarm_email: settingsData.alarmEmail || 'knitprod@epylliongroup.com',
+          company_logo: settingsData.companyLogo || '',
+          my_logo: settingsData.myLogo || '',
           updated_at: new Date().toISOString()
         };
 
         await client.from('system_settings').upsert(sysRow, { onConflict: 'id' });
       } catch (sysErr) {
-        // Silent catch if table does not exist yet
+        console.warn('system_settings sync error:', sysErr);
       }
 
-      // 4. Save to app_settings compatibility table (Guaranteed backward compatibility)
-      const row = {
-        id: 'global_settings',
-        settings_data: mergedData,
-        updated_at: new Date().toISOString()
-      };
-
-      const { error } = await client.from('app_settings').upsert(row, { onConflict: 'id' });
-      if (error) {
-        console.warn('Supabase app_settings upsert error:', error.message);
-        return false;
-      }
       return true;
     } catch (err) {
       console.warn('Supabase saveSettings exception:', err);
@@ -792,14 +693,7 @@ CREATE TABLE IF NOT EXISTS public.system_settings (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 5. APP SETTINGS COMPATIBILITY TABLE (JSONB BACKWARD COMPATIBILITY)
-CREATE TABLE IF NOT EXISTS public.app_settings (
-  id TEXT PRIMARY KEY,
-  settings_data JSONB NOT NULL,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 6. ACTIVITY & AUDIT LOGS (UNLIMITED RETENTION)
+-- 5. ACTIVITY & AUDIT LOGS (UNLIMITED RETENTION)
 CREATE TABLE IF NOT EXISTS public.activity_logs (
   id BIGSERIAL PRIMARY KEY,
   user_id TEXT,
@@ -810,12 +704,14 @@ CREATE TABLE IF NOT EXISTS public.activity_logs (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Clean up old monolithic app_settings table if present
+DROP TABLE IF EXISTS public.app_settings CASCADE;
+
 -- Enable Row Level Security (RLS)
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.factory_units ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.buyers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
 
 -- Drop existing policies first so it never throws error 42710
@@ -823,7 +719,6 @@ DROP POLICY IF EXISTS "Allow public full access to users" ON public.users;
 DROP POLICY IF EXISTS "Allow public full access to factory_units" ON public.factory_units;
 DROP POLICY IF EXISTS "Allow public full access to buyers" ON public.buyers;
 DROP POLICY IF EXISTS "Allow public full access to system_settings" ON public.system_settings;
-DROP POLICY IF EXISTS "Allow public full access to app_settings" ON public.app_settings;
 DROP POLICY IF EXISTS "Allow public full access to activity_logs" ON public.activity_logs;
 
 -- Recreate policies cleanly
@@ -831,7 +726,6 @@ CREATE POLICY "Allow public full access to users" ON public.users FOR ALL USING 
 CREATE POLICY "Allow public full access to factory_units" ON public.factory_units FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public full access to buyers" ON public.buyers FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public full access to system_settings" ON public.system_settings FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow public full access to app_settings" ON public.app_settings FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public full access to activity_logs" ON public.activity_logs FOR ALL USING (true) WITH CHECK (true);
 
 -- Insert Default Factory Units

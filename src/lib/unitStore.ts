@@ -12,13 +12,12 @@ export interface UnitThresholdConfig {
 }
 
 export const INITIAL_UNIT_CONFIGS: UnitThresholdConfig[] = [
-  { id: 'unit-ekl', unitName: 'EKL', productionCapacity: 7500, totalMachine: 29, avgProdPerMachine: 230 },
-  { id: 'unit-efl', unitName: 'EFL', productionCapacity: 12500, totalMachine: 40, avgProdPerMachine: 230 },
-  { id: 'unit-efl2', unitName: 'EFL-2', productionCapacity: 12000, totalMachine: 35, avgProdPerMachine: 280 },
-  { id: 'unit-autostripe', unitName: 'Auto Stripe', productionCapacity: 4000, totalMachine: 20, avgProdPerMachine: 120 },
-  { id: 'unit-eflext', unitName: 'EFL-Extension', productionCapacity: 8000, totalMachine: 25, avgProdPerMachine: 180 },
-  { id: 'unit-eslext', unitName: 'ESL-Extension', productionCapacity: 6000, totalMachine: 16, avgProdPerMachine: 200 },
-  { id: 'unit-subcontact', unitName: 'Sub-Contact', productionCapacity: 25000, totalMachine: 153, avgProdPerMachine: 163.4 }
+  { id: 'unit-ekl', unitName: 'EKL', productionCapacity: 6350, totalMachine: 29, avgProdPerMachine: 230 },
+  { id: 'unit-efl', unitName: 'EFL', productionCapacity: 16140, totalMachine: 66, avgProdPerMachine: 230 },
+  { id: 'unit-efl-2', unitName: 'EFL-2', productionCapacity: 12320, totalMachine: 43, avgProdPerMachine: 280 },
+  { id: 'unit-auto-stripe', unitName: 'Auto Stripe', productionCapacity: 1000, totalMachine: 10, avgProdPerMachine: 120 },
+  { id: 'unit-efl-extension', unitName: 'EFL-Extension', productionCapacity: 6620, totalMachine: 38, avgProdPerMachine: 180 },
+  { id: 'unit-esl-extension', unitName: 'ESL-Extension', productionCapacity: 7570, totalMachine: 36, avgProdPerMachine: 200 }
 ];
 
 const UNIT_STORAGE_KEY = 'knitprod_unit_configs';
@@ -87,11 +86,11 @@ export function getTotalMachinesForUnit(unitName: string, defaultVal?: number): 
   }
   if (defaultVal !== undefined && defaultVal > 0) return defaultVal;
   
-  if (normalized === 'efl') return 40;
-  if (normalized === 'efl-2' || normalized === 'efl2') return 35;
-  if (normalized.includes('stripe')) return 20;
-  if (normalized.includes('efl-ext') || normalized === 'extension') return 25;
-  if (normalized.includes('esl-ext')) return 16;
+  if (normalized === 'efl') return 66;
+  if (normalized === 'efl-2' || normalized === 'efl2') return 43;
+  if (normalized.includes('stripe')) return 10;
+  if (normalized.includes('efl-ext') || normalized === 'extension') return 38;
+  if (normalized.includes('esl-ext')) return 36;
   if (normalized.includes('sub')) return 153;
   return 29;
 }

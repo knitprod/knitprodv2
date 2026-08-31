@@ -843,6 +843,9 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
 
       try {
         await SupabaseSync.deleteUser(targetUser.uid);
+        if (targetUser.id && targetUser.id !== targetUser.uid) {
+          await SupabaseSync.deleteUser(targetUser.id);
+        }
         if (GasClient.getDatabaseMode() === 'gas') {
           await GasClient.deleteUser(targetUser.uid).catch(() => {});
         }

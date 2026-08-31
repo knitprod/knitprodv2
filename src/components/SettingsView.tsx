@@ -145,10 +145,17 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
       const email = remoteSettings.alarmEmail || remoteSettings.setting_alarmEmail;
       if (email) setAlarmEmail(String(email));
 
-      // Load dynamic units list if provided in Firestore / remote settings
+      // Load dynamic units list if provided in Supabase / remote settings
       if (remoteSettings.unitConfigs && Array.isArray(remoteSettings.unitConfigs) && remoteSettings.unitConfigs.length > 0) {
-        setUnitConfigs(remoteSettings.unitConfigs);
-        saveUnitConfigs(remoteSettings.unitConfigs);
+        const normalized: UnitThresholdConfig[] = remoteSettings.unitConfigs.map((u: any, idx: number) => ({
+          id: u.id || `unit-${(u.name || u.unitName || `u${idx}`).toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+          unitName: u.unitName || u.name || `Unit ${idx + 1}`,
+          productionCapacity: Number(u.productionCapacity ?? u.capacityKgPerDay) || 0,
+          totalMachine: Number(u.totalMachine ?? u.totalMachines) || 0,
+          avgProdPerMachine: Number(u.avgProdPerMachine) || 0
+        }));
+        setUnitConfigs(normalized);
+        saveUnitConfigs(normalized);
       }
 
       if (remoteSettings.buyers) {
@@ -251,18 +258,26 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
 
     let updatedUnits: UnitThresholdConfig[] = [];
     if (editingUnit) {
-      // Update existing unit
-      updatedUnits = unitConfigs.map(u => u.id === editingUnit.id ? {
-        ...u,
-        unitName: nameTrimmed,
-        productionCapacity: capNum,
-        totalMachine: macNum,
-        avgProdPerMachine: avgNum
-      } : u);
+      // Update only the targeted unit
+      updatedUnits = unitConfigs.map(u => {
+        const isMatch = (editingUnit.id && u.id && u.id === editingUnit.id) ||
+                        (editingUnit.unitName && u.unitName && u.unitName.trim().toUpperCase() === editingUnit.unitName.trim().toUpperCase());
+        if (isMatch) {
+          return {
+            ...u,
+            id: u.id || editingUnit.id || `unit-${nameTrimmed.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+            unitName: nameTrimmed,
+            productionCapacity: capNum,
+            totalMachine: macNum,
+            avgProdPerMachine: avgNum
+          };
+        }
+        return u;
+      });
     } else {
       // Add new unit
       const newUnit: UnitThresholdConfig = {
-        id: `unit-${Date.now()}`,
+        id: `unit-${nameTrimmed.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${Date.now()}`,
         unitName: nameTrimmed,
         productionCapacity: capNum,
         totalMachine: macNum,
@@ -307,7 +322,11 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
   const handleDeleteUnit = async (unit: UnitThresholdConfig) => {
     if (!window.confirm(`Are you sure you want to delete Unit "${unit.unitName}"?`)) return;
 
-    const updatedUnits = unitConfigs.filter(u => u.id !== unit.id);
+    const updatedUnits = unitConfigs.filter(u => {
+      if (unit.id && u.id && u.id === unit.id) return false;
+      if (unit.unitName && u.unitName && u.unitName.trim().toUpperCase() === unit.unitName.trim().toUpperCase()) return false;
+      return true;
+    });
     setUnitConfigs(updatedUnits);
     saveUnitConfigs(updatedUnits);
 
@@ -320,7 +339,8 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
     };
 
     try {
-      await SupabaseSync.deleteUnit(unit.unitName);
+      if (unit.id) await SupabaseSync.deleteUnit(unit.id);
+      if (unit.unitName) await SupabaseSync.deleteUnit(unit.unitName);
       await SupabaseSync.saveSettings(settingsMap);
       await GasClient.saveServerDb({
         settings: settingsMap,
