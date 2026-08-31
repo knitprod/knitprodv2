@@ -305,7 +305,7 @@ export const PreLoginWelcomePage: React.FC<PreLoginWelcomePageProps> = ({
                       <div className="flex items-center gap-2">
                         <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
                         <span className="text-[11px] font-mono font-bold text-slate-300 uppercase tracking-wider">
-                          EPYLLION AUTH MATRIX
+                          Knitting Access Portal
                         </span>
                       </div>
                       <button

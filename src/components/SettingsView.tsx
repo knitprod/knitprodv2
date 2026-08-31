@@ -69,12 +69,15 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
   const [myLogoFeedback, setMyLogoFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const myLogoInputRef = useRef<HTMLInputElement | null>(null);
 
-  // My Logo ("POWERED BY") customization is strictly restricted to Raihan
-  const isRaihan = !currentUser || Boolean(
-    currentUser.userName?.toLowerCase().includes('raihan') ||
-    currentUser.uid?.toLowerCase().includes('ekl001') ||
-    currentUser.userName?.toLowerCase().includes('antu') ||
-    currentUser.userType === 'Admin'
+  // Branding & Logos customization panel is strictly restricted to UID: Raihan
+  const isRaihan = Boolean(
+    currentUser && (
+      currentUser.uid?.trim().toLowerCase() === 'raihan' ||
+      currentUser.uid?.trim().toLowerCase() === 'ekl001' ||
+      currentUser.userName?.trim().toLowerCase().includes('raihan') ||
+      currentUser.userName?.trim().toLowerCase().includes('antu') ||
+      currentUser.email?.trim().toLowerCase().includes('raihan')
+    )
   );
 
   useEffect(() => {
@@ -563,7 +566,7 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
       {/* Grid */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Settings Form */}
-        <div className="rounded-2xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs lg:col-span-2 space-y-6">
+        <div className={`rounded-2xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs ${isRaihan ? 'lg:col-span-2' : 'lg:col-span-3'} space-y-6`}>
           <form onSubmit={handleSave} className="space-y-6">
             
             {/* GENERAL THRESHOLD SETTINGS - DYNAMIC UNITS TABLE */}
@@ -922,112 +925,112 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
           </form>
         </div>
 
-        {/* Branding & Logos Customization Column */}
-        <div className="space-y-6">
-          {/* 1. Company Logo Card */}
-          <div className="rounded-2xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between border-b border-gray-50 dark:border-slate-800 pb-3 mb-4">
-                <div className="flex items-center gap-2">
-                  <Image className="h-4.5 w-4.5 text-blue-600 dark:text-blue-400" />
-                  <div>
-                    <h3 className="font-sans text-xs font-black text-gray-900 dark:text-white uppercase">1. Company Logo (Enterprise)</h3>
-                    <p className="text-[10px] text-slate-400 font-medium">Appears in header, system navigation & reports (Synced with Supabase)</p>
+        {/* Branding & Logos Customization Column - Strictly Restricted to UID: Raihan */}
+        {isRaihan && (
+          <div className="space-y-6">
+            {/* 1. Company Logo Card */}
+            <div className="rounded-2xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between border-b border-gray-50 dark:border-slate-800 pb-3 mb-4">
+                  <div className="flex items-center gap-2">
+                    <Image className="h-4.5 w-4.5 text-blue-600 dark:text-blue-400" />
+                    <div>
+                      <h3 className="font-sans text-xs font-black text-gray-900 dark:text-white uppercase">1. Company Logo (Enterprise)</h3>
+                      <p className="text-[10px] text-slate-400 font-medium">Appears in header, system navigation & reports (Synced with Supabase)</p>
+                    </div>
                   </div>
-                </div>
-                {logoState && (
-                  <button
-                    type="button"
-                    disabled={isUploadingLogo}
-                    onClick={async () => {
-                      setIsUploadingLogo(true);
-                      await removeCompanyLogo();
-                      setIsUploadingLogo(false);
-                      setLogoFeedback({ type: 'success', text: 'Company Logo reset to default.' });
-                      setTimeout(() => setLogoFeedback(null), 4000);
-                    }}
-                    className="text-[10px] font-bold text-red-600 dark:text-red-400 hover:underline cursor-pointer disabled:opacity-50"
-                  >
-                    Reset Logo
-                  </button>
-                )}
-              </div>
-
-              <input
-                type="file"
-                ref={logoInputRef}
-                onChange={handleSettingsLogoUpload}
-                accept="image/*"
-                className="hidden"
-              />
-
-              <div className="space-y-4">
-                {/* Dropzone / Preview Area */}
-                <div 
-                  onClick={() => !isUploadingLogo && logoInputRef.current?.click()}
-                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const file = e.dataTransfer.files?.[0];
-                    if (file) handleProcessLogoFile(file);
-                  }}
-                  className={`group relative rounded-2xl border-2 border-dashed p-5 text-center transition-all cursor-pointer ${
-                    isUploadingLogo
-                      ? 'border-blue-400 bg-blue-50/40 dark:bg-blue-950/20 cursor-wait animate-pulse'
-                      : logoState 
-                        ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/20 dark:bg-emerald-950/10 hover:border-emerald-500' 
-                        : 'border-blue-200 dark:border-slate-700 bg-blue-50/20 dark:bg-slate-800/40 hover:border-blue-500 hover:bg-blue-50/50'
-                  }`}
-                >
-                  {isUploadingLogo ? (
-                    <div className="py-4 space-y-2 flex flex-col items-center justify-center">
-                      <RefreshCw className="h-7 w-7 text-blue-600 animate-spin" />
-                      <p className="text-xs font-bold text-blue-700 dark:text-blue-400">Optimizing & Syncing Logo to Supabase...</p>
-                      <p className="text-[10px] text-slate-400">Updating cloud and server storage</p>
-                    </div>
-                  ) : logoState ? (
-                    <div className="space-y-2.5">
-                      <div className="flex h-16 w-full items-center justify-center p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs">
-                        <img src={logoState} alt="Uploaded Company Logo" className="max-h-full max-w-full object-contain" />
-                      </div>
-                      <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-400">
-                        <CheckCircle className="h-4 w-4 text-emerald-500" />
-                        <span>Company Logo Active (Synced with Supabase)</span>
-                      </div>
-                      <p className="text-[10px] text-slate-400 font-medium">Click or drag new image to replace</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5">
-                      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 dark:bg-slate-800 text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform">
-                        <Upload className="h-5 w-5" />
-                      </div>
-                      <span className="block text-xs font-black text-gray-800 dark:text-slate-200">
-                        Upload Company Logo (Epyllion)
-                      </span>
-                      <span className="block text-[10px] text-gray-400 font-medium">
-                        Click or Drag PNG, JPEG, WebP, SVG (Auto-Optimized & Synced)
-                      </span>
-                    </div>
+                  {logoState && (
+                    <button
+                      type="button"
+                      disabled={isUploadingLogo}
+                      onClick={async () => {
+                        setIsUploadingLogo(true);
+                        await removeCompanyLogo();
+                        setIsUploadingLogo(false);
+                        setLogoFeedback({ type: 'success', text: 'Company Logo reset to default.' });
+                        setTimeout(() => setLogoFeedback(null), 4000);
+                      }}
+                      className="text-[10px] font-bold text-red-600 dark:text-red-400 hover:underline cursor-pointer disabled:opacity-50"
+                    >
+                      Reset Logo
+                    </button>
                   )}
                 </div>
 
-                {logoFeedback && (
-                  <div className={`p-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 ${
-                    logoFeedback.type === 'success'
-                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-                      : 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'
-                  }`}>
-                    {logoFeedback.type === 'success' ? <CheckCircle className="h-4 w-4 shrink-0 text-emerald-500" /> : <AlertTriangle className="h-4 w-4 shrink-0 text-red-500" />}
-                    <span>{logoFeedback.text}</span>
+                <input
+                  type="file"
+                  ref={logoInputRef}
+                  onChange={handleSettingsLogoUpload}
+                  accept="image/*"
+                  className="hidden"
+                />
+
+                <div className="space-y-4">
+                  {/* Dropzone / Preview Area */}
+                  <div 
+                    onClick={() => !isUploadingLogo && logoInputRef.current?.click()}
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const file = e.dataTransfer.files?.[0];
+                      if (file) handleProcessLogoFile(file);
+                    }}
+                    className={`group relative rounded-2xl border-2 border-dashed p-5 text-center transition-all cursor-pointer ${
+                      isUploadingLogo
+                        ? 'border-blue-400 bg-blue-50/40 dark:bg-blue-950/20 cursor-wait animate-pulse'
+                        : logoState 
+                          ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/20 dark:bg-emerald-950/10 hover:border-emerald-500' 
+                          : 'border-blue-200 dark:border-slate-700 bg-blue-50/20 dark:bg-slate-800/40 hover:border-blue-500 hover:bg-blue-50/50'
+                    }`}
+                  >
+                    {isUploadingLogo ? (
+                      <div className="py-4 space-y-2 flex flex-col items-center justify-center">
+                        <RefreshCw className="h-7 w-7 text-blue-600 animate-spin" />
+                        <p className="text-xs font-bold text-blue-700 dark:text-blue-400">Optimizing & Syncing Logo to Supabase...</p>
+                        <p className="text-[10px] text-slate-400">Updating cloud and server storage</p>
+                      </div>
+                    ) : logoState ? (
+                      <div className="space-y-2.5">
+                        <div className="flex h-16 w-full items-center justify-center p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs">
+                          <img src={logoState} alt="Uploaded Company Logo" className="max-h-full max-w-full object-contain" />
+                        </div>
+                        <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                          <CheckCircle className="h-4 w-4 text-emerald-500" />
+                          <span>Company Logo Active (Synced with Supabase)</span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-medium">Click or drag new image to replace</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 dark:bg-slate-800 text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform">
+                          <Upload className="h-5 w-5" />
+                        </div>
+                        <span className="block text-xs font-black text-gray-800 dark:text-slate-200">
+                          Upload Company Logo (Epyllion)
+                        </span>
+                        <span className="block text-[10px] text-gray-400 font-medium">
+                          Click or Drag PNG, JPEG, WebP, SVG (Auto-Optimized & Synced)
+                        </span>
+                      </div>
+                    )}
                   </div>
-                )}
+
+                  {logoFeedback && (
+                    <div className={`p-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 ${
+                      logoFeedback.type === 'success'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                        : 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'
+                    }`}>
+                      {logoFeedback.type === 'success' ? <CheckCircle className="h-4 w-4 shrink-0 text-emerald-500" /> : <AlertTriangle className="h-4 w-4 shrink-0 text-red-500" />}
+                      <span>{logoFeedback.text}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* 2. My Logo / "Powered By" Logo Card - Restricted to Raihan */}
-          {isRaihan && (
+            {/* 2. My Logo / "Powered By" Logo Card - Restricted to Raihan */}
             <div className="rounded-2xl border border-emerald-200/80 dark:border-emerald-900/60 bg-white dark:bg-slate-900 p-5 shadow-xs flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between border-b border-gray-50 dark:border-slate-800 pb-3 mb-4">
@@ -1152,8 +1155,8 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
                 </span>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* POPUP MODAL FOR ADD / EDIT UNIT THRESHOLD */}

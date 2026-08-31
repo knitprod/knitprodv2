@@ -25,35 +25,32 @@ export const PoweredByLogoBadge: React.FC<PoweredByLogoBadgeProps> = ({
     return () => window.removeEventListener('my_logo_updated', handleUpdate);
   }, []);
 
-  const isDark = theme === 'dark';
-
   return (
     <div
       id={id}
-      className={`relative inline-flex flex-col items-center sm:items-end justify-center px-3 py-1.5 rounded-2xl select-none ${className}`}
+      className={`relative inline-flex flex-col items-center sm:items-end justify-center select-none bg-transparent ${className}`}
     >
-      {/* Header Monospace Label */}
+      {/* Header Label: POWERED BY */}
       <div className="flex items-center gap-1.5 w-full justify-center sm:justify-end mb-1">
-        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-        <span className="text-[10px] font-mono font-black tracking-widest text-slate-400 dark:text-slate-400 uppercase">
+        <span className="text-[8px] sm:text-[9px] font-mono font-bold tracking-[0.18em] text-slate-400/90 dark:text-slate-400/90 uppercase">
           POWERED BY
         </span>
       </div>
 
-      {/* Main Logo Showcase Container - Borderless, spacious & prominent */}
+      {/* Main Logo Container - 96px x 96px transparent presentation */}
       {myLogo ? (
         <div 
-          className="relative flex items-center justify-center min-w-[160px] max-w-[260px] h-[64px] sm:h-[74px] px-2 py-1"
+          className="relative flex items-center justify-center w-[84px] h-[84px] sm:w-[96px] sm:h-[96px] bg-transparent"
         >
           <img
             src={myLogo}
             alt="Powered By Logo"
-            className="max-h-[60px] sm:max-h-[70px] w-auto max-w-full object-contain drop-shadow-xl transition-transform duration-300 hover:scale-105"
+            className="w-full h-full max-w-[84px] max-h-[84px] sm:max-w-[96px] sm:max-h-[96px] object-contain bg-transparent transition-transform duration-300 hover:scale-105"
           />
         </div>
       ) : (
-        <div className="relative flex items-center justify-center min-w-[160px] h-[64px] sm:h-[74px] px-2 py-1">
-          <OfficialEpyllionLogo width={160} height={44} showSubtitle={true} theme="dark" id={`${id}-fallback-epyllion`} />
+        <div className="relative flex items-center justify-center w-[84px] h-[84px] sm:w-[96px] sm:h-[96px] bg-transparent">
+          <OfficialEpyllionLogo width={96} height={60} showSubtitle={false} theme="dark" id={`${id}-fallback-epyllion`} />
         </div>
       )}
     </div>

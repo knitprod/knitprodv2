@@ -86,6 +86,17 @@ export default function Header({
   const [companyLogo, setCompanyLogo] = useState<string | null>(() => getCompanyLogo());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Logo editing is strictly restricted to UID: Raihan
+  const isRaihan = Boolean(
+    currentUser && (
+      currentUser.uid?.trim().toLowerCase() === 'raihan' ||
+      currentUser.uid?.trim().toLowerCase() === 'ekl001' ||
+      currentUser.userName?.trim().toLowerCase().includes('raihan') ||
+      currentUser.userName?.trim().toLowerCase().includes('antu') ||
+      currentUser.email?.trim().toLowerCase().includes('raihan')
+    )
+  );
+
   useEffect(() => {
     initBrandingSync().catch(() => {});
     const handleLogoUpdate = (e: Event) => {
@@ -212,43 +223,55 @@ export default function Header({
           </button>
 
           {/* Company Logo Element with Upload Trigger */}
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleLogoUpload} 
-            accept="image/*" 
-            className="hidden" 
-            id="header-logo-input"
-          />
+          {isRaihan && (
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={handleLogoUpload} 
+              accept="image/*" 
+              className="hidden" 
+              id="header-logo-input"
+            />
+          )}
           {companyLogo ? (
             <div 
-              onClick={() => fileInputRef.current?.click()}
-              className="group relative flex h-10 sm:h-11 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2.5 py-1 transition-all hover:border-blue-500 cursor-pointer shrink-0 shadow-xs"
-              title="Click to change company logo"
+              onClick={() => isRaihan && fileInputRef.current?.click()}
+              className={`group relative flex h-10 sm:h-11 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2.5 py-1 transition-all shrink-0 shadow-xs ${
+                isRaihan ? 'hover:border-blue-500 cursor-pointer' : 'cursor-default'
+              }`}
+              title={isRaihan ? "Click to change company logo" : "Epyllion Knitex Ltd."}
             >
               <img 
                 src={companyLogo} 
                 alt="Company Logo" 
                 className="h-8 sm:h-9 md:h-10 w-auto max-w-[140px] sm:max-w-[160px] object-contain"
               />
-              <div className="absolute inset-0 bg-blue-900/60 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <Upload className="h-4 w-4 text-white" />
-              </div>
+              {isRaihan && (
+                <div className="absolute inset-0 bg-blue-900/60 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Upload className="h-4 w-4 text-white" />
+                </div>
+              )}
             </div>
           ) : (
             <div 
-              onClick={() => fileInputRef.current?.click()}
-              className="group relative flex h-10 w-10 sm:h-11 sm:w-11 cursor-pointer items-center justify-center rounded-lg border border-dashed border-blue-300 dark:border-blue-700 bg-blue-50/50 dark:bg-blue-950/20 transition-all hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 shrink-0"
-              title="Click to upload company logo"
+              onClick={() => isRaihan && fileInputRef.current?.click()}
+              className={`group relative flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-lg border border-dashed border-blue-300 dark:border-blue-700 bg-blue-50/50 dark:bg-blue-950/20 transition-all shrink-0 ${
+                isRaihan ? 'cursor-pointer hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20' : 'cursor-default'
+              }`}
+              title={isRaihan ? "Click to upload company logo" : "Epyllion Knitex Ltd."}
             >
               <span className="font-mono text-xs sm:text-sm font-black tracking-tight text-blue-600 dark:text-blue-400 group-hover:scale-105 transition-transform">EKL</span>
-              <div className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white shadow-2xs">
-                +
-              </div>
-              {/* Tooltip */}
-              <div className="absolute left-14 top-0 hidden w-48 rounded-xl bg-gray-900 p-2 text-[10px] text-white group-hover:block shadow-md z-50">
-                Click to upload your official <strong>Epyllion Knitex Logo</strong> (PNG/JPEG)
-              </div>
+              {isRaihan && (
+                <>
+                  <div className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white shadow-2xs">
+                    +
+                  </div>
+                  {/* Tooltip */}
+                  <div className="absolute left-14 top-0 hidden w-48 rounded-xl bg-gray-900 p-2 text-[10px] text-white group-hover:block shadow-md z-50">
+                    Click to upload your official <strong>Epyllion Knitex Logo</strong> (PNG/JPEG)
+                  </div>
+                </>
+              )}
             </div>
           )}
 

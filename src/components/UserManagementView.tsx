@@ -61,6 +61,9 @@ export interface UserRecord {
   lastUpdated: string; // "YYYY-MM-DD HH:MM AM/PM"
   allowedTabs?: string[];
   tabPermissions?: Record<string, 'View Only' | 'Full Access' | 'No Access'>;
+  email?: string;
+  phone?: string;
+  lastLogin?: string;
 }
 
 export const ALL_TABS = [

@@ -177,7 +177,7 @@ export default function LoginView({ onLoginSuccess, inactivityNotice, embedded =
             Authorized Personnel Login
           </span>
           <span className="text-[10px] bg-slate-900 border border-slate-700 text-slate-300 font-bold px-2 py-0.5 rounded">
-            SECURE SSL
+            SECURE CONNECTION
           </span>
         </div>
 
@@ -210,7 +210,7 @@ export default function LoginView({ onLoginSuccess, inactivityNotice, embedded =
 
         {/* Credential Form */}
         <form onSubmit={handleLoginSubmit} className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1 sm:pr-8">
             <div className="space-y-1">
               <h2 className="text-lg sm:text-xl font-black tracking-tight text-white">
                 Sign In to Your Workspace
@@ -297,19 +297,16 @@ export default function LoginView({ onLoginSuccess, inactivityNotice, embedded =
                 <span className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-400 to-sky-400 animate-pulse w-full" />
               </>
             ) : (
-              <>
-                <span>Secure Authorize Portal</span>
-                <ChevronRight className="h-4 w-4" />
-              </>
+              <span>Authorized Sign IN →</span>
             )}
           </button>
         </form>
 
         {/* Compliance Footer */}
-        <div className="mt-6 pt-4 border-t border-slate-800 flex items-start gap-2.5 text-[10px] text-slate-500 leading-normal">
-          <ShieldAlert className="h-4 w-4 shrink-0 text-emerald-400" />
-          <p className="font-semibold">
-            Authorized access only. Real-time encryption active. All activities are recorded for audit compliance under Epyllion Group InfoSec.
+        <div className="mt-6 pt-4 border-t border-slate-800 flex items-start gap-2.5 text-[10px] text-slate-400 leading-normal">
+          <ShieldAlert className="h-4 w-4 shrink-0 text-emerald-400 mt-0.5" />
+          <p className="font-semibold text-slate-400">
+            Authorized access only • Activity logging enabled
           </p>
         </div>
       </div>
@@ -386,7 +383,7 @@ export default function LoginView({ onLoginSuccess, inactivityNotice, embedded =
                 Authorized Personnel Login
               </span>
               <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold px-2 py-0.5 rounded">
-                SECURE SSL
+                SECURE CONNECTION
               </span>
             </div>
 
@@ -419,7 +416,7 @@ export default function LoginView({ onLoginSuccess, inactivityNotice, embedded =
 
             {/* Credential Form */}
             <form onSubmit={handleLoginSubmit} className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1 sm:pr-8">
                 <div className="space-y-1">
                   <h2 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">
                     Sign In to Your Workspace
@@ -506,10 +503,7 @@ export default function LoginView({ onLoginSuccess, inactivityNotice, embedded =
                     <span className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-[#0F4C81] via-sky-400 to-[#0F4C81] animate-pulse w-full" />
                   </>
                 ) : (
-                  <>
-                    <span>Secure Authorize Portal</span>
-                    <ChevronRight className="h-4 w-4" />
-                  </>
+                  <span>Authorized Sign IN →</span>
                 )}
               </button>
             </form>
@@ -517,9 +511,9 @@ export default function LoginView({ onLoginSuccess, inactivityNotice, embedded =
 
           {/* Institutional Compliance Disclaimer */}
           <div className="mt-8 pt-5 border-t border-slate-100 dark:border-slate-800 flex items-start gap-2.5 text-[10px] text-gray-400 dark:text-slate-500 leading-normal">
-            <ShieldAlert className="h-4 w-4 shrink-0 text-[#0F4C81]" />
+            <ShieldAlert className="h-4 w-4 shrink-0 text-[#0F4C81] dark:text-emerald-400 mt-0.5" />
             <p className="font-semibold">
-              Authorized access only. All activities are securely monitored and recorded. Unauthorized attempts will be reported immediately to Epyllion Group information security.
+              Authorized access only • Activity logging enabled
             </p>
           </div>
 
