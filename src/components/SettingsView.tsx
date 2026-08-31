@@ -162,7 +162,15 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
       }
     };
 
-    // 1. Fetch from Google Apps Script if connected
+    // 1. Fetch from Supabase Cloud Settings first, then Google Apps Script
+    SupabaseSync.fetchSettings().then(remoteSettings => {
+      if (remoteSettings) {
+        applyRemoteSettings(remoteSettings);
+      }
+    }).catch(err => {
+      console.warn("Notice loading Supabase settings:", err);
+    });
+
     GasClient.fetchSettings().then(remoteSettings => {
       if (remoteSettings) {
         applyRemoteSettings(remoteSettings);
@@ -267,7 +275,7 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
     saveUnitConfigs(updatedUnits);
     setIsUnitModalOpen(false);
 
-    // Save to Firestore and create Activity Log in Firestore
+    // Save to Supabase Cloud and Server DB
     const settingsMap = {
       rejectThreshold,
       maxIdleMachines,
@@ -277,6 +285,7 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
     };
 
     try {
+      await SupabaseSync.saveSettings(settingsMap);
       await GasClient.saveServerDb({
         settings: settingsMap,
         activityLogs: [{
@@ -291,7 +300,7 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
         }]
       });
     } catch (err) {
-      console.warn("Error saving unit changes to server DB:", err);
+      console.warn("Error saving unit changes to Supabase / server DB:", err);
     }
   };
 
@@ -311,6 +320,7 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
     };
 
     try {
+      await SupabaseSync.saveSettings(settingsMap);
       await GasClient.saveServerDb({
         settings: settingsMap,
         activityLogs: [{
@@ -323,7 +333,7 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
         }]
       });
     } catch (err) {
-      console.warn("Error syncing unit deletion to server DB:", err);
+      console.warn("Error syncing unit deletion to Supabase / server DB:", err);
     }
   };
 
@@ -366,6 +376,7 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
     setBuyersList(updated);
     setNewBuyerInput('');
     setBuyerError(null);
+    SupabaseSync.saveSettings({ buyers: updated }).catch(() => {});
   };
 
   const handleStartEditBuyer = (buyerName: string) => {
@@ -390,6 +401,7 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
     if (trimmedNew !== editingBuyerName) {
       const updated = renameBuyerInStore(editingBuyerName, trimmedNew);
       setBuyersList(updated);
+      SupabaseSync.saveSettings({ buyers: updated }).catch(() => {});
       await syncUserAssignedBuyersOnRename(editingBuyerName, trimmedNew);
     }
 
@@ -401,6 +413,7 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
   const handleRemoveBuyer = async (buyerName: string) => {
     const updated = removeBuyerFromStore(buyerName);
     setBuyersList(updated);
+    SupabaseSync.saveSettings({ buyers: updated }).catch(() => {});
     await syncUserAssignedBuyersOnRename(buyerName, null);
   };
 
@@ -408,6 +421,7 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
     if (window.confirm("Reset buyers directory to default initial 24 buyers list?")) {
       const updated = resetBuyersToDefault();
       setBuyersList(updated);
+      SupabaseSync.saveSettings({ buyers: updated }).catch(() => {});
     }
   };
 
@@ -426,18 +440,23 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
       buyers: buyersList
     };
 
-    // Persist centrally on server DB for all devices
-    await GasClient.saveServerDb({
-      settings: settingsMap,
-      activityLogs: [{
-        id: `act-${Date.now()}`,
-        timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
-        floorId: 'System',
-        type: 'maintenance',
-        message: `System configurations updated. Total Units: ${unitConfigs.length}, Active Buyers: ${buyersList.length}.`,
-        status: 'success'
-      }]
-    });
+    // Persist directly to Supabase cloud and Express server DB
+    try {
+      await SupabaseSync.saveSettings(settingsMap);
+      await GasClient.saveServerDb({
+        settings: settingsMap,
+        activityLogs: [{
+          id: `act-${Date.now()}`,
+          timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+          floorId: 'System',
+          type: 'maintenance',
+          message: `System configurations updated. Total Units: ${unitConfigs.length}, Active Buyers: ${buyersList.length}.`,
+          status: 'success'
+        }]
+      });
+    } catch (err) {
+      console.warn("Error saving settings to Supabase:", err);
+    }
 
     setIsSyncing(false);
     setIsSaved(true);

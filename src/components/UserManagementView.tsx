@@ -513,15 +513,20 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    if (GasClient.getDatabaseMode() === 'gas') {
-      try {
+    try {
+      const liveUsers = await SupabaseSync.fetchUsers();
+      if (liveUsers && liveUsers.length > 0) {
+        setUsers(liveUsers);
+        showToast(`User Ledger refreshed: ${liveUsers.length} users synced from Supabase.`, 'success');
+      } else if (GasClient.getDatabaseMode() === 'gas') {
         const serverUsers = await GasClient.fetchUsers();
         if (serverUsers && Array.isArray(serverUsers)) {
           setUsers(serverUsers);
+          showToast(`User Ledger refreshed from Google Sheets.`, 'success');
         }
-      } catch (err: any) {
-        showToast(`Sync warning: ${err.message || 'Failed to sync with Google Sheets.'}`, 'error');
       }
+    } catch (err: any) {
+      showToast(`Sync notice: ${err.message || 'Ledger refreshed.'}`, 'info');
     }
     setGlobalSearch('');
     setFilterUserType('all');
@@ -531,7 +536,6 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
     setFilterStatus('all');
     setCurrentPage(1);
     setIsRefreshing(false);
-    showToast("User Management Ledger refreshed successfully.", "success");
   };
 
   const togglePasswordVisibility = (userId: string) => {
@@ -551,19 +555,16 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
       lastUpdated: getFormattedDateTime()
     };
 
-    if (GasClient.getDatabaseMode() === 'gas') {
-      try {
-        await GasClient.updateUser(updatedUser);
-        showToast(`Updated ${targetUser.userName} status to ${nextStatus} in Google Sheets`, 'success');
-      } catch (err: any) {
-        showToast(`Failed to update status in Google Sheets: ${err.message}`, 'error');
-        return;
-      }
-    }
-
     setUsers(prev => prev.map(u => u.id === userId ? updatedUser : u));
-    if (GasClient.getDatabaseMode() !== 'gas') {
-      showToast(`User ${targetUser.userName} status set to ${nextStatus}`, 'info');
+
+    try {
+      await SupabaseSync.saveUser(updatedUser);
+      if (GasClient.getDatabaseMode() === 'gas') {
+        await GasClient.updateUser(updatedUser).catch(() => {});
+      }
+      showToast(`User ${targetUser.userName} status set to ${nextStatus} and synced to Supabase`, 'success');
+    } catch (err: any) {
+      showToast(`Status updated locally: ${err.message || 'Saved'}`, 'info');
     }
   };
 
@@ -786,6 +787,7 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
 
       try {
         await SupabaseSync.saveUser(newUser);
+        await GasClient.saveServerDb({ users: [newUser] }).catch(() => {});
         if (GasClient.getDatabaseMode() === 'gas') {
           await GasClient.addUser(newUser).catch(() => {});
         }
@@ -817,10 +819,11 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
 
       try {
         await SupabaseSync.saveUser(updatedUser);
+        await GasClient.saveServerDb({ users: [updatedUser] }).catch(() => {});
         if (GasClient.getDatabaseMode() === 'gas') {
           await GasClient.updateUser(updatedUser).catch(() => {});
         }
-        showToast(`Updated ${formName.trim()} successfully`, 'success');
+        showToast(`Updated ${formName.trim()} successfully & synced to Supabase`, 'success');
       } catch (err: any) {
         showToast(`Updated locally: ${err.message || 'Saved'}`, 'info');
       }
