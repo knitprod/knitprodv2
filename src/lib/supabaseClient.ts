@@ -348,26 +348,94 @@ export class SupabaseSync {
     }
   }
 
-  static async deleteUser(uid: string): Promise<boolean> {
+  static async deleteUser(uidOrId: string): Promise<boolean> {
     const client = this.getClient();
     if (!client) return false;
 
-    const cleanUid = uid.trim().toUpperCase();
+    const rawStr = (uidOrId || '').trim();
+    const upperStr = rawStr.toUpperCase();
 
     try {
-      const { error } = await client.from('users').delete().eq('uid', cleanUid);
-      
-      // Also clean from app_settings user_metadata
-      try {
-        const currentSettings = (await this.fetchSettings()) || {};
-        if (currentSettings.user_metadata && currentSettings.user_metadata[cleanUid]) {
-          delete currentSettings.user_metadata[cleanUid];
-          await this.saveSettings(currentSettings);
-        }
-      } catch {}
+      // 1. Delete from Supabase 'users' table explicitly by both UID and ID
+      await client.from('users').delete().eq('uid', rawStr);
+      await client.from('users').delete().eq('uid', upperStr);
+      await client.from('users').delete().eq('id', rawStr);
+      await client.from('users').delete().eq('id', upperStr);
+      await client.from('users').delete().eq('id', `USR-${upperStr}`);
 
-      return !error;
-    } catch {
+      // 2. Also clean from app_settings user_metadata and users array
+      try {
+        const { data: appData } = await client.from('app_settings').select('settings_data').eq('id', 'global_settings').single();
+        if (appData && appData.settings_data) {
+          const sData = { ...appData.settings_data };
+          let changed = false;
+          
+          if (sData.user_metadata) {
+            delete sData.user_metadata[rawStr];
+            delete sData.user_metadata[upperStr];
+            changed = true;
+          }
+          if (Array.isArray(sData.users)) {
+            sData.users = sData.users.filter((u: any) => 
+              u.uid?.toUpperCase() !== upperStr && 
+              u.id !== rawStr && 
+              u.id !== `USR-${upperStr}`
+            );
+            changed = true;
+          }
+
+          if (changed) {
+            await client.from('app_settings').upsert({
+              id: 'global_settings',
+              settings_data: sData,
+              updated_at: new Date().toISOString()
+            });
+          }
+        }
+      } catch (metaErr) {
+        console.warn('Supabase app_settings cleanup notice on deleteUser:', metaErr);
+      }
+
+      return true;
+    } catch (err) {
+      console.warn('Supabase deleteUser error:', err);
+      return false;
+    }
+  }
+
+  static async deleteBuyer(buyerName: string): Promise<boolean> {
+    const client = this.getClient();
+    if (!client) return false;
+
+    try {
+      const cleanName = (buyerName || '').trim();
+      if (!cleanName) return false;
+
+      // Delete from dedicated public.buyers table
+      await client.from('buyers').delete().eq('buyer_name', cleanName);
+      await client.from('buyers').delete().ilike('buyer_name', cleanName);
+      return true;
+    } catch (err) {
+      console.warn('Supabase deleteBuyer error:', err);
+      return false;
+    }
+  }
+
+  static async deleteUnit(unitNameOrId: string): Promise<boolean> {
+    const client = this.getClient();
+    if (!client) return false;
+
+    try {
+      const cleanStr = (unitNameOrId || '').trim();
+      if (!cleanStr) return false;
+
+      // Delete from dedicated public.factory_units table
+      await client.from('factory_units').delete().eq('unit_name', cleanStr);
+      await client.from('factory_units').delete().eq('id', cleanStr);
+      await client.from('factory_units').delete().eq('id', `unit-${cleanStr.toLowerCase().replace(/[^a-z0-9]/g, '-')}`);
+      return true;
+    } catch (err) {
+      console.warn('Supabase deleteUnit error:', err);
       return false;
     }
   }
@@ -382,7 +450,8 @@ export class SupabaseSync {
 
     try {
       let structuredSettings: any = {};
-      let hasStructuredData = false;
+      let hasUnitTable = false;
+      let hasBuyerTable = false;
 
       // A. Try fetching factory units from dedicated public.factory_units table
       try {
@@ -391,15 +460,17 @@ export class SupabaseSync {
           .select('*')
           .order('display_order', { ascending: true });
 
-        if (!unitErr && unitRows && unitRows.length > 0) {
-          structuredSettings.unitConfigs = unitRows.map((u: any) => ({
-            name: u.unit_name,
-            capacityKgPerDay: Number(u.production_capacity) || 0,
-            totalMachines: Number(u.total_machine) || 0,
-            avgProdPerMachine: Number(u.avg_prod_per_machine) || 0,
-            targetEfficiency: Number(u.target_efficiency) || 85
-          }));
-          hasStructuredData = true;
+        if (!unitErr && unitRows) {
+          hasUnitTable = true;
+          if (unitRows.length > 0) {
+            structuredSettings.unitConfigs = unitRows.map((u: any) => ({
+              name: u.unit_name,
+              capacityKgPerDay: Number(u.production_capacity) || 0,
+              totalMachines: Number(u.total_machine) || 0,
+              avgProdPerMachine: Number(u.avg_prod_per_machine) || 0,
+              targetEfficiency: Number(u.target_efficiency) || 85
+            }));
+          }
         }
       } catch {}
 
@@ -410,11 +481,13 @@ export class SupabaseSync {
           .select('*')
           .order('buyer_name', { ascending: true });
 
-        if (!buyerErr && buyerRows && buyerRows.length > 0) {
-          structuredSettings.buyers = buyerRows
-            .filter((b: any) => b.status !== 'Inactive')
-            .map((b: any) => b.buyer_name);
-          hasStructuredData = true;
+        if (!buyerErr && buyerRows) {
+          hasBuyerTable = true;
+          if (buyerRows.length > 0) {
+            structuredSettings.buyers = buyerRows
+              .filter((b: any) => b.status !== 'Inactive')
+              .map((b: any) => b.buyer_name);
+          }
         }
       } catch {}
 
@@ -432,7 +505,6 @@ export class SupabaseSync {
           structuredSettings.alarmEmail = sysRow.alarm_email || 'knitprod@epylliongroup.com';
           if (sysRow.company_logo) structuredSettings.companyLogo = sysRow.company_logo;
           if (sysRow.my_logo) structuredSettings.myLogo = sysRow.my_logo;
-          hasStructuredData = true;
         }
       } catch {}
 
@@ -445,11 +517,20 @@ export class SupabaseSync {
 
       const jsonbData = appData?.settings_data || {};
 
-      // Merge structured table data with JSONB data (structured tables take precedence if present)
-      return {
+      // If dedicated tables exist, use their authoritative data; otherwise fall back to app_settings
+      const merged: any = {
         ...jsonbData,
         ...structuredSettings
       };
+
+      if (hasBuyerTable && structuredSettings.buyers) {
+        merged.buyers = structuredSettings.buyers;
+      }
+      if (hasUnitTable && structuredSettings.unitConfigs) {
+        merged.unitConfigs = structuredSettings.unitConfigs;
+      }
+
+      return merged;
     } catch {
       return null;
     }
@@ -460,15 +541,26 @@ export class SupabaseSync {
     if (!client) return false;
 
     try {
-      // Merge with existing remote settings to prevent accidental overwriting
-      const existing = (await this.fetchSettings()) || {};
+      // 1. Fetch current settings from app_settings
+      let currentAppJson: any = {};
+      try {
+        const { data: appData } = await client
+          .from('app_settings')
+          .select('settings_data')
+          .eq('id', 'global_settings')
+          .single();
+        if (appData?.settings_data) {
+          currentAppJson = appData.settings_data;
+        }
+      } catch {}
+
       const mergedData = {
-        ...existing,
+        ...currentAppJson,
         ...settingsData
       };
 
       // 1. Sync to dedicated public.factory_units table if unitConfigs are present
-      if (Array.isArray(settingsData.unitConfigs) && settingsData.unitConfigs.length > 0) {
+      if (Array.isArray(settingsData.unitConfigs)) {
         try {
           const unitRows = settingsData.unitConfigs.map((u: any, idx: number) => ({
             id: `unit-${(u.name || `u${idx}`).toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
@@ -481,23 +573,49 @@ export class SupabaseSync {
             updated_at: new Date().toISOString()
           }));
 
-          await client.from('factory_units').upsert(unitRows, { onConflict: 'id' });
+          // Upsert current valid units
+          if (unitRows.length > 0) {
+            await client.from('factory_units').upsert(unitRows, { onConflict: 'id' });
+          }
+
+          // Clean removed units from factory_units table
+          const currentUnitNames = settingsData.unitConfigs.map((u: any) => u.name);
+          const { data: existingUnits } = await client.from('factory_units').select('id, unit_name');
+          if (existingUnits && existingUnits.length > 0) {
+            const unitsToDelete = existingUnits.filter((eu: any) => !currentUnitNames.includes(eu.unit_name));
+            for (const u of unitsToDelete) {
+              await client.from('factory_units').delete().eq('id', u.id);
+            }
+          }
         } catch (unitErr) {
           // Silent catch if table does not exist yet before SQL migration
         }
       }
 
       // 2. Sync to dedicated public.buyers table if buyers are present
-      if (Array.isArray(settingsData.buyers) && settingsData.buyers.length > 0) {
+      if (Array.isArray(settingsData.buyers)) {
         try {
-          const buyerRows = settingsData.buyers.map((name: string, idx: number) => ({
+          const buyerRows = settingsData.buyers.map((name: string) => ({
             id: `buy-${name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
             buyer_name: name,
             status: 'Active',
             updated_at: new Date().toISOString()
           }));
 
-          await client.from('buyers').upsert(buyerRows, { onConflict: 'buyer_name' });
+          // Upsert current valid buyers
+          if (buyerRows.length > 0) {
+            await client.from('buyers').upsert(buyerRows, { onConflict: 'buyer_name' });
+          }
+
+          // Clean removed buyers from buyers table
+          const currentBuyerNames = settingsData.buyers;
+          const { data: existingBuyers } = await client.from('buyers').select('id, buyer_name');
+          if (existingBuyers && existingBuyers.length > 0) {
+            const buyersToDelete = existingBuyers.filter((eb: any) => !currentBuyerNames.includes(eb.buyer_name));
+            for (const b of buyersToDelete) {
+              await client.from('buyers').delete().eq('id', b.id);
+            }
+          }
         } catch (buyerErr) {
           // Silent catch if table does not exist yet before SQL migration
         }

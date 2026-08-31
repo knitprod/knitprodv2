@@ -320,6 +320,7 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
     };
 
     try {
+      await SupabaseSync.deleteUnit(unit.unitName);
       await SupabaseSync.saveSettings(settingsMap);
       await GasClient.saveServerDb({
         settings: settingsMap,
@@ -413,7 +414,12 @@ export default function SettingsView({ currentUser }: SettingsViewProps = {}) {
   const handleRemoveBuyer = async (buyerName: string) => {
     const updated = removeBuyerFromStore(buyerName);
     setBuyersList(updated);
-    SupabaseSync.saveSettings({ buyers: updated }).catch(() => {});
+    try {
+      await SupabaseSync.deleteBuyer(buyerName);
+      await SupabaseSync.saveSettings({ buyers: updated });
+    } catch (err) {
+      console.warn("Error deleting buyer from Supabase:", err);
+    }
     await syncUserAssignedBuyersOnRename(buyerName, null);
   };
 
