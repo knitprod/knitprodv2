@@ -435,13 +435,13 @@ export class SupabaseSync {
         console.warn('Error fetching buyers:', err);
       }
 
-      // C. Fetch system thresholds from dedicated public.system_settings table
+      // C. Fetch system thresholds & logos from dedicated public.system_settings table
       try {
         const { data: sysRow, error: sysErr } = await client
           .from('system_settings')
           .select('*')
           .eq('id', 'global_settings')
-          .single();
+          .maybeSingle();
 
         if (!sysErr && sysRow) {
           structuredSettings.rejectThreshold = Number(sysRow.reject_threshold) || 2.5;
@@ -452,6 +452,26 @@ export class SupabaseSync {
         }
       } catch (err) {
         console.warn('Error fetching system_settings:', err);
+      }
+
+      // D. Fallback check from public.app_settings if system_settings did not supply logos or thresholds
+      try {
+        const { data: appRow, error: appErr } = await client
+          .from('app_settings')
+          .select('*')
+          .eq('id', 'global_settings')
+          .maybeSingle();
+
+        if (!appErr && appRow?.settings_data) {
+          const sd = appRow.settings_data;
+          if (!structuredSettings.companyLogo && sd.companyLogo) structuredSettings.companyLogo = sd.companyLogo;
+          if (!structuredSettings.myLogo && sd.myLogo) structuredSettings.myLogo = sd.myLogo;
+          if (structuredSettings.rejectThreshold === undefined && sd.rejectThreshold) structuredSettings.rejectThreshold = Number(sd.rejectThreshold);
+          if (structuredSettings.maxIdleMachines === undefined && sd.maxIdleMachines) structuredSettings.maxIdleMachines = Number(sd.maxIdleMachines);
+          if (!structuredSettings.alarmEmail && sd.alarmEmail) structuredSettings.alarmEmail = sd.alarmEmail;
+        }
+      } catch {
+        // Non-critical fallback
       }
 
       return structuredSettings;
@@ -534,21 +554,72 @@ export class SupabaseSync {
         }
       }
 
-      // 3. Sync to dedicated public.system_settings table if thresholds/logos are present
-      try {
-        const sysRow: any = {
-          id: 'global_settings',
-          reject_threshold: settingsData.rejectThreshold !== undefined ? Number(settingsData.rejectThreshold) : 2.5,
-          max_idle_machines: settingsData.maxIdleMachines !== undefined ? Number(settingsData.maxIdleMachines) : 5,
-          alarm_email: settingsData.alarmEmail || 'knitprod@epylliongroup.com',
-          company_logo: settingsData.companyLogo || '',
-          my_logo: settingsData.myLogo || '',
-          updated_at: new Date().toISOString()
-        };
+      // 3. Sync to dedicated public.system_settings table (preserving existing fields on partial update)
+      const hasSystemSettingsData = 
+        settingsData.rejectThreshold !== undefined ||
+        settingsData.maxIdleMachines !== undefined ||
+        settingsData.alarmEmail !== undefined ||
+        settingsData.companyLogo !== undefined ||
+        settingsData.myLogo !== undefined;
 
-        await client.from('system_settings').upsert(sysRow, { onConflict: 'id' });
-      } catch (sysErr) {
-        console.warn('system_settings sync error:', sysErr);
+      if (hasSystemSettingsData) {
+        try {
+          let existingSys: any = null;
+          try {
+            const { data } = await client.from('system_settings').select('*').eq('id', 'global_settings').maybeSingle();
+            existingSys = data || null;
+          } catch {}
+
+          const sysRow: any = {
+            id: 'global_settings',
+            reject_threshold: settingsData.rejectThreshold !== undefined 
+              ? Number(settingsData.rejectThreshold) 
+              : (existingSys?.reject_threshold !== undefined ? Number(existingSys.reject_threshold) : 2.5),
+            max_idle_machines: settingsData.maxIdleMachines !== undefined 
+              ? Number(settingsData.maxIdleMachines) 
+              : (existingSys?.max_idle_machines !== undefined ? Number(existingSys.max_idle_machines) : 5),
+            alarm_email: settingsData.alarmEmail !== undefined 
+              ? settingsData.alarmEmail 
+              : (existingSys?.alarm_email || 'knitprod@epylliongroup.com'),
+            company_logo: settingsData.companyLogo !== undefined 
+              ? settingsData.companyLogo 
+              : (existingSys?.company_logo || ''),
+            my_logo: settingsData.myLogo !== undefined 
+              ? settingsData.myLogo 
+              : (existingSys?.my_logo || ''),
+            updated_at: new Date().toISOString()
+          };
+
+          const { error: sysErr } = await client.from('system_settings').upsert(sysRow, { onConflict: 'id' });
+          if (sysErr) {
+            console.warn('system_settings upsert notice:', sysErr);
+          }
+        } catch (sysErr) {
+          console.warn('system_settings sync error:', sysErr);
+        }
+
+        // 4. Also dual-sync to public.app_settings table as high-resilience fallback
+        try {
+          let existingApp: any = {};
+          try {
+            const { data } = await client.from('app_settings').select('*').eq('id', 'global_settings').maybeSingle();
+            existingApp = data?.settings_data || {};
+          } catch {}
+
+          const mergedAppData = {
+            ...existingApp,
+            ...settingsData,
+            updated_at: new Date().toISOString()
+          };
+
+          await client.from('app_settings').upsert({
+            id: 'global_settings',
+            settings_data: mergedAppData,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'id' });
+        } catch {
+          // Fallback ignored
+        }
       }
 
       return true;
@@ -692,6 +763,17 @@ CREATE TABLE IF NOT EXISTS public.system_settings (
   my_logo TEXT,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Safely add company_logo & my_logo columns if system_settings already existed
+DO $$ 
+BEGIN 
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='system_settings' AND column_name='company_logo') THEN
+    ALTER TABLE public.system_settings ADD COLUMN company_logo TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='system_settings' AND column_name='my_logo') THEN
+    ALTER TABLE public.system_settings ADD COLUMN my_logo TEXT;
+  END IF;
+END $$;
 
 -- 5. ACTIVITY & AUDIT LOGS (UNLIMITED RETENTION)
 CREATE TABLE IF NOT EXISTS public.activity_logs (

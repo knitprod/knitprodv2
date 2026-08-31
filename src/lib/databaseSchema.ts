@@ -81,6 +81,17 @@ CREATE TABLE IF NOT EXISTS public.system_settings (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Safely add company_logo & my_logo columns if system_settings already existed
+DO $$ 
+BEGIN 
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='system_settings' AND column_name='company_logo') THEN
+    ALTER TABLE public.system_settings ADD COLUMN company_logo TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='system_settings' AND column_name='my_logo') THEN
+    ALTER TABLE public.system_settings ADD COLUMN my_logo TEXT;
+  END IF;
+END $$;
+
 -- 5. APP SETTINGS COMPATIBILITY TABLE (JSONB BACKWARD COMPATIBILITY)
 CREATE TABLE IF NOT EXISTS public.app_settings (
   id TEXT PRIMARY KEY,
