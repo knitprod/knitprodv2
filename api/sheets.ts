@@ -24,6 +24,8 @@ export interface ApiResponse {
 const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbz6M8NmfDjG9GKdmkFMHggR6MGQwRU6Q42-hpd_gxEfbTQsjRL86mI_NavdqJB8Blzl/exec';
 
 export default async function handler(req: any, res: any) {
+  res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+  res.setHeader('Vercel-CDN-Cache-Control', 'max-age=300, stale-while-revalidate=600');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -46,7 +48,8 @@ export default async function handler(req: any, res: any) {
   ).toString().trim();
 
   if (req.method === 'GET') {
-    res.setHeader('Cache-Control', 'public, s-maxage=12, stale-while-revalidate=30');
+    res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+    res.setHeader('Vercel-CDN-Cache-Control', 'max-age=300, stale-while-revalidate=600');
 
     const action = (req.query.action as string) || 'all';
 

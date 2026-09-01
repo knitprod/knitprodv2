@@ -11,6 +11,13 @@ const DB_FILE = path.join(process.cwd(), 'app_db.json');
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
+// Edge CDN Caching & Browser Cache Headers
+app.use((req, res, next) => {
+  res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+  res.setHeader('Vercel-CDN-Cache-Control', 'max-age=300, stale-while-revalidate=600');
+  next();
+});
+
 // In-memory cache for ultra-fast response times
 let cachedConfigObj: { gasWebAppUrl: string; databaseMode: 'gas' | 'mock'; supabaseUrl?: string; supabaseKey?: string } | null = null;
 let cachedDbObj: any = null;
