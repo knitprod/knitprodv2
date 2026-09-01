@@ -614,10 +614,10 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
               </p>
             </div>
           ) : (
-            <div className="w-full overflow-x-auto scrollbar-none">
-              <div className="w-full min-w-[340px] h-[225px] relative flex">
+            <div className="w-full overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-700 pb-1">
+              <div className="w-full min-w-[560px] h-[225px] relative flex">
                 {/* Y-Axis scale */}
-                <div className="w-11 sm:w-12 h-[180px] flex flex-col justify-between items-end pr-1.5 sm:pr-2 text-[10px] font-semibold text-slate-400 dark:text-slate-500 select-none pb-5 border-r border-slate-200 dark:border-slate-800">
+                <div className="w-12 sm:w-14 h-[180px] flex flex-col justify-between items-end pr-2 text-[10px] font-semibold text-slate-400 dark:text-slate-500 select-none pb-5 border-r border-slate-200 dark:border-slate-800">
                   <span>{(maxBarValue).toLocaleString()}</span>
                   <span>{Math.round(maxBarValue * 0.66).toLocaleString()}</span>
                   <span>{Math.round(maxBarValue * 0.33).toLocaleString()}</span>
@@ -625,7 +625,7 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
                 </div>
 
                 {/* Bars container */}
-                <div className="flex-1 h-[180px] flex items-end justify-between px-1 sm:px-2 pt-6 relative border-b border-slate-200 dark:border-slate-800">
+                <div className="flex-1 h-[180px] flex items-end justify-between px-2 sm:px-3 pr-4 sm:pr-6 pt-6 relative border-b border-slate-200 dark:border-slate-800">
                   {/* Horizontal reference lines */}
                   <div className="absolute inset-0 pointer-events-none flex flex-col justify-between opacity-30 pb-5">
                     <div className="w-full border-b border-dashed border-slate-300 dark:border-slate-700"></div>
@@ -645,7 +645,7 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
                     return (
                       <div 
                         key={item.unit}
-                        className={`flex-1 flex flex-col items-center justify-end h-full px-0.5 group cursor-pointer transition-all duration-150 rounded-t-lg ${
+                        className={`flex-1 min-w-[70px] flex flex-col items-center justify-end h-full px-1 group cursor-pointer transition-all duration-150 rounded-t-lg ${
                           isHovered ? 'bg-amber-500/10 dark:bg-amber-400/10' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
                         }`}
                         onMouseEnter={() => setHoveredUnit(item.unit)}
@@ -653,46 +653,53 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
                         title={`${item.unit}\n• Target Bulk: ${(item.targetBulk ?? 0).toLocaleString()} Kg\n• Bulk Production: ${(item.bulkProduction ?? 0).toLocaleString()} Kg\n• Sample Loss: ${(item.sampleLoss ?? 0).toLocaleString()} Kg\n• Achievement: ${Math.round(((item.bulkProduction ?? 0) / (item.targetBulk || 1)) * 100)}%`}
                       >
                         {/* Grouped 3 Bars */}
-                        <div className="w-full flex items-end justify-center gap-[2px] sm:gap-[3px] h-full pb-0.5">
+                        <div className="w-full flex items-end justify-center gap-[3px] sm:gap-[4px] h-full pb-0.5">
                           {/* 1. Target Bulk Bar */}
-                          <div className="flex flex-col items-center justify-end h-full w-[10px] sm:w-[13px] relative">
-                            <span className="text-[7px] sm:text-[7.5px] font-bold text-slate-700 dark:text-slate-300 select-none absolute -top-4.5 whitespace-nowrap z-10 transition-transform group-hover:scale-110">
-                              {item.targetBulk >= 1000 ? `${(item.targetBulk / 1000).toFixed(item.targetBulk % 1000 === 0 ? 0 : 1)}k` : item.targetBulk}
-                            </span>
+                          <div className="flex flex-col items-center justify-end h-full w-[11px] sm:w-[14px]">
                             <div 
-                              className="w-full bg-[#0F4C75] hover:bg-[#155e91] rounded-t-xs transition-all duration-200 shadow-xs"
+                              className="w-full bg-[#0F4C75] hover:bg-[#155e91] rounded-t-xs transition-all duration-200 shadow-xs relative flex justify-center"
                               style={{ height: `${targetH}%` }}
-                            ></div>
+                            >
+                              {item.targetBulk > 0 && (
+                                <span className="text-[7.5px] sm:text-[8px] font-bold text-slate-700 dark:text-slate-200 select-none absolute bottom-full mb-1 whitespace-nowrap z-10 transition-transform group-hover:scale-110 pointer-events-none">
+                                  {item.targetBulk >= 1000 ? `${(item.targetBulk / 1000).toFixed(item.targetBulk % 1000 === 0 ? 0 : 1)}k` : item.targetBulk}
+                                </span>
+                              )}
+                            </div>
                           </div>
 
                           {/* 2. Bulk Production Bar */}
-                          <div className="flex flex-col items-center justify-end h-full w-[10px] sm:w-[13px] relative">
-                            <span className="text-[7px] sm:text-[7.5px] font-extrabold text-[#D35400] dark:text-[#E67E22] select-none absolute -top-4.5 whitespace-nowrap z-10 transition-transform group-hover:scale-110">
-                              {item.bulkProduction >= 1000 ? `${(item.bulkProduction / 1000).toFixed(item.bulkProduction % 1000 === 0 ? 0 : 1)}k` : item.bulkProduction}
-                            </span>
+                          <div className="flex flex-col items-center justify-end h-full w-[11px] sm:w-[14px]">
                             <div 
-                              className="w-full bg-[#E67E22] hover:bg-[#f38c30] rounded-t-xs transition-all duration-200 shadow-xs"
+                              className="w-full bg-[#E67E22] hover:bg-[#f38c30] rounded-t-xs transition-all duration-200 shadow-xs relative flex justify-center"
                               style={{ height: `${prodH}%` }}
-                            ></div>
+                            >
+                              {item.bulkProduction > 0 && (
+                                <span className="text-[7.5px] sm:text-[8px] font-extrabold text-[#D35400] dark:text-[#E67E22] select-none absolute bottom-full mb-1 whitespace-nowrap z-10 transition-transform group-hover:scale-110 pointer-events-none">
+                                  {item.bulkProduction >= 1000 ? `${(item.bulkProduction / 1000).toFixed(item.bulkProduction % 1000 === 0 ? 0 : 1)}k` : item.bulkProduction}
+                                </span>
+                              )}
+                            </div>
                           </div>
 
                           {/* 3. Production Loss For Sample Bar */}
-                          <div className="flex flex-col items-center justify-end h-full w-[10px] sm:w-[13px] relative">
-                            {item.sampleLoss > 0 && (
-                              <span className="text-[7px] sm:text-[7.5px] font-bold text-[#15803D] dark:text-[#22c55e] select-none absolute -top-4.5 whitespace-nowrap z-10 transition-transform group-hover:scale-110">
-                                {item.sampleLoss >= 1000 ? `${(item.sampleLoss / 1000).toFixed(1)}k` : item.sampleLoss}
-                              </span>
-                            )}
+                          <div className="flex flex-col items-center justify-end h-full w-[11px] sm:w-[14px]">
                             <div 
-                              className="w-full bg-[#16A34A] hover:bg-[#22c55e] rounded-t-xs transition-all duration-200 shadow-xs"
+                              className="w-full bg-[#16A34A] hover:bg-[#22c55e] rounded-t-xs transition-all duration-200 shadow-xs relative flex justify-center"
                               style={{ height: `${lossH}%` }}
-                            ></div>
+                            >
+                              {item.sampleLoss > 0 && (
+                                <span className="text-[7.5px] sm:text-[8px] font-bold text-[#15803D] dark:text-[#22c55e] select-none absolute bottom-full mb-1 whitespace-nowrap z-10 transition-transform group-hover:scale-110 pointer-events-none">
+                                  {item.sampleLoss >= 1000 ? `${(item.sampleLoss / 1000).toFixed(1)}k` : item.sampleLoss}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
 
                         {/* X-Axis Unit Label */}
-                        <div className="w-full text-center mt-2 pt-1 border-t border-transparent">
-                          <span className={`text-[8.5px] sm:text-[9.5px] font-bold uppercase tracking-tight block truncate transition-colors ${
+                        <div className="w-full text-center mt-2 pt-1 border-t border-transparent px-0.5">
+                          <span className={`text-[9px] sm:text-[10px] font-bold uppercase tracking-tight block whitespace-nowrap transition-colors ${
                             isHovered ? 'text-amber-600 dark:text-amber-400 font-extrabold' : 'text-slate-700 dark:text-slate-300'
                           }`}>
                             {item.label}
@@ -763,8 +770,8 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
               </p>
             </div>
           ) : (
-            <div className="w-full overflow-x-auto scrollbar-none">
-              <div className="min-w-[320px] h-[225px] relative flex">
+            <div className="w-full overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-700 pb-1">
+              <div className="min-w-[480px] h-[225px] relative flex">
                 {/* Y-Axis scale */}
                 <div className="w-11 h-[160px] relative select-none border-r border-slate-200 dark:border-slate-800">
                   <div className="absolute top-[30px] bottom-[15px] left-0 right-0 flex flex-col justify-between items-end pr-2 text-[10px] font-semibold text-slate-400 dark:text-slate-500">
@@ -976,8 +983,8 @@ export default function DashboardUnitwiseCards({ filterState }: DashboardUnitwis
               </p>
             </div>
           ) : (
-            <div className="w-full overflow-x-auto scrollbar-none">
-              <div className="min-w-[320px] h-[225px] relative flex">
+            <div className="w-full overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-700 pb-1">
+              <div className="min-w-[480px] h-[225px] relative flex">
                 {/* Y-Axis scale */}
                 <div className="w-11 h-[160px] relative select-none border-r border-slate-200 dark:border-slate-800">
                   <div className="absolute top-[30px] bottom-[15px] left-0 right-0 flex flex-col justify-between items-end pr-2 text-[10px] font-semibold text-slate-400 dark:text-slate-500">

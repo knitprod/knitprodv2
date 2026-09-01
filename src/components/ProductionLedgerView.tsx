@@ -48,7 +48,7 @@ import AddProductionRecordModal from './AddProductionRecordModal';
 import UploadLedgerExcelModal, { APP_LEDGER_COLUMNS } from './UploadLedgerExcelModal';
 import TotalTargetGaugeCard from './TotalTargetGaugeCard';
 import TotalProductionGaugeCard from './TotalProductionGaugeCard';
-import ProductionTargetSummaryCard from './ProductionTargetSummaryCard';
+import ProductionTargetSummaryCard, { formatWeight } from './ProductionTargetSummaryCard';
 import MachineStatusCard from './MachineStatusCard';
 import QualityStatusCard from './QualityStatusCard';
 import AttendanceCard from './AttendanceCard';
@@ -57,7 +57,8 @@ import {
   getUserAllowedFloorsForEntry, 
   isUserAuthorizedForFloor,
   hasUserWritePermissionForTab,
-  findDuplicateProductionRecord
+  findDuplicateProductionRecord,
+  normalizeFloorKey
 } from '../lib/userPermissions';
 import { 
   getTargetKgForUnit, 
@@ -1464,10 +1465,65 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       return '';
     };
 
-    // Determine current system running month
+    // Determine current system running month or latest month with records in ledger
     const now = new Date();
-    const currentRunningMonth = monthNames[now.getMonth()] || 'August';
-    const defaultMonthLabel = `${currentRunningMonth} ${now.getFullYear()}`;
+    
+    // Helper to find latest entered month with actual data in the ledger
+    const getActiveMonthInfo = () => {
+      const currentCalMonth = monthNames[now.getMonth()] || 'August';
+      const currentCalYear = String(now.getFullYear());
+      const currentCalRecords = enrichedLedger.filter(r => {
+        const recMonth = (r.month && r.month.trim() !== '') ? r.month : getMonthNameFromDateStr(r.date);
+        const recYear = r.year ? String(r.year) : (r.date ? r.date.split('-')[0] : currentCalYear);
+        return recMonth.toLowerCase() === currentCalMonth.toLowerCase() && recYear === currentCalYear;
+      });
+
+      // If current calendar month already has records entered in the ledger, use it
+      if (currentCalRecords.length > 0) {
+        return {
+          monthName: currentCalMonth,
+          year: currentCalYear,
+          fullLabel: `${currentCalMonth} ${currentCalYear}`,
+          records: currentCalRecords
+        };
+      }
+
+      // If current calendar month has no data yet, default to the latest entered month with data in the ledger
+      const validDates = enrichedLedger
+        .map(r => r.date)
+        .filter((d): d is string => Boolean(d && /^\d{4}-\d{2}-\d{2}$/.test(d)))
+        .sort();
+
+      if (validDates.length > 0) {
+        const latestDate = validDates[validDates.length - 1];
+        const [y, mStr] = latestDate.split('-');
+        const mIdx = parseInt(mStr, 10) - 1;
+        if (mIdx >= 0 && mIdx < 12) {
+          const mName = monthNames[mIdx];
+          const latestMonthRecords = enrichedLedger.filter(r => {
+            const recMonth = (r.month && r.month.trim() !== '') ? r.month : getMonthNameFromDateStr(r.date);
+            const recYear = r.year ? String(r.year) : (r.date ? r.date.split('-')[0] : y);
+            return recMonth.toLowerCase() === mName.toLowerCase() && recYear === y;
+          });
+          return {
+            monthName: mName,
+            year: y,
+            fullLabel: `${mName} ${y}`,
+            records: latestMonthRecords
+          };
+        }
+      }
+
+      return {
+        monthName: currentCalMonth,
+        year: currentCalYear,
+        fullLabel: `${currentCalMonth} ${currentCalYear}`,
+        records: []
+      };
+    };
+
+    const activeMonthInfo = getActiveMonthInfo();
+    const defaultMonthLabel = activeMonthInfo.fullLabel;
 
     const isDateFiltered = Boolean(appliedFromDate || appliedToDate);
     const isYearFiltered = appliedYear !== 'all';
@@ -1505,12 +1561,10 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         targetPeriodRecords = filteredRecords;
       }
     } else {
-      // DEFAULT: Running Month (August 2026) when no date filter is selected
+      // DEFAULT: Running Month or latest entered month with data in the ledger
       periodLabel = defaultMonthLabel;
       isMonthScope = true;
-      const monthRecords = enrichedLedger.filter((r) => {
-        const recMonth = (r.month && r.month.trim() !== '') ? r.month : getMonthNameFromDateStr(r.date);
-        const matchM = recMonth.toLowerCase() === currentRunningMonth.toLowerCase();
+      const monthRecords = activeMonthInfo.records.filter((r) => {
         let matchU = true;
         if (appliedUnit !== 'all') {
           if (appliedUnit === 'In-House' || appliedUnit === 'In-House (All)') {
@@ -1521,9 +1575,9 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
             matchU = r.floor === appliedUnit;
           }
         }
-        return matchM && matchU;
+        return matchU;
       });
-      targetPeriodRecords = monthRecords.length > 0 ? monthRecords : enrichedLedger;
+      targetPeriodRecords = monthRecords;
     }
 
     const monthTotal = targetPeriodRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.target)) ? 0 : Number(r.target || 0)), 0);
@@ -1570,7 +1624,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     }, 0);
 
     // Previous month or period comparison calculation
-    const activeMonthIdx = monthNames.findIndex((m) => m.toLowerCase() === (isMonthScope ? periodLabel : currentRunningMonth).toLowerCase());
+    const activeMonthName = (isMonthScope ? periodLabel.split(' ')[0] : activeMonthInfo.monthName) || 'August';
+    const activeMonthIdx = monthNames.findIndex((m) => m.toLowerCase() === activeMonthName.toLowerCase());
     const prevMonthIdx = activeMonthIdx > 0 ? activeMonthIdx - 1 : 11;
     const prevMonthName = monthNames[prevMonthIdx];
     const prevMonthRecords = enrichedLedger.filter((r) => {
@@ -1698,22 +1753,25 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const inHouseScrapPct = parseFloat((inHouseRejectPct + inHouseHoldPct + inHouseJhutePct).toFixed(2));
     const inHousePassRatePct = inHouseTotalProd > 0 ? Math.max(0, Math.min(100, 100 - inHouseScrapPct)) : 0;
 
-    // Sub-Contact Quality Status Metrics (Sub-Contact only tracks Reject; Hold & Jhute/CutPcs do not apply)
+    // Sub-Contact Quality Status Metrics
     const rawSubContactReject = subContactRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.reject)) ? 0 : Number(r.reject || 0)), 0);
+    const rawSubContactHold = subContactRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.hold)) ? 0 : Number(r.hold || 0)), 0);
+    const rawSubContactJhute = subContactRecords.reduce((sum, r) => sum + (Number.isNaN(Number(r.jhuteCutpcs)) ? 0 : Number(r.jhuteCutpcs || 0)), 0);
+
     const subContactReject = Math.round(rawSubContactReject);
-    const subContactHold = 0;
-    const subContactJhute = 0;
+    const subContactHold = Math.round(rawSubContactHold);
+    const subContactJhute = Math.round(rawSubContactJhute);
 
     const subContactRejectPct = subContactBulkProd > 0 ? parseFloat(((subContactReject / subContactBulkProd) * 100).toFixed(2)) : 0;
-    const subContactHoldPct = 0;
-    const subContactJhutePct = 0;
-    const subContactScrapPct = subContactRejectPct;
+    const subContactHoldPct = subContactBulkProd > 0 ? parseFloat(((subContactHold / subContactBulkProd) * 100).toFixed(2)) : 0;
+    const subContactJhutePct = subContactBulkProd > 0 ? parseFloat(((subContactJhute / subContactBulkProd) * 100).toFixed(2)) : 0;
+    const subContactScrapPct = parseFloat((subContactRejectPct + subContactHoldPct + subContactJhutePct).toFixed(2));
     const subContactPassRatePct = subContactBulkProd > 0 ? Math.max(0, Math.min(100, 100 - subContactScrapPct)) : 0;
 
     // Combined Quality Status Metrics
     const totalReject = inHouseReject + subContactReject;
-    const totalHold = inHouseHold;
-    const totalJhuteCutpcs = inHouseJhute;
+    const totalHold = inHouseHold + subContactHold;
+    const totalJhuteCutpcs = inHouseJhute + subContactJhute;
     const rejectPct = totalProduction > 0 ? parseFloat(((totalReject / totalProduction) * 100).toFixed(2)) : 0;
     const holdPct = totalProduction > 0 ? parseFloat(((totalHold / totalProduction) * 100).toFixed(2)) : 0;
     const jhuteCutpcsPct = totalProduction > 0 ? parseFloat(((totalJhuteCutpcs / totalProduction) * 100).toFixed(2)) : 0;
@@ -2214,6 +2272,50 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   }, [summaryKPIs.targetPeriodRecords, filteredRecords, enrichedLedger]);
 
   // ----------------------------------------------------
+  // UNIT-BY-UNIT MANPOWER & ABSENT LOG SUMMARY
+  // ----------------------------------------------------
+  const unitManpowerList = useMemo(() => {
+    return floorSummaries.map((f) => {
+      const tot = f.totalOperator || 0;
+      const abs = f.absent || 0;
+      const pres = Math.max(0, tot - abs);
+      const absPct = tot > 0 ? parseFloat(((abs / tot) * 100).toFixed(1)) : 0;
+      const turnPct = tot > 0 ? parseFloat(((pres / tot) * 100).toFixed(1)) : 100;
+      return {
+        floor: f.name,
+        totalOperator: tot,
+        present: pres,
+        absent: abs,
+        absentPct: absPct,
+        turnoutPct: turnPct,
+      };
+    });
+  }, [floorSummaries]);
+
+  const absentList = useMemo(() => {
+    const activeRecords = summaryKPIs.targetPeriodRecords || filteredRecords;
+    return activeRecords
+      .filter((r) => (Number(r.absent) || 0) > 0)
+      .map((r) => {
+        const staff = Number(r.totalOperator) || 0;
+        const abs = Number(r.absent) || 0;
+        const pres = Math.max(0, staff - abs);
+        const absPct = staff > 0 ? parseFloat(((abs / staff) * 100).toFixed(1)) : (Number(r.absentPct) || 0);
+        return {
+          id: r.id,
+          date: r.date,
+          floor: normalizeFloorKey(r.floor || r.unit || 'Unknown'),
+          totalOperator: staff,
+          present: pres,
+          absent: abs,
+          absentPct: absPct,
+          remarks: r.remarks || '',
+        };
+      })
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  }, [summaryKPIs.targetPeriodRecords, filteredRecords]);
+
+  // ----------------------------------------------------
   // HANDLERS: FILTER ACTIONS
   // ----------------------------------------------------
   const handleApplyFilters = () => {
@@ -2703,7 +2805,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
     setLedger((prev) => prev.filter((r) => r.id !== targetId));
     // Single source of truth: globalDeleteLedgerRecord dispatches to local state, Firestore & Google Sheets
-    globalDeleteLedgerRecord(targetId).catch((err: any) => {
+    globalDeleteLedgerRecord(targetId, targetRecord ? { date: targetRecord.date, floor: targetRecord.floor || targetRecord.unit } : undefined).catch((err: any) => {
       console.warn("Global ledger delete sync notice:", err);
     });
     setIsDeleteConfirmOpen(false);
@@ -3046,7 +3148,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         />
 
         {/* Bottom Row: Machine Status, Quality Status, Attendance */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-3.5">
           {/* Card 4: Machine Status */}
           <MachineStatusCard 
             inHouseTotalMachines={summaryKPIs.inHouseTotalMachines}
@@ -3073,6 +3175,10 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
             inHousePassRatePct={summaryKPIs.inHousePassRatePct}
             subContactReject={summaryKPIs.subContactReject}
             subContactRejectPct={summaryKPIs.subContactRejectPct}
+            subContactHold={summaryKPIs.subContactHold}
+            subContactHoldPct={summaryKPIs.subContactHoldPct}
+            subContactJhuteCutpcs={summaryKPIs.subContactJhute}
+            subContactJhuteCutpcsPct={summaryKPIs.subContactJhutePct}
             subContactCumulativeScrapPct={summaryKPIs.subContactScrapPct}
             subContactPassRatePct={summaryKPIs.subContactPassRatePct}
             totalReject={summaryKPIs.totalReject}
@@ -3093,6 +3199,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
             presentStaff={summaryKPIs.totalPresent}
             presentPct={summaryKPIs.presentPct}
             periodLabel={summaryKPIs.monthName}
+            unitManpowerList={unitManpowerList}
+            absentList={absentList}
           />
         </div>
       </div>
@@ -3137,7 +3245,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                       Total Target/Production
                     </span>
                     <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
-                      {f.target.toLocaleString()}Kg / {f.production.toLocaleString()}Kg
+                      {formatWeight(f.target)} / {formatWeight(f.production)}
                     </span>
                   </div>
 
@@ -3146,7 +3254,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                       Bulk Production
                     </span>
                     <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
-                      {f.bulkProd.toLocaleString()}Kg
+                      {formatWeight(f.bulkProd)}
                     </span>
                   </div>
 
@@ -3156,7 +3264,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                       Sample Prod.
                     </span>
                     <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
-                      {f.sampleProd.toLocaleString()} Kg
+                      {formatWeight(f.sampleProd)}
                     </span>
                   </div>
 
@@ -3165,7 +3273,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                       Flat Knit Production
                     </span>
                     <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
-                      {f.productionFlatKnit.toLocaleString()}pcs
+                      {f.productionFlatKnit.toLocaleString()} pcs
                     </span>
                   </div>
 
@@ -3175,7 +3283,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                       Total Machine Run.
                     </span>
                     <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
-                      {f.runningMachine}pcs
+                      {f.runningMachine} pcs
                     </span>
                   </div>
 
@@ -3184,7 +3292,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                       Running Factory.
                     </span>
                     <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
-                      {f.runningFactories}pcs
+                      {f.runningFactories} pcs
                     </span>
                   </div>
 
@@ -3194,7 +3302,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                       Number Vehicles
                     </span>
                     <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
-                      {f.numberVehicles}pcs
+                      {f.numberVehicles} pcs
                     </span>
                   </div>
 
@@ -3203,7 +3311,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                       Party Returned
                     </span>
                     <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
-                      {f.partyReturned.toLocaleString()}Kg
+                      {formatWeight(f.partyReturned)}
                     </span>
                   </div>
 
@@ -3237,7 +3345,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                         Total Target/Production
                       </span>
                       <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
-                        {f.target.toLocaleString()}Kg / {f.production.toLocaleString()}Kg
+                        {formatWeight(f.target)} / {formatWeight(f.production)}
                       </span>
                     </div>
 
@@ -3246,7 +3354,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                         Bulk Target/Production
                       </span>
                       <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
-                        {f.bulkTarget.toLocaleString()}Kg / {f.bulkProd.toLocaleString()}Kg
+                        {formatWeight(f.bulkTarget)} / {formatWeight(f.bulkProd)}
                       </span>
                     </div>
 
@@ -3256,7 +3364,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                         Sample Prod. / M/C Run
                       </span>
                       <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
-                        {f.sampleProd.toLocaleString()}Kg / {f.runningSample}pcs
+                        {formatWeight(f.sampleProd)} / {f.runningSample} pcs
                       </span>
                     </div>
 
@@ -3265,7 +3373,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                         Loss For Sample
                       </span>
                       <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
-                        {f.prodLossForSample.toLocaleString()}Kg
+                        {formatWeight(f.prodLossForSample)}
                       </span>
                     </div>
 
@@ -3275,7 +3383,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                         Total Machine/Running
                       </span>
                       <span className="font-semibold text-gray-900 dark:text-slate-100 text-xs block">
-                        {f.totalMachines}pcs / {f.runningMachine}pcs
+                        {f.totalMachines} pcs / {f.runningMachine} pcs
                       </span>
                     </div>
 

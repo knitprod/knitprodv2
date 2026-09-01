@@ -47,7 +47,7 @@ export interface GlobalDataContextType {
 
   // Production Ledger
   saveLedgerRecord: (record: LedgerRecord) => Promise<{ success: boolean; message?: string }>;
-  deleteLedgerRecord: (id: string) => Promise<{ success: boolean; message?: string }>;
+  deleteLedgerRecord: (id: string, recordInfo?: { date?: string; floor?: string }) => Promise<{ success: boolean; message?: string }>;
   bulkSaveLedgerRecords: (records: LedgerRecord[], replace?: boolean) => Promise<{ success: boolean; message?: string }>;
 }
 
@@ -150,17 +150,48 @@ function sanitizeLedgerRecords(records: LedgerRecord[]): LedgerRecord[] {
     });
 }
 
+function deduplicateLedgerRecords(records: LedgerRecord[]): LedgerRecord[] {
+  if (!records || !Array.isArray(records)) return [];
+  const map = new Map<string, LedgerRecord>();
+  records.forEach((r, idx) => {
+    if (!r) return;
+    const dateKey = normalizeDateKey(r.date);
+    const floorKey = normalizeFloorKey(r.floor || r.unit || '');
+    const compositeKey = (dateKey && floorKey) ? `${dateKey}_${floorKey}` : (r.id || `rec-idx-${idx}`);
+    
+    // Merge / keep the most complete record
+    const existing = map.get(compositeKey);
+    if (!existing) {
+      map.set(compositeKey, r);
+    } else {
+      // Prioritize the entry with non-empty production/target or newer update
+      const existingProd = Number(existing.totalProduction) || Number(existing.bulkProd) || 0;
+      const currentProd = Number(r.totalProduction) || Number(r.bulkProd) || 0;
+      if (currentProd >= existingProd) {
+        map.set(compositeKey, { ...existing, ...r });
+      } else {
+        map.set(compositeKey, { ...r, ...existing });
+      }
+    }
+  });
+  return Array.from(map.values());
+}
+
 function deduplicateWithUniqueIds<T extends { id?: string }>(items: T[], prefix: string): T[] {
   if (!items || !Array.isArray(items)) return [];
   const seen = new Set<string>();
-  return items.map((item, idx) => {
+  const results: T[] = [];
+  items.forEach((item, idx) => {
     let id = item.id;
-    if (!id || typeof id !== 'string' || !id.trim() || seen.has(id)) {
-      id = id ? `${id}-${idx}` : `${prefix}-${Date.now()}-${idx}`;
+    if (!id || typeof id !== 'string' || !id.trim()) {
+      id = `${prefix}-${Date.now()}-${idx}`;
     }
-    seen.add(id);
-    return { ...item, id };
+    if (!seen.has(id)) {
+      seen.add(id);
+      results.push({ ...item, id });
+    }
   });
+  return results;
 }
 
 export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -192,7 +223,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((r: LedgerRecord) => {
+          const sanitized = parsed.map((r: LedgerRecord) => {
             if (r.id === 'rec-2026-08-26-efl-extension-1787807712863' && (r.targetBulk === 7200 || r.target === 3541)) {
               return {
                 ...r,
@@ -204,6 +235,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             }
             return r;
           });
+          return deduplicateLedgerRecords(sanitized);
         }
       }
     } catch (e) {}
@@ -219,6 +251,44 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const isInitialMount = useRef<boolean>(true);
   const lastSettingsSyncRef = useRef<string | null>(null);
+
+  // Deletion blacklist sets in memory to prevent background polling or stale edge CDN caches from resurrecting deleted records
+  const deletedLedgerIdsRef = useRef<Set<string>>(new Set());
+  const deletedLedgerCompositeKeysRef = useRef<Set<string>>(new Set());
+  const deletedOrderIdsRef = useRef<Set<string>>(new Set());
+  const deletedYarnIdsRef = useRef<Set<string>>(new Set());
+
+  // Filter out any locally deleted records
+  const filterDeletedLedger = useCallback((records: LedgerRecord[]): LedgerRecord[] => {
+    if (!Array.isArray(records)) return [];
+    return records.filter(r => {
+      if (!r) return false;
+      if (r.id && deletedLedgerIdsRef.current.has(r.id)) return false;
+      const dKey = normalizeDateKey(r.date);
+      const fKey = normalizeFloorKey(r.floor || r.unit || '');
+      if (dKey && fKey && deletedLedgerCompositeKeysRef.current.has(`${dKey}_${fKey}`)) return false;
+      return true;
+    });
+  }, []);
+
+  const filterDeletedOrders = useCallback((orders: OrderPlan[]): OrderPlan[] => {
+    if (!Array.isArray(orders)) return [];
+    return orders.filter(o => {
+      if (!o) return false;
+      if (o.id && deletedOrderIdsRef.current.has(o.id)) return false;
+      if (o.ewo && deletedOrderIdsRef.current.has(o.ewo)) return false;
+      return true;
+    });
+  }, []);
+
+  const filterDeletedYarn = useCallback((yarn: YarnAllocationRecord[]): YarnAllocationRecord[] => {
+    if (!Array.isArray(yarn)) return [];
+    return yarn.filter(y => {
+      if (!y) return false;
+      if (y.id && deletedYarnIdsRef.current.has(y.id)) return false;
+      return true;
+    });
+  }, []);
 
   // Keep localStorage automatically in sync with memory state
   useEffect(() => {
@@ -281,17 +351,17 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           let cleanLedger: LedgerRecord[] | undefined;
 
           if (Array.isArray(remoteOrders) && remoteOrders.length > 0) {
-            cleanOrders = deduplicateWithUniqueIds(remoteOrders, 'ord');
+            cleanOrders = filterDeletedOrders(deduplicateWithUniqueIds(remoteOrders, 'ord'));
             setOrderPlans(cleanOrders);
             loadedSuccessfully = true;
           }
           if (Array.isArray(remoteYarn) && remoteYarn.length > 0) {
-            cleanYarn = deduplicateWithUniqueIds(remoteYarn, 'yarn');
+            cleanYarn = filterDeletedYarn(deduplicateWithUniqueIds(remoteYarn, 'yarn'));
             setYarnAllocations(cleanYarn);
             loadedSuccessfully = true;
           }
           if (Array.isArray(remoteLedger) && remoteLedger.length > 0) {
-            cleanLedger = sanitizeLedgerRecords(deduplicateWithUniqueIds(remoteLedger, 'rec'));
+            cleanLedger = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(remoteLedger)));
             setLedger(cleanLedger);
             setFloors(prev => recalculateFloorsFromLedger(prev, cleanLedger!));
             loadedSuccessfully = true;
@@ -326,17 +396,17 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         let cleanLedger: LedgerRecord[] | undefined;
 
         if (ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value) && ordersRes.value.length > 0) {
-          cleanOrders = deduplicateWithUniqueIds(ordersRes.value, 'ord');
+          cleanOrders = filterDeletedOrders(deduplicateWithUniqueIds(ordersRes.value, 'ord'));
           setOrderPlans(cleanOrders);
           loadedSuccessfully = true;
         }
         if (yarnRes.status === 'fulfilled' && Array.isArray(yarnRes.value) && yarnRes.value.length > 0) {
-          cleanYarn = deduplicateWithUniqueIds(yarnRes.value, 'yarn');
+          cleanYarn = filterDeletedYarn(deduplicateWithUniqueIds(yarnRes.value, 'yarn'));
           setYarnAllocations(cleanYarn);
           loadedSuccessfully = true;
         }
         if (ledgerRes.status === 'fulfilled' && Array.isArray(ledgerRes.value) && ledgerRes.value.length > 0) {
-          cleanLedger = sanitizeLedgerRecords(deduplicateWithUniqueIds(ledgerRes.value, 'rec'));
+          cleanLedger = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(ledgerRes.value)));
           setLedger(cleanLedger);
           setFloors(prev => recalculateFloorsFromLedger(prev, cleanLedger!));
           loadedSuccessfully = true;
@@ -355,7 +425,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setIsSyncing(false);
       setIsLoading(false);
     }
-  }, []);
+  }, [filterDeletedLedger, filterDeletedOrders, filterDeletedYarn]);
 
   // 1. Initial Mount: Execute ONE bulk GET request
   useEffect(() => {
@@ -378,28 +448,37 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           if (json && json.success && json.data) {
             const { orderPlans: rOrders, yarnAllocations: rYarn, ledger: rLedger } = json.data;
             if (Array.isArray(rOrders) && rOrders.length > 0) {
-              const cleanOrders = deduplicateWithUniqueIds(rOrders, 'ord');
+              const cleanOrders = filterDeletedOrders(deduplicateWithUniqueIds(rOrders, 'ord'));
               setOrderPlans(prev => {
                 if (prev.length !== cleanOrders.length || JSON.stringify(prev) !== JSON.stringify(cleanOrders)) {
+                  try {
+                    localStorage.setItem('cached_order_plans', JSON.stringify(cleanOrders));
+                  } catch (e) {}
                   return cleanOrders;
                 }
                 return prev;
               });
             }
             if (Array.isArray(rYarn) && rYarn.length > 0) {
-              const cleanYarn = deduplicateWithUniqueIds(rYarn, 'yarn');
+              const cleanYarn = filterDeletedYarn(deduplicateWithUniqueIds(rYarn, 'yarn'));
               setYarnAllocations(prev => {
                 if (prev.length !== cleanYarn.length || JSON.stringify(prev) !== JSON.stringify(cleanYarn)) {
+                  try {
+                    localStorage.setItem('cached_yarn_allocations', JSON.stringify(cleanYarn));
+                  } catch (e) {}
                   return cleanYarn;
                 }
                 return prev;
               });
             }
             if (Array.isArray(rLedger) && rLedger.length > 0) {
-              const cleanLedger = deduplicateWithUniqueIds(rLedger, 'rec');
+              const cleanLedger = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(rLedger)));
               setLedger(prev => {
                 if (prev.length !== cleanLedger.length || JSON.stringify(prev) !== JSON.stringify(cleanLedger)) {
                   setFloors(fl => recalculateFloorsFromLedger(fl, cleanLedger));
+                  try {
+                    localStorage.setItem('cached_production_ledger', JSON.stringify(cleanLedger));
+                  } catch (e) {}
                   return cleanLedger;
                 }
                 return prev;
@@ -414,7 +493,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }, POLLING_INTERVAL_MS);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [filterDeletedLedger, filterDeletedOrders, filterDeletedYarn]);
 
   // 3. Cross-Device Real-time Event Listener
   useEffect(() => {
@@ -432,6 +511,9 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // --- Order Plans ---
   const saveOrderPlan = async (order: OrderPlan) => {
+    if (order.id) deletedOrderIdsRef.current.delete(order.id);
+    if (order.ewo) deletedOrderIdsRef.current.delete(order.ewo);
+
     // 1. Optimistic local update
     setOrderPlans(prev => {
       const idx = prev.findIndex(o => (o.id && o.id === order.id) || (o.ewo && o.ewo === order.ewo));
@@ -448,11 +530,22 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const deleteOrderPlan = async (id: string) => {
-    setOrderPlans(prev => prev.filter(o => o.id !== id && o.ewo !== id));
+    if (id) deletedOrderIdsRef.current.add(id);
+    setOrderPlans(prev => {
+      const next = prev.filter(o => o.id !== id && o.ewo !== id);
+      try {
+        localStorage.setItem('cached_order_plans', JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
     return executeKeepaliveMutation('orders/delete', { id });
   };
 
   const bulkSaveOrderPlans = async (orders: OrderPlan[], replace: boolean = false) => {
+    orders.forEach(o => {
+      if (o.id) deletedOrderIdsRef.current.delete(o.id);
+      if (o.ewo) deletedOrderIdsRef.current.delete(o.ewo);
+    });
     setOrderPlans(prev => replace ? orders : [...orders, ...prev.filter(p => !orders.some(o => o.id === p.id))]);
     return executeKeepaliveMutation('orders/save', { orderPlans: orders, replace });
   };
@@ -467,6 +560,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const saveYarnAllocation = async (item: YarnAllocationRecord) => {
+    if (item.id) deletedYarnIdsRef.current.delete(item.id);
     setYarnAllocations(prev => {
       const idx = prev.findIndex(y => isMatchingYarn(y, item));
       if (idx >= 0) {
@@ -483,13 +577,23 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const deleteYarnAllocation = async (id: string) => {
-    setYarnAllocations(prev => prev.filter(y => y.id !== id));
+    if (id) deletedYarnIdsRef.current.add(id);
+    setYarnAllocations(prev => {
+      const next = prev.filter(y => y.id !== id);
+      try {
+        localStorage.setItem('cached_yarn_allocations', JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
     GasClient.clearYarnCache();
     GasClient.deleteYarnAllocation(id).catch(err => console.warn('Delete yarn allocation notice:', err));
     return executeKeepaliveMutation('yarn/delete', { id });
   };
 
   const bulkSaveYarnAllocations = async (items: YarnAllocationRecord[], replace: boolean = false) => {
+    items.forEach(y => {
+      if (y.id) deletedYarnIdsRef.current.delete(y.id);
+    });
     setYarnAllocations(prev => replace ? items : [...items, ...prev.filter(p => !items.some(i => i.id === p.id))]);
     GasClient.clearYarnCache();
     GasClient.saveServerDb({ yarnAllocations: items }).catch(() => {});
@@ -498,6 +602,11 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // --- Production Ledger ---
   const saveLedgerRecord = async (record: LedgerRecord) => {
+    if (record.id) deletedLedgerIdsRef.current.delete(record.id);
+    const dKey = normalizeDateKey(record.date);
+    const fKey = normalizeFloorKey(record.floor || record.unit || '');
+    if (dKey && fKey) deletedLedgerCompositeKeysRef.current.delete(`${dKey}_${fKey}`);
+
     setLedger(prev => {
       // Find matching record by ID first, or by identical Date + Floor to prevent duplicate rows
       const targetDateKey = normalizeDateKey(record.date);
@@ -510,26 +619,67 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       const next = idx >= 0 ? prev.map((r, i) => i === idx ? record : r) : [record, ...prev];
       setFloors(fl => recalculateFloorsFromLedger(fl, next));
+      try {
+        localStorage.setItem('cached_production_ledger', JSON.stringify(next));
+      } catch (e) {}
       return next;
     });
 
     return executeKeepaliveMutation('ledger/save', { ledger: [record], replace: false });
   };
 
-  const deleteLedgerRecord = async (id: string) => {
+  const deleteLedgerRecord = async (id: string, recordInfo?: { date?: string; floor?: string }) => {
+    if (id) deletedLedgerIdsRef.current.add(id);
+    if (recordInfo?.date && recordInfo?.floor) {
+      const dKey = normalizeDateKey(recordInfo.date);
+      const fKey = normalizeFloorKey(recordInfo.floor);
+      if (dKey && fKey) deletedLedgerCompositeKeysRef.current.add(`${dKey}_${fKey}`);
+    }
+
     setLedger(prev => {
-      const next = prev.filter(r => r.id !== id);
+      const targetRecord = prev.find(r => r.id === id);
+      if (targetRecord) {
+        const dKey = normalizeDateKey(targetRecord.date);
+        const fKey = normalizeFloorKey(targetRecord.floor || targetRecord.unit || '');
+        if (dKey && fKey) deletedLedgerCompositeKeysRef.current.add(`${dKey}_${fKey}`);
+      }
+
+      const next = prev.filter(r => {
+        if (r.id === id) return false;
+        if (recordInfo?.date && recordInfo?.floor) {
+          if (normalizeDateKey(r.date) === normalizeDateKey(recordInfo.date) &&
+              normalizeFloorKey(r.floor || r.unit || '') === normalizeFloorKey(recordInfo.floor)) {
+            return false;
+          }
+        }
+        return true;
+      });
+
       setFloors(fl => recalculateFloorsFromLedger(fl, next));
+      try {
+        localStorage.setItem('cached_production_ledger', JSON.stringify(next));
+      } catch (e) {}
       return next;
     });
 
-    return executeKeepaliveMutation('ledger/delete', { id });
+    GasClient.deleteLedgerEntry(id).catch(() => {});
+    return executeKeepaliveMutation('ledger/delete', { id, date: recordInfo?.date, floor: recordInfo?.floor });
   };
 
   const bulkSaveLedgerRecords = async (records: LedgerRecord[], replace: boolean = false) => {
+    records.forEach(r => {
+      if (r.id) deletedLedgerIdsRef.current.delete(r.id);
+      const dKey = normalizeDateKey(r.date);
+      const fKey = normalizeFloorKey(r.floor || r.unit || '');
+      if (dKey && fKey) deletedLedgerCompositeKeysRef.current.delete(`${dKey}_${fKey}`);
+    });
+
     setLedger(prev => {
       if (replace) {
         setFloors(fl => recalculateFloorsFromLedger(fl, records));
+        try {
+          localStorage.setItem('cached_production_ledger', JSON.stringify(records));
+        } catch (e) {}
         return records;
       }
       // Merge records by Date + Floor key to avoid duplicate entries
@@ -547,6 +697,9 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       const next = Array.from(recordMap.values());
       setFloors(fl => recalculateFloorsFromLedger(fl, next));
+      try {
+        localStorage.setItem('cached_production_ledger', JSON.stringify(next));
+      } catch (e) {}
       return next;
     });
 

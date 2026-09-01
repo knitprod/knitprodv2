@@ -471,16 +471,54 @@ export default function WelcomeBanner({
             </div>
 
             {/* Breakdown */}
-            <div className="border-t border-slate-800/80 pt-1.5 space-y-0.5 text-[11px]">
-              <div className="flex items-center justify-between text-slate-300">
-                <span className="text-slate-400">In-House:</span>
-                <span className="font-mono font-semibold text-slate-100">{(metrics?.inHouseBulkTarget ?? 0).toLocaleString()} Kg</span>
-              </div>
-              <div className="flex items-center justify-between text-slate-300">
-                <span className="text-slate-400">Sub-Contract:</span>
-                <span className="font-mono font-semibold text-slate-100">{(metrics?.subContactTarget ?? 0).toLocaleString()} Kg</span>
-              </div>
-            </div>
+            {(() => {
+              const inHouseTgt = metrics?.inHouseBulkTarget ?? 0;
+              const subContactTgt = metrics?.subContactTarget ?? 0;
+              const targetTotal = inHouseTgt + subContactTgt > 0 ? inHouseTgt + subContactTgt : (metrics?.bulkTarget ?? 0);
+              const ihTgtRatio = targetTotal > 0 ? (inHouseTgt / targetTotal) * 100 : 0;
+              const scTgtRatio = targetTotal > 0 ? (subContactTgt / targetTotal) * 100 : 0;
+
+              return (
+                <div className="border-t border-slate-800/80 pt-1.5 space-y-1 text-[11px]">
+                  <div className="flex items-center justify-between text-slate-300 whitespace-nowrap">
+                    <span className="text-slate-400">In-House:</span>
+                    <span className="font-mono font-semibold text-slate-100">
+                      {inHouseTgt.toLocaleString()} Kg
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300 whitespace-nowrap">
+                    <span className="text-slate-400">Sub-Contact:</span>
+                    <span className="font-mono font-semibold text-slate-100">
+                      {subContactTgt.toLocaleString()} Kg
+                    </span>
+                  </div>
+
+                  {/* Target Ratio Bar */}
+                  <div className="pt-0.5 space-y-0.5">
+                    <div className="flex items-center justify-between text-[10px] whitespace-nowrap">
+                      <span className="text-slate-400">Plan Ratio:</span>
+                      <span className="font-mono font-bold text-slate-200">
+                        <span className="text-blue-400">{ihTgtRatio.toFixed(0)}%</span>
+                        <span className="text-slate-500 mx-1">:</span>
+                        <span className="text-orange-400">{scTgtRatio.toFixed(0)}%</span>
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800 flex shadow-inner border border-slate-700/50">
+                      <div 
+                        className="h-full bg-blue-500 transition-all duration-300"
+                        style={{ width: `${ihTgtRatio}%` }}
+                        title={`In-House Target: ${ihTgtRatio.toFixed(1)}% (${inHouseTgt.toLocaleString()} Kg)`}
+                      />
+                      <div 
+                        className="h-full bg-orange-500 transition-all duration-300"
+                        style={{ width: `${scTgtRatio}%` }}
+                        title={`Sub-Contact Target: ${scTgtRatio.toFixed(1)}% (${subContactTgt.toLocaleString()} Kg)`}
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* COLUMN 2: BULK PRODUCTION */}
@@ -501,21 +539,60 @@ export default function WelcomeBanner({
               </div>
             </div>
 
-            {/* Breakdown */}
-            <div className="border-t border-slate-800/80 pt-1.5 space-y-0.5 text-[11px]">
-              <div className="flex items-center justify-between text-slate-300">
-                <span className="text-slate-400">In-House:</span>
-                <span className="font-mono font-semibold text-slate-100">{(metrics?.inHouseProd ?? 0).toLocaleString()} Kg</span>
-              </div>
-              <div className="flex items-center justify-between text-slate-300">
-                <span className="text-slate-400">Sub-Contact:</span>
-                <span className="font-mono font-semibold text-slate-100">{(metrics?.subContactProd ?? 0).toLocaleString()} Kg</span>
-              </div>
-              <div className="flex items-center justify-between text-indigo-300/90 pt-0.5 border-t border-slate-800/50">
-                <span className="text-indigo-400 font-medium">Sample Prod:</span>
-                <span className="font-mono font-bold text-indigo-200">{(metrics?.sampleProduction ?? 0).toLocaleString()} Kg</span>
-              </div>
-            </div>
+            {/* Breakdown with In-House & Sub-Contact Production Ratio */}
+            {(() => {
+              const inHouse = metrics?.inHouseProd ?? 0;
+              const subContact = metrics?.subContactProd ?? 0;
+              const bulkTotal = inHouse + subContact > 0 ? inHouse + subContact : (metrics?.bulkProduction ?? 0);
+              const ihRatio = bulkTotal > 0 ? (inHouse / bulkTotal) * 100 : 0;
+              const scRatio = bulkTotal > 0 ? (subContact / bulkTotal) * 100 : 0;
+
+              return (
+                <div className="border-t border-slate-800/80 pt-1.5 space-y-1 text-[11px]">
+                  <div className="flex items-center justify-between text-slate-300 whitespace-nowrap">
+                    <span className="text-slate-400">In-House:</span>
+                    <span className="font-mono font-semibold text-slate-100">
+                      {inHouse.toLocaleString()} Kg
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300 whitespace-nowrap">
+                    <span className="text-slate-400">Sub-Contact:</span>
+                    <span className="font-mono font-semibold text-slate-100">
+                      {subContact.toLocaleString()} Kg
+                    </span>
+                  </div>
+
+                  {/* Ratio bar & metric */}
+                  <div className="pt-0.5 space-y-0.5">
+                    <div className="flex items-center justify-between text-[10px] whitespace-nowrap">
+                      <span className="text-slate-400">Prod Ratio:</span>
+                      <span className="font-mono font-bold text-slate-200">
+                        <span className="text-emerald-400">{ihRatio.toFixed(0)}%</span>
+                        <span className="text-slate-500 mx-1">:</span>
+                        <span className="text-amber-400">{scRatio.toFixed(0)}%</span>
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800 flex shadow-inner border border-slate-700/50">
+                      <div 
+                        className="h-full bg-emerald-500 transition-all duration-300"
+                        style={{ width: `${ihRatio}%` }}
+                        title={`In-House: ${ihRatio.toFixed(1)}% (${inHouse.toLocaleString()} Kg)`}
+                      />
+                      <div 
+                        className="h-full bg-amber-500 transition-all duration-300"
+                        style={{ width: `${scRatio}%` }}
+                        title={`Sub-Contact: ${scRatio.toFixed(1)}% (${subContact.toLocaleString()} Kg)`}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-indigo-300/90 pt-0.5 border-t border-slate-800/50 whitespace-nowrap">
+                    <span className="text-indigo-400 font-medium">Sample Prod:</span>
+                    <span className="font-mono font-bold text-indigo-200">{(metrics?.sampleProduction ?? 0).toLocaleString()} Kg</span>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* COLUMN 3: ACHIEVEMENT */}

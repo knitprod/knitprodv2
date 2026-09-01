@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import zlib from 'zlib';
 import { createServer as createViteServer } from 'vite';
 
 const app = express();
@@ -26,32 +27,100 @@ const CACHE_TTL_MS = 15000; // 15-second cache for GET requests
 
 const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbxFWAAfakjwAFV9V4AdZr6WvXOBXfWO3yAHSJkxSKxyTgOeSqW04d2sewbbtFRxd2Cn/exec';
 
-// Safe JSON parsing with control character cleaning & recovery
-function safeParseJson(raw: string, fallback: any = null): any {
-  if (!raw || typeof raw !== 'string') return fallback;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    try {
-      // Step 1: Strip non-printable ASCII control characters (0x00-0x08, 0x0B, 0x0C, 0x0E-0x1F, 0x7F)
-      const sanitized = raw.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
-      return JSON.parse(sanitized);
-    } catch {
+// Robust JSON parsing with decompression, control character recovery, and boundary extraction
+function safeParseJson(raw: any, fallback: any = null): any {
+  if (raw === null || raw === undefined) return fallback;
+  if (typeof raw === 'object' && !Buffer.isBuffer(raw)) return raw;
+
+  let rawStr = '';
+  if (Buffer.isBuffer(raw)) {
+    // Check if buffer is gzipped (starts with 0x1f, 0x8b)
+    if (raw.length > 2 && raw[0] === 0x1f && raw[1] === 0x8b) {
       try {
-        // Step 2: Handle raw unescaped newlines/carriage returns inside strings
-        const escaped = raw.replace(/[\x00-\x1F\x7F-\x9F]/g, (c) => {
-          if (c === '\n') return '\\n';
-          if (c === '\r') return '\\r';
-          if (c === '\t') return '\\t';
-          return '';
-        });
-        return JSON.parse(escaped);
-      } catch (finalErr) {
-        console.warn('safeParseJson could not recover JSON payload:', finalErr);
-        return fallback;
+        rawStr = zlib.gunzipSync(raw).toString('utf-8');
+      } catch {
+        rawStr = raw.toString('utf-8');
       }
+    } else {
+      rawStr = raw.toString('utf-8');
+    }
+  } else if (typeof raw === 'string') {
+    rawStr = raw.trim();
+  } else {
+    try {
+      rawStr = String(raw).trim();
+    } catch {
+      return fallback;
     }
   }
+
+  if (!rawStr) return fallback;
+
+  // Attempt 1: Direct standard parse
+  try {
+    return JSON.parse(rawStr);
+  } catch {}
+
+  // Attempt 2: Strip UTF-8 BOM if present
+  if (rawStr.charCodeAt(0) === 0xfeff) {
+    try {
+      return JSON.parse(rawStr.slice(1));
+    } catch {}
+  }
+
+  // Attempt 3: If it starts with zlib/gzip or base64 headers, attempt decompression
+  if (rawStr.startsWith('H4sI') || rawStr.startsWith('eJ') || rawStr.startsWith('eyJ')) {
+    try {
+      const buf = Buffer.from(rawStr, 'base64');
+      try {
+        const unzipped = zlib.gunzipSync(buf).toString('utf-8');
+        return JSON.parse(unzipped);
+      } catch {}
+      try {
+        const inflated = zlib.inflateSync(buf).toString('utf-8');
+        return JSON.parse(inflated);
+      } catch {}
+      const decoded = buf.toString('utf-8');
+      return JSON.parse(decoded);
+    } catch {}
+  }
+
+  // Attempt 4: Clean control characters and non-printable bytes
+  try {
+    const sanitized = rawStr
+      .replace(/^\uFEFF/, '')
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+    return JSON.parse(sanitized);
+  } catch {}
+
+  // Attempt 5: Escape raw unescaped newlines/tabs inside strings
+  try {
+    const escaped = rawStr.replace(/[\x00-\x1F\x7F-\x9F]/g, (c) => {
+      if (c === '\n') return '\\n';
+      if (c === '\r') return '\\r';
+      if (c === '\t') return '\\t';
+      return '';
+    });
+    return JSON.parse(escaped);
+  } catch {}
+
+  // Attempt 6: Extract JSON object or array substring if surrounded by junk/binary wrappers
+  try {
+    const firstBrace = rawStr.indexOf('{');
+    const lastBrace = rawStr.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      const candidate = rawStr.slice(firstBrace, lastBrace + 1);
+      return JSON.parse(candidate);
+    }
+    const firstBracket = rawStr.indexOf('[');
+    const lastBracket = rawStr.lastIndexOf(']');
+    if (firstBracket !== -1 && lastBracket > firstBracket) {
+      const candidate = rawStr.slice(firstBracket, lastBracket + 1);
+      return JSON.parse(candidate);
+    }
+  } catch {}
+
+  return fallback;
 }
 
 // Atomic file writing to guarantee readers never read a partially written file
@@ -195,12 +264,32 @@ function saveConfig(newConfig: Partial<{ gasWebAppUrl: string; databaseMode: 'ga
 // Central database helpers with in-memory caching
 function sanitizeLedgerList(list: any[]): any[] {
   if (!list || !Array.isArray(list)) return [];
-  return list.map((r: any) => {
-    if (r && (r.id === 'rec-2026-08-26-efl-extension-1787807712863' || (r.date === '2026-08-26' && (r.floor === 'EFL-Extension' || r.unit === 'EFL-Extension')))) {
-      return { ...r, target: 2160, targetBulk: 2160, idleProduction: 900, efficiency: 134.91 };
+  const map = new Map<string, any>();
+  list.forEach((r: any, idx) => {
+    if (!r) return;
+    if (r.id === 'rec-2026-08-11-extension') return;
+    let item = r;
+    if (r.id === 'rec-2026-08-26-efl-extension-1787807712863' || (r.date === '2026-08-26' && (r.floor === 'EFL-Extension' || r.unit === 'EFL-Extension'))) {
+      item = { ...r, target: 2160, targetBulk: 2160, idleProduction: 900, efficiency: 134.91 };
     }
-    return r;
+    const d = (item.date || '').trim();
+    const f = (item.floor || item.unit || '').trim().toLowerCase();
+    const key = (d && f) ? `${d}_${f}` : (item.id || `rec_${idx}`);
+    
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, item);
+    } else {
+      const existingProd = Number(existing.totalProduction) || Number(existing.bulkProd) || 0;
+      const currentProd = Number(item.totalProduction) || Number(item.bulkProd) || 0;
+      if (currentProd >= existingProd) {
+        map.set(key, { ...existing, ...item });
+      } else {
+        map.set(key, { ...item, ...existing });
+      }
+    }
   });
+  return Array.from(map.values());
 }
 
 function loadDb() {
@@ -488,11 +577,7 @@ async function fetchGasEndpoint(baseUrl: string, action: string, queryParams: Re
     });
     if (!response.ok) return null;
     const text = await response.text();
-    try {
-      return JSON.parse(text);
-    } catch {
-      return null;
-    }
+    return safeParseJson(text, null);
   } catch (e) {
     return null;
   }
@@ -686,26 +771,26 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
         }
 
         const text = await response.text();
-        try {
-          const json = JSON.parse(text);
-          if (json && json.success !== false) {
-            gasProxyCache.set(cacheKey, { timestamp: now, data: json });
-            // Save to local database
-            const localDb = loadDb();
-            if (action.includes('yarn') && Array.isArray(json.data) && json.data.length > 0) {
-              localDb.yarnAllocations = json.data;
-              saveDb(localDb);
-            } else if (action.includes('order') && Array.isArray(json.data) && json.data.length > 0) {
-              localDb.orderPlans = json.data;
-              saveDb(localDb);
-            } else if (action.includes('ledger') && Array.isArray(json.data) && json.data.length > 0) {
-              json.data = sanitizeLedgerList(json.data);
-              localDb.ledger = json.data;
-              saveDb(localDb);
-            }
+        const json = safeParseJson(text, null);
+        if (json && json.success !== false) {
+          gasProxyCache.set(cacheKey, { timestamp: now, data: json });
+          // Save to local database
+          const localDb = loadDb();
+          if (action.includes('yarn') && Array.isArray(json.data) && json.data.length > 0) {
+            localDb.yarnAllocations = json.data;
+            saveDb(localDb);
+          } else if (action.includes('order') && Array.isArray(json.data) && json.data.length > 0) {
+            localDb.orderPlans = json.data;
+            saveDb(localDb);
+          } else if (action.includes('ledger') && Array.isArray(json.data) && json.data.length > 0) {
+            json.data = sanitizeLedgerList(json.data);
+            localDb.ledger = json.data;
+            saveDb(localDb);
           }
           return res.json(json);
-        } catch (e) {
+        } else if (json) {
+          return res.json(json);
+        } else {
           if (cached) return res.json(cached.data);
           return res.json({ success: false, message: 'Invalid JSON response from Apps Script', raw: text });
         }
@@ -732,9 +817,40 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
       const postBody = { ...req.body };
       delete postBody.url;
 
-      // Immediately save mutation to local persistent database
+      // Immediately save mutation or deletion to local persistent database
       try {
         const localDb = loadDb();
+        const actionStr = String(postBody.action || '').toLowerCase();
+
+        // 1. Production Ledger Deletions
+        if (actionStr === 'ledger/delete' || actionStr === 'deleteledgerentry' || actionStr === 'deleterecord') {
+          const deleteId = postBody.id;
+          const deleteDate = postBody.date ? String(postBody.date).trim() : null;
+          const deleteFloor = postBody.floor ? String(postBody.floor).trim().toLowerCase() : null;
+          localDb.ledger = (localDb.ledger || []).filter((r: any) => {
+            if (deleteId && r.id === deleteId) return false;
+            if (deleteDate && deleteFloor) {
+              const rDate = String(r.date || '').trim();
+              const rFloor = String(r.floor || r.unit || '').trim().toLowerCase();
+              if (rDate === deleteDate && rFloor === deleteFloor) return false;
+            }
+            return true;
+          });
+        }
+
+        // 2. Order Plans Deletions
+        if (actionStr === 'orders/delete' || actionStr === 'deleteorder') {
+          const deleteId = postBody.id;
+          localDb.orderPlans = (localDb.orderPlans || []).filter((o: any) => o.id !== deleteId && o.ewo !== deleteId);
+        }
+
+        // 3. Yarn Allocations Deletions
+        if (actionStr === 'yarn/delete' || actionStr === 'deleteyarnallocation') {
+          const deleteId = postBody.id;
+          localDb.yarnAllocations = (localDb.yarnAllocations || []).filter((y: any) => y.id !== deleteId);
+        }
+
+        // 4. Upsert & Batch saves
         if (postBody.yarnAllocations && Array.isArray(postBody.yarnAllocations)) {
           if (postBody.replace) {
             localDb.yarnAllocations = postBody.yarnAllocations;
@@ -755,13 +871,21 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
         }
         if (postBody.ledger && Array.isArray(postBody.ledger)) {
           if (postBody.replace) {
-            localDb.ledger = postBody.ledger;
+            localDb.ledger = sanitizeLedgerList(postBody.ledger);
           } else {
             const existingMap = new Map((localDb.ledger || []).map((l: any) => [l.id, l]));
             postBody.ledger.forEach((l: any) => existingMap.set(l.id, l));
-            localDb.ledger = Array.from(existingMap.values());
+            localDb.ledger = sanitizeLedgerList(Array.from(existingMap.values()));
           }
         }
+        if (actionStr === 'ledger/update' && postBody.id) {
+          const idx = (localDb.ledger || []).findIndex((l: any) => l.id === postBody.id);
+          if (idx >= 0) {
+            localDb.ledger[idx] = { ...localDb.ledger[idx], ...postBody };
+            localDb.ledger = sanitizeLedgerList(localDb.ledger);
+          }
+        }
+
         saveDb(localDb);
       } catch (dbErr) {
         console.warn('Error saving mutation to local db:', dbErr);
@@ -792,10 +916,10 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
         }
 
         const text = await response.text();
-        try {
-          const json = JSON.parse(text);
+        const json = safeParseJson(text, null);
+        if (json) {
           return res.json(json);
-        } catch (e) {
+        } else {
           return res.json({ success: false, message: 'Invalid JSON response from Apps Script', raw: text });
         }
       } catch (postErr: any) {

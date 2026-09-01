@@ -17,9 +17,13 @@ export interface QualityStatusCardProps {
   inHouseCumulativeScrapPct?: number;
   inHousePassRatePct?: number;
 
-  // Sub-Contact metrics (Tracks Reject only; Hold & Jhute do not apply)
+  // Sub-Contact metrics (Tracks Reject, Hold, Jhute/Cut Pcs)
   subContactReject?: number;
   subContactRejectPct?: number;
+  subContactHold?: number;
+  subContactHoldPct?: number;
+  subContactJhuteCutpcs?: number;
+  subContactJhuteCutpcsPct?: number;
   subContactCumulativeScrapPct?: number;
   subContactPassRatePct?: number;
 
@@ -35,6 +39,30 @@ export interface QualityStatusCardProps {
   className?: string;
 }
 
+/**
+ * Format quality metric weight:
+ * - If kg >= 1000 -> Format as Tons (e.g. "10.09 T" or "1.03 T")
+ * - If kg < 1000 -> Format in Kg (e.g. "749 Kg")
+ */
+function formatQualityWeight(kg: number) {
+  const safeKg = Math.max(0, Math.round(kg || 0));
+  if (safeKg >= 1000) {
+    const tons = (safeKg / 1000).toFixed(safeKg % 1000 === 0 ? 1 : 2);
+    return {
+      value: tons,
+      unit: 'Tons',
+      display: `${tons} T`,
+      full: `${tons} Tons (${safeKg.toLocaleString()} Kg)`,
+    };
+  }
+  return {
+    value: safeKg.toLocaleString(),
+    unit: 'Kg',
+    display: `${safeKg.toLocaleString()} Kg`,
+    full: `${safeKg.toLocaleString()} Kg`,
+  };
+}
+
 export default function QualityStatusCard({
   inHouseReject,
   inHouseRejectPct,
@@ -47,6 +75,10 @@ export default function QualityStatusCard({
 
   subContactReject,
   subContactRejectPct,
+  subContactHold,
+  subContactHoldPct,
+  subContactJhuteCutpcs,
+  subContactJhuteCutpcsPct,
   subContactCumulativeScrapPct,
   subContactPassRatePct,
 
@@ -78,18 +110,31 @@ export default function QualityStatusCard({
     ? inHousePassRatePct
     : Math.max(0, Math.min(100, 100 - ihScrap));
 
+  const ihRejFormatted = formatQualityWeight(ihReject);
+  const ihHoldFormatted = formatQualityWeight(ihHold);
+  const ihJhuteFormatted = formatQualityWeight(ihJhute);
+
   // ----------------------------------------------------
-  // SUB-CONTACT VALUES (Reject only)
+  // SUB-CONTACT VALUES (Reject, Hold, Jhute/Cut Pcs)
   // ----------------------------------------------------
   const scReject = Math.round(subContactReject !== undefined ? subContactReject : 0);
+  const scHold = Math.round(subContactHold !== undefined ? subContactHold : 0);
+  const scJhute = Math.round(subContactJhuteCutpcs !== undefined ? subContactJhuteCutpcs : 0);
+
   const scRejectPct = typeof subContactRejectPct === 'number' ? subContactRejectPct : 0;
+  const scHoldPct = typeof subContactHoldPct === 'number' ? subContactHoldPct : 0;
+  const scJhutePct = typeof subContactJhuteCutpcsPct === 'number' ? subContactJhuteCutpcsPct : 0;
 
   const scScrap = subContactCumulativeScrapPct !== undefined
     ? subContactCumulativeScrapPct
-    : scRejectPct;
+    : parseFloat((scRejectPct + scHoldPct + scJhutePct).toFixed(2));
   const scPassRate = subContactPassRatePct !== undefined
     ? subContactPassRatePct
     : Math.max(0, Math.min(100, 100 - scScrap));
+
+  const scRejFormatted = formatQualityWeight(scReject);
+  const scHoldFormatted = formatQualityWeight(scHold);
+  const scJhuteFormatted = formatQualityWeight(scJhute);
 
   // ----------------------------------------------------
   // OVERALL PASS RATE
@@ -102,20 +147,20 @@ export default function QualityStatusCard({
   return (
     <div
       id="kpi-quality-status-card"
-      className={`rounded-2xl border border-red-200/90 dark:border-red-900/60 bg-white dark:bg-slate-900 p-3.5 sm:p-4 shadow-2xs flex flex-col justify-between gap-2.5 hover:border-red-300 dark:hover:border-red-800 transition-all ${className}`}
+      className={`w-full h-[200px] rounded-2xl border border-red-200/90 dark:border-red-900/60 bg-white dark:bg-slate-900 px-3.5 py-2.5 sm:px-4 sm:py-3 shadow-2xs flex flex-col justify-between hover:border-red-300 dark:hover:border-red-800 transition-all overflow-hidden ${className}`}
     >
       {/* 1. Header Bar */}
-      <div className="flex items-center justify-between pb-0.5">
-        <div className="flex items-center gap-2">
-          <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
-            <CheckCircle2 className="h-3.5 w-3.5" />
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <div className="flex h-5 w-5 items-center justify-center rounded-md bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 shrink-0">
+            <CheckCircle2 className="h-3 w-3" />
           </div>
-          <div>
-            <span className="font-sans text-xs font-black uppercase tracking-wider text-slate-950 dark:text-white block">
+          <div className="min-w-0 truncate">
+            <span className="font-sans text-[11px] font-black uppercase tracking-wider text-slate-950 dark:text-white block truncate leading-none">
               QUALITY STATUS
             </span>
             {periodLabel && (
-              <span className="font-sans text-[10px] font-semibold text-slate-500 dark:text-slate-400 block -mt-0.5">
+              <span className="font-sans text-[9px] font-semibold text-slate-500 dark:text-slate-400 block truncate leading-tight mt-0.5">
                 {periodLabel}
               </span>
             )}
@@ -123,159 +168,146 @@ export default function QualityStatusCard({
         </div>
         
         {/* Pass Rate Badge & Alert Icon */}
-        <div className="flex items-center gap-1.5">
-          <span className="rounded-lg bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800/80 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-800 dark:text-emerald-300 shadow-2xs">
+        <div className="flex items-center gap-1 shrink-0 ml-1">
+          <span className="rounded-md bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800/80 px-1.5 py-0.5 font-mono text-[9.5px] font-bold text-emerald-800 dark:text-emerald-300 shadow-2xs">
             {overallPassRate.toFixed(1)}% Pass
           </span>
-          <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/80 shadow-2xs">
-            <ShieldAlert className="h-3.5 w-3.5" />
+          <div className="flex h-5 w-5 items-center justify-center rounded-md bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/80">
+            <ShieldAlert className="h-2.5 w-2.5" />
           </div>
         </div>
       </div>
 
-      {/* 2. IN-HOUSE CONTAINER */}
-      <div 
-        id="quality-status-in-house-container"
-        className="rounded-xl border border-blue-200/90 bg-linear-to-b from-blue-50/70 via-blue-50/30 to-white dark:from-blue-950/40 dark:via-slate-900/90 dark:to-slate-900/60 p-2.5 dark:border-blue-900/50 shadow-2xs flex flex-col justify-between gap-2"
-      >
-        {/* In-House Header */}
-        <div className="flex items-center justify-between pb-1 border-b border-blue-100 dark:border-blue-900/40">
-          <div className="flex items-center gap-1">
-            <Factory className="h-3 w-3 text-blue-700 dark:text-blue-400" />
-            <span className="font-sans text-[10.5px] font-black uppercase tracking-wider text-blue-950 dark:text-blue-200">
-              IN-HOUSE
-            </span>
-          </div>
-          <span className="rounded-md bg-blue-100 dark:bg-blue-900/80 border border-blue-200 dark:border-blue-800 px-1.5 py-0.2 font-mono text-[9px] font-bold text-blue-900 dark:text-blue-200 shadow-2xs">
-            {ihPassRate.toFixed(1)}% Pass
-          </span>
-        </div>
-
-        {/* In-House 3-Column Metrics (Reject, Hold, Jhute/Cut) */}
-        <div className="grid grid-cols-3 gap-1.5 items-center bg-white/95 dark:bg-slate-900/90 p-2 rounded-lg border border-blue-100 dark:border-blue-900/30">
-          {/* Reject */}
-          <div className="space-y-0.5 text-left">
-            <div className="font-mono text-base sm:text-lg font-black tracking-tight text-red-600 dark:text-red-400 truncate" title={`${ihReject.toLocaleString()} Kg Reject`}>
-              {ihReject.toLocaleString()}
+      {/* 2. Side-by-Side Breakdown: IN-HOUSE vs SUB-CONTACT */}
+      <div className="grid grid-cols-2 gap-1.5 my-auto">
+        {/* Left: IN-HOUSE Section */}
+        <div className="rounded-lg bg-blue-50/70 dark:bg-slate-800/80 p-1.5 border border-blue-200 dark:border-blue-900/60 flex flex-col justify-between">
+          {/* In-House Header */}
+          <div className="flex items-center justify-between pb-1 mb-1 border-b border-blue-200/80 dark:border-blue-900/50">
+            <div className="flex items-center gap-1 text-[8.5px] font-black uppercase tracking-wider text-blue-900 dark:text-blue-200 leading-none">
+              <Factory className="h-2.5 w-2.5 text-blue-600 dark:text-blue-400 shrink-0" />
+              <span>IN-HOUSE</span>
             </div>
-            <div className="text-[9px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-0.5 flex-wrap">
-              <span>Reject</span>
-              <span className="text-red-600 dark:text-red-400 font-mono font-black">({ihRejectPct.toFixed(2)}%)</span>
-            </div>
-          </div>
-
-          {/* Hold */}
-          <div className="space-y-0.5 pl-1.5 border-l border-slate-200 dark:border-slate-700 text-left">
-            <div className="font-mono text-base sm:text-lg font-black tracking-tight text-amber-600 dark:text-amber-400 truncate" title={`${ihHold.toLocaleString()} Kg Hold`}>
-              {ihHold.toLocaleString()}
-            </div>
-            <div className="text-[9px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-0.5 flex-wrap">
-              <span>Hold</span>
-              <span className="text-amber-600 dark:text-amber-400 font-mono font-black">({ihHoldPct < 0.1 ? ihHoldPct.toFixed(2) : ihHoldPct.toFixed(1)}%)</span>
-            </div>
-          </div>
-
-          {/* Jhute/Cut */}
-          <div className="space-y-0.5 pl-1.5 border-l border-slate-200 dark:border-slate-700 text-left">
-            <div className="font-mono text-base sm:text-lg font-black tracking-tight text-indigo-600 dark:text-indigo-400 truncate" title={`${ihJhute.toLocaleString()} Kg Jhute/CutPcs`}>
-              {ihJhute.toLocaleString()}
-            </div>
-            <div className="text-[9px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-0.5 flex-wrap">
-              <span className="truncate">Jhute/Cut</span>
-              <span className="text-indigo-600 dark:text-indigo-400 font-mono font-black">({ihJhutePct.toFixed(2)}%)</span>
-            </div>
-          </div>
-        </div>
-
-        {/* In-House Scrap & Progress Bar */}
-        <div className="pt-0.5 space-y-1">
-          <div className="flex items-center justify-between text-[9.5px] font-bold">
-            <span className="text-slate-600 dark:text-slate-400">
-              Scrap: <span className="font-mono text-red-600 dark:text-red-400 font-black">{ihScrap.toFixed(2)}%</span>
-            </span>
-            <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
+            <span className="font-mono text-[8.5px] font-bold text-blue-800 dark:text-blue-300">
               {ihPassRate.toFixed(1)}% Pass
             </span>
           </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-blue-100/90 dark:bg-slate-800 shadow-inner">
-            <div
-              className="h-full rounded-full bg-emerald-600 dark:bg-emerald-500 transition-all duration-500 shadow-xs"
-              style={{ width: `${ihPassRate}%` }}
-            />
+
+          {/* In-House 3 Metrics: Reject, Hold, Jhute (Units clearly marked) */}
+          <div className="grid grid-cols-3 gap-0.5 text-center items-center">
+            {/* Reject */}
+            <div className="px-0.5" title={`In-House Reject: ${ihRejFormatted.full}`}>
+              <span className="text-[7.5px] font-bold uppercase tracking-tight text-red-600 dark:text-red-400 block leading-none">
+                REJ
+              </span>
+              <span className="font-mono text-[10.5px] sm:text-[11px] font-black text-red-600 dark:text-red-400 leading-tight mt-0.5 block truncate">
+                {ihRejFormatted.display}
+              </span>
+              <span className="text-[8px] font-mono font-bold text-slate-700 dark:text-slate-300 block leading-tight mt-0.5">
+                {ihRejectPct.toFixed(1)}%
+              </span>
+            </div>
+
+            {/* Hold */}
+            <div className="px-0.5 border-x border-blue-200 dark:border-blue-900/60" title={`In-House Hold: ${ihHoldFormatted.full}`}>
+              <span className="text-[7.5px] font-bold uppercase tracking-tight text-amber-600 dark:text-amber-400 block leading-none">
+                HOLD
+              </span>
+              <span className="font-mono text-[10.5px] sm:text-[11px] font-black text-amber-600 dark:text-amber-400 leading-tight mt-0.5 block truncate">
+                {ihHoldFormatted.display}
+              </span>
+              <span className="text-[8px] font-mono font-bold text-slate-700 dark:text-slate-300 block leading-tight mt-0.5">
+                {ihHoldPct.toFixed(1)}%
+              </span>
+            </div>
+
+            {/* Jhute */}
+            <div className="px-0.5" title={`In-House Jhute/Cut Pcs: ${ihJhuteFormatted.full}`}>
+              <span className="text-[7.5px] font-bold uppercase tracking-tight text-indigo-600 dark:text-indigo-400 block leading-none">
+                JHUTE
+              </span>
+              <span className="font-mono text-[10.5px] sm:text-[11px] font-black text-indigo-600 dark:text-indigo-400 leading-tight mt-0.5 block truncate">
+                {ihJhuteFormatted.display}
+              </span>
+              <span className="text-[8px] font-mono font-bold text-slate-700 dark:text-slate-300 block leading-tight mt-0.5">
+                {ihJhutePct.toFixed(1)}%
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Right: SUB-CONTACT Section */}
+        <div className="rounded-lg bg-purple-50/70 dark:bg-slate-800/80 p-1.5 border border-purple-200 dark:border-purple-900/60 flex flex-col justify-between">
+          {/* Sub-Contact Header */}
+          <div className="flex items-center justify-between pb-1 mb-1 border-b border-purple-200/80 dark:border-purple-900/50">
+            <div className="flex items-center gap-1 text-[8.5px] font-black uppercase tracking-wider text-purple-900 dark:text-purple-200 leading-none">
+              <Layers className="h-2.5 w-2.5 text-purple-600 dark:text-purple-400 shrink-0" />
+              <span>SUB-CONTACT</span>
+            </div>
+            <span className="font-mono text-[8.5px] font-bold text-purple-800 dark:text-purple-300">
+              {scPassRate.toFixed(1)}% Pass
+            </span>
+          </div>
+
+          {/* Sub-Contact 3 Metrics: Reject, Hold, Jhute */}
+          <div className="grid grid-cols-3 gap-0.5 text-center items-center">
+            {/* Reject */}
+            <div className="px-0.5" title={`Sub-Contact Reject: ${scRejFormatted.full}`}>
+              <span className="text-[7.5px] font-bold uppercase tracking-tight text-purple-700 dark:text-purple-400 block leading-none">
+                REJ
+              </span>
+              <span className="font-mono text-[10.5px] sm:text-[11px] font-black text-red-600 dark:text-red-400 leading-tight mt-0.5 block truncate">
+                {scRejFormatted.display}
+              </span>
+              <span className="text-[8px] font-mono font-bold text-slate-700 dark:text-slate-300 block leading-tight mt-0.5">
+                {scRejectPct.toFixed(1)}%
+              </span>
+            </div>
+
+            {/* Hold */}
+            <div className="px-0.5 border-x border-purple-200 dark:border-purple-900/60" title={`Sub-Contact Hold: ${scHoldFormatted.full}`}>
+              <span className="text-[7.5px] font-bold uppercase tracking-tight text-amber-600 dark:text-amber-400 block leading-none">
+                HOLD
+              </span>
+              <span className="font-mono text-[10.5px] sm:text-[11px] font-black text-amber-600 dark:text-amber-400 leading-tight mt-0.5 block truncate">
+                {scHoldFormatted.display}
+              </span>
+              <span className="text-[8px] font-mono font-bold text-slate-700 dark:text-slate-300 block leading-tight mt-0.5">
+                {scHoldPct.toFixed(1)}%
+              </span>
+            </div>
+
+            {/* Jhute */}
+            <div className="px-0.5" title={`Sub-Contact Jhute/Cut Pcs: ${scJhuteFormatted.full}`}>
+              <span className="text-[7.5px] font-bold uppercase tracking-tight text-indigo-600 dark:text-indigo-400 block leading-none">
+                JHUTE
+              </span>
+              <span className="font-mono text-[10.5px] sm:text-[11px] font-black text-indigo-600 dark:text-indigo-400 leading-tight mt-0.5 block truncate">
+                {scJhuteFormatted.display}
+              </span>
+              <span className="text-[8px] font-mono font-bold text-slate-700 dark:text-slate-300 block leading-tight mt-0.5">
+                {scJhutePct.toFixed(1)}%
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* 3. SUB-CONTACT CONTAINER (Accurately reflects Reject only; Hold & Jhute/Cut are N/A) */}
-      <div 
-        id="quality-status-sub-contact-container"
-        className="rounded-xl border border-purple-200/90 bg-linear-to-b from-purple-50/70 via-purple-50/30 to-white p-2.5 dark:border-purple-900/50 dark:from-purple-950/40 dark:via-slate-900/90 dark:to-slate-900/60 shadow-2xs space-y-2"
-      >
-        {/* Sub-Contact Header */}
-        <div className="flex items-center justify-between pb-1 border-b border-purple-100 dark:border-purple-900/40">
-          <div className="flex items-center gap-1">
-            <Layers className="h-3 w-3 text-purple-700 dark:text-purple-400" />
-            <span className="font-sans text-[10.5px] font-black uppercase tracking-wider text-purple-950 dark:text-purple-200">
-              SUB-CONTACT
-            </span>
-          </div>
-          <span className="rounded-md bg-purple-100 dark:bg-purple-900/80 border border-purple-200 dark:border-purple-800 px-1.5 py-0.2 font-mono text-[9px] font-bold text-purple-900 dark:text-purple-200 shadow-2xs">
-            {scPassRate.toFixed(1)}% Pass
+      {/* 3. Overall Quality Pass Rate Bar */}
+      <div className="space-y-0.5 pt-0.5">
+        <div className="flex items-center justify-between text-[9.5px] font-bold leading-none">
+          <span className="text-slate-800 dark:text-slate-200">
+            Overall Quality Pass Rate
+          </span>
+          <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
+            {overallPassRate.toFixed(1)}%
           </span>
         </div>
-
-        {/* Sub-Contact Metrics (Reject active; Hold & Jhute marked as N/A / not applicable) */}
-        <div className="grid grid-cols-3 gap-1.5 items-center bg-white/95 dark:bg-slate-900/90 p-2 rounded-lg border border-purple-100 dark:border-purple-900/30">
-          {/* Reject */}
-          <div className="space-y-0.5 text-left">
-            <div className="font-mono text-base sm:text-lg font-black tracking-tight text-red-600 dark:text-red-400 truncate" title={`${scReject.toLocaleString()} Kg Reject`}>
-              {scReject.toLocaleString()}
-            </div>
-            <div className="text-[9px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-0.5 flex-wrap">
-              <span>Reject</span>
-              <span className="text-red-600 dark:text-red-400 font-mono font-black">({scRejectPct.toFixed(2)}%)</span>
-            </div>
-          </div>
-
-          {/* Hold - N/A for Sub-Contact */}
-          <div className="space-y-0.5 pl-1.5 border-l border-slate-200 dark:border-slate-700 text-left opacity-60">
-            <div className="font-mono text-base sm:text-lg font-semibold tracking-tight text-slate-400 dark:text-slate-500 truncate" title="Hold is not tracked for Sub-Contact">
-              —
-            </div>
-            <div className="text-[9px] font-semibold text-slate-400 dark:text-slate-500 flex items-center gap-0.5 flex-wrap">
-              <span>Hold</span>
-              <span className="font-mono text-[8.5px]">(N/A)</span>
-            </div>
-          </div>
-
-          {/* Jhute/Cut - N/A for Sub-Contact */}
-          <div className="space-y-0.5 pl-1.5 border-l border-slate-200 dark:border-slate-700 text-left opacity-60">
-            <div className="font-mono text-base sm:text-lg font-semibold tracking-tight text-slate-400 dark:text-slate-500 truncate" title="Jhute/Cut is not tracked for Sub-Contact">
-              —
-            </div>
-            <div className="text-[9px] font-semibold text-slate-400 dark:text-slate-500 flex items-center gap-0.5 flex-wrap">
-              <span className="truncate">Jhute/Cut</span>
-              <span className="font-mono text-[8.5px]">(N/A)</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Sub-Contact Scrap & Progress Bar */}
-        <div className="pt-0.5 space-y-1">
-          <div className="flex items-center justify-between text-[9.5px] font-bold">
-            <span className="text-slate-600 dark:text-slate-400">
-              Reject Rate: <span className="font-mono text-red-600 dark:text-red-400 font-black">{scScrap.toFixed(2)}%</span>
-            </span>
-            <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
-              {scPassRate.toFixed(1)}% Pass
-            </span>
-          </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-purple-100/90 dark:bg-slate-800 shadow-inner">
-            <div
-              className="h-full rounded-full bg-emerald-600 dark:bg-emerald-500 transition-all duration-500 shadow-xs"
-              style={{ width: `${scPassRate}%` }}
-            />
-          </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800 shadow-inner">
+          <div
+            className="h-full rounded-full bg-emerald-600 dark:bg-emerald-500 transition-all duration-500 shadow-xs"
+            style={{ width: `${overallPassRate}%` }}
+          />
         </div>
       </div>
     </div>

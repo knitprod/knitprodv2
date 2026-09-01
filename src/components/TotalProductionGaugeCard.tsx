@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { formatWeight } from './ProductionTargetSummaryCard';
 
 export interface TotalProductionGaugeCardProps {
   key?: React.Key;
@@ -240,14 +241,14 @@ export default function TotalProductionGaugeCard({
           <div>
             <span className="text-gray-500 dark:text-slate-400 font-medium">Total: </span>
             <span className="font-mono font-black text-gray-950 dark:text-white">
-              {Math.round(totalProduction).toLocaleString()}Kg
+              {formatWeight(totalProduction)}
             </span>
           </div>
           <div className="hidden xs:block h-3.5 w-px bg-gray-300 dark:bg-slate-700" />
           <div>
             <span className="text-gray-500 dark:text-slate-400 font-medium">Bulk: </span>
             <span className="font-mono font-black text-gray-950 dark:text-white">
-              {calculatedTotalBulk.toLocaleString()}Kg
+              {formatWeight(calculatedTotalBulk)}
             </span>
           </div>
         </div>
@@ -274,7 +275,7 @@ export default function TotalProductionGaugeCard({
             </span>
             <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
             <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
-              {calculatedMonthTotal.toLocaleString()}Kg
+              {formatWeight(calculatedMonthTotal)}
             </span>
           </div>
 
@@ -285,7 +286,7 @@ export default function TotalProductionGaugeCard({
             </span>
             <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
             <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
-              {calculatedMonthBulk.toLocaleString()}Kg
+              {formatWeight(calculatedMonthBulk)}
             </span>
           </div>
 
@@ -296,7 +297,7 @@ export default function TotalProductionGaugeCard({
             </span>
             <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
             <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
-              {calculatedInHouseBulk.toLocaleString()}Kg
+              {formatWeight(calculatedInHouseBulk)}
             </span>
           </div>
 
@@ -307,7 +308,7 @@ export default function TotalProductionGaugeCard({
             </span>
             <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
             <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
-              {calculatedSubContactBulk.toLocaleString()}Kg
+              {formatWeight(calculatedSubContactBulk)}
             </span>
           </div>
 
@@ -318,7 +319,7 @@ export default function TotalProductionGaugeCard({
             </span>
             <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
             <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
-              {calculatedSampleProd.toLocaleString()}Kg
+              {formatWeight(calculatedSampleProd)}
             </span>
           </div>
 
@@ -329,7 +330,7 @@ export default function TotalProductionGaugeCard({
             </span>
             <span className="font-bold text-gray-700 dark:text-slate-400 text-center">:</span>
             <span className="font-mono font-black text-gray-950 dark:text-white text-right truncate">
-              {calculatedProdLoss.toLocaleString()}Kg
+              {formatWeight(calculatedProdLoss)}
             </span>
           </div>
         </div>
@@ -390,7 +391,7 @@ export default function TotalProductionGaugeCard({
             Till Todays Last Month Production:
           </span>{' '}
           <span className="font-mono font-bold text-gray-950 dark:text-white">
-            {calculatedLastMonthProd.toLocaleString()}Kg
+            {formatWeight(calculatedLastMonthProd)}
           </span>
         </div>
         <div className={`flex items-center gap-0.5 font-bold shrink-0 ${

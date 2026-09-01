@@ -63,171 +63,164 @@ export default function MachineStatusCard({
   return (
     <div
       id="kpi-machine-status-card"
-      className={`rounded-2xl border border-indigo-200/90 dark:border-indigo-900/60 bg-white dark:bg-slate-900 p-3.5 sm:p-4 shadow-2xs flex flex-col justify-between gap-3 hover:border-indigo-300 dark:hover:border-indigo-800 transition-all ${className}`}
+      className={`w-full h-[200px] rounded-2xl border border-indigo-200/90 dark:border-indigo-900/60 bg-white dark:bg-slate-900 px-3.5 py-2.5 sm:px-4 sm:py-3 shadow-2xs flex flex-col justify-between hover:border-indigo-300 dark:hover:border-indigo-800 transition-all overflow-hidden ${className}`}
     >
       {/* 1. Header Bar */}
-      <div className="flex items-center justify-between pb-1">
-        <div className="flex items-center gap-2">
-          <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
-            <Cpu className="h-3.5 w-3.5" />
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <div className="flex h-5 w-5 items-center justify-center rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 shrink-0">
+            <Cpu className="h-3 w-3" />
           </div>
-          <div>
-            <span className="font-sans text-xs font-black uppercase tracking-wider text-slate-950 dark:text-white block">
+          <div className="min-w-0 truncate">
+            <span className="font-sans text-[11px] font-black uppercase tracking-wider text-slate-950 dark:text-white block truncate leading-none">
               MACHINE STATUS
             </span>
             {periodLabel && (
-              <span className="font-sans text-[10px] font-semibold text-slate-500 dark:text-slate-400 block -mt-0.5">
+              <span className="font-sans text-[9px] font-semibold text-slate-500 dark:text-slate-400 block truncate leading-tight mt-0.5">
                 {periodLabel}
               </span>
             )}
           </div>
         </div>
-        <span className="rounded-lg bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800/80 px-2 py-0.5 font-mono text-[10px] font-bold text-indigo-900 dark:text-indigo-300 shadow-2xs">
+        <span className="rounded-md bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800/80 px-1.5 py-0.5 font-mono text-[9.5px] font-bold text-indigo-900 dark:text-indigo-300 shrink-0 ml-1">
           {inHouseUtilPct}% Util
         </span>
       </div>
 
-      {/* 2. In-House Container */}
-      <div 
-        id="machine-status-in-house-container"
-        className="rounded-xl border border-blue-200/90 bg-linear-to-b from-blue-50/70 via-blue-50/30 to-white dark:from-blue-950/40 dark:via-slate-900/90 dark:to-slate-900/60 p-2.5 dark:border-blue-900/50 shadow-2xs flex flex-col justify-between gap-2"
-      >
-        {/* In-House Title & Setting Capacity Badge */}
-        <div className="flex items-center justify-between pb-1 border-b border-blue-100 dark:border-blue-900/40">
-          <div className="flex items-center gap-1">
-            <Factory className="h-3 w-3 text-blue-700 dark:text-blue-400" />
-            <span className="font-sans text-[10.5px] font-black uppercase tracking-wider text-blue-950 dark:text-blue-200">
-              IN-HOUSE
-            </span>
-          </div>
-          <span className="rounded-md bg-blue-100 dark:bg-blue-900/80 border border-blue-200 dark:border-blue-800 px-1.5 py-0.2 font-mono text-[9px] font-bold text-blue-900 dark:text-blue-200 shadow-2xs">
-            {runningMC} / {totalMC} MC
-          </span>
-        </div>
-
-        {/* Primary Numbers Row */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-baseline gap-1">
-            <span className="font-mono text-xl sm:text-2xl font-black tracking-tight text-slate-950 dark:text-white">
+      {/* 2. Main Numbers Row (In-House MC & Idle Badge) */}
+      <div className="flex items-center justify-between gap-1.5 my-auto">
+        <div className="min-w-0">
+          <div className="flex items-baseline gap-1 flex-wrap">
+            <span className="font-mono text-xl sm:text-2xl font-black tracking-tight text-slate-950 dark:text-white leading-none">
               {runningMC}
             </span>
-            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+            <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 leading-none">
               Run
             </span>
-            <span className="text-slate-300 dark:text-slate-600 text-xs">/</span>
-            <span className="font-mono text-xs font-semibold text-slate-500 dark:text-slate-400" title="Total Setting Machines">
+            <span className="text-slate-300 dark:text-slate-600 text-xs font-light">/</span>
+            <span className="font-mono text-[11px] font-medium text-slate-600 dark:text-slate-300 leading-none">
               {totalMC} Set
             </span>
           </div>
+          <div className="font-mono text-[10px] font-medium text-slate-500 dark:text-slate-400 mt-0.5 leading-none truncate">
+            In-House Setting Capacity
+          </div>
+        </div>
 
-          {/* Idle % Badge */}
-          <div 
-            className="rounded-lg px-2 py-0.5 text-center font-mono shadow-2xs border border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/80 dark:text-amber-300 min-w-[48px]"
-            title="Idle Rate %"
-          >
-            <div className="text-[7.5px] font-sans font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 leading-none">
-              IDLE
+        {/* Idle Badge */}
+        <div 
+          className="rounded-lg px-2 py-1 text-center font-mono shadow-2xs border border-amber-200 bg-amber-50/90 text-amber-900 dark:border-amber-800/80 dark:bg-amber-950/60 dark:text-amber-300 min-w-[56px] shrink-0"
+          title={`Idle Rate: ${idlePct}% (${idleMC} machines idle)`}
+        >
+          <div className="text-[7.5px] font-sans font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 leading-none">
+            IDLE
+          </div>
+          <div className="text-sm sm:text-base font-black leading-tight mt-0.5">{idlePct}%</div>
+        </div>
+      </div>
+
+      {/* 3. Breakdown Chips: Explicitly Divided into IN-HOUSE vs SUB-CONTACT */}
+      <div className="grid grid-cols-2 gap-1.5">
+        {/* Left: IN-HOUSE Section */}
+        <div className="rounded-lg bg-blue-50/70 dark:bg-slate-800/80 p-1.5 border border-blue-200 dark:border-blue-900/60 flex flex-col justify-between">
+          {/* Section Header */}
+          <div className="flex items-center justify-between pb-1 mb-1 border-b border-blue-200/80 dark:border-blue-900/50">
+            <div className="flex items-center gap-1 text-[8.5px] font-black uppercase tracking-wider text-blue-900 dark:text-blue-200 leading-none">
+              <Factory className="h-2.5 w-2.5 text-blue-600 dark:text-blue-400 shrink-0" />
+              <span>IN-HOUSE</span>
             </div>
-            <div className="text-xs font-black leading-tight mt-0.5">{idlePct}%</div>
+            <span className="font-mono text-[8px] font-bold text-blue-700 dark:text-blue-300">
+              {totalMC} MC
+            </span>
+          </div>
+
+          {/* 3 Metrics: Bulk, Sample, Idle */}
+          <div className="grid grid-cols-3 gap-0.5 text-center items-center">
+            <div className="px-0.5">
+              <span className="text-[7.5px] font-bold uppercase tracking-tight text-slate-500 dark:text-slate-400 block leading-none">
+                BULK
+              </span>
+              <span className="font-mono text-[11px] font-black text-slate-950 dark:text-white leading-tight mt-0.5 block">
+                {bulkMC}
+              </span>
+            </div>
+            <div className="px-0.5 border-x border-blue-200 dark:border-blue-900/60">
+              <span className="text-[7.5px] font-bold uppercase tracking-tight text-slate-500 dark:text-slate-400 block leading-none">
+                SAMPLE
+              </span>
+              <span className="font-mono text-[11px] font-black text-slate-950 dark:text-white leading-tight mt-0.5 block">
+                {sampleMC}
+              </span>
+            </div>
+            <div className="px-0.5">
+              <span className="text-[7.5px] font-bold uppercase tracking-tight text-amber-600 dark:text-amber-400 block leading-none">
+                IDLE
+              </span>
+              <span className="font-mono text-[11px] font-black text-amber-700 dark:text-amber-300 leading-tight mt-0.5 block">
+                {idleMC}
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* 3-Column Breakdown Chips */}
-        <div className="grid grid-cols-3 gap-1 rounded-lg bg-white/95 p-1 shadow-2xs dark:bg-slate-900/90 border border-blue-100 dark:border-blue-900/30">
-          <div className="text-center px-0.5">
-            <span className="text-[8px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block whitespace-nowrap">
-              BULK
-            </span>
-            <span className="font-mono text-xs font-black text-slate-900 dark:text-slate-100">
-              {bulkMC}
-            </span>
-          </div>
-          <div className="text-center px-0.5 border-x border-slate-100 dark:border-slate-800">
-            <span className="text-[8px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block whitespace-nowrap">
-              SAMPLE
-            </span>
-            <span className="font-mono text-xs font-black text-slate-900 dark:text-slate-100">
-              {sampleMC}
+        {/* Right: SUB-CONTACT Section */}
+        <div className="rounded-lg bg-purple-50/70 dark:bg-slate-800/80 p-1.5 border border-purple-200 dark:border-purple-900/60 flex flex-col justify-between">
+          {/* Section Header */}
+          <div className="flex items-center justify-between pb-1 mb-1 border-b border-purple-200/80 dark:border-purple-900/50">
+            <div className="flex items-center gap-1 text-[8.5px] font-black uppercase tracking-wider text-purple-900 dark:text-purple-200 leading-none">
+              <Layers className="h-2.5 w-2.5 text-purple-600 dark:text-purple-400 shrink-0" />
+              <span>SUB-CONTACT</span>
+            </div>
+            <span className="font-mono text-[8px] font-bold text-purple-700 dark:text-purple-300">
+              External
             </span>
           </div>
-          <div className="text-center px-0.5">
-            <span className="text-[8px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 block whitespace-nowrap">
-              IDLE MC
-            </span>
-            <span className="font-mono text-xs font-black text-amber-700 dark:text-amber-300">
-              {idleMC}
-            </span>
-          </div>
-        </div>
 
-        {/* In-House Machine Utilization Bar */}
-        <div className="pt-0.5 space-y-1">
-          <div className="flex items-center justify-between text-[9.5px] font-bold">
-            <span className="text-blue-950 dark:text-blue-200">
-              In-House Util
-            </span>
-            <span className="font-mono font-black text-blue-700 dark:text-blue-400">
-              {inHouseUtilPct}%
-            </span>
-          </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-blue-100/90 dark:bg-slate-800 shadow-inner">
-            <div
-              className="h-full rounded-full bg-linear-to-r from-blue-600 to-indigo-600 transition-all duration-500 shadow-xs"
-              style={{ width: `${inHouseUtilPct}%` }}
-            />
+          {/* 3 Metrics: SC Run, Factory, Vehicle */}
+          <div className="grid grid-cols-3 gap-0.5 text-center items-center">
+            <div className="px-0.5">
+              <span className="text-[7.5px] font-bold uppercase tracking-tight text-purple-700 dark:text-purple-400 block leading-none" title="Sub-Contact Machines Running">
+                RUN MC
+              </span>
+              <span className="font-mono text-[11px] font-black text-slate-950 dark:text-white leading-tight mt-0.5 block">
+                {scMCRun}
+              </span>
+            </div>
+            <div className="px-0.5 border-x border-purple-200 dark:border-purple-900/60">
+              <span className="text-[7.5px] font-bold uppercase tracking-tight text-slate-500 dark:text-slate-400 block leading-none" title="Active Sub-Contact Factories">
+                FACT.
+              </span>
+              <span className="font-mono text-[11px] font-black text-slate-950 dark:text-white leading-tight mt-0.5 block">
+                {scFactories}
+              </span>
+            </div>
+            <div className="px-0.5">
+              <span className="text-[7.5px] font-bold uppercase tracking-tight text-slate-500 dark:text-slate-400 block leading-none" title="Active Sub-Contact Vehicles">
+                VEH.
+              </span>
+              <span className="font-mono text-[11px] font-black text-slate-950 dark:text-white leading-tight mt-0.5 block">
+                {scVehicles}
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* 3. Sub-Contact Container */}
-      <div 
-        id="machine-status-sub-contact-container"
-        className="rounded-xl border border-purple-200/90 bg-linear-to-b from-purple-50/70 via-purple-50/30 to-white p-2.5 dark:border-purple-900/50 dark:from-purple-950/40 dark:via-slate-900/90 dark:to-slate-900/60 shadow-2xs space-y-2"
-      >
-        {/* Sub-Contact Title & External Badge */}
-        <div className="flex items-center justify-between pb-1 border-b border-purple-100 dark:border-purple-900/40">
-          <div className="flex items-center gap-1">
-            <Layers className="h-3 w-3 text-purple-700 dark:text-purple-400" />
-            <span className="font-sans text-[10.5px] font-black uppercase tracking-wider text-purple-950 dark:text-purple-200">
-              SUB-CONTACT
-            </span>
-          </div>
-          <span className="rounded-md bg-purple-100 dark:bg-purple-900/80 border border-purple-200 dark:border-purple-800 px-1.5 py-0.2 font-mono text-[8.5px] font-bold text-purple-900 dark:text-purple-200 shadow-2xs">
-            External
+      {/* 4. In-House Machine Utilization Bar */}
+      <div className="space-y-0.5 pt-0.5">
+        <div className="flex items-center justify-between text-[9.5px] font-bold leading-none">
+          <span className="text-slate-800 dark:text-slate-200">
+            In-House Utilization
+          </span>
+          <span className="font-mono font-black text-indigo-600 dark:text-indigo-400">
+            {inHouseUtilPct}%
           </span>
         </div>
-
-        {/* Sub-Contact Metrics Row (3 compact columns) */}
-        <div className="grid grid-cols-3 gap-1 text-center">
-          {/* 1. MC Run */}
-          <div className="rounded-lg bg-white/95 p-1 shadow-2xs dark:bg-slate-900/90 border border-purple-100 dark:border-purple-900/30">
-            <span className="text-[8px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 block whitespace-nowrap">
-              MC RUN
-            </span>
-            <span className="font-mono text-xs font-black text-slate-950 dark:text-white mt-0.5 block">
-              {scMCRun}
-            </span>
-          </div>
-
-          {/* 2. Active Factories */}
-          <div className="rounded-lg bg-white/95 p-1 shadow-2xs dark:bg-slate-900/90 border border-purple-100 dark:border-purple-900/30">
-            <span className="text-[8px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block whitespace-nowrap">
-              FACTORY
-            </span>
-            <span className="font-mono text-xs font-black text-slate-950 dark:text-white mt-0.5 block">
-              {scFactories}
-            </span>
-          </div>
-
-          {/* 3. Vehicles */}
-          <div className="rounded-lg bg-white/95 p-1 shadow-2xs dark:bg-slate-900/90 border border-purple-100 dark:border-purple-900/30">
-            <span className="text-[8px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block whitespace-nowrap">
-              VEHICLE
-            </span>
-            <span className="font-mono text-xs font-black text-slate-950 dark:text-white mt-0.5 block">
-              {scVehicles}
-            </span>
-          </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800 shadow-inner">
+          <div
+            className="h-full rounded-full bg-indigo-600 dark:bg-indigo-500 transition-all duration-500 shadow-xs"
+            style={{ width: `${inHouseUtilPct}%` }}
+          />
         </div>
       </div>
     </div>

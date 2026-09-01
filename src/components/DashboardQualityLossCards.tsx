@@ -557,8 +557,8 @@ export default function DashboardQualityLossCards({ filterState }: DashboardQual
               </p>
             </div>
           ) : (
-            <div className="w-full overflow-x-auto scrollbar-none">
-              <div className="min-w-[320px] h-[160px] relative flex">
+            <div className="w-full overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-700 pb-1">
+              <div className="min-w-[480px] h-[160px] relative flex">
                 {/* Left Y-Axis: Hold Qty */}
                 <div className="w-9 h-[140px] flex flex-col justify-between items-end pr-1.5 text-[9.5px] font-bold text-slate-500 dark:text-slate-400 select-none pb-1 border-r border-slate-200 dark:border-slate-800">
                   <span>{maxHoldVal}</span>
@@ -786,8 +786,8 @@ export default function DashboardQualityLossCards({ filterState }: DashboardQual
               </p>
             </div>
           ) : (
-            <div className="w-full overflow-x-auto scrollbar-none">
-              <div className="min-w-[320px] h-[160px] relative flex">
+            <div className="w-full overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-700 pb-1">
+              <div className="min-w-[480px] h-[160px] relative flex">
                 {/* Left Y-Axis: Wastage % */}
                 <div className="w-11 h-[140px] flex flex-col justify-between items-end pr-1.5 text-[9.5px] font-bold text-[#0284C7] select-none pb-1 border-r border-slate-200 dark:border-slate-800">
                   <span>{(maxWastagePct).toFixed(2)}%</span>
@@ -1063,8 +1063,8 @@ export default function DashboardQualityLossCards({ filterState }: DashboardQual
               </p>
             </div>
           ) : (
-            <div className="w-full overflow-x-auto scrollbar-none">
-              <div className="min-w-[320px] h-[160px] relative flex">
+            <div className="w-full overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-700 pb-1">
+              <div className="min-w-[480px] h-[160px] relative flex">
                 {/* Left Y-Axis: Absent Count */}
                 <div className="w-8 h-[140px] flex flex-col justify-between items-end pr-1.5 text-[9.5px] font-bold text-slate-500 dark:text-slate-400 select-none pb-1 border-r border-slate-200 dark:border-slate-800">
                   <span>{maxAbsentCount}</span>

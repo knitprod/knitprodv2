@@ -88,12 +88,66 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
   };
 
   const now = new Date();
-  const currentRunningMonth = monthNames[now.getMonth()] || 'August';
+  
+  // Helper to determine active running month with actual data in the ledger
+  const getActiveMonthInfo = () => {
+    const currentCalMonth = monthNames[now.getMonth()] || 'August';
+    const currentCalYear = String(now.getFullYear());
+    const currentCalRecords = ledger.filter(r => {
+      const recMonth = (r.month && r.month.trim() !== '') ? r.month : getMonthNameFromDateStr(r.date);
+      const recYear = r.year ? String(r.year) : (r.date ? r.date.split('-')[0] : currentCalYear);
+      return recMonth.toLowerCase() === currentCalMonth.toLowerCase() && recYear === currentCalYear;
+    });
+
+    if (currentCalRecords.length > 0) {
+      return {
+        monthName: currentCalMonth,
+        year: currentCalYear,
+        fullLabel: `${currentCalMonth} ${currentCalYear}`,
+        records: currentCalRecords
+      };
+    }
+
+    const validDates = ledger
+      .map(r => r.date)
+      .filter((d): d is string => Boolean(d && /^\d{4}-\d{2}-\d{2}$/.test(d)))
+      .sort();
+
+    if (validDates.length > 0) {
+      const latestDate = validDates[validDates.length - 1];
+      const [y, mStr] = latestDate.split('-');
+      const mIdx = parseInt(mStr, 10) - 1;
+      if (mIdx >= 0 && mIdx < 12) {
+        const mName = monthNames[mIdx];
+        const latestMonthRecords = ledger.filter(r => {
+          const recMonth = (r.month && r.month.trim() !== '') ? r.month : getMonthNameFromDateStr(r.date);
+          const recYear = r.year ? String(r.year) : (r.date ? r.date.split('-')[0] : y);
+          return recMonth.toLowerCase() === mName.toLowerCase() && recYear === y;
+        });
+        return {
+          monthName: mName,
+          year: y,
+          fullLabel: `${mName} ${y}`,
+          records: latestMonthRecords
+        };
+      }
+    }
+
+    return {
+      monthName: currentCalMonth,
+      year: currentCalYear,
+      fullLabel: `${currentCalMonth} ${currentCalYear}`,
+      records: []
+    };
+  };
+
+  const activeMonthInfo = getActiveMonthInfo();
+  const defaultMonthLabel = activeMonthInfo.fullLabel;
 
   // Determine dynamic period label and records
-  let periodLabel = currentRunningMonth;
+  let periodLabel = defaultMonthLabel;
   let isMonthScope = true;
-  let targetRecords = ledger;
+  let targetRecords: typeof ledger = [];
 
   if (filterState) {
     const { unit, dateMode, singleDate, dateFrom, dateTo, month, year } = filterState;
@@ -137,32 +191,31 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
       const parts = month.split('-');
       if (parts.length >= 2) {
         const mIdx = parseInt(parts[1], 10) - 1;
-        periodLabel = monthNames[mIdx] || currentRunningMonth;
+        periodLabel = `${monthNames[mIdx] || activeMonthInfo.monthName} ${parts[0] || activeMonthInfo.year}`;
+      } else {
+        periodLabel = month;
       }
       isMonthScope = true;
+      const targetMonthName = periodLabel.split(' ')[0];
       targetRecords = ledger.filter(r => {
         const matchUnit = unit === 'all' || r.floor === unit || r.unit === unit;
         const recMonth = (r.month && r.month.trim() !== '') ? r.month : getMonthNameFromDateStr(r.date);
-        return matchUnit && recMonth.toLowerCase() === periodLabel.toLowerCase();
+        return matchUnit && recMonth.toLowerCase() === targetMonthName.toLowerCase();
       });
     } else {
-      // Default: Running Month (August)
-      periodLabel = currentRunningMonth;
+      // Default: Active running / latest entered month with data in the ledger
+      periodLabel = defaultMonthLabel;
       isMonthScope = true;
-      targetRecords = ledger.filter(r => {
+      targetRecords = activeMonthInfo.records.filter(r => {
         const matchUnit = unit === 'all' || r.floor === unit || r.unit === unit;
-        const recMonth = (r.month && r.month.trim() !== '') ? r.month : getMonthNameFromDateStr(r.date);
-        return matchUnit && recMonth.toLowerCase() === currentRunningMonth.toLowerCase();
+        return matchUnit;
       });
     }
   } else {
-    // Default: Running Month (August)
-    periodLabel = currentRunningMonth;
+    // Default: Active running / latest entered month with data in the ledger
+    periodLabel = defaultMonthLabel;
     isMonthScope = true;
-    targetRecords = ledger.filter(r => {
-      const recMonth = (r.month && r.month.trim() !== '') ? r.month : getMonthNameFromDateStr(r.date);
-      return recMonth.toLowerCase() === currentRunningMonth.toLowerCase();
-    });
+    targetRecords = activeMonthInfo.records;
   }
 
   // Active records - strictly use targetRecords matching the active filter criteria
