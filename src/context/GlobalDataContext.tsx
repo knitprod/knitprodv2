@@ -53,7 +53,7 @@ export interface GlobalDataContextType {
 
 const GlobalDataContext = createContext<GlobalDataContextType | null>(null);
 
-const POLLING_INTERVAL_MS = 15000; // 15 seconds silent polling
+const POLLING_INTERVAL_MS = 60000; // 60 seconds smart silent polling (paused when tab hidden)
 
 /**
  * Executes a write mutation against /api/sheets with keepalive to prevent tab-close data loss.
@@ -435,64 +435,90 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, [refreshAll]);
 
-  // 2. Silent 15-Second Background Polling (Absorbed by Edge CDN)
+  // 2. Intelligent Background Polling (Only runs when tab is active/visible)
   useEffect(() => {
-    const interval = setInterval(() => {
-      // Background silent poll without showing full-screen loaders
-      fetch('/api/sheets?action=all', {
-        headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(25000)
-      })
-        .then(res => res.json())
-        .then(json => {
-          if (json && json.success && json.data) {
-            const { orderPlans: rOrders, yarnAllocations: rYarn, ledger: rLedger } = json.data;
-            if (Array.isArray(rOrders) && rOrders.length > 0) {
-              const cleanOrders = filterDeletedOrders(deduplicateWithUniqueIds(rOrders, 'ord'));
-              setOrderPlans(prev => {
-                if (prev.length !== cleanOrders.length || JSON.stringify(prev) !== JSON.stringify(cleanOrders)) {
-                  try {
-                    localStorage.setItem('cached_order_plans', JSON.stringify(cleanOrders));
-                  } catch (e) {}
-                  return cleanOrders;
-                }
-                return prev;
-              });
-            }
-            if (Array.isArray(rYarn) && rYarn.length > 0) {
-              const cleanYarn = filterDeletedYarn(deduplicateWithUniqueIds(rYarn, 'yarn'));
-              setYarnAllocations(prev => {
-                if (prev.length !== cleanYarn.length || JSON.stringify(prev) !== JSON.stringify(cleanYarn)) {
-                  try {
-                    localStorage.setItem('cached_yarn_allocations', JSON.stringify(cleanYarn));
-                  } catch (e) {}
-                  return cleanYarn;
-                }
-                return prev;
-              });
-            }
-            if (Array.isArray(rLedger) && rLedger.length > 0) {
-              const cleanLedger = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(rLedger)));
-              setLedger(prev => {
-                if (prev.length !== cleanLedger.length || JSON.stringify(prev) !== JSON.stringify(cleanLedger)) {
-                  setFloors(fl => recalculateFloorsFromLedger(fl, cleanLedger));
-                  try {
-                    localStorage.setItem('cached_production_ledger', JSON.stringify(cleanLedger));
-                  } catch (e) {}
-                  return cleanLedger;
-                }
-                return prev;
-              });
-            }
-            setLastSyncedAt(new Date());
-          }
-        })
-        .catch(() => {
-          // Silent catch for background poll
-        });
-    }, POLLING_INTERVAL_MS);
+    let isFetching = false;
 
-    return () => clearInterval(interval);
+    const performSilentPoll = async () => {
+      // Never make background requests if user is not on this tab
+      if (typeof document !== 'undefined' && document.hidden) return;
+      if (isFetching) return;
+
+      isFetching = true;
+      try {
+        const res = await fetch('/api/sheets?action=all', {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(20000)
+        });
+
+        if (!res.ok) return;
+
+        const json = await res.json();
+        if (json && json.success && json.data) {
+          const { orderPlans: rOrders, yarnAllocations: rYarn, ledger: rLedger } = json.data;
+          if (Array.isArray(rOrders) && rOrders.length > 0) {
+            const cleanOrders = filterDeletedOrders(deduplicateWithUniqueIds(rOrders, 'ord'));
+            setOrderPlans(prev => {
+              if (prev.length !== cleanOrders.length || JSON.stringify(prev) !== JSON.stringify(cleanOrders)) {
+                try {
+                  localStorage.setItem('cached_order_plans', JSON.stringify(cleanOrders));
+                } catch (e) {}
+                return cleanOrders;
+              }
+              return prev;
+            });
+          }
+          if (Array.isArray(rYarn) && rYarn.length > 0) {
+            const cleanYarn = filterDeletedYarn(deduplicateWithUniqueIds(rYarn, 'yarn'));
+            setYarnAllocations(prev => {
+              if (prev.length !== cleanYarn.length || JSON.stringify(prev) !== JSON.stringify(cleanYarn)) {
+                try {
+                  localStorage.setItem('cached_yarn_allocations', JSON.stringify(cleanYarn));
+                } catch (e) {}
+                return cleanYarn;
+              }
+              return prev;
+            });
+          }
+          if (Array.isArray(rLedger) && rLedger.length > 0) {
+            const cleanLedger = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(rLedger)));
+            setLedger(prev => {
+              if (prev.length !== cleanLedger.length || JSON.stringify(prev) !== JSON.stringify(cleanLedger)) {
+                setFloors(fl => recalculateFloorsFromLedger(fl, cleanLedger));
+                try {
+                  localStorage.setItem('cached_production_ledger', JSON.stringify(cleanLedger));
+                } catch (e) {}
+                return cleanLedger;
+              }
+              return prev;
+            });
+          }
+          setLastSyncedAt(new Date());
+        }
+      } catch {
+        // Silent catch for background poll
+      } finally {
+        isFetching = false;
+      }
+    };
+
+    const interval = setInterval(performSilentPoll, POLLING_INTERVAL_MS);
+
+    // Instant refresh when user returns to the tab after being away
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        performSilentPoll();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+    };
   }, [filterDeletedLedger, filterDeletedOrders, filterDeletedYarn]);
 
   // 3. Cross-Device Real-time Event Listener

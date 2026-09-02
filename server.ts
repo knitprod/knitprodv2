@@ -2,12 +2,22 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import zlib from 'zlib';
+import compression from 'compression';
 import { createServer as createViteServer } from 'vite';
 
 const app = express();
 const PORT = 3000;
 const CONFIG_FILE = path.join(process.cwd(), 'app_config.json');
 const DB_FILE = path.join(process.cwd(), 'app_db.json');
+
+// High-efficiency response compression (saves 85-92% bandwidth and fast origin transfer)
+app.use(compression({
+  threshold: 512,
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  }
+}));
 
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
@@ -266,8 +276,24 @@ function sanitizeLedgerList(list: any[]): any[] {
   if (!list || !Array.isArray(list)) return [];
   const map = new Map<string, any>();
   list.forEach((r: any, idx) => {
-    if (!r) return;
+    if (!r || typeof r !== 'object') return;
     if (r.id === 'rec-2026-08-11-extension') return;
+
+    // Fast check: skip records that are completely empty / dummy placeholders
+    const hasMeaningfulData = Boolean(
+      (r.date && String(r.date).trim()) ||
+      (r.floor && String(r.floor).trim()) ||
+      (r.unit && String(r.unit).trim()) ||
+      (r.totalProduction !== undefined && r.totalProduction !== null && r.totalProduction !== '') ||
+      (r.target !== undefined && r.target !== null && r.target !== '') ||
+      (r.shiftA !== undefined && r.shiftA !== null && r.shiftA !== '') ||
+      (r.shiftB !== undefined && r.shiftB !== null && r.shiftB !== '') ||
+      (r.shiftC !== undefined && r.shiftC !== null && r.shiftC !== '') ||
+      (r.bulkProd !== undefined && r.bulkProd !== null && r.bulkProd !== '') ||
+      (r.runningMachine !== undefined && r.runningMachine !== null && r.runningMachine !== '')
+    );
+    if (!hasMeaningfulData) return;
+
     let item = r;
     if (r.id === 'rec-2026-08-26-efl-extension-1787807712863' || (r.date === '2026-08-26' && (r.floor === 'EFL-Extension' || r.unit === 'EFL-Extension'))) {
       item = { ...r, target: 2160, targetBulk: 2160, idleProduction: 900, efficiency: 134.91 };

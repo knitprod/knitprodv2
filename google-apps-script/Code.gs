@@ -17,8 +17,8 @@
 // ==========================================================
 // CONFIGURATION & GLOBAL CONSTANTS
 // ==========================================================
-var VERSION = "5.1.0-SplitSetChange";
-var CACHE_TTL_SECONDS = 10; // 10-second read cache
+var VERSION = "5.2.0-HighPerf";
+var CACHE_TTL_SECONDS = 60; // 60-second read cache
 var LOCK_TIMEOUT_MS = 30000; // 30,000ms timeout for script write lock
 
 // Cache keys for automatic invalidation
@@ -30,6 +30,55 @@ var CACHE_KEYS = [
   "bulk_read_dashboard",
   "bulk_read_health"
 ];
+
+/**
+ * Robust chunked JSON caching for Google Apps Script CacheService (supports payloads > 100KB)
+ */
+function getCachedJson(cacheKey) {
+  try {
+    var cache = CacheService.getScriptCache();
+    var direct = cache.get(cacheKey);
+    if (direct) return direct;
+    
+    var numChunksStr = cache.get(cacheKey + "_chunks");
+    if (numChunksStr) {
+      var numChunks = parseInt(numChunksStr, 10);
+      var keys = [];
+      for (var i = 0; i < numChunks; i++) {
+        keys.push(cacheKey + "_chunk_" + i);
+      }
+      var chunks = cache.getAll(keys);
+      var fullStr = "";
+      for (var j = 0; j < numChunks; j++) {
+        var part = chunks[cacheKey + "_chunk_" + j];
+        if (!part) return null;
+        fullStr += part;
+      }
+      return fullStr;
+    }
+  } catch (e) {}
+  return null;
+}
+
+function putCachedJson(cacheKey, jsonString, ttlSeconds) {
+  try {
+    var cache = CacheService.getScriptCache();
+    var ttl = ttlSeconds || CACHE_TTL_SECONDS;
+    if (jsonString.length < 95000) {
+      cache.put(cacheKey, jsonString, ttl);
+      cache.remove(cacheKey + "_chunks");
+    } else {
+      var chunkSize = 85000;
+      var numChunks = Math.ceil(jsonString.length / chunkSize);
+      var chunkObj = {};
+      chunkObj[cacheKey + "_chunks"] = numChunks.toString();
+      for (var i = 0; i < numChunks; i++) {
+        chunkObj[cacheKey + "_chunk_" + i] = jsonString.substr(i * chunkSize, chunkSize);
+      }
+      cache.putAll(chunkObj, ttl);
+    }
+  } catch (e) {}
+}
 
 // ==========================================================
 // WEB APP ROUTING HOOKS (GET & POST)
@@ -47,15 +96,10 @@ function doGet(e) {
 
     // 1. Check CacheService (unless forceRefresh is requested)
     if (!forceRefresh) {
-      try {
-        var cache = CacheService.getScriptCache();
-        var cachedData = cache.get(cacheKey);
-        if (cachedData) {
-          return ContentService.createTextOutput(cachedData)
-            .setMimeType(ContentService.MimeType.JSON);
-        }
-      } catch (cacheErr) {
-        // Fallback to live sheet read
+      var cachedData = getCachedJson(cacheKey);
+      if (cachedData) {
+        return ContentService.createTextOutput(cachedData)
+          .setMimeType(ContentService.MimeType.JSON);
       }
     }
 
@@ -101,15 +145,8 @@ function doGet(e) {
 
     var jsonString = JSON.stringify(responseObj);
 
-    // Store in CacheService for fast repeated reads (if within 100KB limit)
-    try {
-      if (jsonString.length < 98000) {
-        var cache = CacheService.getScriptCache();
-        cache.put(cacheKey, jsonString, CACHE_TTL_SECONDS);
-      }
-    } catch (cachePutErr) {
-      // Ignore cache overflow
-    }
+    // Store in CacheService for fast sub-second repeated reads
+    putCachedJson(cacheKey, jsonString, CACHE_TTL_SECONDS);
 
     return ContentService.createTextOutput(jsonString)
       .setMimeType(ContentService.MimeType.JSON);
@@ -229,12 +266,20 @@ function doPost(e) {
 }
 
 /**
- * Purges all read cache entries in CacheService.
+ * Purges all read cache entries in CacheService (including chunks).
  */
 function purgeReadCache() {
   try {
     var cache = CacheService.getScriptCache();
-    cache.removeAll(CACHE_KEYS);
+    var allKeysToRemove = [];
+    CACHE_KEYS.forEach(function(k) {
+      allKeysToRemove.push(k);
+      allKeysToRemove.push(k + "_chunks");
+      for (var c = 0; c < 20; c++) {
+        allKeysToRemove.push(k + "_chunk_" + c);
+      }
+    });
+    cache.removeAll(allKeysToRemove);
   } catch (e) {}
 }
 
@@ -472,7 +517,11 @@ function getOrderPlansInternal(ss) {
   var sheet = getOrderPlanSheetInternal(ss);
   if (!sheet) return [];
 
-  var data = sheet.getDataRange().getValues();
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return [];
+
+  var data = sheet.getRange(1, 1, lastRow, lastCol).getValues();
   if (!data || data.length < 2) return [];
 
   var tz = "GMT+6";
@@ -486,6 +535,18 @@ function getOrderPlansInternal(ss) {
 
   for (var i = 1; i < data.length; i++) {
     var row = data[i];
+
+    // Fast check: skip completely empty rows without iterating headers
+    var hasAnyCell = false;
+    for (var c = 0; c < row.length; c++) {
+      var cellVal = row[c];
+      if (cellVal !== "" && cellVal !== null && cellVal !== undefined) {
+        hasAnyCell = true;
+        break;
+      }
+    }
+    if (!hasAnyCell) continue;
+
     var item = {};
     for (var j = 0; j < normalizedHeaders.length; j++) {
       var val = row[j];
@@ -493,14 +554,20 @@ function getOrderPlansInternal(ss) {
         val = formatDateCell(val, tz);
       }
       var propKey = normalizedHeaders[j] || ("col_" + j);
-      item[propKey] = val;
+      if (val !== "" && val !== null && val !== undefined) {
+        item[propKey] = val;
+      }
     }
+
+    // Meaningful validation: must have at least EWO, Buyer, Style, Item, Color, or ID
+    if (!item.ewo && !item.buyer && !item.orderNo && !item.style && !item.item && !item.color && !item.orderQty && !item.id) {
+      continue;
+    }
+
     if (!item.id || item.id === "") {
       item.id = "ord-" + (item.ewo || item.buyer || "order") + "-" + (item.color || "") + "-" + i;
     }
-    if (item.id || item.ewo || item.buyer) {
-      orderPlans.push(item);
-    }
+    orderPlans.push(item);
   }
   return orderPlans;
 }
@@ -695,7 +762,11 @@ function getYarnAllocationsInternal(ss) {
   var sheet = getYarnSheetInternal(ss);
   if (!sheet) return [];
 
-  var data = sheet.getDataRange().getValues();
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return [];
+
+  var data = sheet.getRange(1, 1, lastRow, lastCol).getValues();
   if (!data || data.length < 2) return [];
 
   var tz = "GMT+6";
@@ -709,6 +780,18 @@ function getYarnAllocationsInternal(ss) {
 
   for (var i = 1; i < data.length; i++) {
     var row = data[i];
+
+    // Fast check: skip completely empty rows
+    var hasAnyCell = false;
+    for (var c = 0; c < row.length; c++) {
+      var cellVal = row[c];
+      if (cellVal !== "" && cellVal !== null && cellVal !== undefined) {
+        hasAnyCell = true;
+        break;
+      }
+    }
+    if (!hasAnyCell) continue;
+
     var item = {};
     for (var j = 0; j < normalizedHeaders.length; j++) {
       var val = row[j];
@@ -716,14 +799,20 @@ function getYarnAllocationsInternal(ss) {
         val = formatDateCell(val, tz);
       }
       var propKey = normalizedHeaders[j] || ("col_" + j);
-      item[propKey] = val;
+      if (val !== "" && val !== null && val !== undefined) {
+        item[propKey] = val;
+      }
     }
+
+    // Meaningful validation: must have at least Order Number, Allocation No, Buyer, Count, Lot, or ID
+    if (!item.orderNumber && !item.allocationNo && !item.buyer && !item.yarnCount && !item.composition && !item.yarnColor && !item.allottedQty && !item.id) {
+      continue;
+    }
+
     if (!item.id || item.id === "") {
       item.id = "yarn-" + (item.orderNumber || item.allocationNo || "alloc") + "-" + (item.lotNo || "") + "-" + i;
     }
-    if (item.id || item.orderNumber || item.allocationNo || item.buyer) {
-      yarnAllocations.push(item);
-    }
+    yarnAllocations.push(item);
   }
   return yarnAllocations;
 }
@@ -931,7 +1020,11 @@ function getLedgerRecordsInternal(ss) {
   var sheet = getLedgerSheetInternal(ss);
   if (!sheet) return [];
 
-  var data = sheet.getDataRange().getValues();
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return [];
+
+  var data = sheet.getRange(1, 1, lastRow, lastCol).getValues();
   if (!data || data.length < 2) return [];
 
   var tz = "GMT+6";
@@ -945,6 +1038,18 @@ function getLedgerRecordsInternal(ss) {
 
   for (var i = 1; i < data.length; i++) {
     var row = data[i];
+
+    // Fast check: skip completely empty rows without iterating 56 columns
+    var hasAnyCell = false;
+    for (var c = 0; c < row.length; c++) {
+      var cellVal = row[c];
+      if (cellVal !== "" && cellVal !== null && cellVal !== undefined) {
+        hasAnyCell = true;
+        break;
+      }
+    }
+    if (!hasAnyCell) continue;
+
     var item = {};
     for (var j = 0; j < normalizedHeaders.length; j++) {
       var val = row[j];
@@ -952,14 +1057,20 @@ function getLedgerRecordsInternal(ss) {
         val = formatDateCell(val, tz);
       }
       var propKey = normalizedHeaders[j] || ("col_" + j);
-      item[propKey] = val;
+      if (val !== "" && val !== null && val !== undefined) {
+        item[propKey] = val;
+      }
     }
+
+    // Meaningful validation: must have at least Date, Floor, Unit, Target, or Production
+    if (!item.date && !item.floor && !item.unit && !item.target && !item.totalProduction && !item.bulkProd && !item.runningMachine && !item.id) {
+      continue;
+    }
+
     if (!item.id || item.id === "") {
-      item.id = "rec-" + (item.date || "nodate") + "-" + (item.floor || "unit") + "-" + i;
+      item.id = "rec-" + (item.date || "nodate") + "-" + (item.floor || item.unit || "unit") + "-" + i;
     }
-    if (item.id || item.date || item.floor) {
-      ledgerRecords.push(item);
-    }
+    ledgerRecords.push(item);
   }
   return ledgerRecords;
 }
