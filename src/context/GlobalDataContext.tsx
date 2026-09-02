@@ -692,14 +692,14 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
 
     // 2. Direct Supabase Cloud Save (Live across all devices in <50ms)
-    const supabaseSaved = await SupabaseSync.saveProductionRecord(record);
+    const supabaseResult = await SupabaseSync.saveProductionRecord(record);
 
     // 3. Fallback background sync
     executeKeepaliveMutation('ledger/save', { ledger: [record], replace: false }).catch(() => {});
 
     return {
       success: true,
-      message: supabaseSaved ? 'Production record saved live to Supabase' : 'Production record saved'
+      message: supabaseResult.success ? 'Production record saved live to Supabase' : `Saved locally (${supabaseResult.error || 'offline'})`
     };
   };
 
@@ -800,12 +800,12 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
 
     // Bulk save to Supabase
-    const supabaseSaved = await SupabaseSync.bulkSaveProductionRecords(records);
+    const supabaseResult = await SupabaseSync.bulkSaveProductionRecords(records);
     executeKeepaliveMutation('ledger/save', { ledger: records, replace }).catch(() => {});
 
     return {
       success: true,
-      message: supabaseSaved ? 'Bulk saved to Supabase' : 'Saved'
+      message: supabaseResult.success ? `Saved ${supabaseResult.count} records to Supabase` : `Saved locally (${supabaseResult.error || 'offline'})`
     };
   };
 

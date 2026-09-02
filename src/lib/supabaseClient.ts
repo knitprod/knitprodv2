@@ -33,17 +33,16 @@ export class SupabaseSync {
       ? import.meta.env.VITE_SUPABASE_ANON_KEY.trim()
       : '';
 
+    let storedUrl = '';
+    let storedKey = '';
     if (typeof localStorage !== 'undefined') {
-      // Clean up legacy plain keys from localStorage if present
-      if (localStorage.getItem('supabase_url') || localStorage.getItem('supabase_anon_key')) {
-        localStorage.removeItem('supabase_url');
-        localStorage.removeItem('supabase_anon_key');
-      }
+      storedUrl = localStorage.getItem('epyllion_supabase_url') || '';
+      storedKey = localStorage.getItem('epyllion_supabase_anon_key') || '';
     }
 
     const config = {
-      supabaseUrl: envUrl || this.DEFAULT_SUPABASE_URL || '',
-      supabaseKey: envKey || this.DEFAULT_SUPABASE_KEY || ''
+      supabaseUrl: storedUrl || envUrl || this.DEFAULT_SUPABASE_URL || '',
+      supabaseKey: storedKey || envKey || this.DEFAULT_SUPABASE_KEY || ''
     };
 
     this.cachedConfig = config;
@@ -129,8 +128,8 @@ export class SupabaseSync {
     const cleanKey = key.trim();
 
     if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem('supabase_url');
-      localStorage.removeItem('supabase_anon_key');
+      if (cleanUrl) localStorage.setItem('epyllion_supabase_url', cleanUrl);
+      if (cleanKey) localStorage.setItem('epyllion_supabase_anon_key', cleanKey);
     }
 
     this.cachedConfig = { supabaseUrl: cleanUrl, supabaseKey: cleanKey };
@@ -185,28 +184,33 @@ export class SupabaseSync {
         auth: { persistSession: false }
       });
 
-      // Test querying users table
-      const { data, error } = await testClient.from('users').select('id, uid').limit(1);
-      if (error) {
-        if (error.code === '42P01') {
-          return { 
-            success: false, 
-            message: 'Connected to Supabase project, but the tables (users, app_settings, activity_logs) are missing. Please run the SQL schema in your Supabase SQL Editor.' 
-          };
-        }
-        if (error.code === 'PGRST301' || error.message?.includes('JWT') || error.message?.includes('apikey')) {
-          return { 
-            success: false, 
-            message: `Invalid API Key: ${error.message}. Please double-check you copied the "anon public" key from Project Settings > API.` 
-          };
-        }
-        return { success: false, message: `Database query error: ${error.message} (${error.code || ''})` };
+      // Test querying production_ledger and users tables
+      const { error: ledgerError } = await testClient.from('production_ledger').select('id').limit(1);
+      const { error: userError } = await testClient.from('users').select('id').limit(1);
+
+      if (ledgerError && (ledgerError.code === 'PGRST301' || ledgerError.message?.includes('JWT') || ledgerError.message?.includes('apikey'))) {
+        return { 
+          success: false, 
+          message: `Invalid API Key: ${ledgerError.message}. Please double-check you copied the "anon public" key from Project Settings > API.` 
+        };
+      }
+
+      const tablesFound: string[] = [];
+      if (!ledgerError) tablesFound.push('production_ledger');
+      if (!userError) tablesFound.push('users');
+
+      if (ledgerError && ledgerError.code === '42P01') {
+        return { 
+          success: true, 
+          message: 'Connected to Supabase project! Note: The "production_ledger" table was not found yet. Please click "Copy Complete Setup SQL" and run it in your Supabase SQL Editor.',
+          tables: tablesFound
+        };
       }
 
       return { 
         success: true, 
-        message: 'Successfully connected to Supabase! The users table and permissions are verified.',
-        tables: ['users', 'app_settings', 'activity_logs']
+        message: `Successfully connected to Supabase! Verified table: production_ledger (${tablesFound.join(', ')} ready). Real-time WebSockets active.`,
+        tables: tablesFound
       };
     } catch (err: any) {
       return { success: false, message: `Network / Connection error: ${err.message || String(err)}` };
@@ -692,12 +696,37 @@ export class SupabaseSync {
   // ==========================================
 
   /**
+   * Helper to format date into ISO YYYY-MM-DD for standard SQL DATE / TEXT columns
+   */
+  static formatSqlDate(rawDate: any): string {
+    if (!rawDate) return new Date().toISOString().split('T')[0];
+    const s = String(rawDate).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+    // Handle DD-MM-YYYY or DD/MM/YYYY
+    const parts = s.split(/[-/]/);
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+      } else if (parts[2].length === 4) {
+        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      }
+    }
+
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      return d.toISOString().split('T')[0];
+    }
+    return s;
+  }
+
+  /**
    * Converts a Supabase PostgreSQL row into an app LedgerRecord
    */
   static mapRowToLedgerRecord(row: any): LedgerRecord {
     const raw = row.raw_data || {};
     return {
-      id: String(row.id),
+      id: String(row.id || ''),
       unit: row.unit || raw.unit || '',
       year: Number(row.year || raw.year || 2026),
       month: row.month || raw.month || '',
@@ -746,7 +775,7 @@ export class SupabaseSync {
       absentPct: Number(row.absent_pct ?? raw.absentPct ?? 0),
       productionFlatKnit: Number(row.production_flat_knit ?? raw.productionFlatKnit ?? 0),
       achievmentCircular: Number(row.achievment_circular ?? raw.achievmentCircular ?? 0),
-      otd: row.otd || raw.otd || '',
+      otd: String(row.otd ?? raw.otd ?? ''),
       yarnIssued: Number(row.yarn_issued ?? raw.yarnIssued ?? 0),
       totalRunningFactories: Number(row.total_running_factories ?? raw.totalRunningFactories ?? 0),
       numberVehicles: Number(row.number_vehicles ?? raw.numberVehicles ?? 0),
@@ -761,66 +790,67 @@ export class SupabaseSync {
   /**
    * Converts an app LedgerRecord into a Supabase PostgreSQL row
    */
-  static mapLedgerRecordToRow(record: LedgerRecord): any {
+  static mapLedgerRecordToRow(record: LedgerRecord): Record<string, any> {
     const rawId = String(record.id || `rec-${record.date}-${(record.floor || record.unit || 'unit').toLowerCase().replace(/[^a-z0-9]/g, '-')}-${Date.now()}`);
+    const otdNum = parseFloat(String(record.otd || 0)) || 0;
+
     return {
       id: rawId,
-      unit: record.unit || '',
-      year: Number(record.year) || 2026,
-      month: record.month || '',
-      date: record.date || '',
-      day: record.day || '',
-      floor: record.floor || '',
-      target: Number(record.target || 0),
-      shift_a: Number(record.shiftA || 0),
-      shift_b: Number(record.shiftB || 0),
-      shift_c: Number(record.shiftC || 0),
-      total_production: Number(record.totalProduction || 0),
-      target_bulk: Number(record.targetBulk || 0),
-      bulk_prod: Number(record.bulkProd || 0),
-      sample_prod: Number(record.sampleProd || 0),
-      total_machines: Number(record.totalMachines || 0),
-      running_machine: Number(record.runningMachine || 0),
-      running_bulk: Number(record.runningBulk || 0),
-      running_sample: Number(record.runningSample || 0),
-      idle_mc: Number(record.idleMc || 0),
-      machine_utilization: Number(record.machineUtilization || 0),
-      idle_mc_pct: Number(record.idleMcPct || 0),
-      prod_loss_for_sample: Number(record.prodLossForSample || 0),
-      idle_production: Number(record.idleProduction || 0),
-      efficiency: Number(record.efficiency || 0),
-      pro_per_mc: Number(record.proPerMc || 0),
-      reject: Number(record.reject || 0),
-      reject_pct: Number(record.rejectPct || 0),
-      hold: Number(record.hold || 0),
-      hold_pct: Number(record.holdPct || 0),
-      jhute_cutpcs: Number(record.jhuteCutpcs || 0),
-      jhute_cutpcs_pct: Number(record.jhuteCutpcsPct || 0),
-      needle_broken: Number(record.needleBroken || 0),
-      needle_per_kg: Number(record.needlePerKg || 0),
-      sinker_broken: Number(record.sinkerBroken || 0),
-      sinker_per_kg: Number(record.sinkerPerKg || 0),
-      oil_consumption: Number(record.oilConsumption || 0),
-      belt_broken: Number(record.beltBroken || 0),
-      other_spare_parts_name: record.otherSparePartsName || '',
-      other_spare_parts_qty: Number(record.otherSparePartsQty || 0),
-      set_change_needle: Number(record.setChangeNeedle || 0),
-      set_change_sinker: Number(record.setChangeSinker || 0),
-      production_loss_for_eff: Number(record.productionLossForEff || 0),
-      capacity_utilization: Number(record.capacityUtilization || 0),
-      total_operator: Number(record.totalOperator || 0),
-      absent: Number(record.absent || 0),
-      absent_pct: Number(record.absentPct || 0),
-      production_flat_knit: Number(record.productionFlatKnit || 0),
-      achievment_circular: Number(record.achievmentCircular || 0),
-      otd: String(record.otd || ''),
-      yarn_issued: Number(record.yarnIssued || 0),
-      total_running_factories: Number(record.totalRunningFactories || 0),
-      number_vehicles: Number(record.numberVehicles || 0),
-      fabric_return: Number(record.fabricReturn || 0),
-      remarks: record.remarks || '',
-      updated_by: record.updatedBy || '',
-      raw_data: record,
+      unit: String(record.unit || ''),
+      year: parseInt(String(record.year || 2026), 10) || 2026,
+      month: String(record.month || ''),
+      date: this.formatSqlDate(record.date),
+      day: String(record.day || ''),
+      floor: String(record.floor || ''),
+      target: parseFloat(String(record.target || 0)) || 0,
+      shift_a: parseFloat(String(record.shiftA || 0)) || 0,
+      shift_b: parseFloat(String(record.shiftB || 0)) || 0,
+      shift_c: parseFloat(String(record.shiftC || 0)) || 0,
+      total_production: parseFloat(String(record.totalProduction || 0)) || 0,
+      target_bulk: parseFloat(String(record.targetBulk || 0)) || 0,
+      bulk_prod: parseFloat(String(record.bulkProd || 0)) || 0,
+      sample_prod: parseFloat(String(record.sampleProd || 0)) || 0,
+      total_machines: parseInt(String(record.totalMachines || 0), 10) || 0,
+      running_machine: parseInt(String(record.runningMachine || 0), 10) || 0,
+      running_bulk: parseInt(String(record.runningBulk || 0), 10) || 0,
+      running_sample: parseInt(String(record.runningSample || 0), 10) || 0,
+      idle_mc: parseInt(String(record.idleMc || 0), 10) || 0,
+      machine_utilization: parseFloat(String(record.machineUtilization || 0)) || 0,
+      idle_mc_pct: parseFloat(String(record.idleMcPct || 0)) || 0,
+      prod_loss_for_sample: parseFloat(String(record.prodLossForSample || 0)) || 0,
+      idle_production: parseFloat(String(record.idleProduction || 0)) || 0,
+      efficiency: parseFloat(String(record.efficiency || 0)) || 0,
+      pro_per_mc: parseFloat(String(record.proPerMc || 0)) || 0,
+      reject: parseFloat(String(record.reject || 0)) || 0,
+      reject_pct: parseFloat(String(record.rejectPct || 0)) || 0,
+      hold: parseFloat(String(record.hold || 0)) || 0,
+      hold_pct: parseFloat(String(record.holdPct || 0)) || 0,
+      jhute_cutpcs: parseFloat(String(record.jhuteCutpcs || 0)) || 0,
+      jhute_cutpcs_pct: parseFloat(String(record.jhuteCutpcsPct || 0)) || 0,
+      needle_broken: parseFloat(String(record.needleBroken || 0)) || 0,
+      needle_per_kg: parseFloat(String(record.needlePerKg || 0)) || 0,
+      sinker_broken: parseFloat(String(record.sinkerBroken || 0)) || 0,
+      sinker_per_kg: parseFloat(String(record.sinkerPerKg || 0)) || 0,
+      oil_consumption: parseFloat(String(record.oilConsumption || 0)) || 0,
+      belt_broken: parseFloat(String(record.beltBroken || 0)) || 0,
+      other_spare_parts_name: String(record.otherSparePartsName || ''),
+      other_spare_parts_qty: parseFloat(String(record.otherSparePartsQty || 0)) || 0,
+      set_change_needle: parseFloat(String(record.setChangeNeedle || 0)) || 0,
+      set_change_sinker: parseFloat(String(record.setChangeSinker || 0)) || 0,
+      production_loss_for_eff: parseFloat(String(record.productionLossForEff || 0)) || 0,
+      capacity_utilization: parseFloat(String(record.capacityUtilization || 0)) || 0,
+      total_operator: parseFloat(String(record.totalOperator || 0)) || 0,
+      absent: parseFloat(String(record.absent || 0)) || 0,
+      absent_pct: parseFloat(String(record.absentPct || 0)) || 0,
+      production_flat_knit: parseFloat(String(record.productionFlatKnit || 0)) || 0,
+      achievment_circular: parseFloat(String(record.achievmentCircular || 0)) || 0,
+      otd: otdNum,
+      yarn_issued: parseFloat(String(record.yarnIssued || 0)) || 0,
+      total_running_factories: parseInt(String(record.totalRunningFactories || 0), 10) || 0,
+      number_vehicles: parseInt(String(record.numberVehicles || 0), 10) || 0,
+      fabric_return: parseFloat(String(record.fabricReturn || 0)) || 0,
+      remarks: String(record.remarks || ''),
+      updated_by: String(record.updatedBy || ''),
       updated_at: new Date().toISOString()
     };
   }
@@ -855,58 +885,60 @@ export class SupabaseSync {
   /**
    * Save or update a single production ledger record in Supabase
    */
-  static async saveProductionRecord(record: LedgerRecord): Promise<boolean> {
+  static async saveProductionRecord(record: LedgerRecord): Promise<{ success: boolean; error?: string }> {
     const client = this.getClient();
-    if (!client) return false;
+    if (!client) return { success: false, error: 'Supabase client is not initialized or credentials missing.' };
 
     try {
       const row = this.mapLedgerRecordToRow(record);
       const { error } = await client.from('production_ledger').upsert(row, { onConflict: 'id' });
       if (error) {
-        console.warn('Supabase saveProductionRecord warning:', error.message);
-        // Fallback with minimal row if column mismatch occurs
-        const fallbackRow = {
-          id: row.id,
-          date: row.date,
-          floor: row.floor,
-          target: row.target,
-          total_production: row.total_production,
-          raw_data: record,
-          updated_at: new Date().toISOString()
-        };
-        await client.from('production_ledger').upsert(fallbackRow, { onConflict: 'id' });
+        console.error('Supabase saveProductionRecord error:', error);
+        return { success: false, error: error.message };
       }
-      return true;
-    } catch (err) {
-      console.warn('Supabase saveProductionRecord exception:', err);
-      return false;
+      return { success: true };
+    } catch (err: any) {
+      console.error('Supabase saveProductionRecord exception:', err);
+      return { success: false, error: err.message || String(err) };
     }
   }
 
   /**
    * Bulk save/upsert an array of production records into Supabase
    */
-  static async bulkSaveProductionRecords(records: LedgerRecord[]): Promise<boolean> {
+  static async bulkSaveProductionRecords(records: LedgerRecord[]): Promise<{ success: boolean; count: number; error?: string }> {
     const client = this.getClient();
-    if (!client || !records || records.length === 0) return false;
+    if (!client) {
+      return { success: false, count: 0, error: 'Supabase client is not initialized. Please verify your Project URL and Anon Key in Database Settings.' };
+    }
+    if (!records || records.length === 0) {
+      return { success: true, count: 0 };
+    }
 
     try {
       const rows = records.map(r => this.mapLedgerRecordToRow(r));
       
-      // Batch into chunks of 100 to avoid payload limits
-      const chunkSize = 100;
+      // Batch into chunks of 50 to ensure high reliability
+      const chunkSize = 50;
+      let insertedCount = 0;
       for (let i = 0; i < rows.length; i += chunkSize) {
         const chunk = rows.slice(i, i + chunkSize);
         const { error } = await client.from('production_ledger').upsert(chunk, { onConflict: 'id' });
         if (error) {
-          console.warn(`Supabase bulkSave chunk ${i} notice:`, error.message);
+          console.error(`Supabase bulkSave chunk ${i} error:`, error);
+          return { 
+            success: false, 
+            count: insertedCount, 
+            error: `Failed to insert chunk at row ${i}: ${error.message} (${error.code || ''})` 
+          };
         }
+        insertedCount += chunk.length;
       }
 
-      return true;
-    } catch (err) {
-      console.warn('Supabase bulkSaveProductionRecords error:', err);
-      return false;
+      return { success: true, count: insertedCount };
+    } catch (err: any) {
+      console.error('Supabase bulkSaveProductionRecords error:', err);
+      return { success: false, count: 0, error: err.message || String(err) };
     }
   }
 

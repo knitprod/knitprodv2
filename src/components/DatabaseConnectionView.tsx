@@ -90,12 +90,12 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
     setIsMigratingLedger(true);
     setMigrateStatus("Migrating Production Ledger to Supabase...");
     try {
-      const ok = await SupabaseSync.bulkSaveProductionRecords(ledger);
-      if (ok) {
-        setMigrateStatus(`Successfully migrated ${ledger.length} records to Supabase! Live WebSockets active.`);
-        if (onSuccessNotice) onSuccessNotice(`Transferred ${ledger.length} Production Ledger records to Supabase!`);
+      const res = await SupabaseSync.bulkSaveProductionRecords(ledger);
+      if (res.success) {
+        setMigrateStatus(`Successfully migrated ${res.count} records to Supabase! Live WebSockets active.`);
+        if (onSuccessNotice) onSuccessNotice(`Transferred ${res.count} Production Ledger records to Supabase!`);
       } else {
-        setMigrateStatus("Notice: Ensure you ran the Supabase SQL schema in Supabase SQL Editor first.");
+        setMigrateStatus(`Error transferring records: ${res.error || 'Check Supabase SQL Editor and table structure.'}`);
       }
     } catch (err: any) {
       setMigrateStatus(`Migration notice: ${err.message || String(err)}`);
