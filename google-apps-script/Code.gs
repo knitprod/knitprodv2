@@ -17,8 +17,8 @@
 // ==========================================================
 // CONFIGURATION & GLOBAL CONSTANTS
 // ==========================================================
-var VERSION = "5.2.0-HighPerf";
-var CACHE_TTL_SECONDS = 60; // 60-second read cache
+var VERSION = "5.3.0-RealtimeSync";
+var CACHE_TTL_SECONDS = 5; // 5-second short debounce cache so sheet edits reflect in real time
 var LOCK_TIMEOUT_MS = 30000; // 30,000ms timeout for script write lock
 
 // Cache keys for automatic invalidation

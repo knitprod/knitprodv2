@@ -53,7 +53,7 @@ export interface GlobalDataContextType {
 
 const GlobalDataContext = createContext<GlobalDataContextType | null>(null);
 
-const POLLING_INTERVAL_MS = 60000; // 60 seconds smart silent polling (paused when tab hidden)
+const POLLING_INTERVAL_MS = 12000; // 12 seconds responsive background polling (paused when tab hidden)
 
 /**
  * Executes a write mutation against /api/sheets with keepalive to prevent tab-close data loss.
