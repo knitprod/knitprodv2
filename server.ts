@@ -642,7 +642,7 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
     }
 
     if (req.method === 'GET') {
-      res.setHeader('Cache-Control', 'public, s-maxage=5, stale-while-revalidate=10');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
 
       const action = String(req.query.action || 'all');
       const forceRefresh = req.query.refresh === 'true';
@@ -650,8 +650,8 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
       const now = Date.now();
       const cached = gasProxyCache.get(cacheKey);
 
-      // Return instant short debounce cache if fresh (<5s) and not force-refreshed
-      if (!forceRefresh && cached && (now - cached.timestamp < CACHE_TTL_MS)) {
+      // Return instant debounce cache if fresh (<2s) and not force-refreshed
+      if (!forceRefresh && cached && (now - cached.timestamp < 2000)) {
         return res.json(cached.data);
       }
 

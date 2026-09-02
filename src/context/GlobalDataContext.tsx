@@ -258,6 +258,10 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const deletedOrderIdsRef = useRef<Set<string>>(new Set());
   const deletedYarnIdsRef = useRef<Set<string>>(new Set());
 
+  // Track recently mutated ledger record keys with timestamp to protect optimistic updates from stale polling responses
+  const pendingLedgerMutationsRef = useRef<Map<string, { record: LedgerRecord; timestamp: number }>>(new Map());
+  const lastMutationTimeRef = useRef<number>(0);
+
   // Filter out any locally deleted records
   const filterDeletedLedger = useCallback((records: LedgerRecord[]): LedgerRecord[] => {
     if (!Array.isArray(records)) return [];
@@ -481,7 +485,43 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             });
           }
           if (Array.isArray(rLedger) && rLedger.length > 0) {
-            const cleanLedger = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(rLedger)));
+            let cleanLedger = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(rLedger)));
+
+            // Re-apply any recent local mutations (< 45s old) that may not have completed propagation to Google Sheets
+            const now = Date.now();
+            const recentMutations: LedgerRecord[] = [];
+            pendingLedgerMutationsRef.current.forEach((val, key) => {
+              if (now - val.timestamp < 45000) {
+                recentMutations.push(val.record);
+              } else {
+                pendingLedgerMutationsRef.current.delete(key);
+              }
+            });
+
+            if (recentMutations.length > 0) {
+              const ledgerMap = new Map<string, LedgerRecord>();
+              cleanLedger.forEach(r => {
+                const dKey = normalizeDateKey(r.date);
+                const fKey = normalizeFloorKey(r.floor || r.unit || '');
+                const k = (dKey && fKey) ? `${dKey}_${fKey}` : (r.id || '');
+                if (k) ledgerMap.set(k, r);
+              });
+
+              // Overlay recent mutations so they are never reverted
+              recentMutations.forEach(m => {
+                const dKey = normalizeDateKey(m.date);
+                const fKey = normalizeFloorKey(m.floor || m.unit || '');
+                const k = (dKey && fKey) ? `${dKey}_${fKey}` : (m.id || '');
+                if (k) {
+                  ledgerMap.set(k, m);
+                } else {
+                  cleanLedger.unshift(m);
+                }
+              });
+
+              cleanLedger = Array.from(ledgerMap.values());
+            }
+
             setLedger(prev => {
               if (prev.length !== cleanLedger.length || JSON.stringify(prev) !== JSON.stringify(cleanLedger)) {
                 setFloors(fl => recalculateFloorsFromLedger(fl, cleanLedger));
@@ -633,6 +673,11 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const fKey = normalizeFloorKey(record.floor || record.unit || '');
     if (dKey && fKey) deletedLedgerCompositeKeysRef.current.delete(`${dKey}_${fKey}`);
 
+    // Register into pending mutations tracking so background polling cannot overwrite this update
+    const mutKey = (dKey && fKey) ? `${dKey}_${fKey}` : (record.id || `mut-${Date.now()}`);
+    pendingLedgerMutationsRef.current.set(mutKey, { record, timestamp: Date.now() });
+    lastMutationTimeRef.current = Date.now();
+
     setLedger(prev => {
       // Find matching record by ID first, or by identical Date + Floor to prevent duplicate rows
       const targetDateKey = normalizeDateKey(record.date);
@@ -655,11 +700,17 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const deleteLedgerRecord = async (id: string, recordInfo?: { date?: string; floor?: string }) => {
-    if (id) deletedLedgerIdsRef.current.add(id);
+    if (id) {
+      deletedLedgerIdsRef.current.add(id);
+      pendingLedgerMutationsRef.current.delete(id);
+    }
     if (recordInfo?.date && recordInfo?.floor) {
       const dKey = normalizeDateKey(recordInfo.date);
       const fKey = normalizeFloorKey(recordInfo.floor);
-      if (dKey && fKey) deletedLedgerCompositeKeysRef.current.add(`${dKey}_${fKey}`);
+      if (dKey && fKey) {
+        deletedLedgerCompositeKeysRef.current.add(`${dKey}_${fKey}`);
+        pendingLedgerMutationsRef.current.delete(`${dKey}_${fKey}`);
+      }
     }
 
     setLedger(prev => {
@@ -667,7 +718,10 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (targetRecord) {
         const dKey = normalizeDateKey(targetRecord.date);
         const fKey = normalizeFloorKey(targetRecord.floor || targetRecord.unit || '');
-        if (dKey && fKey) deletedLedgerCompositeKeysRef.current.add(`${dKey}_${fKey}`);
+        if (dKey && fKey) {
+          deletedLedgerCompositeKeysRef.current.add(`${dKey}_${fKey}`);
+          pendingLedgerMutationsRef.current.delete(`${dKey}_${fKey}`);
+        }
       }
 
       const next = prev.filter(r => {
@@ -693,12 +747,17 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const bulkSaveLedgerRecords = async (records: LedgerRecord[], replace: boolean = false) => {
+    const now = Date.now();
     records.forEach(r => {
       if (r.id) deletedLedgerIdsRef.current.delete(r.id);
       const dKey = normalizeDateKey(r.date);
       const fKey = normalizeFloorKey(r.floor || r.unit || '');
-      if (dKey && fKey) deletedLedgerCompositeKeysRef.current.delete(`${dKey}_${fKey}`);
+      if (dKey && fKey) {
+        deletedLedgerCompositeKeysRef.current.delete(`${dKey}_${fKey}`);
+        pendingLedgerMutationsRef.current.set(`${dKey}_${fKey}`, { record: r, timestamp: now });
+      }
     });
+    lastMutationTimeRef.current = now;
 
     setLedger(prev => {
       if (replace) {
