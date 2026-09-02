@@ -103,12 +103,15 @@ export const isUserAuthorizedForFloor = (user: UserRecord | null | undefined, fl
  */
 export const normalizeDateKey = (dateStr: string | null | undefined): string => {
   if (!dateStr) return '';
-  const trimmed = dateStr.trim();
+  const trimmed = String(dateStr).trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
 
-  // Handle M/D/YYYY or MM/DD/YYYY or DD/MM/YYYY
-  if (/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}$/.test(trimmed)) {
-    const parts = trimmed.split(/[\/\-\.]/);
+  // Strip ordinal suffixes like 31st, 1st, 2nd, 3rd, 4th -> 31, 1, 2, 3, 4
+  const cleanSuffix = trimmed.replace(/(\d+)(st|nd|rd|th)/gi, '$1');
+
+  // Handle M/D/YYYY or MM/DD/YYYY or DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+  if (/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}$/.test(cleanSuffix)) {
+    const parts = cleanSuffix.split(/[\/\-\.]/);
     const p0 = parseInt(parts[0], 10);
     const p1 = parseInt(parts[1], 10);
     const p2 = parseInt(parts[2], 10);
@@ -119,7 +122,13 @@ export const normalizeDateKey = (dateStr: string | null | undefined): string => 
     return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
   }
 
-  const d = new Date(trimmed);
+  // Handle ISO strings (e.g. 2026-08-31T00:00:00.000Z)
+  if (cleanSuffix.includes('T')) {
+    const isoDate = cleanSuffix.split('T')[0];
+    if (/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return isoDate;
+  }
+
+  const d = new Date(cleanSuffix);
   if (!isNaN(d.getTime())) {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');

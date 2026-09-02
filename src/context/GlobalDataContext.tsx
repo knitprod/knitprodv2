@@ -137,16 +137,18 @@ function sanitizeLedgerRecords(records: LedgerRecord[]): LedgerRecord[] {
   return records
     .filter((r: LedgerRecord) => r.id !== 'rec-2026-08-11-extension')
     .map((r: LedgerRecord) => {
-      if (r.id === 'rec-2026-08-26-efl-extension-1787807712863' || (r.date === '2026-08-26' && (r.floor === 'EFL-Extension' || r.unit === 'EFL-Extension'))) {
+      const cleanDate = normalizeDateKey(r.date) || r.date;
+      const record = { ...r, date: cleanDate };
+      if (r.id === 'rec-2026-08-26-efl-extension-1787807712863' || (cleanDate === '2026-08-26' && (r.floor === 'EFL-Extension' || r.unit === 'EFL-Extension'))) {
         return {
-          ...r,
+          ...record,
           target: 2160,
           targetBulk: 2160,
           idleProduction: 900,
           efficiency: 134.91
         };
       }
-      return r;
+      return record;
     });
 }
 

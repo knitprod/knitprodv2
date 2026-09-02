@@ -482,6 +482,36 @@ function formatDateCell(val, tz) {
   if (strVal.match(/^\d{4}-\d{2}-\d{2}/)) {
     return strVal.substring(0, 10);
   }
+
+  // Strip ordinal suffixes like 31st, 1st, 2nd, 3rd, 4th
+  var cleanSuffix = strVal.replace(/(\d+)(st|nd|rd|th)/gi, "$1");
+
+  // Handle DD/MM/YYYY or DD-MM-YYYY or MM/DD/YYYY
+  if (cleanSuffix.match(/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4}$/)) {
+    var parts = cleanSuffix.split(/[\/\-\.]/);
+    var p0 = parseInt(parts[0], 10);
+    var p1 = parseInt(parts[1], 10);
+    var p2 = parseInt(parts[2], 10);
+    var y = p2;
+    var m = p0 > 12 ? p1 : p0;
+    var d = p0 > 12 ? p0 : p1;
+    return y + "-" + ("0" + m).slice(-2) + "-" + ("0" + d).slice(-2);
+  }
+
+  // Handle ISO timestamp or text dates (e.g. 31 Aug 2026, August 31 2026)
+  if (cleanSuffix.indexOf("T") >= 0) {
+    var isoPart = cleanSuffix.split("T")[0];
+    if (isoPart.match(/^\d{4}-\d{2}-\d{2}$/)) return isoPart;
+  }
+
+  var parsedDate = new Date(cleanSuffix);
+  if (!isNaN(parsedDate.getTime())) {
+    var py = parsedDate.getFullYear();
+    var pm = ("0" + (parsedDate.getMonth() + 1)).slice(-2);
+    var pd = ("0" + parsedDate.getDate()).slice(-2);
+    return py + "-" + pm + "-" + pd;
+  }
+
   return strVal;
 }
 

@@ -58,7 +58,8 @@ import {
   isUserAuthorizedForFloor,
   hasUserWritePermissionForTab,
   findDuplicateProductionRecord,
-  normalizeFloorKey
+  normalizeFloorKey,
+  normalizeDateKey
 } from '../lib/userPermissions';
 import { 
   getTargetKgForUnit, 
@@ -1180,7 +1181,10 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
   // Enriched ledger state mapping live settings onto all records dynamically
   const enrichedLedger = useMemo(() => {
-    return ledger.map(recalculateRecordFields);
+    return ledger.map((r) => {
+      const normDate = normalizeDateKey(r.date) || r.date;
+      return recalculateRecordFields({ ...r, date: normDate });
+    });
   }, [ledger, unitConfigs]);
 
   // Helper to compute current running month date range (e.g. 2026-08-01 to 2026-08-31)
