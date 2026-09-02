@@ -329,16 +329,13 @@ export function calculateComprehensiveMetrics(
     periodTotalCapacity = calculateLedgerPeriodCapacity(appliedUnit, effectiveDays, ihRows);
 
     // 4. In-House Total Machines from settings store
+    const inHouseConfigs = getUnitConfigs().filter(u => !u.unitName.toLowerCase().includes('sub'));
+    const totalConfiguredInHouseMachines = inHouseConfigs.reduce((sum, u) => sum + Number(u.totalMachine || 0), 0) || 222;
+
     if (appliedUnit !== 'all' && !appliedUnit.toLowerCase().includes('in-house')) {
       inHouseTotalMachines = getTotalMachinesForUnit(appliedUnit, 66);
     } else {
-      const distinctFloors = Array.from(new Set(ihRows.map(r => r.floor).filter(Boolean))) as string[];
-      if (distinctFloors.length > 0) {
-        inHouseTotalMachines = distinctFloors.reduce((sum: number, f: string) => sum + getTotalMachinesForUnit(f, 45), 0);
-      } else {
-        const inHouseConfigs = getUnitConfigs().filter(u => !u.unitName.toLowerCase().includes('sub'));
-        inHouseTotalMachines = inHouseConfigs.reduce((sum, u) => sum + Number(u.totalMachine || 0), 0) || (filteredRows.length > 0 ? 261 : 0);
-      }
+      inHouseTotalMachines = totalConfiguredInHouseMachines;
     }
 
     // Daily machine averages

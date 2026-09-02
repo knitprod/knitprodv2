@@ -613,16 +613,13 @@ export default function App() {
         const capacity = calculateLedgerCapacityUtilization(ihRows, activeUnit, effectiveDays);
 
         let totalMachines = 0;
+        const inHouseConfigs = getUnitConfigs().filter(u => !u.unitName.toLowerCase().includes('sub'));
+        const totalConfiguredInHouseMachines = inHouseConfigs.reduce((sum, u) => sum + Number(u.totalMachine || 0), 0) || 222;
+
         if (activeUnit !== 'all' && !activeUnit.toLowerCase().includes('in-house')) {
           totalMachines = getTotalMachinesForUnit(activeUnit, 66);
         } else {
-          const distinctFloors = Array.from(new Set(ihRows.map(r => r.floor).filter(Boolean))) as string[];
-          if (distinctFloors.length > 0) {
-            totalMachines = distinctFloors.reduce((sum: number, f: string) => sum + getTotalMachinesForUnit(f, 45), 0);
-          } else {
-            const inHouseConfigs = getUnitConfigs().filter(u => !u.unitName.toLowerCase().includes('sub'));
-            totalMachines = inHouseConfigs.reduce((sum, u) => sum + Number(u.totalMachine || 0), 0) || 261;
-          }
+          totalMachines = totalConfiguredInHouseMachines;
         }
 
         const inHouseRunning = ihRows.reduce((sum, r) => sum + Number(r.runningMachine || 0), 0);

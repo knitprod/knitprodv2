@@ -1898,16 +1898,13 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     // ----------------------------------------------------
     // In-House: Total Machine from Setting Panel
     let inHouseTotalMachines = 0;
-    if (appliedUnit !== 'all') {
+    const inHouseConfigs = getUnitConfigs().filter(u => !u.unitName.toLowerCase().includes('sub'));
+    const totalConfiguredInHouseMachines = inHouseConfigs.reduce((sum, u) => sum + Number(u.totalMachine || 0), 0) || 222;
+
+    if (appliedUnit !== 'all' && !appliedUnit.toLowerCase().includes('in-house')) {
       inHouseTotalMachines = getTotalMachinesForUnit(appliedUnit, 66);
     } else {
-      const distinctFloors = Array.from(new Set(inHouseRecords.map(r => r.floor).filter(Boolean))) as string[];
-      if (distinctFloors.length > 0) {
-        inHouseTotalMachines = distinctFloors.reduce((sum: number, f: string) => sum + getTotalMachinesForUnit(f, 45), 0);
-      } else {
-        const inHouseConfigs = getUnitConfigs().filter(u => !u.unitName.toLowerCase().includes('sub'));
-        inHouseTotalMachines = inHouseConfigs.reduce((sum, u) => sum + Number(u.totalMachine || 0), 0) || (inHouseRecords.length > 0 ? 261 : 0);
-      }
+      inHouseTotalMachines = totalConfiguredInHouseMachines;
     }
 
     // In-House Daily Sums for Averages

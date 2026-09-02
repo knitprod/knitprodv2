@@ -306,17 +306,14 @@ export default function KPICards({ kpis, filterState }: KPICardsProps) {
 
   // Machine Status
   let inHouseTotalMachines = 0;
+  const inHouseConfigs = getUnitConfigs().filter(u => !u.unitName.toLowerCase().includes('sub'));
+  const totalConfiguredInHouseMachines = inHouseConfigs.reduce((sum, u) => sum + Number(u.totalMachine || 0), 0) || 222;
+
   const activeUnitFilter = filterState?.unit;
-  if (activeUnitFilter && activeUnitFilter !== 'all') {
+  if (activeUnitFilter && activeUnitFilter !== 'all' && !activeUnitFilter.toLowerCase().includes('in-house')) {
     inHouseTotalMachines = getTotalMachinesForUnit(activeUnitFilter, 66);
   } else {
-    const distinctFloors = Array.from(new Set(inHouseRecords.map(r => r.floor).filter(Boolean))) as string[];
-    if (distinctFloors.length > 0) {
-      inHouseTotalMachines = distinctFloors.reduce((sum: number, f: string) => sum + getTotalMachinesForUnit(f, 45), 0);
-    } else {
-      const inHouseConfigs = getUnitConfigs().filter(u => !u.unitName.toLowerCase().includes('sub'));
-      inHouseTotalMachines = inHouseConfigs.reduce((sum, u) => sum + Number(u.totalMachine || 0), 0) || (activeRecords.length > 0 ? 261 : 0);
-    }
+    inHouseTotalMachines = totalConfiguredInHouseMachines;
   }
 
   // In-House Daily Sums for Averages
