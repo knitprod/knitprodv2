@@ -38,11 +38,13 @@ import {
   Plus,
   RefreshCw,
   Upload,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Zap
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { LedgerRecord } from '../types';
 import { GasClient } from '../lib/gasClient';
+import { SupabaseSync } from '../lib/supabaseClient';
 import { useGlobalData } from '../context/GlobalDataContext';
 import AddProductionRecordModal from './AddProductionRecordModal';
 import UploadLedgerExcelModal, { APP_LEDGER_COLUMNS } from './UploadLedgerExcelModal';
@@ -3064,6 +3066,18 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
             </div>
 
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+              {/* Supabase Live WebSocket Indicator */}
+              {SupabaseSync.isConfigured() && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-700 rounded-lg shadow-2xs">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <Zap className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+                  <span>Supabase Live Sync</span>
+                </div>
+              )}
+
               {/* Sync Google Sheet Button */}
               {isGasMode && (
                 <button

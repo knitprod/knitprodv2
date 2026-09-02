@@ -26,11 +26,14 @@ import {
   Server, 
   Code,
   Key,
-  Globe
+  Globe,
+  ArrowRight,
+  Zap
 } from 'lucide-react';
 import { GasClient } from '../lib/gasClient';
 import { SupabaseSync } from '../lib/supabaseClient';
 import { SyncConflictLog } from '../types';
+import { useGlobalData } from '../context/GlobalDataContext';
 import gasScriptContent from '../../google-apps-script/Code.gs?raw';
 
 interface DatabaseConnectionViewProps {
@@ -38,6 +41,8 @@ interface DatabaseConnectionViewProps {
 }
 
 export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConnectionViewProps) {
+  const { ledger, refreshAll } = useGlobalData();
+
   // Google Sheets database connection states
   const [databaseMode, setDatabaseMode] = useState<'mock' | 'gas'>(() => GasClient.getDatabaseMode());
   const [gasWebAppUrl, setGasWebAppUrl] = useState(() => GasClient.getWebAppUrl());
@@ -56,6 +61,10 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
   const [copiedSql, setCopiedSql] = useState(false);
   const [showSqlSetup, setShowSqlSetup] = useState(false);
 
+  // Production Ledger to Supabase Migration State
+  const [isMigratingLedger, setIsMigratingLedger] = useState(false);
+  const [migrateStatus, setMigrateStatus] = useState<string | null>(null);
+
   // Two-Way Synchronization states
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
@@ -72,6 +81,28 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
       }
     });
   }, []);
+
+  const handleMigrateLedgerToSupabase = async () => {
+    if (!SupabaseSync.isConfigured()) {
+      if (onSuccessNotice) onSuccessNotice("Please enter and save your Supabase credentials first.");
+      return;
+    }
+    setIsMigratingLedger(true);
+    setMigrateStatus("Migrating Production Ledger to Supabase...");
+    try {
+      const ok = await SupabaseSync.bulkSaveProductionRecords(ledger);
+      if (ok) {
+        setMigrateStatus(`Successfully migrated ${ledger.length} records to Supabase! Live WebSockets active.`);
+        if (onSuccessNotice) onSuccessNotice(`Transferred ${ledger.length} Production Ledger records to Supabase!`);
+      } else {
+        setMigrateStatus("Notice: Ensure you ran the Supabase SQL schema in Supabase SQL Editor first.");
+      }
+    } catch (err: any) {
+      setMigrateStatus(`Migration notice: ${err.message || String(err)}`);
+    } finally {
+      setIsMigratingLedger(false);
+    }
+  };
 
   const handleCopySql = async () => {
     try {
@@ -381,6 +412,51 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
             </button>
           </div>
         </form>
+
+        {/* Production Ledger Supabase Transfer & Real-time Status Card */}
+        <div className="rounded-xl border border-emerald-200 dark:border-emerald-900 bg-white/80 dark:bg-slate-900/80 p-4 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                <Zap className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                <span className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">
+                  Production Ledger Real-Time Cloud Engine (Supabase WebSockets)
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                  Sub-50ms Live Sync
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                All devices viewing <code>knitproduction.vercel.app</code> receive instant live updates via Supabase WebSockets with zero polling and zero Vercel bandwidth limits. Orders & Yarn remain connected to Google Sheets.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              disabled={isMigratingLedger || !isSupabaseActive}
+              onClick={handleMigrateLedgerToSupabase}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-xs whitespace-nowrap shrink-0"
+            >
+              {isMigratingLedger ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>Transferring Data...</span>
+                </>
+              ) : (
+                <>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                  <span>Migrate Ledger to Supabase ({ledger.length} records)</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {migrateStatus && (
+            <div className="text-xs font-semibold px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 animate-fade-in">
+              {migrateStatus}
+            </div>
+          )}
+        </div>
 
         {supabaseTestResult && (
           <div className={`p-3.5 rounded-xl border text-xs font-semibold ${

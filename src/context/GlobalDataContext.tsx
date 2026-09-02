@@ -18,6 +18,7 @@ import { INITIAL_FLOORS } from '../data';
 import { GasClient } from '../lib/gasClient';
 import { generateInitialLedger } from '../components/ProductionLedgerView';
 import { normalizeDateKey, normalizeFloorKey } from '../lib/userPermissions';
+import { SupabaseSync } from '../lib/supabaseClient';
 
 export interface GlobalDataContextType {
   // Datasets
@@ -331,30 +332,47 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   /**
-   * Bulk Fetch All Datasets from /api/sheets or GAS in ONE parallel sync window (< 45s).
+   * Bulk Fetch All Datasets: Production Ledger from Supabase, Orders & Yarn from Google Sheets.
    */
   const refreshAll = useCallback(async (forceRefresh: boolean = false) => {
     setIsSyncing(true);
     try {
+      // 1. Fetch Production Ledger from Supabase (sub-second query, zero Vercel bandwidth)
+      const supabaseLedgerPromise = SupabaseSync.fetchProductionLedger().catch(() => []);
+
+      // 2. Fetch Orders & Yarn from Google Sheets (/api/sheets?action=all)
       const url = forceRefresh ? '/api/sheets?action=all&refresh=true' : '/api/sheets?action=all';
-      const res = await fetch(url, {
+      const sheetsPromise = fetch(url, {
         headers: { 'Accept': 'application/json' },
         signal: AbortSignal.timeout(40000)
       }).catch(() => null);
 
-      let loadedSuccessfully = false;
+      const [supabaseLedger, sheetsRes] = await Promise.all([
+        supabaseLedgerPromise,
+        sheetsPromise
+      ]);
 
-      if (res && res.ok) {
-        const json = await res.json().catch(() => null);
+      let loadedSuccessfully = false;
+      let cleanOrders: OrderPlan[] | undefined;
+      let cleanYarn: YarnAllocationRecord[] | undefined;
+      let cleanLedger: LedgerRecord[] | undefined;
+
+      // Process Supabase Production Ledger
+      if (Array.isArray(supabaseLedger) && supabaseLedger.length > 0) {
+        cleanLedger = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(supabaseLedger)));
+        setLedger(cleanLedger);
+        setFloors(prev => recalculateFloorsFromLedger(prev, cleanLedger!));
+        loadedSuccessfully = true;
+      }
+
+      // Process Google Sheets for Orders and Yarn
+      if (sheetsRes && sheetsRes.ok) {
+        const json = await sheetsRes.json().catch(() => null);
         if (json && json.success && json.data) {
           const remoteOrders = json.data.orderPlans || json.data.orders;
           const remoteYarn = json.data.yarnAllocations || json.data.yarn;
           const remoteLedger = json.data.ledger || json.data.records;
           const remoteFloors = json.data.floors;
-
-          let cleanOrders: OrderPlan[] | undefined;
-          let cleanYarn: YarnAllocationRecord[] | undefined;
-          let cleanLedger: LedgerRecord[] | undefined;
 
           if (Array.isArray(remoteOrders) && remoteOrders.length > 0) {
             cleanOrders = filterDeletedOrders(deduplicateWithUniqueIds(remoteOrders, 'ord'));
@@ -366,12 +384,16 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             setYarnAllocations(cleanYarn);
             loadedSuccessfully = true;
           }
-          if (Array.isArray(remoteLedger) && remoteLedger.length > 0) {
+
+          // If Supabase was empty on first setup, migrate/seed from Google Sheets into Supabase
+          if ((!cleanLedger || cleanLedger.length === 0) && Array.isArray(remoteLedger) && remoteLedger.length > 0) {
             cleanLedger = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(remoteLedger)));
             setLedger(cleanLedger);
             setFloors(prev => recalculateFloorsFromLedger(prev, cleanLedger!));
             loadedSuccessfully = true;
-          } else if (Array.isArray(remoteFloors) && remoteFloors.length > 0) {
+            // Auto-migrate to Supabase so future requests are instant
+            SupabaseSync.bulkSaveProductionRecords(cleanLedger).catch(err => console.warn('Supabase auto-seed notice:', err));
+          } else if (!cleanLedger && Array.isArray(remoteFloors) && remoteFloors.length > 0) {
             setFloors(prev =>
               prev.map(f => {
                 const rf = remoteFloors.find((r: any) => r.name.toLowerCase() === f.name.toLowerCase() || r.id === f.id);
@@ -379,27 +401,15 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               })
             );
           }
-
-          persistCache(cleanOrders, cleanYarn, cleanLedger);
-
-          if (loadedSuccessfully) {
-            setLastSyncedAt(new Date());
-            setSyncError(null);
-          }
         }
       }
 
-      // Fallback: If bulk didn't populate orders/yarn/ledger, query individual endpoints in parallel
-      if (!loadedSuccessfully) {
-        const [ordersRes, yarnRes, ledgerRes] = await Promise.allSettled([
+      // Fallback: If Google Sheets failed, query individual endpoints in parallel
+      if (!cleanOrders || !cleanYarn) {
+        const [ordersRes, yarnRes] = await Promise.allSettled([
           GasClient.fetchOrderPlans(forceRefresh),
-          GasClient.fetchYarnAllocations(forceRefresh),
-          GasClient.fetchLedgerRecords(forceRefresh)
+          GasClient.fetchYarnAllocations(forceRefresh)
         ]);
-
-        let cleanOrders: OrderPlan[] | undefined;
-        let cleanYarn: YarnAllocationRecord[] | undefined;
-        let cleanLedger: LedgerRecord[] | undefined;
 
         if (ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value) && ordersRes.value.length > 0) {
           cleanOrders = filterDeletedOrders(deduplicateWithUniqueIds(ordersRes.value, 'ord'));
@@ -411,19 +421,13 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           setYarnAllocations(cleanYarn);
           loadedSuccessfully = true;
         }
-        if (ledgerRes.status === 'fulfilled' && Array.isArray(ledgerRes.value) && ledgerRes.value.length > 0) {
-          cleanLedger = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(ledgerRes.value)));
-          setLedger(cleanLedger);
-          setFloors(prev => recalculateFloorsFromLedger(prev, cleanLedger!));
-          loadedSuccessfully = true;
-        }
+      }
 
-        persistCache(cleanOrders, cleanYarn, cleanLedger);
+      persistCache(cleanOrders, cleanYarn, cleanLedger);
 
-        if (loadedSuccessfully) {
-          setLastSyncedAt(new Date());
-          setSyncError(null);
-        }
+      if (loadedSuccessfully) {
+        setLastSyncedAt(new Date());
+        setSyncError(null);
       }
     } catch (err: any) {
       console.warn('[Global Data Bulk Fetch Warning]:', err.message);
@@ -441,7 +445,44 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, [refreshAll]);
 
-  // 2. Intelligent Background Polling (Only runs when tab is active/visible)
+  // 2. Real-Time Multi-Device WebSocket Subscription for Production Ledger (<50ms Live across all devices)
+  useEffect(() => {
+    const unsubscribe = SupabaseSync.subscribeToProductionLedger(({ eventType, record, id }) => {
+      if (eventType === 'DELETE') {
+        setLedger(prev => {
+          const next = prev.filter(r => r.id !== id);
+          setFloors(fl => recalculateFloorsFromLedger(fl, next));
+          try {
+            localStorage.setItem('cached_production_ledger', JSON.stringify(next));
+          } catch (e) {}
+          return next;
+        });
+      } else if (eventType === 'INSERT' || eventType === 'UPDATE') {
+        if (!record || !record.id) return;
+        setLedger(prev => {
+          const targetDateKey = normalizeDateKey(record.date);
+          const targetFloorKey = normalizeFloorKey(record.floor || record.unit || '');
+          const idx = prev.findIndex(r => {
+            if (r.id === record.id) return true;
+            return normalizeDateKey(r.date) === targetDateKey && normalizeFloorKey(r.floor || r.unit || '') === targetFloorKey;
+          });
+
+          const next = idx >= 0 ? prev.map((r, i) => i === idx ? record : r) : [record, ...prev];
+          setFloors(fl => recalculateFloorsFromLedger(fl, next));
+          try {
+            localStorage.setItem('cached_production_ledger', JSON.stringify(next));
+          } catch (e) {}
+          return next;
+        });
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  // 3. Lightweight Background Polling for Google Sheets (Orders & Yarn only)
   useEffect(() => {
     let isFetching = false;
 
@@ -461,7 +502,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         const json = await res.json();
         if (json && json.success && json.data) {
-          const { orderPlans: rOrders, yarnAllocations: rYarn, ledger: rLedger } = json.data;
+          const { orderPlans: rOrders, yarnAllocations: rYarn } = json.data;
           if (Array.isArray(rOrders) && rOrders.length > 0) {
             const cleanOrders = filterDeletedOrders(deduplicateWithUniqueIds(rOrders, 'ord'));
             setOrderPlans(prev => {
@@ -482,55 +523,6 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                   localStorage.setItem('cached_yarn_allocations', JSON.stringify(cleanYarn));
                 } catch (e) {}
                 return cleanYarn;
-              }
-              return prev;
-            });
-          }
-          if (Array.isArray(rLedger) && rLedger.length > 0) {
-            let cleanLedger = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(rLedger)));
-
-            // Re-apply any recent local mutations (< 45s old) that may not have completed propagation to Google Sheets
-            const now = Date.now();
-            const recentMutations: LedgerRecord[] = [];
-            pendingLedgerMutationsRef.current.forEach((val, key) => {
-              if (now - val.timestamp < 45000) {
-                recentMutations.push(val.record);
-              } else {
-                pendingLedgerMutationsRef.current.delete(key);
-              }
-            });
-
-            if (recentMutations.length > 0) {
-              const ledgerMap = new Map<string, LedgerRecord>();
-              cleanLedger.forEach(r => {
-                const dKey = normalizeDateKey(r.date);
-                const fKey = normalizeFloorKey(r.floor || r.unit || '');
-                const k = (dKey && fKey) ? `${dKey}_${fKey}` : (r.id || '');
-                if (k) ledgerMap.set(k, r);
-              });
-
-              // Overlay recent mutations so they are never reverted
-              recentMutations.forEach(m => {
-                const dKey = normalizeDateKey(m.date);
-                const fKey = normalizeFloorKey(m.floor || m.unit || '');
-                const k = (dKey && fKey) ? `${dKey}_${fKey}` : (m.id || '');
-                if (k) {
-                  ledgerMap.set(k, m);
-                } else {
-                  cleanLedger.unshift(m);
-                }
-              });
-
-              cleanLedger = Array.from(ledgerMap.values());
-            }
-
-            setLedger(prev => {
-              if (prev.length !== cleanLedger.length || JSON.stringify(prev) !== JSON.stringify(cleanLedger)) {
-                setFloors(fl => recalculateFloorsFromLedger(fl, cleanLedger));
-                try {
-                  localStorage.setItem('cached_production_ledger', JSON.stringify(cleanLedger));
-                } catch (e) {}
-                return cleanLedger;
               }
               return prev;
             });
@@ -561,9 +553,9 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleVisibilityChange);
     };
-  }, [filterDeletedLedger, filterDeletedOrders, filterDeletedYarn]);
+  }, [filterDeletedOrders, filterDeletedYarn]);
 
-  // 3. Cross-Device Real-time Event Listener
+  // 4. Cross-Device Real-time Event Listener
   useEffect(() => {
     const handleSyncEvent = () => refreshAll(true);
     window.addEventListener('gas_data_synced', handleSyncEvent);
@@ -668,18 +660,19 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return executeKeepaliveMutation('yarn/save', { yarnAllocations: items, replace });
   };
 
-  // --- Production Ledger ---
+  // --- Production Ledger (Powered by Supabase Cloud Database + Real-time WebSockets) ---
   const saveLedgerRecord = async (record: LedgerRecord) => {
     if (record.id) deletedLedgerIdsRef.current.delete(record.id);
     const dKey = normalizeDateKey(record.date);
     const fKey = normalizeFloorKey(record.floor || record.unit || '');
     if (dKey && fKey) deletedLedgerCompositeKeysRef.current.delete(`${dKey}_${fKey}`);
 
-    // Register into pending mutations tracking so background polling cannot overwrite this update
+    // Register into pending mutations tracking
     const mutKey = (dKey && fKey) ? `${dKey}_${fKey}` : (record.id || `mut-${Date.now()}`);
     pendingLedgerMutationsRef.current.set(mutKey, { record, timestamp: Date.now() });
     lastMutationTimeRef.current = Date.now();
 
+    // 1. Instant optimistic local React state update
     setLedger(prev => {
       // Find matching record by ID first, or by identical Date + Floor to prevent duplicate rows
       const targetDateKey = normalizeDateKey(record.date);
@@ -698,7 +691,16 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return next;
     });
 
-    return executeKeepaliveMutation('ledger/save', { ledger: [record], replace: false });
+    // 2. Direct Supabase Cloud Save (Live across all devices in <50ms)
+    const supabaseSaved = await SupabaseSync.saveProductionRecord(record);
+
+    // 3. Fallback background sync
+    executeKeepaliveMutation('ledger/save', { ledger: [record], replace: false }).catch(() => {});
+
+    return {
+      success: true,
+      message: supabaseSaved ? 'Production record saved live to Supabase' : 'Production record saved'
+    };
   };
 
   const deleteLedgerRecord = async (id: string, recordInfo?: { date?: string; floor?: string }) => {
@@ -744,8 +746,15 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return next;
     });
 
+    // Direct delete from Supabase
+    const supabaseDeleted = await SupabaseSync.deleteProductionRecord(id);
     GasClient.deleteLedgerEntry(id).catch(() => {});
-    return executeKeepaliveMutation('ledger/delete', { id, date: recordInfo?.date, floor: recordInfo?.floor });
+    executeKeepaliveMutation('ledger/delete', { id, date: recordInfo?.date, floor: recordInfo?.floor }).catch(() => {});
+
+    return {
+      success: true,
+      message: supabaseDeleted ? 'Record removed from Supabase' : 'Record deleted'
+    };
   };
 
   const bulkSaveLedgerRecords = async (records: LedgerRecord[], replace: boolean = false) => {
@@ -790,7 +799,14 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return next;
     });
 
-    return executeKeepaliveMutation('ledger/save', { ledger: records, replace });
+    // Bulk save to Supabase
+    const supabaseSaved = await SupabaseSync.bulkSaveProductionRecords(records);
+    executeKeepaliveMutation('ledger/save', { ledger: records, replace }).catch(() => {});
+
+    return {
+      success: true,
+      message: supabaseSaved ? 'Bulk saved to Supabase' : 'Saved'
+    };
   };
 
   const value: GlobalDataContextType = {

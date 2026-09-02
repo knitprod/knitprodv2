@@ -92,12 +92,73 @@ BEGIN
   END IF;
 END $$;
 
--- 5. APP SETTINGS COMPATIBILITY TABLE (JSONB BACKWARD COMPATIBILITY)
-CREATE TABLE IF NOT EXISTS public.app_settings (
+-- 5. PRODUCTION LEDGER TABLE (HIGH-PERFORMANCE REAL-TIME CLOUD TABLE)
+CREATE TABLE IF NOT EXISTS public.production_ledger (
   id TEXT PRIMARY KEY,
-  settings_data JSONB NOT NULL,
+  unit TEXT,
+  year INTEGER DEFAULT 2026,
+  month TEXT,
+  date TEXT NOT NULL,
+  day TEXT,
+  floor TEXT NOT NULL,
+  target NUMERIC DEFAULT 0,
+  shift_a NUMERIC DEFAULT 0,
+  shift_b NUMERIC DEFAULT 0,
+  shift_c NUMERIC DEFAULT 0,
+  total_production NUMERIC DEFAULT 0,
+  target_bulk NUMERIC DEFAULT 0,
+  bulk_prod NUMERIC DEFAULT 0,
+  sample_prod NUMERIC DEFAULT 0,
+  total_machines INTEGER DEFAULT 0,
+  running_machine INTEGER DEFAULT 0,
+  running_bulk INTEGER DEFAULT 0,
+  running_sample INTEGER DEFAULT 0,
+  idle_mc INTEGER DEFAULT 0,
+  machine_utilization NUMERIC DEFAULT 0,
+  idle_mc_pct NUMERIC DEFAULT 0,
+  prod_loss_for_sample NUMERIC DEFAULT 0,
+  idle_production NUMERIC DEFAULT 0,
+  efficiency NUMERIC DEFAULT 0,
+  pro_per_mc NUMERIC DEFAULT 0,
+  reject NUMERIC DEFAULT 0,
+  reject_pct NUMERIC DEFAULT 0,
+  hold NUMERIC DEFAULT 0,
+  hold_pct NUMERIC DEFAULT 0,
+  jhute_cutpcs NUMERIC DEFAULT 0,
+  jhute_cutpcs_pct NUMERIC DEFAULT 0,
+  needle_broken NUMERIC DEFAULT 0,
+  needle_per_kg NUMERIC DEFAULT 0,
+  sinker_broken NUMERIC DEFAULT 0,
+  sinker_per_kg NUMERIC DEFAULT 0,
+  oil_consumption NUMERIC DEFAULT 0,
+  belt_broken NUMERIC DEFAULT 0,
+  other_spare_parts_name TEXT,
+  other_spare_parts_qty NUMERIC DEFAULT 0,
+  set_change_needle NUMERIC DEFAULT 0,
+  set_change_sinker NUMERIC DEFAULT 0,
+  production_loss_for_eff NUMERIC DEFAULT 0,
+  capacity_utilization NUMERIC DEFAULT 0,
+  total_operator NUMERIC DEFAULT 0,
+  absent NUMERIC DEFAULT 0,
+  absent_pct NUMERIC DEFAULT 0,
+  production_flat_knit NUMERIC DEFAULT 0,
+  achievment_circular NUMERIC DEFAULT 0,
+  otd TEXT,
+  yarn_issued NUMERIC DEFAULT 0,
+  total_running_factories INTEGER DEFAULT 0,
+  number_vehicles INTEGER DEFAULT 0,
+  fabric_return NUMERIC DEFAULT 0,
+  remarks TEXT,
+  updated_by TEXT,
+  raw_data JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Fast Indexes for Instant Queries
+CREATE INDEX IF NOT EXISTS idx_production_ledger_date ON public.production_ledger(date);
+CREATE INDEX IF NOT EXISTS idx_production_ledger_floor ON public.production_ledger(floor);
+CREATE INDEX IF NOT EXISTS idx_production_ledger_unit ON public.production_ledger(unit);
 
 -- 6. ACTIVITY & AUDIT LOGS (UNLIMITED RETENTION)
 CREATE TABLE IF NOT EXISTS public.activity_logs (
@@ -115,7 +176,7 @@ ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.factory_units ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.buyers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.production_ledger ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
 
 -- Allow public access for anon client API key
@@ -123,15 +184,30 @@ DROP POLICY IF EXISTS "Allow public full access to users" ON public.users;
 DROP POLICY IF EXISTS "Allow public full access to factory_units" ON public.factory_units;
 DROP POLICY IF EXISTS "Allow public full access to buyers" ON public.buyers;
 DROP POLICY IF EXISTS "Allow public full access to system_settings" ON public.system_settings;
-DROP POLICY IF EXISTS "Allow public full access to app_settings" ON public.app_settings;
+DROP POLICY IF EXISTS "Allow public full access to production_ledger" ON public.production_ledger;
 DROP POLICY IF EXISTS "Allow public full access to activity_logs" ON public.activity_logs;
 
 CREATE POLICY "Allow public full access to users" ON public.users FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public full access to factory_units" ON public.factory_units FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public full access to buyers" ON public.buyers FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public full access to system_settings" ON public.system_settings FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow public full access to app_settings" ON public.app_settings FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public full access to production_ledger" ON public.production_ledger FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public full access to activity_logs" ON public.activity_logs FOR ALL USING (true) WITH CHECK (true);
+
+-- Enable Real-Time Broadcast for Production Ledger
+DO $$ 
+BEGIN 
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+    AND schemaname = 'public' 
+    AND tablename = 'production_ledger'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.production_ledger;
+  END IF;
+EXCEPTION WHEN OTHERS THEN 
+  NULL;
+END $$;
 
 -- Insert Default Factory Units
 INSERT INTO public.factory_units (id, unit_name, production_capacity, total_machine, avg_prod_per_machine, display_order)
