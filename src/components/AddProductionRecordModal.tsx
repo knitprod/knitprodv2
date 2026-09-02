@@ -514,56 +514,114 @@ export default function AddProductionRecordModal({
                   <span className="flex items-center gap-1.5">
                     <Layers className="h-3.5 w-3.5" /> 2. Production Weights & Shift Output
                   </span>
-                  <span className="text-[9px] font-bold text-gray-400 lowercase">
-                    Target Total (Customizable)
+                  <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400">
+                    * Marked fields are mandatory
                   </span>
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold text-gray-500 uppercase flex items-center justify-between">
-                      <span>Target Total (Kg) *</span>
-                      <span className="text-[8px] text-blue-600 dark:text-blue-400 font-normal">Editable</span>
+                    <label className="text-[10px] font-extrabold text-gray-700 dark:text-gray-300 uppercase flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <span>Target Total (Kg)</span>
+                        <span className="text-red-500 font-black">*</span>
+                      </span>
+                      <span className="text-[8px] font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-1.5 py-0.5 rounded">Mandatory</span>
                     </label>
                     <input
                       type="number"
-                      value={record.target === 0 || record.target === undefined ? '' : record.target}
+                      value={record.target === undefined || record.target === null || (record.target as any) === '' ? '' : record.target}
                       onChange={(e) => {
                         const val = e.target.value;
-                        onChange('target', val === '' ? 0 : (parseFloat(val) || 0));
+                        onChange('target', val === '' ? undefined : (parseFloat(val) || 0));
                       }}
-                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                      placeholder="0"
+                      className={`w-full rounded-lg border px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden transition-colors ${
+                        errors.target 
+                          ? 'border-red-500 bg-red-50/20 dark:bg-red-950/20 focus:border-red-600' 
+                          : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:border-[#0F4C81]'
+                      }`}
+                      placeholder="Required"
                     />
+                    {errors.target && (
+                      <p className="text-[9px] font-bold text-red-600 dark:text-red-400">{errors.target}</p>
+                    )}
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Shift A</label>
+                    <label className="text-[10px] font-extrabold text-gray-700 dark:text-gray-300 uppercase flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <span>Shift A (Kg)</span>
+                        <span className="text-red-500 font-black">*</span>
+                      </span>
+                      <span className="text-[8px] font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-1.5 py-0.5 rounded">Mandatory</span>
+                    </label>
                     <input
                       type="number"
-                      value={record.shiftA === 0 || record.shiftA === undefined ? '' : record.shiftA}
-                      onChange={(e) => onChange('shiftA', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
-                      placeholder="0"
-                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
+                      value={record.shiftA === undefined || record.shiftA === null || (record.shiftA as any) === '' ? '' : record.shiftA}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('shiftA', val === '' ? undefined : (parseFloat(val) || 0));
+                      }}
+                      className={`w-full rounded-lg border px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden transition-colors ${
+                        errors.shiftA 
+                          ? 'border-red-500 bg-red-50/20 dark:bg-red-950/20 focus:border-red-600' 
+                          : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:border-[#0F4C81]'
+                      }`}
+                      placeholder="Required"
                     />
+                    {errors.shiftA && (
+                      <p className="text-[9px] font-bold text-red-600 dark:text-red-400">{errors.shiftA}</p>
+                    )}
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Shift B</label>
+                    <label className="text-[10px] font-extrabold text-gray-700 dark:text-gray-300 uppercase flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <span>Shift B (Kg)</span>
+                        <span className="text-red-500 font-black">*</span>
+                      </span>
+                      <span className="text-[8px] font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-1.5 py-0.5 rounded">Mandatory</span>
+                    </label>
                     <input
                       type="number"
-                      value={record.shiftB === 0 || record.shiftB === undefined ? '' : record.shiftB}
-                      onChange={(e) => onChange('shiftB', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
-                      placeholder="0"
-                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
+                      value={record.shiftB === undefined || record.shiftB === null || (record.shiftB as any) === '' ? '' : record.shiftB}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('shiftB', val === '' ? undefined : (parseFloat(val) || 0));
+                      }}
+                      className={`w-full rounded-lg border px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden transition-colors ${
+                        errors.shiftB 
+                          ? 'border-red-500 bg-red-50/20 dark:bg-red-950/20 focus:border-red-600' 
+                          : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:border-[#0F4C81]'
+                      }`}
+                      placeholder="Required"
                     />
+                    {errors.shiftB && (
+                      <p className="text-[9px] font-bold text-red-600 dark:text-red-400">{errors.shiftB}</p>
+                    )}
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Shift C</label>
+                    <label className="text-[10px] font-extrabold text-gray-700 dark:text-gray-300 uppercase flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <span>Shift C (Kg)</span>
+                        <span className="text-red-500 font-black">*</span>
+                      </span>
+                      <span className="text-[8px] font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-1.5 py-0.5 rounded">Mandatory</span>
+                    </label>
                     <input
                       type="number"
-                      value={record.shiftC === 0 || record.shiftC === undefined ? '' : record.shiftC}
-                      onChange={(e) => onChange('shiftC', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
-                      placeholder="0"
-                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
+                      value={record.shiftC === undefined || record.shiftC === null || (record.shiftC as any) === '' ? '' : record.shiftC}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('shiftC', val === '' ? undefined : (parseFloat(val) || 0));
+                      }}
+                      className={`w-full rounded-lg border px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden transition-colors ${
+                        errors.shiftC 
+                          ? 'border-red-500 bg-red-50/20 dark:bg-red-950/20 focus:border-red-600' 
+                          : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:border-[#0F4C81]'
+                      }`}
+                      placeholder="Required"
                     />
+                    {errors.shiftC && (
+                      <p className="text-[9px] font-bold text-red-600 dark:text-red-400">{errors.shiftC}</p>
+                    )}
                   </div>
 
                   <div className="space-y-1">
@@ -609,9 +667,11 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Sample Prod.</label>
                     <input
                       type="number"
-                      value={record.sampleProd === 0 || record.sampleProd === undefined ? '' : record.sampleProd}
-                      onChange={(e) => onChange('sampleProd', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.sampleProd === undefined || record.sampleProd === null || (record.sampleProd as any) === '' ? '' : record.sampleProd}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('sampleProd', val === '' ? undefined : (parseFloat(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -630,26 +690,41 @@ export default function AddProductionRecordModal({
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold text-gray-500 uppercase flex items-center justify-between">
-                      <span>Running Bulk</span>
-                      <span className="text-[8px] text-emerald-600 dark:text-emerald-400 font-normal">Active Bulk Mc</span>
+                    <label className="text-[10px] font-extrabold text-gray-700 dark:text-gray-300 uppercase flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <span>Running Bulk (Mc)</span>
+                        <span className="text-red-500 font-black">*</span>
+                      </span>
+                      <span className="text-[8px] font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-1.5 py-0.5 rounded">Mandatory</span>
                     </label>
                     <input
                       type="number"
-                      value={record.runningBulk !== undefined ? (record.runningBulk === 0 ? '' : record.runningBulk) : (runningBulk === 0 ? '' : runningBulk)}
-                      onChange={(e) => onChange('runningBulk', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
-                      placeholder="0"
-                      className="w-full rounded-lg border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
+                      value={record.runningBulk === undefined || record.runningBulk === null || (record.runningBulk as any) === '' ? '' : record.runningBulk}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('runningBulk', val === '' ? undefined : (parseInt(val) || 0));
+                      }}
+                      className={`w-full rounded-lg border px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden transition-colors ${
+                        errors.runningBulk 
+                          ? 'border-red-500 bg-red-50/20 dark:bg-red-950/20 focus:border-red-600' 
+                          : 'border-emerald-200 dark:border-emerald-800 bg-white dark:bg-slate-800 focus:border-[#0F4C81]'
+                      }`}
+                      placeholder="Required"
                     />
+                    {errors.runningBulk && (
+                      <p className="text-[9px] font-bold text-red-600 dark:text-red-400">{errors.runningBulk}</p>
+                    )}
                   </div>
 
                   <div className="space-y-1">
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Running Sample</label>
                     <input
                       type="number"
-                      value={record.runningSample === 0 || record.runningSample === undefined ? '' : record.runningSample}
-                      onChange={(e) => onChange('runningSample', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.runningSample === undefined || record.runningSample === null || (record.runningSample as any) === '' ? '' : record.runningSample}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('runningSample', val === '' ? undefined : (parseInt(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -765,9 +840,11 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Reject</label>
                     <input
                       type="number"
-                      value={record.reject === 0 || record.reject === undefined ? '' : record.reject}
-                      onChange={(e) => onChange('reject', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.reject === undefined || record.reject === null || (record.reject as any) === '' ? '' : record.reject}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('reject', val === '' ? undefined : (parseFloat(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -784,9 +861,11 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Hold</label>
                     <input
                       type="number"
-                      value={record.hold === 0 || record.hold === undefined ? '' : record.hold}
-                      onChange={(e) => onChange('hold', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.hold === undefined || record.hold === null || (record.hold as any) === '' ? '' : record.hold}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('hold', val === '' ? undefined : (parseFloat(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -803,9 +882,11 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Jhute/Cutpcs</label>
                     <input
                       type="number"
-                      value={record.jhuteCutpcs === 0 || record.jhuteCutpcs === undefined ? '' : record.jhuteCutpcs}
-                      onChange={(e) => onChange('jhuteCutpcs', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.jhuteCutpcs === undefined || record.jhuteCutpcs === null || (record.jhuteCutpcs as any) === '' ? '' : record.jhuteCutpcs}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('jhuteCutpcs', val === '' ? undefined : (parseFloat(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -831,9 +912,11 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Needle Broken</label>
                     <input
                       type="number"
-                      value={record.needleBroken === 0 || record.needleBroken === undefined ? '' : record.needleBroken}
-                      onChange={(e) => onChange('needleBroken', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.needleBroken === undefined || record.needleBroken === null || (record.needleBroken as any) === '' ? '' : record.needleBroken}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('needleBroken', val === '' ? undefined : (parseInt(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -853,9 +936,11 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Sinker Broken</label>
                     <input
                       type="number"
-                      value={record.sinkerBroken === 0 || record.sinkerBroken === undefined ? '' : record.sinkerBroken}
-                      onChange={(e) => onChange('sinkerBroken', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.sinkerBroken === undefined || record.sinkerBroken === null || (record.sinkerBroken as any) === '' ? '' : record.sinkerBroken}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('sinkerBroken', val === '' ? undefined : (parseInt(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -875,9 +960,11 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Oil Consumption</label>
                     <input
                       type="number"
-                      value={record.oilConsumption === 0 || record.oilConsumption === undefined ? '' : record.oilConsumption}
-                      onChange={(e) => onChange('oilConsumption', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.oilConsumption === undefined || record.oilConsumption === null || (record.oilConsumption as any) === '' ? '' : record.oilConsumption}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('oilConsumption', val === '' ? undefined : (parseFloat(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -885,9 +972,11 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Belt Broken</label>
                     <input
                       type="number"
-                      value={record.beltBroken === 0 || record.beltBroken === undefined ? '' : record.beltBroken}
-                      onChange={(e) => onChange('beltBroken', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.beltBroken === undefined || record.beltBroken === null || (record.beltBroken as any) === '' ? '' : record.beltBroken}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('beltBroken', val === '' ? undefined : (parseInt(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -895,9 +984,11 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Set Change Needle(Pcs)</label>
                     <input
                       type="number"
-                      value={record.setChangeNeedle === 0 || record.setChangeNeedle === undefined ? '' : record.setChangeNeedle}
-                      onChange={(e) => onChange('setChangeNeedle', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.setChangeNeedle === undefined || record.setChangeNeedle === null || (record.setChangeNeedle as any) === '' ? '' : record.setChangeNeedle}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('setChangeNeedle', val === '' ? undefined : (parseInt(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -905,9 +996,11 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Set Change Sinker(Pcs)</label>
                     <input
                       type="number"
-                      value={record.setChangeSinker === 0 || record.setChangeSinker === undefined ? '' : record.setChangeSinker}
-                      onChange={(e) => onChange('setChangeSinker', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.setChangeSinker === undefined || record.setChangeSinker === null || (record.setChangeSinker as any) === '' ? '' : record.setChangeSinker}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('setChangeSinker', val === '' ? undefined : (parseInt(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -992,27 +1085,50 @@ export default function AddProductionRecordModal({
 
               {/* SECTION 6: MANPOWER ROSTER (Total Operator, Absent, Absent %) */}
               <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3">
-                <h4 className="font-sans text-[11px] font-black text-teal-700 dark:text-teal-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1.5 flex items-center gap-1.5">
-                  <Users className="h-3.5 w-3.5" /> 6. Manpower Roster & Attendance
+                <h4 className="font-sans text-[11px] font-black text-teal-700 dark:text-teal-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1.5 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Users className="h-3.5 w-3.5" /> 6. Manpower Roster & Attendance
+                  </span>
+                  <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400">
+                    * Total Operator is mandatory
+                  </span>
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold text-gray-500 uppercase">Total Operator</label>
+                    <label className="text-[10px] font-extrabold text-gray-700 dark:text-gray-300 uppercase flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <span>Total Operator</span>
+                        <span className="text-red-500 font-black">*</span>
+                      </span>
+                      <span className="text-[8px] font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-1.5 py-0.5 rounded">Mandatory</span>
+                    </label>
                     <input
                       type="number"
-                      value={record.totalOperator === 0 || record.totalOperator === undefined ? '' : record.totalOperator}
-                      onChange={(e) => onChange('totalOperator', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
-                      placeholder="0"
-                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
+                      value={record.totalOperator === undefined || record.totalOperator === null || (record.totalOperator as any) === '' ? '' : record.totalOperator}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('totalOperator', val === '' ? undefined : (parseInt(val) || 0));
+                      }}
+                      className={`w-full rounded-lg border px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden transition-colors ${
+                        errors.totalOperator 
+                          ? 'border-red-500 bg-red-50/20 dark:bg-red-950/20 focus:border-red-600' 
+                          : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:border-[#0F4C81]'
+                      }`}
+                      placeholder="Required"
                     />
+                    {errors.totalOperator && (
+                      <p className="text-[9px] font-bold text-red-600 dark:text-red-400">{errors.totalOperator}</p>
+                    )}
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Absent</label>
                     <input
                       type="number"
-                      value={record.absent === 0 || record.absent === undefined ? '' : record.absent}
-                      onChange={(e) => onChange('absent', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.absent === undefined || record.absent === null || (record.absent as any) === '' ? '' : record.absent}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('absent', val === '' ? undefined : (parseInt(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -1035,33 +1151,50 @@ export default function AddProductionRecordModal({
             <>
               {/* SECTION 2: SUB-CONTRACT PRODUCTION & OUTPUT */}
               <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/20 p-4 space-y-3">
-                <h4 className="font-sans text-[11px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1.5 flex items-center gap-1.5">
-                  <Layers className="h-3.5 w-3.5" /> 2. Sub-Contract Targets & Production Weights
+                <h4 className="font-sans text-[11px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-widest border-b border-gray-100 dark:border-slate-800 pb-1.5 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Layers className="h-3.5 w-3.5" /> 2. Sub-Contract Targets & Production Weights
+                  </span>
+                  <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400">
+                    * Target Total is mandatory
+                  </span>
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold text-gray-500 uppercase flex items-center justify-between">
-                      <span>Target Total (Kg) *</span>
-                      <span className="text-[8px] text-blue-600 dark:text-blue-400 font-normal">Editable</span>
+                    <label className="text-[10px] font-extrabold text-gray-700 dark:text-gray-300 uppercase flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <span>Target Total (Kg)</span>
+                        <span className="text-red-500 font-black">*</span>
+                      </span>
+                      <span className="text-[8px] font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-1.5 py-0.5 rounded">Mandatory</span>
                     </label>
                     <input
                       type="number"
-                      value={record.target === 0 || record.target === undefined ? '' : record.target}
+                      value={record.target === undefined || record.target === null || (record.target as any) === '' ? '' : record.target}
                       onChange={(e) => {
                         const val = e.target.value;
-                        onChange('target', val === '' ? 0 : (parseFloat(val) || 0));
+                        onChange('target', val === '' ? undefined : (parseFloat(val) || 0));
                       }}
-                      className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
-                      placeholder="0"
+                      className={`w-full rounded-lg border px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden transition-colors ${
+                        errors.target 
+                          ? 'border-red-500 bg-red-50/20 dark:bg-red-950/20 focus:border-red-600' 
+                          : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:border-[#0F4C81]'
+                      }`}
+                      placeholder="Required"
                     />
+                    {errors.target && (
+                      <p className="text-[9px] font-bold text-red-600 dark:text-red-400">{errors.target}</p>
+                    )}
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-extrabold text-[#0F4C81] dark:text-blue-400 uppercase">Total Production (Kg)</label>
                     <input
                       type="number"
-                      value={record.totalProduction === 0 || record.totalProduction === undefined ? '' : record.totalProduction}
-                      onChange={(e) => onChange('totalProduction', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.totalProduction === undefined || record.totalProduction === null || (record.totalProduction as any) === '' ? '' : record.totalProduction}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('totalProduction', val === '' ? undefined : (parseFloat(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-[#0F4C81] dark:text-blue-400 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -1069,9 +1202,11 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Sample Prod. (Kg)</label>
                     <input
                       type="number"
-                      value={record.sampleProd === 0 || record.sampleProd === undefined ? '' : record.sampleProd}
-                      onChange={(e) => onChange('sampleProd', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.sampleProd === undefined || record.sampleProd === null || (record.sampleProd as any) === '' ? '' : record.sampleProd}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('sampleProd', val === '' ? undefined : (parseFloat(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -1091,9 +1226,11 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Production-Flat Knit (Kg)</label>
                     <input
                       type="number"
-                      value={record.productionFlatKnit === 0 || record.productionFlatKnit === undefined ? '' : record.productionFlatKnit}
-                      onChange={(e) => onChange('productionFlatKnit', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.productionFlatKnit === undefined || record.productionFlatKnit === null || (record.productionFlatKnit as any) === '' ? '' : record.productionFlatKnit}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('productionFlatKnit', val === '' ? undefined : (parseFloat(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -1104,9 +1241,11 @@ export default function AddProductionRecordModal({
                     </label>
                     <input
                       type="number"
-                      value={record.achievmentCircular === 0 || record.achievmentCircular === undefined ? '' : (record.achievmentCircular ?? achievmentCircular)}
-                      onChange={(e) => onChange('achievmentCircular', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.achievmentCircular === undefined || record.achievmentCircular === null || (record.achievmentCircular as any) === '' ? '' : (record.achievmentCircular ?? achievmentCircular)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('achievmentCircular', val === '' ? undefined : (parseFloat(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -1133,9 +1272,11 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Yarn Issued (Kg)</label>
                     <input
                       type="number"
-                      value={record.yarnIssued === 0 || record.yarnIssued === undefined ? '' : record.yarnIssued}
-                      onChange={(e) => onChange('yarnIssued', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.yarnIssued === undefined || record.yarnIssued === null || (record.yarnIssued as any) === '' ? '' : record.yarnIssued}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('yarnIssued', val === '' ? undefined : (parseFloat(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -1144,12 +1285,14 @@ export default function AddProductionRecordModal({
                     <input
                       type="number"
                       value={
-                        (record.totalRunningFactories ?? record.runningFactories ?? 0) === 0
+                        record.totalRunningFactories === undefined && record.runningFactories === undefined
                           ? ''
-                          : (record.totalRunningFactories ?? record.runningFactories)
+                          : (record.totalRunningFactories ?? record.runningFactories ?? '')
                       }
-                      onChange={(e) => onChange('totalRunningFactories', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
-                      placeholder="0"
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('totalRunningFactories', val === '' ? undefined : (parseInt(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -1157,9 +1300,11 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Running Machine</label>
                     <input
                       type="number"
-                      value={record.runningMachine === 0 || record.runningMachine === undefined ? '' : record.runningMachine}
-                      onChange={(e) => onChange('runningMachine', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.runningMachine === undefined || record.runningMachine === null || (record.runningMachine as any) === '' ? '' : record.runningMachine}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('runningMachine', val === '' ? undefined : (parseInt(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -1167,9 +1312,11 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Number Vehicles</label>
                     <input
                       type="number"
-                      value={record.numberVehicles === 0 || record.numberVehicles === undefined ? '' : record.numberVehicles}
-                      onChange={(e) => onChange('numberVehicles', e.target.value === '' ? 0 : (parseInt(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.numberVehicles === undefined || record.numberVehicles === null || (record.numberVehicles as any) === '' ? '' : record.numberVehicles}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('numberVehicles', val === '' ? undefined : (parseInt(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -1177,9 +1324,11 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Fabric Return (Kg)</label>
                     <input
                       type="number"
-                      value={record.fabricReturn === 0 || record.fabricReturn === undefined ? '' : record.fabricReturn}
-                      onChange={(e) => onChange('fabricReturn', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.fabricReturn === undefined || record.fabricReturn === null || (record.fabricReturn as any) === '' ? '' : record.fabricReturn}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('fabricReturn', val === '' ? undefined : (parseFloat(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-gray-800 dark:text-slate-100 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -1196,9 +1345,11 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Hold (Kg)</label>
                     <input
                       type="number"
-                      value={record.hold === 0 || record.hold === undefined ? '' : record.hold}
-                      onChange={(e) => onChange('hold', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.hold === undefined || record.hold === null || (record.hold as any) === '' ? '' : record.hold}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('hold', val === '' ? undefined : (parseFloat(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-amber-600 dark:text-amber-400 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -1218,9 +1369,11 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Reject (Kg)</label>
                     <input
                       type="number"
-                      value={record.reject === 0 || record.reject === undefined ? '' : record.reject}
-                      onChange={(e) => onChange('reject', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.reject === undefined || record.reject === null || (record.reject as any) === '' ? '' : record.reject}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('reject', val === '' ? undefined : (parseFloat(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-rose-600 dark:text-rose-400 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -1240,9 +1393,11 @@ export default function AddProductionRecordModal({
                     <label className="text-[10px] font-extrabold text-gray-500 uppercase">Jhute/Cut Pcs (Kg)</label>
                     <input
                       type="number"
-                      value={record.jhuteCutpcs === 0 || record.jhuteCutpcs === undefined ? '' : record.jhuteCutpcs}
-                      onChange={(e) => onChange('jhuteCutpcs', e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0))}
-                      placeholder="0"
+                      value={record.jhuteCutpcs === undefined || record.jhuteCutpcs === null || (record.jhuteCutpcs as any) === '' ? '' : record.jhuteCutpcs}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onChange('jhuteCutpcs', val === '' ? undefined : (parseFloat(val) || 0));
+                      }}
                       className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-orange-600 dark:text-orange-400 outline-hidden focus:border-[#0F4C81]"
                     />
                   </div>
@@ -1255,7 +1410,7 @@ export default function AddProductionRecordModal({
                       type="number"
                       value={record.jhuteCutpcsPct ?? jhuteCutpcsPct}
                       readOnly
-                      className="w-full rounded-lg border border-gray-100 dark:border-slate-800 bg-gray-100/70 dark:bg-slate-800/50 px-3 py-1.5 text-xs font-mono font-bold text-orange-600 dark:text-orange-400 outline-hidden"
+                      className="w-full rounded-lg border border-gray-100 dark:border-slate-800 bg-gray-100/70 dark:bg-slate-800/50 px-3 py-1.5 text-xs font-mono font-bold text-gray-600 dark:text-slate-300 outline-hidden"
                     />
                   </div>
                 </div>

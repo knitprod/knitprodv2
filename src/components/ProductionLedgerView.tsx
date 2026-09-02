@@ -947,46 +947,57 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     const floorName = record.floor || 'EKL';
     const isSubContact = floorName === 'Sub-Contact' || record.unit === 'Sub-Contact';
     
-    // 3. Target KG: Respect user-defined target quantity (even 0 / updated custom targets), only default if undefined/null
-    const target = (record.target !== undefined && record.target !== null && !isNaN(Number(record.target)))
-      ? Number(record.target)
-      : getTargetForFloor(floorName);
+    // 3. Target KG: Respect user-defined target quantity (even 0 / updated custom targets), only default if defined
+    const hasTarget = record.target !== undefined && record.target !== null && (record.target as any) !== '';
+    const target = hasTarget ? Number(record.target) : (record.target as any);
 
     // 6. Total Machine from settings panel
     const totalM = getTotalMachinesForFloor(floorName);
     
     // Total production
+    const hasShiftA = record.shiftA !== undefined && record.shiftA !== null && (record.shiftA as any) !== '';
+    const hasShiftB = record.shiftB !== undefined && record.shiftB !== null && (record.shiftB as any) !== '';
+    const hasShiftC = record.shiftC !== undefined && record.shiftC !== null && (record.shiftC as any) !== '';
+    const hasTotalProd = record.totalProduction !== undefined && record.totalProduction !== null && (record.totalProduction as any) !== '';
+
     const totalProduction = isSubContact 
-      ? (Number(record.totalProduction) || 0) 
-      : ((Number(record.shiftA) || 0) + (Number(record.shiftB) || 0) + (Number(record.shiftC) || 0));
+      ? (hasTotalProd ? Number(record.totalProduction) : undefined)
+      : (hasShiftA || hasShiftB || hasShiftC || hasTotalProd
+          ? ((Number(record.shiftA) || 0) + (Number(record.shiftB) || 0) + (Number(record.shiftC) || 0))
+          : undefined);
     
     // Sample production
-    const sampleProd = Number(record.sampleProd) || 0;
+    const hasSample = record.sampleProd !== undefined && record.sampleProd !== null && (record.sampleProd as any) !== '';
+    const sampleProd = hasSample ? Number(record.sampleProd) : (record.sampleProd === undefined ? undefined : 0);
 
     // 5. Bulk PROD (KG) = Total Production - Sample Production
-    const bulkProd = Math.max(0, totalProduction - sampleProd);
+    const bulkProd = totalProduction !== undefined
+      ? Math.max(0, (totalProduction || 0) - (Number(sampleProd) || 0))
+      : undefined;
 
     // Sub-Contact specific calculations (Strictly Sub-Contact columns only, no In-House pollution)
     if (isSubContact) {
-      const achievmentCircular = target > 0 ? parseFloat(((totalProduction / target) * 100).toFixed(2)) : 0;
-      const runningMachine = Number(record.runningMachine) || 0;
-      const totalRunningFactories = Number(record.totalRunningFactories ?? record.runningFactories) || 0;
+      const targetNum = target !== undefined ? Number(target) : 0;
+      const totalProdNum = totalProduction !== undefined ? Number(totalProduction) : 0;
+      const achievmentCircular = targetNum > 0 && totalProduction !== undefined ? parseFloat(((totalProdNum / targetNum) * 100).toFixed(2)) : (targetNum > 0 ? 0 : undefined);
+      const runningMachine = record.runningMachine !== undefined && (record.runningMachine as any) !== '' ? Number(record.runningMachine) : undefined;
+      const totalRunningFactories = record.totalRunningFactories ?? record.runningFactories;
       const runningFactories = totalRunningFactories;
-      const numberVehicles = Number(record.numberVehicles) || 0;
-      const productionFlatKnit = Number(record.productionFlatKnit) || 0;
-      const yarnIssued = Number(record.yarnIssued) || 0;
-      const fabricReturn = Number(record.fabricReturn) || 0;
+      const numberVehicles = record.numberVehicles;
+      const productionFlatKnit = record.productionFlatKnit;
+      const yarnIssued = record.yarnIssued;
+      const fabricReturn = record.fabricReturn;
 
-      const hold = Number(record.hold) || 0;
-      const holdPct = totalProduction > 0 ? parseFloat(((hold / totalProduction) * 100).toFixed(2)) : 0;
-      const reject = Number(record.reject) || 0;
-      const rejectPct = totalProduction > 0 ? parseFloat(((reject / totalProduction) * 100).toFixed(2)) : 0;
-      const jhuteCutpcs = Number(record.jhuteCutpcs) || 0;
-      const jhuteCutpcsPct = totalProduction > 0 ? parseFloat(((jhuteCutpcs / totalProduction) * 100).toFixed(2)) : 0;
+      const hold = record.hold;
+      const holdPct = (totalProduction !== undefined && totalProdNum > 0 && hold !== undefined) ? parseFloat(((Number(hold) / totalProdNum) * 100).toFixed(2)) : undefined;
+      const reject = record.reject;
+      const rejectPct = (totalProduction !== undefined && totalProdNum > 0 && reject !== undefined) ? parseFloat(((Number(reject) / totalProdNum) * 100).toFixed(2)) : undefined;
+      const jhuteCutpcs = record.jhuteCutpcs;
+      const jhuteCutpcsPct = (totalProduction !== undefined && totalProdNum > 0 && jhuteCutpcs !== undefined) ? parseFloat(((Number(jhuteCutpcs) / totalProdNum) * 100).toFixed(2)) : undefined;
 
-      const totalOperator = Number(record.totalOperator) || 0;
-      const absent = Number(record.absent) || 0;
-      const absentPct = totalOperator > 0 ? parseFloat(((absent / totalOperator) * 100).toFixed(2)) : 0;
+      const totalOperator = record.totalOperator;
+      const absent = record.absent;
+      const absentPct = (totalOperator !== undefined && Number(totalOperator) > 0 && absent !== undefined) ? parseFloat(((Number(absent) / Number(totalOperator)) * 100).toFixed(2)) : undefined;
       const otd = record.otd !== undefined ? record.otd : 100;
 
       return {
@@ -997,7 +1008,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         shiftB: undefined,
         shiftC: undefined,
         targetBulk: undefined,
-        totalProduction,
+        totalProduction: totalProduction as any,
         sampleProd,
         bulkProd,
         achievmentCircular,
@@ -1047,86 +1058,90 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     }
 
     // Active & Running machines (In-House)
-    const runningMachine = Number(record.runningMachine) || 0;
-    const runningSample = Number(record.runningSample) || 0;
-
-    // 7. Running Bulk = Running Machine - Running Sample Machine
-    const runningBulk = Math.max(0, runningMachine - runningSample);
+    const hasRunningBulk = record.runningBulk !== undefined && record.runningBulk !== null && (record.runningBulk as any) !== '';
+    const runningBulk = hasRunningBulk ? Number(record.runningBulk) : (record.runningBulk as any);
+    const runningSample = record.runningSample !== undefined && (record.runningSample as any) !== '' ? Number(record.runningSample) : (record.runningSample as any);
+    const runningMachine = (runningBulk !== undefined)
+      ? runningBulk + (Number(runningSample) || 0)
+      : (record.runningMachine !== undefined && (record.runningMachine as any) !== '' ? Number(record.runningMachine) : undefined);
 
     // Avg Prod / Machine (Kg) from settings panel
     const avgProdPerMc = getAvgProdPerMachineForUnit(floorName);
 
     // 4. Target Bulk = Running Bulk (MC) * Avg Prod. / Machine (Kg)
-    const targetBulk = Number((runningBulk * avgProdPerMc).toFixed(2));
+    const targetBulk = (runningBulk !== undefined) ? Number((runningBulk * avgProdPerMc).toFixed(2)) : undefined;
 
     // Idle machine
-    const idleMachine = Math.max(0, totalM - runningMachine);
+    const idleMachine = (runningMachine !== undefined) ? Math.max(0, totalM - runningMachine) : undefined;
     const idleMc = idleMachine;
     
     // Machine utilization %
-    const machineUtilization = totalM > 0 ? parseFloat(((runningMachine / totalM) * 100).toFixed(1)) : 0;
+    const machineUtilization = (runningMachine !== undefined && totalM > 0) ? parseFloat(((runningMachine / totalM) * 100).toFixed(1)) : undefined;
     
     // Idle machine %
-    const idleMachinePct = totalM > 0 ? parseFloat(((idleMachine / totalM) * 100).toFixed(1)) : 0;
+    const idleMachinePct = (idleMachine !== undefined && totalM > 0) ? parseFloat(((idleMachine / totalM) * 100).toFixed(1)) : undefined;
     const idleMcPct = idleMachinePct;
     
     // Idle Production = Avg Prod. / Machine (Kg) * Idle MC
-    const idleProduction = idleMachine > 0 ? parseFloat((idleMachine * avgProdPerMc).toFixed(2)) : 0;
+    const idleProduction = (idleMachine !== undefined && idleMachine > 0) ? parseFloat((idleMachine * avgProdPerMc).toFixed(2)) : (idleMachine !== undefined ? 0 : undefined);
     
     // Production/Machine
-    const productionPerMachine = runningMachine > 0 ? parseFloat((totalProduction / runningMachine).toFixed(2)) : 0;
+    const totalProdNum = totalProduction !== undefined ? Number(totalProduction) : 0;
+    const productionPerMachine = (runningMachine !== undefined && runningMachine > 0 && totalProduction !== undefined) ? parseFloat((totalProdNum / runningMachine).toFixed(2)) : undefined;
     const proPerMc = productionPerMachine;
     
     // 8. Efficiency = (Bulk Prod (Kg) / Target Bulk (Kg)) * 100
-    let efficiency = 0;
-    if (targetBulk > 0) {
-      efficiency = parseFloat(((bulkProd / targetBulk) * 100).toFixed(2));
-    } else if (target > 0) {
-      efficiency = parseFloat(((totalProduction / target) * 100).toFixed(2));
+    let efficiency: number | undefined = undefined;
+    const bulkProdNum = bulkProd !== undefined ? Number(bulkProd) : 0;
+    if (targetBulk !== undefined && targetBulk > 0 && bulkProd !== undefined) {
+      efficiency = parseFloat(((bulkProdNum / targetBulk) * 100).toFixed(2));
+    } else if (target !== undefined && Number(target) > 0 && totalProduction !== undefined) {
+      efficiency = parseFloat(((totalProdNum / Number(target)) * 100).toFixed(2));
     }
     
     // 9. Capacity Utilization = (Total Production / Production Capacity) * 100
-    const prodCapacity = getProductionCapacityForUnit(floorName, target);
-    const capacityUtilization = prodCapacity > 0 ? parseFloat(((totalProduction / prodCapacity) * 100).toFixed(2)) : 0;
+    const prodCapacity = getProductionCapacityForUnit(floorName, target ? Number(target) : undefined);
+    const capacityUtilization = (prodCapacity > 0 && totalProduction !== undefined) ? parseFloat(((totalProdNum / prodCapacity) * 100).toFixed(2)) : undefined;
     
     // 10. Production Loss for Sample: (((Bulk Prod. / Running Bulk (MC)) * Running Sample (Mc)) - Sample Prod (Kg))
-    const prodLossForSample = (runningBulk > 0)
-      ? parseFloat((((bulkProd / runningBulk) * runningSample) - sampleProd).toFixed(2))
-      : 0;
+    const sampleProdNum = sampleProd !== undefined ? Number(sampleProd) : 0;
+    const prodLossForSample = (runningBulk !== undefined && runningBulk > 0 && bulkProd !== undefined && runningSample !== undefined)
+      ? parseFloat((((bulkProdNum / runningBulk) * Number(runningSample)) - sampleProdNum).toFixed(2))
+      : undefined;
 
     // Quality
-    const reject = Number(record.reject) || 0;
-    const rejectPct = totalProduction > 0 ? parseFloat(((reject / totalProduction) * 100).toFixed(2)) : 0;
-    const hold = Number(record.hold) || 0;
-    const holdPct = totalProduction > 0 ? parseFloat(((hold / totalProduction) * 100).toFixed(2)) : 0;
-    const jhuteCutpcs = Number(record.jhuteCutpcs) || 0;
-    const jhuteCutpcsPct = totalProduction > 0 ? parseFloat(((jhuteCutpcs / totalProduction) * 100).toFixed(2)) : 0;
+    const reject = record.reject;
+    const rejectPct = (totalProduction !== undefined && totalProdNum > 0 && reject !== undefined) ? parseFloat(((Number(reject) / totalProdNum) * 100).toFixed(2)) : undefined;
+    const hold = record.hold;
+    const holdPct = (totalProduction !== undefined && totalProdNum > 0 && hold !== undefined) ? parseFloat(((Number(hold) / totalProdNum) * 100).toFixed(2)) : undefined;
+    const jhuteCutpcs = record.jhuteCutpcs;
+    const jhuteCutpcsPct = (totalProduction !== undefined && totalProdNum > 0 && jhuteCutpcs !== undefined) ? parseFloat(((Number(jhuteCutpcs) / totalProdNum) * 100).toFixed(2)) : undefined;
     
     // 11. Needle Broken/KG = (Total Production / Needle Broken pcs)
-    const needleBroken = Number(record.needleBroken) || 0;
-    const needlePerKg = (needleBroken > 0 && totalProduction > 0)
-      ? parseFloat((totalProduction / needleBroken).toFixed(2))
-      : 0;
+    const needleBroken = record.needleBroken;
+    const needlePerKg = (needleBroken !== undefined && Number(needleBroken) > 0 && totalProduction !== undefined && totalProdNum > 0)
+      ? parseFloat((totalProdNum / Number(needleBroken)).toFixed(2))
+      : undefined;
     
     // 11. Sinker Broken/KG = (Total Production / Sinker Broken pcs)
-    const sinkerBroken = Number(record.sinkerBroken) || 0;
-    const sinkerPerKg = (sinkerBroken > 0 && totalProduction > 0)
-      ? parseFloat((totalProduction / sinkerBroken).toFixed(2))
-      : 0;
+    const sinkerBroken = record.sinkerBroken;
+    const sinkerPerKg = (sinkerBroken !== undefined && Number(sinkerBroken) > 0 && totalProduction !== undefined && totalProdNum > 0)
+      ? parseFloat((totalProdNum / Number(sinkerBroken)).toFixed(2))
+      : undefined;
     
     // Manpower
-    const totalOperator = Number(record.totalOperator) || 0;
-    const absent = Number(record.absent) || 0;
-    const absentPct = totalOperator > 0 ? parseFloat(((absent / totalOperator) * 100).toFixed(2)) : 0;
+    const totalOperator = record.totalOperator;
+    const absent = record.absent;
+    const absentPct = (totalOperator !== undefined && Number(totalOperator) > 0 && absent !== undefined) ? parseFloat(((Number(absent) / Number(totalOperator)) * 100).toFixed(2)) : undefined;
     
     // Performance
-    const productionLossForEff = Math.max(0, target - totalProduction);
+    const productionLossForEff = (target !== undefined && totalProduction !== undefined) ? Math.max(0, Number(target) - totalProdNum) : undefined;
     const productionLossForEfficiency = productionLossForEff;
 
     return {
       ...record,
       target,
-      totalProduction,
+      totalProduction: totalProduction as any,
       sampleProd,
       bulkProd,
       runningMachine,
@@ -2358,18 +2373,6 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   // ----------------------------------------------------
   const getInitialNewRecord = (floor: string = 'EKL', date?: string): LedgerRecord => {
     const defaultDate = date || getYesterdayDateString();
-    const totalM = getTotalMachinesForFloor(floor);
-    const targetKg = getTargetForFloor(floor);
-    const operatorsMap: Record<string, number> = {
-      'EKL': 110,
-      'EFL': 95,
-      'EFL-2': 85,
-      'Auto Stripe': 50,
-      'EFL-Extension': 65,
-      'ESL-Extension': 40,
-      'Sub-Contact': 0,
-    };
-    const totalOps = operatorsMap[floor] || 90;
     
     // Extract month, year, and day of week
     const dateObj = new Date(defaultDate + 'T00:00:00');
@@ -2390,62 +2393,62 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       floor,
       month: monthName,
       year: yearNum,
-      target: targetKg,
-      shiftA: isSub ? undefined : 0,
-      shiftB: isSub ? undefined : 0,
-      shiftC: isSub ? undefined : 0,
-      totalProduction: 0,
-      targetBulk: isSub ? undefined : targetKg,
-      bulkProd: 0,
-      sampleProd: 0,
-      totalMachines: isSub ? undefined : totalM,
-      runningMachine: isSub ? 0 : totalM,
-      runningBulk: isSub ? undefined : totalM,
-      runningSample: isSub ? undefined : 0,
-      idleMachine: isSub ? undefined : 0,
-      idleMc: isSub ? undefined : 0,
-      machineUtilization: isSub ? undefined : 100,
-      idleMachinePct: isSub ? undefined : 0,
-      idleMcPct: isSub ? undefined : 0,
-      prodLossForSample: isSub ? undefined : 0,
-      idleProduction: isSub ? undefined : 0,
-      efficiency: 0,
-      productionPerMachine: isSub ? undefined : 0,
-      proPerMc: isSub ? undefined : 0,
-      reject: 0,
-      rejectPct: 0,
-      hold: 0,
-      holdPct: 0,
-      jhuteCutpcs: 0,
-      jhuteCutpcsPct: 0,
-      needleBroken: isSub ? undefined : 0,
-      needlePerKg: isSub ? undefined : 0,
-      sinkerBroken: isSub ? undefined : 0,
-      sinkerPerKg: isSub ? undefined : 0,
-      oilConsumption: isSub ? undefined : 0,
-      beltBroken: isSub ? undefined : 0,
-      otherSparePartsName: isSub ? undefined : '',
-      otherSparePartsQty: isSub ? undefined : 0,
-      setChangeNeedle: isSub ? undefined : 0,
-      setChangeSinker: isSub ? undefined : 0,
-      productionLossForEff: isSub ? undefined : 0,
-      productionLossForEfficiency: isSub ? undefined : targetKg,
-      capacityUtilization: isSub ? undefined : 100,
-      totalOperator: isSub ? 0 : totalOps,
-      absent: 0,
-      absentPct: 0,
+      target: undefined as any,
+      shiftA: undefined as any,
+      shiftB: undefined as any,
+      shiftC: undefined as any,
+      totalProduction: undefined as any,
+      targetBulk: undefined,
+      bulkProd: undefined,
+      sampleProd: undefined,
+      totalMachines: isSub ? undefined : getTotalMachinesForFloor(floor),
+      runningMachine: undefined,
+      runningBulk: undefined,
+      runningSample: undefined,
+      idleMachine: undefined,
+      idleMc: undefined,
+      machineUtilization: undefined,
+      idleMachinePct: undefined,
+      idleMcPct: undefined,
+      prodLossForSample: undefined,
+      idleProduction: undefined,
+      efficiency: undefined,
+      productionPerMachine: undefined,
+      proPerMc: undefined,
+      reject: undefined,
+      rejectPct: undefined,
+      hold: undefined,
+      holdPct: undefined,
+      jhuteCutpcs: undefined,
+      jhuteCutpcsPct: undefined,
+      needleBroken: undefined,
+      needlePerKg: undefined,
+      sinkerBroken: undefined,
+      sinkerPerKg: undefined,
+      oilConsumption: undefined,
+      beltBroken: undefined,
+      otherSparePartsName: '',
+      otherSparePartsQty: undefined,
+      setChangeNeedle: undefined,
+      setChangeSinker: undefined,
+      productionLossForEff: undefined,
+      productionLossForEfficiency: undefined,
+      capacityUtilization: undefined,
+      totalOperator: undefined,
+      absent: undefined,
+      absentPct: undefined,
       remarks: '',
-      productionFlatKnit: 0,
-      achievmentCircular: 0,
+      productionFlatKnit: undefined,
+      achievmentCircular: undefined,
       otd: 100,
-      yarnIssued: 0,
-      totalRunningFactories: 0,
-      runningFactories: 0,
-      numberVehicles: 0,
-      fabricReturn: 0
+      yarnIssued: undefined,
+      totalRunningFactories: undefined,
+      runningFactories: undefined,
+      numberVehicles: undefined,
+      fabricReturn: undefined
     };
 
-    return recalculateRecordFields(initial);
+    return initial;
   };
 
   const handleCreateChange = (fieldOrFields: keyof LedgerRecord | Partial<LedgerRecord>, value?: any) => {
@@ -2475,43 +2478,32 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
           }
         } else if (field === 'floor') {
           const isSub = value === 'Sub-Contact';
-          const targetKg = getTargetForFloor(value);
           const totalM = getTotalMachinesForFloor(value);
-          const operatorsMap: Record<string, number> = {
-            'EKL': 110,
-            'EFL': 95,
-            'EFL-2': 85,
-            'Auto Stripe': 50,
-            'EFL-Extension': 65,
-            'ESL-Extension': 40,
-            'Sub-Contact': 0,
-          };
-          updated.target = targetKg;
-          updated.totalOperator = operatorsMap[value] || (isSub ? 0 : 90);
           updated.totalMachines = isSub ? undefined : totalM;
-          updated.runningMachine = isSub ? (updated.runningMachine || 0) : totalM;
-          updated.runningSample = isSub ? undefined : 0;
-          updated.runningBulk = isSub ? undefined : totalM;
           updated.unit = isSub ? 'Sub-Contact' : 'In-House';
           
-          // Initialize sub-contact fields if floor changes to Sub-Contact
+          // Reset sub-contact / in-house specific fields cleanly
           if (isSub) {
             updated.shiftA = undefined;
             updated.shiftB = undefined;
             updated.shiftC = undefined;
             updated.targetBulk = undefined;
-            updated.productionFlatKnit = updated.productionFlatKnit ?? 0;
-            updated.yarnIssued = updated.yarnIssued ?? 0;
-            updated.runningFactories = updated.runningFactories ?? 0;
-            updated.totalRunningFactories = updated.totalRunningFactories ?? 0;
-            updated.fabricReturn = updated.fabricReturn ?? 0;
+            updated.runningBulk = undefined;
+            updated.runningSample = undefined;
           }
         }
 
         // Auto-sum shifts into total production if not Sub-Contact
         if (field === 'shiftA' || field === 'shiftB' || field === 'shiftC') {
           if (updated.floor !== 'Sub-Contact' && updated.unit !== 'Sub-Contact') {
-            updated.totalProduction = (Number(updated.shiftA) || 0) + (Number(updated.shiftB) || 0) + (Number(updated.shiftC) || 0);
+            const a = updated.shiftA !== undefined && updated.shiftA !== null && (updated.shiftA as any) !== '' ? Number(updated.shiftA) : undefined;
+            const b = updated.shiftB !== undefined && updated.shiftB !== null && (updated.shiftB as any) !== '' ? Number(updated.shiftB) : undefined;
+            const c = updated.shiftC !== undefined && updated.shiftC !== null && (updated.shiftC as any) !== '' ? Number(updated.shiftC) : undefined;
+            if (a !== undefined || b !== undefined || c !== undefined) {
+              updated.totalProduction = (a || 0) + (b || 0) + (c || 0);
+            } else {
+              updated.totalProduction = undefined as any;
+            }
           }
         }
 
@@ -2519,27 +2511,23 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
         const isSubContactFloor = updated.floor === 'Sub-Contact' || updated.unit === 'Sub-Contact';
         if (isSubContactFloor) {
           if (field === 'runningMachine') {
-            updated.runningMachine = Number(value) || 0;
+            updated.runningMachine = value === '' || value === undefined ? undefined : (Number(value) || 0);
             updated.runningBulk = undefined;
             updated.runningSample = undefined;
           }
         } else {
-          if (field === 'runningMachine') {
-            const rM = Number(value) || 0;
-            const rS = Number(updated.runningSample) || 0;
-            updated.runningMachine = rM;
-            updated.runningBulk = Math.max(0, rM - rS);
-          } else if (field === 'runningSample') {
-            const rS = Number(value) || 0;
-            const rM = Number(updated.runningMachine) || 0;
-            updated.runningSample = rS;
-            // Changes should be made in Running Bulk (MC) instead of changing Total Active Machine
-            updated.runningBulk = Math.max(0, rM - rS);
-          } else if (field === 'runningBulk') {
-            const rB = Number(value) || 0;
+          if (field === 'runningBulk') {
+            const rB = value === '' || value === undefined ? undefined : (Number(value) || 0);
             const rS = Number(updated.runningSample) || 0;
             updated.runningBulk = rB;
-            updated.runningMachine = rB + rS;
+            updated.runningMachine = rB !== undefined ? rB + rS : undefined;
+          } else if (field === 'runningSample') {
+            const rS = value === '' || value === undefined ? 0 : (Number(value) || 0);
+            const rB = updated.runningBulk !== undefined ? Number(updated.runningBulk) : undefined;
+            updated.runningSample = rS;
+            if (rB !== undefined) {
+              updated.runningMachine = rB + rS;
+            }
           }
         }
       }
@@ -2552,11 +2540,17 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     e.preventDefault();
     if (!creatingRecord) return;
 
-    // Basic Validation
+    // Strict Mandatory Validation
     const errors: Record<string, string> = {};
     if (!creatingRecord.date) errors.date = "Production date is required.";
     if (!creatingRecord.floor) errors.floor = "Floor / Unit is required.";
-    if (creatingRecord.target <= 0) errors.target = "Target quantity must be positive.";
+
+    // 1. Mandatory Target Total (Kg)
+    if (creatingRecord.target === undefined || creatingRecord.target === null || isNaN(Number(creatingRecord.target)) || (creatingRecord.target as any) === '') {
+      errors.target = "Target Total (Kg) is required.";
+    } else if (Number(creatingRecord.target) <= 0) {
+      errors.target = "Target Total (Kg) must be greater than 0.";
+    }
     
     // User Restriction: Verify unit assignment
     if (!isUserAuthorizedForFloor(currentUser, creatingRecord.floor)) {
@@ -2576,22 +2570,64 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       return;
     }
     
-    if (creatingRecord.floor !== 'Sub-Contact') {
-      if (creatingRecord.shiftA < 0) errors.shiftA = "Value cannot be negative.";
-      if (creatingRecord.shiftB < 0) errors.shiftB = "Value cannot be negative.";
-      if (creatingRecord.shiftC < 0) errors.shiftC = "Value cannot be negative.";
+    if (creatingRecord.floor !== 'Sub-Contact' && creatingRecord.unit !== 'Sub-Contact') {
+      // 2. Mandatory Shift A
+      if (creatingRecord.shiftA === undefined || creatingRecord.shiftA === null || isNaN(Number(creatingRecord.shiftA)) || (creatingRecord.shiftA as any) === '') {
+        errors.shiftA = "Shift A is required.";
+      } else if (Number(creatingRecord.shiftA) < 0) {
+        errors.shiftA = "Shift A cannot be negative.";
+      }
+
+      // 3. Mandatory Shift B
+      if (creatingRecord.shiftB === undefined || creatingRecord.shiftB === null || isNaN(Number(creatingRecord.shiftB)) || (creatingRecord.shiftB as any) === '') {
+        errors.shiftB = "Shift B is required.";
+      } else if (Number(creatingRecord.shiftB) < 0) {
+        errors.shiftB = "Shift B cannot be negative.";
+      }
+
+      // 4. Mandatory Shift C
+      if (creatingRecord.shiftC === undefined || creatingRecord.shiftC === null || isNaN(Number(creatingRecord.shiftC)) || (creatingRecord.shiftC as any) === '') {
+        errors.shiftC = "Shift C is required.";
+      } else if (Number(creatingRecord.shiftC) < 0) {
+        errors.shiftC = "Shift C cannot be negative.";
+      }
+
+      // 5. Mandatory Running Bulk
+      if (creatingRecord.runningBulk === undefined || creatingRecord.runningBulk === null || isNaN(Number(creatingRecord.runningBulk)) || (creatingRecord.runningBulk as any) === '') {
+        errors.runningBulk = "Running Bulk machine count is required.";
+      } else if (Number(creatingRecord.runningBulk) < 0) {
+        errors.runningBulk = "Running Bulk cannot be negative.";
+      }
+
+      // 6. Mandatory Total Operator
+      if (creatingRecord.totalOperator === undefined || creatingRecord.totalOperator === null || isNaN(Number(creatingRecord.totalOperator)) || (creatingRecord.totalOperator as any) === '') {
+        errors.totalOperator = "Total Operator is required.";
+      } else if (Number(creatingRecord.totalOperator) <= 0) {
+        errors.totalOperator = "Total Operator must be greater than 0.";
+      }
     } else {
-      if (creatingRecord.totalProduction < 0) errors.totalProduction = "Value cannot be negative.";
+      // Sub-Contact specific requirements
+      if (creatingRecord.totalProduction === undefined || creatingRecord.totalProduction === null || isNaN(Number(creatingRecord.totalProduction)) || (creatingRecord.totalProduction as any) === '') {
+        errors.totalProduction = "Total Production (Kg) is required for Sub-Contact.";
+      } else if (Number(creatingRecord.totalProduction) < 0) {
+        errors.totalProduction = "Total Production cannot be negative.";
+      }
+
+      if (creatingRecord.totalOperator === undefined || creatingRecord.totalOperator === null || isNaN(Number(creatingRecord.totalOperator)) || (creatingRecord.totalOperator as any) === '') {
+        errors.totalOperator = "Total Manpower is required.";
+      } else if (Number(creatingRecord.totalOperator) <= 0) {
+        errors.totalOperator = "Total Manpower must be greater than 0.";
+      }
+
       if ((creatingRecord.productionFlatKnit ?? 0) < 0) errors.productionFlatKnit = "Value cannot be negative.";
       if ((creatingRecord.yarnIssued ?? 0) < 0) errors.yarnIssued = "Value cannot be negative.";
       if ((creatingRecord.runningFactories ?? 0) < 0) errors.runningFactories = "Value cannot be negative.";
       if ((creatingRecord.fabricReturn ?? 0) < 0) errors.fabricReturn = "Value cannot be negative.";
     }
     
-    if (creatingRecord.runningMachine < 0) errors.runningMachine = "Value cannot be negative.";
-    if (creatingRecord.idleMachine < 0) errors.idleMachine = "Value cannot be negative.";
-    if (creatingRecord.reject < 0) errors.reject = "Value cannot be negative.";
-    if (creatingRecord.hold < 0) errors.hold = "Value cannot be negative.";
+    if (creatingRecord.runningMachine !== undefined && Number(creatingRecord.runningMachine) < 0) errors.runningMachine = "Value cannot be negative.";
+    if (creatingRecord.reject !== undefined && Number(creatingRecord.reject) < 0) errors.reject = "Value cannot be negative.";
+    if (creatingRecord.hold !== undefined && Number(creatingRecord.hold) < 0) errors.hold = "Value cannot be negative.";
 
     if (Object.keys(errors).length > 0) {
       setCreateErrors(errors);
@@ -2600,12 +2636,35 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
     const cleanFloor = (creatingRecord.floor || 'unit').toLowerCase().replace(/[^a-z0-9]/g, '-');
     const tempId = `rec-${creatingRecord.date || '2026-08-11'}-${cleanFloor}-${Date.now()}`;
-    const recordWithTempId: LedgerRecord = { ...creatingRecord, id: tempId };
+    const sanitizedRecord: LedgerRecord = {
+      ...creatingRecord,
+      id: tempId,
+      target: Number(creatingRecord.target) || 0,
+      shiftA: creatingRecord.floor === 'Sub-Contact' ? undefined : (Number(creatingRecord.shiftA) || 0),
+      shiftB: creatingRecord.floor === 'Sub-Contact' ? undefined : (Number(creatingRecord.shiftB) || 0),
+      shiftC: creatingRecord.floor === 'Sub-Contact' ? undefined : (Number(creatingRecord.shiftC) || 0),
+      totalProduction: Number(creatingRecord.totalProduction) || 0,
+      runningBulk: creatingRecord.floor === 'Sub-Contact' ? undefined : (Number(creatingRecord.runningBulk) || 0),
+      totalOperator: Number(creatingRecord.totalOperator) || 0,
+      sampleProd: Number(creatingRecord.sampleProd) || 0,
+      runningSample: Number(creatingRecord.runningSample) || 0,
+      reject: Number(creatingRecord.reject) || 0,
+      hold: Number(creatingRecord.hold) || 0,
+      jhuteCutpcs: Number(creatingRecord.jhuteCutpcs) || 0,
+      needleBroken: creatingRecord.floor === 'Sub-Contact' ? undefined : (Number(creatingRecord.needleBroken) || 0),
+      sinkerBroken: creatingRecord.floor === 'Sub-Contact' ? undefined : (Number(creatingRecord.sinkerBroken) || 0),
+      oilConsumption: creatingRecord.floor === 'Sub-Contact' ? undefined : (Number(creatingRecord.oilConsumption) || 0),
+      beltBroken: creatingRecord.floor === 'Sub-Contact' ? undefined : (Number(creatingRecord.beltBroken) || 0),
+      setChangeNeedle: creatingRecord.floor === 'Sub-Contact' ? undefined : (Number(creatingRecord.setChangeNeedle) || 0),
+      setChangeSinker: creatingRecord.floor === 'Sub-Contact' ? undefined : (Number(creatingRecord.setChangeSinker) || 0),
+      absent: Number(creatingRecord.absent) || 0,
+    };
+    const finalizedRecord = recalculateRecordFields(sanitizedRecord);
 
     // Update local state immediately
-    setLedger((prev) => [recordWithTempId, ...prev]);
+    setLedger((prev) => [finalizedRecord, ...prev]);
     // Single source of truth: globalSaveLedgerRecord dispatches to local state, Firestore & Google Sheets
-    globalSaveLedgerRecord(recordWithTempId).catch((err: any) => {
+    globalSaveLedgerRecord(finalizedRecord).catch((err: any) => {
       console.warn("Global ledger save notice:", err);
     });
     setIsCreateModalOpen(false);
@@ -2728,10 +2787,17 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     e.preventDefault();
     if (!editingRecord) return;
 
-    // Basic Validation
+    // Strict Mandatory Validation
     const errors: Record<string, string> = {};
     if (!editingRecord.date) errors.date = "Production date is required.";
-    if (editingRecord.target <= 0) errors.target = "Target quantity must be positive.";
+    if (!editingRecord.floor) errors.floor = "Floor / Unit is required.";
+
+    // 1. Mandatory Target Total (Kg)
+    if (editingRecord.target === undefined || editingRecord.target === null || isNaN(Number(editingRecord.target)) || (editingRecord.target as any) === '') {
+      errors.target = "Target Total (Kg) is required.";
+    } else if (Number(editingRecord.target) <= 0) {
+      errors.target = "Target Total (Kg) must be greater than 0.";
+    }
     
     // User Restriction: Verify unit assignment
     if (!isUserAuthorizedForFloor(currentUser, editingRecord.floor)) {
@@ -2751,29 +2817,93 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       return;
     }
     
-    if (editingRecord.floor !== 'Sub-Contact') {
-      if (editingRecord.shiftA < 0) errors.shiftA = "Value cannot be negative.";
-      if (editingRecord.shiftB < 0) errors.shiftB = "Value cannot be negative.";
-      if (editingRecord.shiftC < 0) errors.shiftC = "Value cannot be negative.";
+    if (editingRecord.floor !== 'Sub-Contact' && editingRecord.unit !== 'Sub-Contact') {
+      // 2. Mandatory Shift A
+      if (editingRecord.shiftA === undefined || editingRecord.shiftA === null || isNaN(Number(editingRecord.shiftA)) || (editingRecord.shiftA as any) === '') {
+        errors.shiftA = "Shift A is required.";
+      } else if (Number(editingRecord.shiftA) < 0) {
+        errors.shiftA = "Shift A cannot be negative.";
+      }
+
+      // 3. Mandatory Shift B
+      if (editingRecord.shiftB === undefined || editingRecord.shiftB === null || isNaN(Number(editingRecord.shiftB)) || (editingRecord.shiftB as any) === '') {
+        errors.shiftB = "Shift B is required.";
+      } else if (Number(editingRecord.shiftB) < 0) {
+        errors.shiftB = "Shift B cannot be negative.";
+      }
+
+      // 4. Mandatory Shift C
+      if (editingRecord.shiftC === undefined || editingRecord.shiftC === null || isNaN(Number(editingRecord.shiftC)) || (editingRecord.shiftC as any) === '') {
+        errors.shiftC = "Shift C is required.";
+      } else if (Number(editingRecord.shiftC) < 0) {
+        errors.shiftC = "Shift C cannot be negative.";
+      }
+
+      // 5. Mandatory Running Bulk
+      if (editingRecord.runningBulk === undefined || editingRecord.runningBulk === null || isNaN(Number(editingRecord.runningBulk)) || (editingRecord.runningBulk as any) === '') {
+        errors.runningBulk = "Running Bulk machine count is required.";
+      } else if (Number(editingRecord.runningBulk) < 0) {
+        errors.runningBulk = "Running Bulk cannot be negative.";
+      }
+
+      // 6. Mandatory Total Operator
+      if (editingRecord.totalOperator === undefined || editingRecord.totalOperator === null || isNaN(Number(editingRecord.totalOperator)) || (editingRecord.totalOperator as any) === '') {
+        errors.totalOperator = "Total Operator is required.";
+      } else if (Number(editingRecord.totalOperator) <= 0) {
+        errors.totalOperator = "Total Operator must be greater than 0.";
+      }
     } else {
-      if (editingRecord.totalProduction < 0) errors.totalProduction = "Value cannot be negative.";
+      if (editingRecord.totalProduction === undefined || editingRecord.totalProduction === null || isNaN(Number(editingRecord.totalProduction)) || (editingRecord.totalProduction as any) === '') {
+        errors.totalProduction = "Total Production (Kg) is required for Sub-Contact.";
+      } else if (Number(editingRecord.totalProduction) < 0) {
+        errors.totalProduction = "Total Production cannot be negative.";
+      }
+
+      if (editingRecord.totalOperator === undefined || editingRecord.totalOperator === null || isNaN(Number(editingRecord.totalOperator)) || (editingRecord.totalOperator as any) === '') {
+        errors.totalOperator = "Total Manpower is required.";
+      } else if (Number(editingRecord.totalOperator) <= 0) {
+        errors.totalOperator = "Total Manpower must be greater than 0.";
+      }
+
       if ((editingRecord.productionFlatKnit ?? 0) < 0) errors.productionFlatKnit = "Value cannot be negative.";
       if ((editingRecord.yarnIssued ?? 0) < 0) errors.yarnIssued = "Value cannot be negative.";
       if ((editingRecord.runningFactories ?? 0) < 0) errors.runningFactories = "Value cannot be negative.";
       if ((editingRecord.fabricReturn ?? 0) < 0) errors.fabricReturn = "Value cannot be negative.";
     }
     
-    if (editingRecord.runningMachine < 0) errors.runningMachine = "Value cannot be negative.";
-    if (editingRecord.idleMachine < 0) errors.idleMachine = "Value cannot be negative.";
-    if (editingRecord.reject < 0) errors.reject = "Value cannot be negative.";
-    if (editingRecord.hold < 0) errors.hold = "Value cannot be negative.";
+    if (editingRecord.runningMachine !== undefined && Number(editingRecord.runningMachine) < 0) errors.runningMachine = "Value cannot be negative.";
+    if (editingRecord.reject !== undefined && Number(editingRecord.reject) < 0) errors.reject = "Value cannot be negative.";
+    if (editingRecord.hold !== undefined && Number(editingRecord.hold) < 0) errors.hold = "Value cannot be negative.";
 
     if (Object.keys(errors).length > 0) {
       setEditErrors(errors);
       return;
     }
 
-    const recordToSave = { ...editingRecord };
+    const sanitizedRecord: LedgerRecord = {
+      ...editingRecord,
+      target: Number(editingRecord.target) || 0,
+      shiftA: editingRecord.floor === 'Sub-Contact' ? undefined : (Number(editingRecord.shiftA) || 0),
+      shiftB: editingRecord.floor === 'Sub-Contact' ? undefined : (Number(editingRecord.shiftB) || 0),
+      shiftC: editingRecord.floor === 'Sub-Contact' ? undefined : (Number(editingRecord.shiftC) || 0),
+      totalProduction: Number(editingRecord.totalProduction) || 0,
+      runningBulk: editingRecord.floor === 'Sub-Contact' ? undefined : (Number(editingRecord.runningBulk) || 0),
+      totalOperator: Number(editingRecord.totalOperator) || 0,
+      sampleProd: Number(editingRecord.sampleProd) || 0,
+      runningSample: Number(editingRecord.runningSample) || 0,
+      reject: Number(editingRecord.reject) || 0,
+      hold: Number(editingRecord.hold) || 0,
+      jhuteCutpcs: Number(editingRecord.jhuteCutpcs) || 0,
+      needleBroken: editingRecord.floor === 'Sub-Contact' ? undefined : (Number(editingRecord.needleBroken) || 0),
+      sinkerBroken: editingRecord.floor === 'Sub-Contact' ? undefined : (Number(editingRecord.sinkerBroken) || 0),
+      oilConsumption: editingRecord.floor === 'Sub-Contact' ? undefined : (Number(editingRecord.oilConsumption) || 0),
+      beltBroken: editingRecord.floor === 'Sub-Contact' ? undefined : (Number(editingRecord.beltBroken) || 0),
+      setChangeNeedle: editingRecord.floor === 'Sub-Contact' ? undefined : (Number(editingRecord.setChangeNeedle) || 0),
+      setChangeSinker: editingRecord.floor === 'Sub-Contact' ? undefined : (Number(editingRecord.setChangeSinker) || 0),
+      absent: Number(editingRecord.absent) || 0,
+    };
+    const recordToSave = recalculateRecordFields(sanitizedRecord);
+
     setLedger((prev) => prev.map((r) => (r.id === recordToSave.id ? recordToSave : r)));
     // Single source of truth: globalSaveLedgerRecord dispatches to local state, Firestore & Google Sheets
     globalSaveLedgerRecord(recordToSave).catch((err: any) => {
