@@ -882,6 +882,19 @@ export class SupabaseSync {
     }
   }
 
+  private static knownMissingColumns = new Set<string>();
+
+  /**
+   * Helper to strip known non-existent columns from a row before inserting to Supabase
+   */
+  private static sanitizeRowForSupabase(row: Record<string, any>): Record<string, any> {
+    const sanitized = { ...row };
+    for (const col of this.knownMissingColumns) {
+      delete sanitized[col];
+    }
+    return sanitized;
+  }
+
   /**
    * Save or update a single production ledger record in Supabase
    */
@@ -890,12 +903,31 @@ export class SupabaseSync {
     if (!client) return { success: false, error: 'Supabase client is not initialized or credentials missing.' };
 
     try {
-      const row = this.mapLedgerRecordToRow(record);
-      const { error } = await client.from('production_ledger').upsert(row, { onConflict: 'id' });
-      if (error) {
+      let row = this.sanitizeRowForSupabase(this.mapLedgerRecordToRow(record));
+      
+      let attempts = 0;
+      while (attempts < 6) {
+        attempts++;
+        const { error } = await client.from('production_ledger').upsert(row, { onConflict: 'id' });
+        if (!error) {
+          return { success: true };
+        }
+
+        const match = error.message?.match(/Could not find the '([^']+)' column/) ||
+                      error.message?.match(/column "([^"]+)" of relation/) ||
+                      error.message?.match(/column '([^']+)' does not exist/);
+
+        if (match && match[1]) {
+          const missingCol = match[1];
+          this.knownMissingColumns.add(missingCol);
+          delete row[missingCol];
+          continue; // retry without missing column
+        }
+
         console.error('Supabase saveProductionRecord error:', error);
         return { success: false, error: error.message };
       }
+
       return { success: true };
     } catch (err: any) {
       console.error('Supabase saveProductionRecord exception:', err);
@@ -921,10 +953,37 @@ export class SupabaseSync {
       // Batch into chunks of 50 to ensure high reliability
       const chunkSize = 50;
       let insertedCount = 0;
+
       for (let i = 0; i < rows.length; i += chunkSize) {
-        const chunk = rows.slice(i, i + chunkSize);
-        const { error } = await client.from('production_ledger').upsert(chunk, { onConflict: 'id' });
-        if (error) {
+        let chunk = rows.slice(i, i + chunkSize).map(r => this.sanitizeRowForSupabase(r));
+        let chunkSuccess = false;
+        let attempts = 0;
+
+        while (!chunkSuccess && attempts < 8) {
+          attempts++;
+          const { error } = await client.from('production_ledger').upsert(chunk, { onConflict: 'id' });
+          if (!error) {
+            chunkSuccess = true;
+            insertedCount += chunk.length;
+            break;
+          }
+
+          const match = error.message?.match(/Could not find the '([^']+)' column/) ||
+                        error.message?.match(/column "([^"]+)" of relation/) ||
+                        error.message?.match(/column '([^']+)' does not exist/);
+
+          if (match && match[1]) {
+            const missingCol = match[1];
+            this.knownMissingColumns.add(missingCol);
+            // Prune missing column from all rows in current chunk
+            chunk = chunk.map(r => {
+              const copy = { ...r };
+              delete copy[missingCol];
+              return copy;
+            });
+            continue; // retry this chunk without the missing column
+          }
+
           console.error(`Supabase bulkSave chunk ${i} error:`, error);
           return { 
             success: false, 
@@ -932,7 +991,6 @@ export class SupabaseSync {
             error: `Failed to insert chunk at row ${i}: ${error.message} (${error.code || ''})` 
           };
         }
-        insertedCount += chunk.length;
       }
 
       return { success: true, count: insertedCount };
@@ -1153,6 +1211,20 @@ CREATE TABLE IF NOT EXISTS public.production_ledger (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Safely add missing columns if production_ledger was previously created with fewer columns
+DO $$ 
+BEGIN 
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='production_ledger' AND column_name='total_machines') THEN
+    ALTER TABLE public.production_ledger ADD COLUMN total_machines INTEGER DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='production_ledger' AND column_name='updated_by') THEN
+    ALTER TABLE public.production_ledger ADD COLUMN updated_by TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='production_ledger' AND column_name='raw_data') THEN
+    ALTER TABLE public.production_ledger ADD COLUMN raw_data JSONB DEFAULT '{}'::jsonb;
+  END IF;
+END $$;
 
 -- Fast Indexes for Instant Queries
 CREATE INDEX IF NOT EXISTS idx_production_ledger_date ON public.production_ledger(date);

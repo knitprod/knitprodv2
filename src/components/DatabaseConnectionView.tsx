@@ -429,6 +429,9 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 All devices viewing <code>knitproduction.vercel.app</code> receive instant live updates via Supabase WebSockets with zero polling and zero Vercel bandwidth limits. Orders & Yarn remain connected to Google Sheets.
               </p>
+              <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                ✨ <strong>Automatic Real-Time Sync:</strong> Once your initial data is in Supabase, you do <u>not</u> need to click migration again. Every new entry, inline edit, Excel upload, or row deletion automatically syncs to Supabase immediately.
+              </p>
             </div>
 
             <button
@@ -436,6 +439,7 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
               disabled={isMigratingLedger || !isSupabaseActive}
               onClick={handleMigrateLedgerToSupabase}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-xs whitespace-nowrap shrink-0"
+              title="Only needed once to seed your historical records into Supabase"
             >
               {isMigratingLedger ? (
                 <>
@@ -445,7 +449,7 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
               ) : (
                 <>
                   <ArrowRight className="h-3.5 w-3.5" />
-                  <span>Migrate Ledger to Supabase ({ledger.length} records)</span>
+                  <span>One-Time Initial Migration ({ledger.length} records)</span>
                 </>
               )}
             </button>
