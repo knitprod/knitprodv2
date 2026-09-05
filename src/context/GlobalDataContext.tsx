@@ -332,23 +332,25 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   /**
-   * Bulk Fetch All Datasets: Production Ledger from Supabase, Orders & Yarn from Google Sheets.
+   * Bulk Fetch All Datasets: Production Ledger & Yarn Allocations from Supabase, Orders from Google Sheets.
    */
   const refreshAll = useCallback(async (forceRefresh: boolean = false) => {
     setIsSyncing(true);
     try {
-      // 1. Fetch Production Ledger from Supabase (sub-second query, zero Vercel bandwidth)
+      // 1. Fetch Production Ledger & Yarn Allocations from Supabase (sub-second queries, zero Vercel bandwidth)
       const supabaseLedgerPromise = SupabaseSync.fetchProductionLedger().catch(() => []);
+      const supabaseYarnPromise = SupabaseSync.fetchYarnAllocations().catch(() => []);
 
-      // 2. Fetch Orders & Yarn from Google Sheets (/api/sheets?action=all)
+      // 2. Fetch Orders from Google Sheets (/api/sheets?action=all)
       const url = forceRefresh ? '/api/sheets?action=all&refresh=true' : '/api/sheets?action=all';
       const sheetsPromise = fetch(url, {
         headers: { 'Accept': 'application/json' },
         signal: AbortSignal.timeout(40000)
       }).catch(() => null);
 
-      const [supabaseLedger, sheetsRes] = await Promise.all([
+      const [supabaseLedger, supabaseYarn, sheetsRes] = await Promise.all([
         supabaseLedgerPromise,
+        supabaseYarnPromise,
         sheetsPromise
       ]);
 
@@ -357,7 +359,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       let cleanYarn: YarnAllocationRecord[] | undefined;
       let cleanLedger: LedgerRecord[] | undefined;
 
-      // Process Supabase Production Ledger
+      // Process Supabase Production Ledger (Primary source)
       if (Array.isArray(supabaseLedger) && supabaseLedger.length > 0) {
         cleanLedger = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(supabaseLedger)));
         setLedger(cleanLedger);
@@ -365,7 +367,14 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         loadedSuccessfully = true;
       }
 
-      // Process Google Sheets for Orders and Yarn
+      // Process Supabase Yarn Allocations (Primary source)
+      if (Array.isArray(supabaseYarn) && supabaseYarn.length > 0) {
+        cleanYarn = filterDeletedYarn(deduplicateWithUniqueIds(supabaseYarn, 'yarn'));
+        setYarnAllocations(cleanYarn);
+        loadedSuccessfully = true;
+      }
+
+      // Process Google Sheets for Orders and (fallback/archive seeding) Yarn & Ledger
       if (sheetsRes && sheetsRes.ok) {
         const json = await sheetsRes.json().catch(() => null);
         if (json && json.success && json.data) {
@@ -379,13 +388,15 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             setOrderPlans(cleanOrders);
             loadedSuccessfully = true;
           }
-          if (Array.isArray(remoteYarn) && remoteYarn.length > 0) {
+
+          // If Supabase was empty on first setup for Yarn, populate from Google Sheets
+          if ((!cleanYarn || cleanYarn.length === 0) && Array.isArray(remoteYarn) && remoteYarn.length > 0) {
             cleanYarn = filterDeletedYarn(deduplicateWithUniqueIds(remoteYarn, 'yarn'));
             setYarnAllocations(cleanYarn);
             loadedSuccessfully = true;
           }
 
-          // If Supabase was empty on first setup, migrate/seed from Google Sheets into Supabase
+          // If Supabase was empty on first setup for Ledger, migrate/seed from Google Sheets into Supabase
           if ((!cleanLedger || cleanLedger.length === 0) && Array.isArray(remoteLedger) && remoteLedger.length > 0) {
             cleanLedger = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(remoteLedger)));
             setLedger(cleanLedger);
@@ -404,11 +415,11 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       }
 
-      // Fallback: If Google Sheets failed, query individual endpoints in parallel
+      // Fallback: If Google Sheets failed for Orders or Yarn (and Supabase had none)
       if (!cleanOrders || !cleanYarn) {
         const [ordersRes, yarnRes] = await Promise.allSettled([
           GasClient.fetchOrderPlans(forceRefresh),
-          GasClient.fetchYarnAllocations(forceRefresh)
+          !cleanYarn ? GasClient.fetchYarnAllocations(forceRefresh) : Promise.resolve([])
         ]);
 
         if (ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value) && ordersRes.value.length > 0) {
@@ -416,7 +427,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           setOrderPlans(cleanOrders);
           loadedSuccessfully = true;
         }
-        if (yarnRes.status === 'fulfilled' && Array.isArray(yarnRes.value) && yarnRes.value.length > 0) {
+        if (!cleanYarn && yarnRes.status === 'fulfilled' && Array.isArray(yarnRes.value) && yarnRes.value.length > 0) {
           cleanYarn = filterDeletedYarn(deduplicateWithUniqueIds(yarnRes.value, 'yarn'));
           setYarnAllocations(cleanYarn);
           loadedSuccessfully = true;
@@ -445,9 +456,9 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, [refreshAll]);
 
-  // 2. Real-Time Multi-Device WebSocket Subscription for Production Ledger (<50ms Live across all devices)
+  // 2. Real-Time Multi-Device WebSocket Subscription for Production Ledger & Yarn Allocations (<50ms Live across all devices)
   useEffect(() => {
-    const unsubscribe = SupabaseSync.subscribeToProductionLedger(({ eventType, record, id }) => {
+    const unsubLedger = SupabaseSync.subscribeToProductionLedger(({ eventType, record, id }) => {
       if (eventType === 'DELETE') {
         setLedger(prev => {
           const next = prev.filter(r => r.id !== id);
@@ -477,12 +488,35 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     });
 
+    const unsubYarn = SupabaseSync.subscribeToYarnAllocations(({ eventType, record, id }) => {
+      if (eventType === 'DELETE') {
+        setYarnAllocations(prev => {
+          const next = prev.filter(y => y.id !== id);
+          try {
+            localStorage.setItem('cached_yarn_allocations', JSON.stringify(next));
+          } catch (e) {}
+          return next;
+        });
+      } else if (eventType === 'INSERT' || eventType === 'UPDATE') {
+        if (!record || !record.id) return;
+        setYarnAllocations(prev => {
+          const idx = prev.findIndex(y => (y.id && y.id === record.id) || (y.allocationNo && record.allocationNo && y.allocationNo === record.allocationNo));
+          const next = idx >= 0 ? prev.map((y, i) => i === idx ? record : y) : [record, ...prev];
+          try {
+            localStorage.setItem('cached_yarn_allocations', JSON.stringify(next));
+          } catch (e) {}
+          return next;
+        });
+      }
+    });
+
     return () => {
-      unsubscribe();
+      unsubLedger();
+      unsubYarn();
     };
   }, []);
 
-  // 3. Lightweight Background Polling for Google Sheets (Orders & Yarn only)
+  // 3. Lightweight Background Polling for Google Sheets (Orders only; Yarn is handled in real-time via Supabase)
   useEffect(() => {
     let isFetching = false;
 
@@ -515,7 +549,8 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               return prev;
             });
           }
-          if (Array.isArray(rYarn) && rYarn.length > 0) {
+          // Only pull Yarn from Google Sheets if Supabase is unconfigured or local yarn is empty (Google Sheets is cold archive)
+          if ((!SupabaseSync.isConfigured() || yarnAllocations.length === 0) && Array.isArray(rYarn) && rYarn.length > 0) {
             const cleanYarn = filterDeletedYarn(deduplicateWithUniqueIds(rYarn, 'yarn'));
             setYarnAllocations(prev => {
               if (prev.length !== cleanYarn.length || JSON.stringify(prev) !== JSON.stringify(cleanYarn)) {
@@ -610,7 +645,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return executeKeepaliveMutation('orders/save', { orderPlans: orders, replace });
   };
 
-  // --- Yarn Allocations ---
+  // --- Yarn Allocations (Primary: Supabase Cloud DB + Live WebSockets | Cold Archive: Google Sheets) ---
   const isMatchingYarn = (a: YarnAllocationRecord, b: YarnAllocationRecord) => {
     if (a.id && b.id && a.id === b.id) return true;
     if (a.allocationNo && b.allocationNo && a.allocationNo === b.allocationNo) return true;
@@ -619,8 +654,10 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return aKey !== '|||' && aKey === bKey;
   };
 
-  const saveYarnAllocation = async (item: YarnAllocationRecord) => {
+  const saveYarnAllocation = async (item: YarnAllocationRecord): Promise<{ success: boolean; message?: string }> => {
     if (item.id) deletedYarnIdsRef.current.delete(item.id);
+    
+    // 1. Instant optimistic local React state update
     setYarnAllocations(prev => {
       const idx = prev.findIndex(y => isMatchingYarn(y, item));
       if (idx >= 0) {
@@ -631,12 +668,17 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return [item, ...prev];
     });
 
+    // 2. Primary Database Save: Supabase (<50ms, direct connection)
+    SupabaseSync.saveYarnAllocation(item).catch(err => console.warn('Supabase saveYarnAllocation notice:', err));
+
+    // 3. Background Cold Archive: Google Sheets (non-blocking fire-and-forget mirror)
     GasClient.clearYarnCache();
-    GasClient.saveServerDb({ yarnAllocations: [item] }).catch(() => {});
-    return executeKeepaliveMutation('yarn/save', { yarnAllocations: [item], replace: false });
+    executeKeepaliveMutation('yarn/save', { yarnAllocations: [item], replace: false }).catch(() => {});
+
+    return { success: true };
   };
 
-  const deleteYarnAllocation = async (id: string) => {
+  const deleteYarnAllocation = async (id: string): Promise<{ success: boolean; message?: string }> => {
     if (id) deletedYarnIdsRef.current.add(id);
     setYarnAllocations(prev => {
       const next = prev.filter(y => y.id !== id);
@@ -645,19 +687,42 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       } catch (e) {}
       return next;
     });
+
+    // 1. Primary Database Deletion: Supabase
+    SupabaseSync.deleteYarnAllocation(id).catch(err => console.warn('Supabase deleteYarnAllocation notice:', err));
+
+    // 2. Background Cold Archive Deletion: Google Sheets
     GasClient.clearYarnCache();
-    GasClient.deleteYarnAllocation(id).catch(err => console.warn('Delete yarn allocation notice:', err));
-    return executeKeepaliveMutation('yarn/delete', { id });
+    executeKeepaliveMutation('yarn/delete', { id }).catch(() => {});
+
+    return { success: true };
   };
 
-  const bulkSaveYarnAllocations = async (items: YarnAllocationRecord[], replace: boolean = false) => {
-    items.forEach(y => {
-      if (y.id) deletedYarnIdsRef.current.delete(y.id);
-    });
-    setYarnAllocations(prev => replace ? items : [...items, ...prev.filter(p => !items.some(i => i.id === p.id))]);
+  const bulkSaveYarnAllocations = async (items: YarnAllocationRecord[], replace: boolean = false): Promise<{ success: boolean; message?: string }> => {
+    if (replace) {
+      deletedYarnIdsRef.current.clear();
+      setYarnAllocations(items);
+      try {
+        localStorage.setItem('cached_yarn_allocations', JSON.stringify(items));
+      } catch (e) {}
+    } else {
+      items.forEach(y => {
+        if (y.id) deletedYarnIdsRef.current.delete(y.id);
+      });
+      setYarnAllocations(prev => [...items, ...prev.filter(p => !items.some(i => i.id === p.id))]);
+    }
+
+    // 1. Primary Database Bulk Save: Supabase (purges all previous rows if replace is true)
+    const supabaseRes = await SupabaseSync.bulkSaveYarnAllocations(items, replace);
+
+    // 2. Dual-save to persistent server DB
     GasClient.clearYarnCache();
     GasClient.saveServerDb({ yarnAllocations: items }).catch(() => {});
-    return executeKeepaliveMutation('yarn/save', { yarnAllocations: items, replace });
+
+    // 3. Background Cold Archive: Google Sheets (replace wipes the sheet tab)
+    executeKeepaliveMutation('yarn/save', { yarnAllocations: items, replace }).catch(() => {});
+
+    return { success: supabaseRes.success, message: supabaseRes.error };
   };
 
   // --- Production Ledger (Powered by Supabase Cloud Database + Real-time WebSockets) ---

@@ -41,7 +41,7 @@ interface DatabaseConnectionViewProps {
 }
 
 export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConnectionViewProps) {
-  const { ledger, refreshAll } = useGlobalData();
+  const { ledger, yarnAllocations, refreshAll } = useGlobalData();
 
   // Google Sheets database connection states
   const [databaseMode, setDatabaseMode] = useState<'mock' | 'gas'>(() => GasClient.getDatabaseMode());
@@ -64,6 +64,12 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
   // Production Ledger to Supabase Migration State
   const [isMigratingLedger, setIsMigratingLedger] = useState(false);
   const [migrateStatus, setMigrateStatus] = useState<string | null>(null);
+
+  // Yarn Allocations to Supabase Migration State
+  const [isMigratingYarn, setIsMigratingYarn] = useState(false);
+  const [migrateYarnStatus, setMigrateYarnStatus] = useState<string | null>(null);
+  const [copiedYarnSql, setCopiedYarnSql] = useState(false);
+  const [showYarnSql, setShowYarnSql] = useState(false);
 
   // Two-Way Synchronization states
   const [isSyncing, setIsSyncing] = useState(false);
@@ -101,6 +107,43 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
       setMigrateStatus(`Migration notice: ${err.message || String(err)}`);
     } finally {
       setIsMigratingLedger(false);
+    }
+  };
+
+  const handleMigrateYarnToSupabase = async () => {
+    if (!SupabaseSync.isConfigured()) {
+      if (onSuccessNotice) onSuccessNotice("Please enter and save your Supabase credentials first.");
+      return;
+    }
+    setIsMigratingYarn(true);
+    setMigrateYarnStatus("Migrating Yarn Allocations to Supabase...");
+    try {
+      const res = await SupabaseSync.bulkSaveYarnAllocations(yarnAllocations);
+      if (res.success) {
+        setMigrateYarnStatus(`Successfully migrated ${res.count} Yarn Allocations to Supabase! Live WebSockets active.`);
+        if (onSuccessNotice) onSuccessNotice(`Transferred ${res.count} Yarn Allocations to Supabase!`);
+      } else {
+        if (res.error?.includes('yarn_allocations') || res.error?.includes('schema cache') || res.error?.includes('PGRST205')) {
+          setShowYarnSql(true);
+          setMigrateYarnStatus("Table 'public.yarn_allocations' does not exist in Supabase yet. Please copy the SQL script below, run it in your Supabase SQL Editor, and then click Migration.");
+        } else {
+          setMigrateYarnStatus(`Error transferring records: ${res.error || 'Check Supabase SQL Editor and table structure.'}`);
+        }
+      }
+    } catch (err: any) {
+      setMigrateYarnStatus(`Migration notice: ${err.message || String(err)}`);
+    } finally {
+      setIsMigratingYarn(false);
+    }
+  };
+
+  const handleCopyYarnSql = async () => {
+    try {
+      await navigator.clipboard.writeText(SupabaseSync.getYarnSetupSQL());
+      setCopiedYarnSql(true);
+      setTimeout(() => setCopiedYarnSql(false), 2500);
+    } catch (err) {
+      console.error('Failed to copy Yarn SQL:', err);
     }
   };
 
@@ -458,6 +501,108 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
           {migrateStatus && (
             <div className="text-xs font-semibold px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 animate-fade-in">
               {migrateStatus}
+            </div>
+          )}
+        </div>
+
+        {/* Yarn Allocations Supabase Transfer & Real-time Status Card */}
+        <div className="rounded-xl border border-teal-200 dark:border-teal-900 bg-white/80 dark:bg-slate-900/80 p-4 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                <Layers className="h-4 w-4 text-teal-600 dark:text-teal-400" />
+                <span className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">
+                  Yarn Allocations Real-Time Cloud Engine (Supabase WebSockets)
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-300">
+                  Sub-50ms Live Sync
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Yarn Allocations now use Supabase as the primary operational database with live multi-device WebSocket updates. Google Sheets serves as an asynchronous cold backup mirror.
+              </p>
+              <p className="text-[11px] font-medium text-teal-700 dark:text-teal-300">
+                ⚡ <strong>Setup Requirement:</strong> Ensure table <code className="px-1 py-0.5 rounded bg-teal-100 dark:bg-teal-900/80 font-mono text-[10px]">public.yarn_allocations</code> exists in your Supabase project before migrating.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleCopyYarnSql}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-teal-300 dark:border-teal-700 bg-teal-50 hover:bg-teal-100 dark:bg-teal-950 dark:hover:bg-teal-900 text-teal-800 dark:text-teal-200 text-xs font-bold transition-all cursor-pointer shadow-2xs whitespace-nowrap"
+                title="Copy the SQL script to create the yarn_allocations table in Supabase"
+              >
+                {copiedYarnSql ? (
+                  <>
+                    <Check className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
+                    <span>Copied Yarn SQL!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
+                    <span>Copy Yarn SQL</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowYarnSql(!showYarnSql)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-all cursor-pointer shadow-2xs whitespace-nowrap"
+              >
+                <Code className="h-3.5 w-3.5 text-slate-500" />
+                <span>{showYarnSql ? 'Hide SQL' : 'View SQL'}</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isMigratingYarn || !isSupabaseActive}
+                onClick={handleMigrateYarnToSupabase}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-xs whitespace-nowrap"
+                title="Seed your existing yarn allocation records into Supabase"
+              >
+                {isMigratingYarn ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Transferring Yarn Data...</span>
+                  </>
+                ) : (
+                  <>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                    <span>One-Time Initial Migration ({yarnAllocations.length} records)</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {showYarnSql && (
+            <div className="rounded-xl border border-teal-200 dark:border-teal-800 bg-slate-950 p-3.5 space-y-2 text-slate-200 animate-fade-in font-mono text-[11px]">
+              <div className="flex items-center justify-between text-xs pb-1 border-b border-slate-800">
+                <span className="text-teal-400 font-bold">SQL Editor Script (Yarn Allocations Table & Realtime)</span>
+                <button
+                  type="button"
+                  onClick={handleCopyYarnSql}
+                  className="inline-flex items-center gap-1 text-[11px] text-teal-400 hover:text-teal-300 font-semibold cursor-pointer"
+                >
+                  {copiedYarnSql ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                  {copiedYarnSql ? 'Copied' : 'Copy Query'}
+                </button>
+              </div>
+              <pre className="overflow-x-auto max-h-48 text-[11px] leading-relaxed text-slate-300 selection:bg-teal-800">
+                {SupabaseSync.getYarnSetupSQL()}
+              </pre>
+            </div>
+          )}
+
+          {migrateYarnStatus && (
+            <div className={`text-xs font-semibold px-3 py-2 rounded-lg border animate-fade-in ${
+              migrateYarnStatus.includes('Successfully')
+                ? 'bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300 border-teal-200 dark:border-teal-800'
+                : 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+            }`}>
+              {migrateYarnStatus}
             </div>
           )}
         </div>

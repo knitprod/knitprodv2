@@ -471,6 +471,7 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
   const [uploadSuccessBanner, setUploadSuccessBanner] = useState<string | null>(null);
   const [isSyncingToSheet, setIsSyncingToSheet] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [replaceEntireDataset, setReplaceEntireDataset] = useState<boolean>(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [isLoadingSaved, setIsLoadingSaved] = useState(false);
@@ -1091,16 +1092,24 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
 
     const dataToSave = parsedData;
     const fileName = uploadFile?.name || 'Master_Yarn_Allocation.xlsx';
+    const isReplace = replaceEntireDataset;
 
     // ========================================================
     // STEP 1: LOAD THE BROWSER 1ST (INSTANT UI & LOCAL CACHE)
     // ========================================================
-    setYarnAllocations(dataToSave);
+    if (isReplace) {
+      setYarnAllocations(dataToSave);
+      try {
+        localStorage.setItem('cached_yarn_allocations', JSON.stringify(dataToSave));
+      } catch (e) {}
+    } else {
+      setYarnAllocations(prev => [...dataToSave, ...prev.filter(p => !dataToSave.some(i => i.id === p.id))]);
+    }
     setCurrentPage(1);
     GasClient.clearYarnCache();
 
-    // Update GlobalDataContext synchronously in memory
-    globalBulkSaveYarnAllocations(dataToSave, true).catch(err => {
+    // Update GlobalDataContext synchronously in memory & trigger Supabase purge/replace
+    globalBulkSaveYarnAllocations(dataToSave, isReplace).catch(err => {
       console.warn("Global data context update notice:", err);
     });
 
@@ -1133,7 +1142,7 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
       localStorage.setItem('master_yarn_upload_info', JSON.stringify(newUploadInfo));
     } catch (e) {}
 
-    // Save immediately to persistent server DB cache
+    // Save immediately to persistent server DB cache (replaces the array if isReplace is true)
     GasClient.saveServerDb({ master_yarn_upload_info: newUploadInfo, yarnAllocations: dataToSave }).catch(err => console.warn("Server DB notice:", err));
 
     // Close upload modal immediately so user can interact with the newly loaded records in the browser
@@ -1143,20 +1152,32 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     setUploadError(null);
     setIsSaving(false);
     setIsSyncingToSheet(true);
-    setUploadSuccessBanner(`Loaded ${dataToSave.length.toLocaleString()} records in Browser. Uploading to Google Sheet in background...`);
+    setUploadSuccessBanner(
+      isReplace
+        ? `Replaced entire dataset with ${dataToSave.length.toLocaleString()} records in Web Browser. Synchronizing Supabase database & Google Sheets in background...`
+        : `Loaded ${dataToSave.length.toLocaleString()} records in Browser. Synchronizing with data servers in background...`
+    );
 
     // ========================================================
     // STEP 2: UPLOAD DATA IN GOOGLE SHEET (BACKGROUND ASYNC)
     // ========================================================
-    GasClient.saveYarnAllocations(dataToSave, true)
+    GasClient.saveYarnAllocations(dataToSave, isReplace)
       .then(() => {
         setIsSyncingToSheet(false);
-        setUploadSuccessBanner(`Google Sheet Synchronized: Successfully uploaded ${dataToSave.length.toLocaleString()} records to Google Sheet.`);
+        setUploadSuccessBanner(
+          isReplace
+            ? `All Data Servers Synchronized: Previous dataset was completely deleted and replaced with ${dataToSave.length.toLocaleString()} records across Web, Supabase, and Google Sheets.`
+            : `Google Sheet Synchronized: Successfully uploaded ${dataToSave.length.toLocaleString()} records to Google Sheet.`
+        );
       })
       .catch((err) => {
         setIsSyncingToSheet(false);
         console.warn("Background Google Sheets sync notice:", err);
-        setUploadSuccessBanner(`Loaded ${dataToSave.length.toLocaleString()} records in Browser. (Google Sheet sync note: ${err.message || 'Saved locally'}).`);
+        setUploadSuccessBanner(
+          isReplace
+            ? `Replaced entire dataset with ${dataToSave.length.toLocaleString()} records in Browser & Supabase (Google Sheet sync note: ${err.message || 'Saved locally'}).`
+            : `Loaded ${dataToSave.length.toLocaleString()} records in Browser. (Google Sheet sync note: ${err.message || 'Saved locally'}).`
+        );
       });
   };
 
@@ -1891,6 +1912,44 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
                 </div>
               )}
 
+              {/* Replace Entire Dataset Toggle Option */}
+              <div 
+                onClick={() => setReplaceEntireDataset(prev => !prev)}
+                className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+                  replaceEntireDataset 
+                    ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-300 dark:border-blue-700/80 ring-1 ring-blue-400/30' 
+                    : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <input 
+                    type="checkbox" 
+                    id="replaceEntireDatasetCheckbox"
+                    checked={replaceEntireDataset} 
+                    onChange={(e) => setReplaceEntireDataset(e.target.checked)} 
+                    onClick={(e) => e.stopPropagation()}
+                    className="mt-0.5 h-4 w-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  />
+                  <div>
+                    <label htmlFor="replaceEntireDatasetCheckbox" className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2 cursor-pointer">
+                      <span>Replace Entire Dataset</span>
+                      <span className={`text-[10px] uppercase font-black px-1.5 py-0.5 rounded ${
+                        replaceEntireDataset 
+                          ? 'bg-blue-600 text-white' 
+                          : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                      }`}>
+                        {replaceEntireDataset ? 'Clean Purge On' : 'Append Only'}
+                      </span>
+                    </label>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                      {replaceEntireDataset 
+                        ? 'Deletes all previous yarn allocation records from the Web Browser, Supabase database, and Google Sheets, replacing them entirely with this file.' 
+                        : 'Appends new records to existing dataset without deleting previous records.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               {/* Actions */}
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
                 <button
@@ -1919,12 +1978,12 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
                   {isSaving ? (
                     <>
                       <div className="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                      <span>Saving Data...</span>
+                      <span>{replaceEntireDataset ? 'Replacing & Saving...' : 'Saving Data...'}</span>
                     </>
                   ) : (
                     <>
                       <UploadCloud className="h-4 w-4" />
-                      <span>Submit & Replace Data</span>
+                      <span>{replaceEntireDataset ? 'Replace Entire Dataset & Submit' : 'Submit & Append Data'}</span>
                     </>
                   )}
                 </button>

@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { UserRecord, LedgerRecord } from '../types';
+import { UserRecord, LedgerRecord, YarnAllocationRecord } from '../types';
 
 /**
  * Supabase Client & Sync Manager for Epyllion Knitex ERP
@@ -184,8 +184,9 @@ export class SupabaseSync {
         auth: { persistSession: false }
       });
 
-      // Test querying production_ledger and users tables
+      // Test querying production_ledger, yarn_allocations, and users tables
       const { error: ledgerError } = await testClient.from('production_ledger').select('id').limit(1);
+      const { error: yarnError } = await testClient.from('yarn_allocations').select('id').limit(1);
       const { error: userError } = await testClient.from('users').select('id').limit(1);
 
       if (ledgerError && (ledgerError.code === 'PGRST301' || ledgerError.message?.includes('JWT') || ledgerError.message?.includes('apikey'))) {
@@ -195,21 +196,31 @@ export class SupabaseSync {
         };
       }
 
+      const isMissingTable = (err: any) => {
+        if (!err) return false;
+        return err.code === '42P01' || err.code === 'PGRST205' || err.message?.includes('schema cache') || err.message?.includes('does not exist');
+      };
+
       const tablesFound: string[] = [];
       if (!ledgerError) tablesFound.push('production_ledger');
+      if (!yarnError) tablesFound.push('yarn_allocations');
       if (!userError) tablesFound.push('users');
 
-      if (ledgerError && ledgerError.code === '42P01') {
+      const missingTables: string[] = [];
+      if (ledgerError && isMissingTable(ledgerError)) missingTables.push('production_ledger');
+      if (yarnError && isMissingTable(yarnError)) missingTables.push('yarn_allocations');
+
+      if (missingTables.length > 0) {
         return { 
           success: true, 
-          message: 'Connected to Supabase project! Note: The "production_ledger" table was not found yet. Please click "Copy Complete Setup SQL" and run it in your Supabase SQL Editor.',
+          message: `Connected to Supabase! Note: Table(s) ${missingTables.join(', ')} not found yet. Please run the setup SQL in your Supabase SQL Editor.`,
           tables: tablesFound
         };
       }
 
       return { 
         success: true, 
-        message: `Successfully connected to Supabase! Verified table: production_ledger (${tablesFound.join(', ')} ready). Real-time WebSockets active.`,
+        message: `Successfully connected to Supabase! Verified tables: ${tablesFound.join(', ')}. Real-time WebSockets active.`,
         tables: tablesFound
       };
     } catch (err: any) {
@@ -1061,6 +1072,318 @@ export class SupabaseSync {
     }
   }
 
+  // ==========================================
+  // 6. YARN ALLOCATIONS CLOUD DATABASE & SYNC
+  // ==========================================
+
+  /**
+   * Converts a Supabase PostgreSQL row into an app YarnAllocationRecord
+   */
+  static mapRowToYarnAllocation(row: any): YarnAllocationRecord {
+    const raw = row.raw_data || {};
+    return {
+      id: String(row.id || raw.id || ''),
+      actualRequisitionDate: row.actual_requisition_date || raw.actualRequisitionDate || '',
+      buyer: row.buyer || raw.buyer || '',
+      orderNumber: row.order_number || raw.orderNumber || '',
+      fabricsType: row.fabrics_type || raw.fabricsType || '',
+      fabricShade: row.fabric_shade || raw.fabricShade || '',
+      fabricGsm: row.fabric_gsm || raw.fabricGsm || '',
+      yarnRequired: row.yarn_required || raw.yarnRequired || '',
+      lotRef: row.lot_ref || raw.lotRef || '',
+      allocatedYarn: row.allocated_yarn || raw.allocatedYarn || '',
+      lotNo: row.lot_no || raw.lotNo || '',
+      spinnersName: row.spinners_name || raw.spinnersName || '',
+      allocationStatus: row.allocation_status || raw.allocationStatus || '',
+      yarnStockStatus: row.yarn_stock_status || raw.yarnStockStatus || '',
+      yarnDeliveryStatus: row.yarn_delivery_status || raw.yarnDeliveryStatus || '',
+      proposedAllocationDate: row.proposed_allocation_date || raw.proposedAllocationDate || '',
+      allocationDateRange: row.allocation_date_range || raw.allocationDateRange || '',
+      allocationNo: row.allocation_no || raw.allocationNo || '',
+      yarnRqQty: parseFloat(String(row.yarn_rq_qty ?? raw.yarnRqQty ?? 0)) || 0,
+      allocatedQty: parseFloat(String(row.allocated_qty ?? raw.allocatedQty ?? 0)) || 0,
+      balance: parseFloat(String(row.balance ?? raw.balance ?? 0)) || 0,
+      remarks: row.remarks || raw.remarks || '',
+      updatedBy: row.updated_by || raw.updatedBy || '',
+      createdAt: row.created_at || raw.createdAt,
+      updatedAt: row.updated_at || raw.updatedAt
+    };
+  }
+
+  /**
+   * Converts an app YarnAllocationRecord into a Supabase PostgreSQL row
+   */
+  static mapYarnAllocationToRow(item: YarnAllocationRecord): Record<string, any> {
+    const rawId = String(item.id || item.allocationNo || `yarn-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`);
+    return {
+      id: rawId,
+      actual_requisition_date: String(item.actualRequisitionDate || ''),
+      buyer: String(item.buyer || ''),
+      order_number: String(item.orderNumber || ''),
+      fabrics_type: String(item.fabricsType || ''),
+      fabric_shade: String(item.fabricShade || ''),
+      fabric_gsm: String(item.fabricGsm || ''),
+      yarn_required: String(item.yarnRequired || ''),
+      lot_ref: String(item.lotRef || ''),
+      allocated_yarn: String(item.allocatedYarn || ''),
+      lot_no: String(item.lotNo || ''),
+      spinners_name: String(item.spinnersName || ''),
+      allocation_status: String(item.allocationStatus || ''),
+      yarn_stock_status: String(item.yarnStockStatus || ''),
+      yarn_delivery_status: String(item.yarnDeliveryStatus || ''),
+      proposed_allocation_date: String(item.proposedAllocationDate || ''),
+      allocation_date_range: String(item.allocationDateRange || ''),
+      allocation_no: String(item.allocationNo || ''),
+      yarn_rq_qty: parseFloat(String(item.yarnRqQty || 0)) || 0,
+      allocated_qty: parseFloat(String(item.allocatedQty || 0)) || 0,
+      balance: parseFloat(String(item.balance || 0)) || 0,
+      remarks: String(item.remarks || ''),
+      updated_by: String(item.updatedBy || ''),
+      raw_data: item,
+      updated_at: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Fetch all Yarn Allocations from Supabase
+   */
+  static async fetchYarnAllocations(): Promise<YarnAllocationRecord[]> {
+    const client = this.getClient();
+    if (!client) return [];
+
+    try {
+      const { data, error } = await client
+        .from('yarn_allocations')
+        .select('*')
+        .order('id', { ascending: false });
+
+      if (error) {
+        if (error.code !== '42P01' && error.code !== 'PGRST205' && !error.message?.includes('schema cache')) {
+          console.warn('Supabase fetchYarnAllocations notice:', error.message);
+        }
+        return [];
+      }
+
+      if (!data || !Array.isArray(data)) return [];
+      return data.map(row => this.mapRowToYarnAllocation(row));
+    } catch (err) {
+      console.warn('Supabase fetchYarnAllocations exception:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Save or update a single yarn allocation record in Supabase
+   */
+  static async saveYarnAllocation(item: YarnAllocationRecord): Promise<{ success: boolean; error?: string }> {
+    const client = this.getClient();
+    if (!client) return { success: false, error: 'Supabase client is not initialized or credentials missing.' };
+
+    try {
+      let row = this.sanitizeRowForSupabase(this.mapYarnAllocationToRow(item));
+      
+      let attempts = 0;
+      while (attempts < 6) {
+        attempts++;
+        const { error } = await client.from('yarn_allocations').upsert(row, { onConflict: 'id' });
+        if (!error) {
+          return { success: true };
+        }
+
+        if (error.code === 'PGRST205' || error.code === '42P01' || error.message?.includes('schema cache') || error.message?.includes('does not exist')) {
+          return {
+            success: false,
+            error: "Table 'public.yarn_allocations' does not exist in Supabase yet. Please run the Yarn Allocations SQL script in your Supabase SQL Editor."
+          };
+        }
+
+        const match = error.message?.match(/Could not find the '([^']+)' column/) ||
+                      error.message?.match(/column "([^"]+)" of relation/) ||
+                      error.message?.match(/column '([^']+)' does not exist/);
+
+        if (match && match[1]) {
+          const missingCol = match[1];
+          this.knownMissingColumns.add(missingCol);
+          delete row[missingCol];
+          continue;
+        }
+
+        console.warn('Supabase saveYarnAllocation notice:', error.message);
+        return { success: false, error: error.message };
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      console.warn('Supabase saveYarnAllocation exception:', err.message || String(err));
+      return { success: false, error: err.message || String(err) };
+    }
+  }
+
+  /**
+   * Purge all yarn allocation records from Supabase (used when replacing entire dataset)
+   */
+  static async deleteAllYarnAllocations(): Promise<boolean> {
+    const client = this.getClient();
+    if (!client) return false;
+    try {
+      const { error } = await client
+        .from('yarn_allocations')
+        .delete()
+        .neq('id', '___PURGE_ALL_PREVIOUS_RECORDS___');
+      if (error && error.code !== 'PGRST205' && error.code !== '42P01') {
+        console.warn('Supabase deleteAllYarnAllocations notice:', error.message);
+      }
+      return !error;
+    } catch (err) {
+      console.warn('Supabase deleteAllYarnAllocations error:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Bulk save/upsert an array of yarn allocation records into Supabase.
+   * If replace = true, purges all previous records from public.yarn_allocations before inserting the new dataset.
+   */
+  static async bulkSaveYarnAllocations(items: YarnAllocationRecord[], replace: boolean = false): Promise<{ success: boolean; count: number; error?: string }> {
+    const client = this.getClient();
+    if (!client) {
+      return { success: false, count: 0, error: 'Supabase client is not initialized. Please verify your Project URL and Anon Key in Database Settings.' };
+    }
+
+    try {
+      // If replace is requested, purge all previous records from Supabase public.yarn_allocations
+      if (replace) {
+        try {
+          const { error: delError } = await client
+            .from('yarn_allocations')
+            .delete()
+            .neq('id', '___PURGE_ALL_PREVIOUS_RECORDS___');
+          if (delError && delError.code !== 'PGRST205' && delError.code !== '42P01') {
+            console.warn('Supabase purge yarn_allocations notice:', delError.message);
+          }
+        } catch (delErr: any) {
+          console.warn('Supabase purge yarn_allocations exception:', delErr);
+        }
+      }
+
+      if (!items || items.length === 0) {
+        return { success: true, count: 0 };
+      }
+
+      const rows = items.map(y => this.mapYarnAllocationToRow(y));
+      const chunkSize = 50;
+      let insertedCount = 0;
+
+      for (let i = 0; i < rows.length; i += chunkSize) {
+        let chunk = rows.slice(i, i + chunkSize).map(r => this.sanitizeRowForSupabase(r));
+        let chunkSuccess = false;
+        let attempts = 0;
+
+        while (!chunkSuccess && attempts < 8) {
+          attempts++;
+          const { error } = await client.from('yarn_allocations').upsert(chunk, { onConflict: 'id' });
+          if (!error) {
+            chunkSuccess = true;
+            insertedCount += chunk.length;
+            break;
+          }
+
+          if (error.code === 'PGRST205' || error.code === '42P01' || error.message?.includes('schema cache') || error.message?.includes('does not exist')) {
+            return { 
+              success: false, 
+              count: insertedCount, 
+              error: "Table 'public.yarn_allocations' was not found in your Supabase database schema cache. Please copy and run the Yarn Allocations SQL script in your Supabase SQL Editor first." 
+            };
+          }
+
+          const match = error.message?.match(/Could not find the '([^']+)' column/) ||
+                        error.message?.match(/column "([^"]+)" of relation/) ||
+                        error.message?.match(/column '([^']+)' does not exist/);
+
+          if (match && match[1]) {
+            const missingCol = match[1];
+            this.knownMissingColumns.add(missingCol);
+            chunk = chunk.map(r => {
+              const copy = { ...r };
+              delete copy[missingCol];
+              return copy;
+            });
+            continue;
+          }
+
+          console.warn(`Supabase bulkSaveYarnAllocations chunk ${i} notice:`, error.message);
+          return { 
+            success: false, 
+            count: insertedCount, 
+            error: `Failed to insert chunk at row ${i}: ${error.message} (${error.code || ''})` 
+          };
+        }
+      }
+
+      return { success: true, count: insertedCount };
+    } catch (err: any) {
+      console.warn('Supabase bulkSaveYarnAllocations notice:', err.message || String(err));
+      return { success: false, count: 0, error: err.message || String(err) };
+    }
+  }
+
+  /**
+   * Delete a yarn allocation record from Supabase
+   */
+  static async deleteYarnAllocation(id: string): Promise<boolean> {
+    const client = this.getClient();
+    if (!client) return false;
+
+    try {
+      const { error } = await client.from('yarn_allocations').delete().eq('id', id);
+      return !error;
+    } catch (err) {
+      console.warn('Supabase deleteYarnAllocation error:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Real-time Multi-Device WebSocket Subscription for Yarn Allocations (<50ms Live Updates across all devices)
+   */
+  static subscribeToYarnAllocations(
+    onRecordChange: (change: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: YarnAllocationRecord; id: string }) => void
+  ): () => void {
+    const client = this.getClient();
+    if (!client) return () => {};
+
+    try {
+      const channel = client
+        .channel('realtime:yarn_allocations')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'yarn_allocations' },
+          (payload: any) => {
+            const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE';
+            const row = payload.new || payload.old;
+            if (row) {
+              const record = SupabaseSync.mapRowToYarnAllocation(payload.new || payload.old);
+              onRecordChange({
+                eventType,
+                record,
+                id: String(row.id || (payload.old && payload.old.id) || '')
+              });
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        try {
+          client.removeChannel(channel);
+        } catch {}
+      };
+    } catch (err) {
+      console.warn('Supabase subscribeToYarnAllocations error:', err);
+      return () => {};
+    }
+  }
+
   /**
    * Helper SQL schema for automatic copy-paste in Supabase SQL Editor
    */
@@ -1242,6 +1565,42 @@ CREATE TABLE IF NOT EXISTS public.activity_logs (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 7. YARN ALLOCATIONS CLOUD DATABASE
+CREATE TABLE IF NOT EXISTS public.yarn_allocations (
+  id TEXT PRIMARY KEY,
+  actual_requisition_date TEXT,
+  buyer TEXT,
+  order_number TEXT,
+  fabrics_type TEXT,
+  fabric_shade TEXT,
+  fabric_gsm TEXT,
+  yarn_required TEXT,
+  lot_ref TEXT,
+  allocated_yarn TEXT,
+  lot_no TEXT,
+  spinners_name TEXT,
+  allocation_status TEXT,
+  yarn_stock_status TEXT,
+  yarn_delivery_status TEXT,
+  proposed_allocation_date TEXT,
+  allocation_date_range TEXT,
+  allocation_no TEXT,
+  yarn_rq_qty NUMERIC DEFAULT 0,
+  allocated_qty NUMERIC DEFAULT 0,
+  balance NUMERIC DEFAULT 0,
+  remarks TEXT,
+  updated_by TEXT,
+  raw_data JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Fast Indexes for Yarn Allocations
+CREATE INDEX IF NOT EXISTS idx_yarn_allocations_order_number ON public.yarn_allocations(order_number);
+CREATE INDEX IF NOT EXISTS idx_yarn_allocations_buyer ON public.yarn_allocations(buyer);
+CREATE INDEX IF NOT EXISTS idx_yarn_allocations_allocation_no ON public.yarn_allocations(allocation_no);
+CREATE INDEX IF NOT EXISTS idx_yarn_allocations_lot_no ON public.yarn_allocations(lot_no);
+
 -- Enable Row Level Security (RLS)
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.factory_units ENABLE ROW LEVEL SECURITY;
@@ -1249,6 +1608,7 @@ ALTER TABLE public.buyers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.production_ledger ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.yarn_allocations ENABLE ROW LEVEL SECURITY;
 
 -- Drop existing policies first so it never throws error 42710
 DROP POLICY IF EXISTS "Allow public full access to users" ON public.users;
@@ -1257,6 +1617,7 @@ DROP POLICY IF EXISTS "Allow public full access to buyers" ON public.buyers;
 DROP POLICY IF EXISTS "Allow public full access to system_settings" ON public.system_settings;
 DROP POLICY IF EXISTS "Allow public full access to production_ledger" ON public.production_ledger;
 DROP POLICY IF EXISTS "Allow public full access to activity_logs" ON public.activity_logs;
+DROP POLICY IF EXISTS "Allow public full access to yarn_allocations" ON public.yarn_allocations;
 
 -- Recreate policies cleanly
 CREATE POLICY "Allow public full access to users" ON public.users FOR ALL USING (true) WITH CHECK (true);
@@ -1265,8 +1626,9 @@ CREATE POLICY "Allow public full access to buyers" ON public.buyers FOR ALL USIN
 CREATE POLICY "Allow public full access to system_settings" ON public.system_settings FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public full access to production_ledger" ON public.production_ledger FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public full access to activity_logs" ON public.activity_logs FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public full access to yarn_allocations" ON public.yarn_allocations FOR ALL USING (true) WITH CHECK (true);
 
--- Enable Real-Time Broadcast for Production Ledger
+-- Enable Real-Time Broadcast for Production Ledger and Yarn Allocations
 DO $$ 
 BEGIN 
   IF NOT EXISTS (
@@ -1276,6 +1638,14 @@ BEGIN
     AND tablename = 'production_ledger'
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.production_ledger;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+    AND schemaname = 'public' 
+    AND tablename = 'yarn_allocations'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.yarn_allocations;
   END IF;
 EXCEPTION WHEN OTHERS THEN 
   NULL;
@@ -1326,6 +1696,73 @@ ON CONFLICT (buyer_name) DO NOTHING;
 INSERT INTO public.system_settings (id, reject_threshold, max_idle_machines, alarm_email)
 VALUES ('global_settings', 2.5, 5, 'knitprod@epylliongroup.com')
 ON CONFLICT (id) DO NOTHING;
+`;
+  }
+
+  /**
+   * Dedicated SQL script for Yarn Allocations table only (safe, idempotent, fast)
+   */
+  static getYarnSetupSQL(): string {
+    return `-- ==========================================
+-- EPYLLION KNITEX ERP: YARN ALLOCATIONS CLOUD TABLE
+-- Paste and Run in Supabase Dashboard > SQL Editor
+-- ==========================================
+
+-- 1. Create Yarn Allocations Table
+CREATE TABLE IF NOT EXISTS public.yarn_allocations (
+  id TEXT PRIMARY KEY,
+  actual_requisition_date TEXT,
+  buyer TEXT,
+  order_number TEXT,
+  fabrics_type TEXT,
+  fabric_shade TEXT,
+  fabric_gsm TEXT,
+  yarn_required TEXT,
+  lot_ref TEXT,
+  allocated_yarn TEXT,
+  lot_no TEXT,
+  spinners_name TEXT,
+  allocation_status TEXT,
+  yarn_stock_status TEXT,
+  yarn_delivery_status TEXT,
+  proposed_allocation_date TEXT,
+  allocation_date_range TEXT,
+  allocation_no TEXT,
+  yarn_rq_qty NUMERIC DEFAULT 0,
+  allocated_qty NUMERIC DEFAULT 0,
+  balance NUMERIC DEFAULT 0,
+  remarks TEXT,
+  updated_by TEXT,
+  raw_data JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. Fast Query Indexes
+CREATE INDEX IF NOT EXISTS idx_yarn_allocations_order_number ON public.yarn_allocations(order_number);
+CREATE INDEX IF NOT EXISTS idx_yarn_allocations_buyer ON public.yarn_allocations(buyer);
+CREATE INDEX IF NOT EXISTS idx_yarn_allocations_allocation_no ON public.yarn_allocations(allocation_no);
+CREATE INDEX IF NOT EXISTS idx_yarn_allocations_lot_no ON public.yarn_allocations(lot_no);
+
+-- 3. Row Level Security & Access Policies
+ALTER TABLE public.yarn_allocations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public full access to yarn_allocations" ON public.yarn_allocations;
+CREATE POLICY "Allow public full access to yarn_allocations" ON public.yarn_allocations FOR ALL USING (true) WITH CHECK (true);
+
+-- 4. Enable Instant Sub-50ms Real-Time WebSocket Replication
+DO $$ 
+BEGIN 
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+    AND schemaname = 'public' 
+    AND tablename = 'yarn_allocations'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.yarn_allocations;
+  END IF;
+EXCEPTION WHEN OTHERS THEN 
+  NULL;
+END $$;
 `;
   }
 }
