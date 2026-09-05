@@ -486,25 +486,34 @@ function parseCookies(cookieHeader?: string): Record<string, string> {
   return list;
 }
 
-// GET auth session state via HTTP-only cookie
+// GET auth session state via HTTP-only cookie or x-session-uid header
 app.get('/api/auth/session', (req, res) => {
   const cookies = parseCookies(req.headers.cookie);
-  const sessionUid = cookies['ekl_auth_session'];
+  const headerUid = req.headers['x-session-uid'];
+  const sessionUid = (typeof headerUid === 'string' && headerUid.trim())
+    ? headerUid.trim()
+    : cookies['ekl_auth_session'];
+
   if (sessionUid && sessionUid.trim()) {
-    res.json({ authenticated: true, uid: sessionUid.trim() });
+    res.json({ authenticated: true, uid: sessionUid.trim().toUpperCase() });
   } else {
     res.json({ authenticated: false, uid: null });
   }
 });
 
-// POST establish auth session via HTTP-only cookie
+// POST establish auth session via HTTP-only cookie and header
 app.post('/api/auth/session', (req, res) => {
   const { uid } = req.body || {};
-  if (typeof uid === 'string' && uid.trim()) {
-    const cleanUid = uid.trim().toUpperCase();
+  const headerUid = req.headers['x-session-uid'];
+  const rawUid = (typeof uid === 'string' && uid.trim()) 
+    ? uid 
+    : (typeof headerUid === 'string' && headerUid.trim() ? headerUid : null);
+
+  if (rawUid && rawUid.trim()) {
+    const cleanUid = rawUid.trim().toUpperCase();
     res.setHeader(
       'Set-Cookie',
-      `ekl_auth_session=${encodeURIComponent(cleanUid)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`
+      `ekl_auth_session=${encodeURIComponent(cleanUid)}; Path=/; HttpOnly; SameSite=None; Secure; Partitioned; Max-Age=2592000`
     );
     res.json({ success: true, uid: cleanUid });
   } else {
@@ -516,7 +525,7 @@ app.post('/api/auth/session', (req, res) => {
 app.delete('/api/auth/session', (req, res) => {
   res.setHeader(
     'Set-Cookie',
-    `ekl_auth_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
+    `ekl_auth_session=; Path=/; HttpOnly; SameSite=None; Secure; Partitioned; Max-Age=0`
   );
   res.json({ success: true, message: 'Session cookie destroyed.' });
 });

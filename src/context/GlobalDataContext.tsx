@@ -44,12 +44,20 @@ export interface GlobalDataContextType {
   // Yarn Allocations
   saveYarnAllocation: (item: YarnAllocationRecord) => Promise<{ success: boolean; message?: string }>;
   deleteYarnAllocation: (id: string) => Promise<{ success: boolean; message?: string }>;
-  bulkSaveYarnAllocations: (items: YarnAllocationRecord[], replace?: boolean) => Promise<{ success: boolean; message?: string }>;
+  bulkSaveYarnAllocations: (
+    items: YarnAllocationRecord[], 
+    replace?: boolean,
+    onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void
+  ) => Promise<{ success: boolean; message?: string }>;
 
   // Production Ledger
   saveLedgerRecord: (record: LedgerRecord) => Promise<{ success: boolean; message?: string }>;
   deleteLedgerRecord: (id: string, recordInfo?: { date?: string; floor?: string }) => Promise<{ success: boolean; message?: string }>;
-  bulkSaveLedgerRecords: (records: LedgerRecord[], replace?: boolean) => Promise<{ success: boolean; message?: string }>;
+  bulkSaveLedgerRecords: (
+    records: LedgerRecord[], 
+    replace?: boolean,
+    onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void
+  ) => Promise<{ success: boolean; message?: string }>;
 }
 
 const GlobalDataContext = createContext<GlobalDataContextType | null>(null);
@@ -698,7 +706,11 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return { success: true };
   };
 
-  const bulkSaveYarnAllocations = async (items: YarnAllocationRecord[], replace: boolean = false): Promise<{ success: boolean; message?: string }> => {
+  const bulkSaveYarnAllocations = async (
+    items: YarnAllocationRecord[], 
+    replace: boolean = false,
+    onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void
+  ): Promise<{ success: boolean; message?: string }> => {
     if (replace) {
       deletedYarnIdsRef.current.clear();
       setYarnAllocations(items);
@@ -712,8 +724,8 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setYarnAllocations(prev => [...items, ...prev.filter(p => !items.some(i => i.id === p.id))]);
     }
 
-    // 1. Primary Database Bulk Save: Supabase (purges all previous rows if replace is true)
-    const supabaseRes = await SupabaseSync.bulkSaveYarnAllocations(items, replace);
+    // 1. Primary Database Bulk Save: Supabase (purges all previous rows if replace is true) with real-time progress
+    const supabaseRes = await SupabaseSync.bulkSaveYarnAllocations(items, replace, onProgress);
 
     // 2. Dual-save to persistent server DB
     GasClient.clearYarnCache();
@@ -822,7 +834,11 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   };
 
-  const bulkSaveLedgerRecords = async (records: LedgerRecord[], replace: boolean = false) => {
+  const bulkSaveLedgerRecords = async (
+    records: LedgerRecord[], 
+    replace: boolean = false,
+    onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void
+  ) => {
     const now = Date.now();
     records.forEach(r => {
       if (r.id) deletedLedgerIdsRef.current.delete(r.id);
@@ -864,8 +880,8 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return next;
     });
 
-    // Bulk save to Supabase
-    const supabaseResult = await SupabaseSync.bulkSaveProductionRecords(records);
+    // Bulk save to Supabase with real-time progress
+    const supabaseResult = await SupabaseSync.bulkSaveProductionRecords(records, onProgress);
     executeKeepaliveMutation('ledger/save', { ledger: records, replace }).catch(() => {});
 
     return {

@@ -126,11 +126,19 @@ export default function LoginView({ onLoginSuccess, inactivityNotice, embedded =
         return;
       }
 
-      // Establish secure HTTP-only session cookie
+      // Establish secure session identifier in sessionStorage and server session
+      const cleanUid = match.uid.trim().toUpperCase();
+      try {
+        sessionStorage.setItem('ekl_session_uid', cleanUid);
+      } catch (e) {}
+
       fetch('/api/auth/session', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uid: match.uid.trim().toUpperCase() })
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-session-uid': cleanUid
+        },
+        body: JSON.stringify({ uid: cleanUid })
       }).catch(() => {});
 
       // Successful Authenticated Session
@@ -155,6 +163,20 @@ export default function LoginView({ onLoginSuccess, inactivityNotice, embedded =
           setLoading(false);
           return;
         }
+
+        const fallbackUid = match.uid.trim().toUpperCase();
+        try {
+          sessionStorage.setItem('ekl_session_uid', fallbackUid);
+        } catch (e) {}
+
+        fetch('/api/auth/session', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'x-session-uid': fallbackUid
+          },
+          body: JSON.stringify({ uid: fallbackUid })
+        }).catch(() => {});
 
         setSuccess(`Welcome back, ${match.userName}! Access granted.`);
         setTimeout(() => {

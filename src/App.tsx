@@ -164,6 +164,58 @@ const ensureUniqueIds = <T extends { id: string }>(items: T[], prefix: string): 
   return modified ? result : items;
 };
 
+// Mapping of application pages to URL hashes for browser refresh persistence
+export const PAGE_TO_HASH: Record<string, string> = {
+  'Dashboard': 'dashboard',
+  'Production Ledger': 'production-ledger',
+  'Floor Dashboard': 'floor-dashboard',
+  'Management Dashboard': 'management-dashboard',
+  'Reports': 'reports',
+  'Plan Order Followup': 'plan-order-followup',
+  'Team Leader OTD Status': 'team-leader-otd',
+  'Buyerwise OTD Status': 'buyerwise-otd',
+  'Orderwise OTD Status': 'orderwise-otd',
+  'Buyer Plan vs Actual': 'buyer-plan-actual',
+  'Yarn Allocation': 'yarn-allocation',
+  'Delivery Schedule': 'delivery-schedule',
+  'Admin Panel': 'admin-panel',
+  'User Management': 'user-management',
+  'Database Connection': 'database-connection',
+  'Settings': 'settings'
+};
+
+export const getPageFromHash = (hash: string): string | null => {
+  if (!hash) return null;
+  const clean = hash.replace(/^#\/?/, '').trim().toLowerCase();
+  if (!clean) return null;
+  for (const [page, h] of Object.entries(PAGE_TO_HASH)) {
+    if (h.toLowerCase() === clean || page.toLowerCase().replace(/\s+/g, '-') === clean) {
+      return page;
+    }
+  }
+  return null;
+};
+
+// Helper permission checker to ensure users aren't incorrectly redirected away from allowed sub-tabs
+export const isPageAllowedForUser = (user: UserRecord | null, tabName: string) => {
+  if (!user) return true;
+  if (user.userType === 'Admin') return true;
+  if (user.allowedTabs && user.allowedTabs.length > 0) {
+    if (user.allowedTabs.includes(tabName)) return true;
+    if (
+      ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Buyer Plan vs Actual', 'Delivery Schedule', 'Order Plan & Status', 'Plan Order Followup'].includes(tabName) &&
+      (user.allowedTabs.includes('Plan Order Followup') || user.allowedTabs.includes('Order Plan & Status'))
+    ) {
+      return true;
+    }
+    return false;
+  }
+  if (tabName === 'User Management' || tabName === 'Database Connection' || tabName === 'Admin Panel') {
+    return false;
+  }
+  return true;
+};
+
 export default function App() {
   const [inactivityNotice, setInactivityNotice] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
@@ -179,9 +231,18 @@ export default function App() {
       try {
         let targetUid: string | null = null;
 
-        // Check secure server session
+        // 1. Check stored session UID from sessionStorage / localStorage
+        let clientSessionUid: string | null = null;
         try {
-          const res = await fetch('/api/auth/session', { credentials: 'same-origin' });
+          clientSessionUid = sessionStorage.getItem('ekl_session_uid') || localStorage.getItem('ekl_session_uid');
+        } catch (e) {}
+
+        // 2. Check secure server session (passing x-session-uid if present)
+        try {
+          const res = await fetch('/api/auth/session', { 
+            credentials: 'same-origin',
+            headers: clientSessionUid ? { 'x-session-uid': clientSessionUid.trim().toUpperCase() } : {}
+          });
           if (res.ok) {
             const data = await res.json();
             if (data.authenticated && data.uid) {
@@ -190,6 +251,11 @@ export default function App() {
           }
         } catch (e) {
           // Network fallback
+        }
+
+        // 3. Fallback to client session identifier (essential for sandboxed iframe environments)
+        if (!targetUid && clientSessionUid && clientSessionUid.trim()) {
+          targetUid = clientSessionUid.trim().toUpperCase();
         }
 
         if (targetUid) {
@@ -210,6 +276,12 @@ export default function App() {
           if (matchedUser) {
             if (matchedUser.status === 'Inactive') {
               await fetch('/api/auth/session', { method: 'DELETE' }).catch(() => {});
+              try {
+                sessionStorage.removeItem('ekl_session_uid');
+                sessionStorage.removeItem('active_current_page');
+                localStorage.removeItem('ekl_session_uid');
+                localStorage.removeItem('active_current_page');
+              } catch (e) {}
               if (isMounted) {
                 setCurrentUser(null);
                 GasClient.setActiveUser(null);
@@ -221,6 +293,11 @@ export default function App() {
 
             const safeUser = { ...matchedUser };
             delete safeUser.password;
+
+            // Re-affirm session UID in storage
+            try {
+              sessionStorage.setItem('ekl_session_uid', safeUser.uid.trim().toUpperCase());
+            } catch (e) {}
 
             if (isMounted) {
               setCurrentUser(safeUser);
@@ -276,6 +353,15 @@ export default function App() {
       if (now - lastActivityRef.current >= INACTIVITY_LIMIT_MS) {
         // Trigger security auto-logout
         fetch('/api/auth/session', { method: 'DELETE' }).catch(() => {});
+        try {
+          sessionStorage.removeItem('ekl_session_uid');
+          sessionStorage.removeItem('active_current_page');
+          localStorage.removeItem('ekl_session_uid');
+          localStorage.removeItem('active_current_page');
+          if (typeof window !== 'undefined' && window.location.hash) {
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          }
+        } catch (e) {}
         setCurrentUser(null);
         GasClient.setActiveUser(null);
         setCurrentPage('Dashboard');
@@ -314,22 +400,66 @@ export default function App() {
 
   const [currentPage, setCurrentPage] = useState<string>(() => {
     try {
+      // 1. Check URL Hash first (highest fidelity on browser reload)
+      if (typeof window !== 'undefined' && window.location.hash) {
+        const fromHash = getPageFromHash(window.location.hash);
+        if (fromHash) return fromHash;
+      }
+      // 2. Check sessionStorage or localStorage
       const savedPage = sessionStorage.getItem('active_current_page') || localStorage.getItem('active_current_page');
       if (savedPage) return savedPage;
     } catch (e) {}
     return 'Dashboard';
   });
 
+  // Keep active page synchronized in sessionStorage and URL hash across refreshes
   useEffect(() => {
     try {
       if (currentPage) {
         sessionStorage.setItem('active_current_page', currentPage);
         localStorage.setItem('active_current_page', currentPage);
+
+        const targetHash = PAGE_TO_HASH[currentPage] || currentPage.toLowerCase().replace(/\s+/g, '-');
+        if (typeof window !== 'undefined' && window.location.hash !== `#${targetHash}`) {
+          window.history.replaceState(null, '', `#${targetHash}`);
+        }
       }
     } catch (e) {}
   }, [currentPage]);
+
+  // Support browser back/forward buttons and hash navigation
+  useEffect(() => {
+    const handleHashChange = () => {
+      if (typeof window !== 'undefined' && window.location.hash) {
+        const fromHash = getPageFromHash(window.location.hash);
+        if (fromHash && fromHash !== currentPage) {
+          setCurrentPage(fromHash);
+        }
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [currentPage]);
+
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
-  const [selectedFloorId, setSelectedFloorId] = useState<string | null>(null);
+  const [selectedFloorId, setSelectedFloorId] = useState<string | null>(() => {
+    try {
+      return sessionStorage.getItem('active_selected_floor');
+    } catch (e) {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      if (selectedFloorId) {
+        sessionStorage.setItem('active_selected_floor', selectedFloorId);
+      } else {
+        sessionStorage.removeItem('active_selected_floor');
+      }
+    } catch (e) {}
+  }, [selectedFloorId]);
+
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState<boolean>(false);
 
@@ -345,10 +475,10 @@ export default function App() {
     }
   }, [isDark]);
 
-  // Redirect to first allowed tab if current page is hidden by allowedTabs configuration
+  // Redirect to first allowed tab only if current page is genuinely forbidden
   useEffect(() => {
     if (currentUser && currentUser.userType !== 'Admin' && currentUser.allowedTabs && currentUser.allowedTabs.length > 0) {
-      const isAllowed = currentUser.allowedTabs.includes(currentPage);
+      const isAllowed = isPageAllowedForUser(currentUser, currentPage);
 
       if (!isAllowed) {
         const firstAllowed = currentUser.allowedTabs[0] || 'Dashboard';
@@ -913,8 +1043,13 @@ export default function App() {
   const executeLogout = async () => {
     try {
       await fetch('/api/auth/session', { method: 'DELETE' }).catch(() => {});
+      sessionStorage.removeItem('ekl_session_uid');
       sessionStorage.removeItem('active_current_page');
+      localStorage.removeItem('ekl_session_uid');
       localStorage.removeItem('active_current_page');
+      if (typeof window !== 'undefined' && window.location.hash) {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
     } catch (e) {}
     setCurrentUser(null);
     GasClient.setActiveUser(null);
@@ -956,7 +1091,12 @@ export default function App() {
           GasClient.setActiveUser(safeUser);
           setInactivityNotice(null);
           try {
-            const saved = sessionStorage.getItem('active_current_page') || localStorage.getItem('active_current_page');
+            const cleanUid = safeUser.uid.trim().toUpperCase();
+            sessionStorage.setItem('ekl_session_uid', cleanUid);
+            localStorage.setItem('ekl_session_uid', cleanUid);
+            const saved = (typeof window !== 'undefined' && getPageFromHash(window.location.hash)) ||
+              sessionStorage.getItem('active_current_page') || 
+              localStorage.getItem('active_current_page');
             if (saved) {
               setCurrentPage(saved);
             }

@@ -867,26 +867,72 @@ export class SupabaseSync {
   }
 
   /**
-   * Fetch all production ledger records from Supabase (sub-second query)
+   * Fetch all production ledger records from Supabase (paginated beyond 1,000-row PostgREST limit)
    */
-  static async fetchProductionLedger(): Promise<LedgerRecord[]> {
+  static async fetchProductionLedger(
+    onProgress?: (loaded: number, total: number, percentage: number) => void
+  ): Promise<LedgerRecord[]> {
     const client = this.getClient();
     if (!client) return [];
 
     try {
-      const { data, error } = await client
-        .from('production_ledger')
-        .select('*')
-        .order('date', { ascending: false });
-
-      if (error) {
-        console.warn('Supabase fetchProductionLedger notice:', error.message);
-        return [];
+      // 1. Check total count first via head query
+      let totalCount = 0;
+      try {
+        const { count, error: countErr } = await client
+          .from('production_ledger')
+          .select('*', { count: 'exact', head: true });
+        if (!countErr && typeof count === 'number') {
+          totalCount = count;
+        }
+      } catch (cntErr) {
+        console.warn('Supabase ledger count head query notice:', cntErr);
       }
 
-      if (!data || !Array.isArray(data)) return [];
+      if (totalCount > 0 && onProgress) {
+        onProgress(0, totalCount, 0);
+      }
 
-      return data.map((row) => this.mapRowToLedgerRecord(row));
+      const allRows: any[] = [];
+      const BATCH_SIZE = 1000;
+      let from = 0;
+
+      while (true) {
+        const to = from + BATCH_SIZE - 1;
+        const { data, error } = await client
+          .from('production_ledger')
+          .select('*')
+          .order('date', { ascending: false })
+          .range(from, to);
+
+        if (error) {
+          console.warn('Supabase fetchProductionLedger notice:', error.message);
+          break;
+        }
+
+        if (!data || !Array.isArray(data) || data.length === 0) {
+          break;
+        }
+
+        allRows.push(...data);
+        const currentTotal = totalCount > 0 ? totalCount : Math.max(allRows.length, allRows.length + (data.length === BATCH_SIZE ? BATCH_SIZE : 0));
+        const pct = currentTotal > 0 ? Math.min(100, Math.round((allRows.length / currentTotal) * 100)) : 100;
+        if (onProgress) {
+          onProgress(allRows.length, currentTotal, pct);
+        }
+
+        if (data.length < BATCH_SIZE || (totalCount > 0 && allRows.length >= totalCount)) {
+          break;
+        }
+
+        from += BATCH_SIZE;
+      }
+
+      if (onProgress && allRows.length > 0) {
+        onProgress(allRows.length, allRows.length, 100);
+      }
+
+      return allRows.map((row) => this.mapRowToLedgerRecord(row));
     } catch (err) {
       console.warn('Supabase fetchProductionLedger error:', err);
       return [];
@@ -949,7 +995,10 @@ export class SupabaseSync {
   /**
    * Bulk save/upsert an array of production records into Supabase
    */
-  static async bulkSaveProductionRecords(records: LedgerRecord[]): Promise<{ success: boolean; count: number; error?: string }> {
+  static async bulkSaveProductionRecords(
+    records: LedgerRecord[],
+    onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void
+  ): Promise<{ success: boolean; count: number; error?: string }> {
     const client = this.getClient();
     if (!client) {
       return { success: false, count: 0, error: 'Supabase client is not initialized. Please verify your Project URL and Anon Key in Database Settings.' };
@@ -961,9 +1010,12 @@ export class SupabaseSync {
     try {
       const rows = records.map(r => this.mapLedgerRecordToRow(r));
       
-      // Batch into chunks of 50 to ensure high reliability
-      const chunkSize = 50;
+      const chunkSize = 200;
       let insertedCount = 0;
+
+      if (onProgress) {
+        onProgress(0, rows.length, 0, 'Starting upload to Supabase...');
+      }
 
       for (let i = 0; i < rows.length; i += chunkSize) {
         let chunk = rows.slice(i, i + chunkSize).map(r => this.sanitizeRowForSupabase(r));
@@ -976,6 +1028,10 @@ export class SupabaseSync {
           if (!error) {
             chunkSuccess = true;
             insertedCount += chunk.length;
+            const pct = Math.min(100, Math.round((insertedCount / rows.length) * 100));
+            if (onProgress) {
+              onProgress(insertedCount, rows.length, pct, `Uploading ${insertedCount.toLocaleString()} / ${rows.length.toLocaleString()} records...`);
+            }
             break;
           }
 
@@ -1002,6 +1058,10 @@ export class SupabaseSync {
             error: `Failed to insert chunk at row ${i}: ${error.message} (${error.code || ''})` 
           };
         }
+      }
+
+      if (onProgress) {
+        onProgress(rows.length, rows.length, 100, 'Upload complete!');
       }
 
       return { success: true, count: insertedCount };
@@ -1145,27 +1205,74 @@ export class SupabaseSync {
   }
 
   /**
-   * Fetch all Yarn Allocations from Supabase
+   * Fetch all Yarn Allocations from Supabase (paginated beyond 1,000-row PostgREST limit)
    */
-  static async fetchYarnAllocations(): Promise<YarnAllocationRecord[]> {
+  static async fetchYarnAllocations(
+    onProgress?: (loaded: number, total: number, percentage: number) => void
+  ): Promise<YarnAllocationRecord[]> {
     const client = this.getClient();
     if (!client) return [];
 
     try {
-      const { data, error } = await client
-        .from('yarn_allocations')
-        .select('*')
-        .order('id', { ascending: false });
-
-      if (error) {
-        if (error.code !== '42P01' && error.code !== 'PGRST205' && !error.message?.includes('schema cache')) {
-          console.warn('Supabase fetchYarnAllocations notice:', error.message);
+      // 1. Check exact count first via lightweight head request
+      let totalCount = 0;
+      try {
+        const { count, error: countErr } = await client
+          .from('yarn_allocations')
+          .select('*', { count: 'exact', head: true });
+        if (!countErr && typeof count === 'number') {
+          totalCount = count;
         }
-        return [];
+      } catch (cntErr) {
+        console.warn('Supabase yarn count head query notice:', cntErr);
       }
 
-      if (!data || !Array.isArray(data)) return [];
-      return data.map(row => this.mapRowToYarnAllocation(row));
+      if (totalCount > 0 && onProgress) {
+        onProgress(0, totalCount, 0);
+      }
+
+      const allRows: any[] = [];
+      const BATCH_SIZE = 1000;
+      let from = 0;
+
+      while (true) {
+        const to = from + BATCH_SIZE - 1;
+        const { data, error } = await client
+          .from('yarn_allocations')
+          .select('*')
+          .order('id', { ascending: false })
+          .range(from, to);
+
+        if (error) {
+          if (error.code !== '42P01' && error.code !== 'PGRST205' && !error.message?.includes('schema cache')) {
+            console.warn('Supabase fetchYarnAllocations notice:', error.message);
+          }
+          break;
+        }
+
+        if (!data || !Array.isArray(data) || data.length === 0) {
+          break;
+        }
+
+        allRows.push(...data);
+        const currentTotal = totalCount > 0 ? totalCount : Math.max(allRows.length, allRows.length + (data.length === BATCH_SIZE ? BATCH_SIZE : 0));
+        const pct = currentTotal > 0 ? Math.min(100, Math.round((allRows.length / currentTotal) * 100)) : 100;
+        if (onProgress) {
+          onProgress(allRows.length, currentTotal, pct);
+        }
+
+        if (data.length < BATCH_SIZE || (totalCount > 0 && allRows.length >= totalCount)) {
+          break;
+        }
+
+        from += BATCH_SIZE;
+      }
+
+      if (onProgress && allRows.length > 0) {
+        onProgress(allRows.length, allRows.length, 100);
+      }
+
+      return allRows.map(row => this.mapRowToYarnAllocation(row));
     } catch (err) {
       console.warn('Supabase fetchYarnAllocations exception:', err);
       return [];
@@ -1244,13 +1351,21 @@ export class SupabaseSync {
    * Bulk save/upsert an array of yarn allocation records into Supabase.
    * If replace = true, purges all previous records from public.yarn_allocations before inserting the new dataset.
    */
-  static async bulkSaveYarnAllocations(items: YarnAllocationRecord[], replace: boolean = false): Promise<{ success: boolean; count: number; error?: string }> {
+  static async bulkSaveYarnAllocations(
+    items: YarnAllocationRecord[], 
+    replace: boolean = false,
+    onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void
+  ): Promise<{ success: boolean; count: number; error?: string }> {
     const client = this.getClient();
     if (!client) {
       return { success: false, count: 0, error: 'Supabase client is not initialized. Please verify your Project URL and Anon Key in Database Settings.' };
     }
 
     try {
+      if (onProgress) {
+        onProgress(0, items?.length || 0, 0, replace ? 'Purging previous records from Supabase...' : 'Preparing upload...');
+      }
+
       // If replace is requested, purge all previous records from Supabase public.yarn_allocations
       if (replace) {
         try {
@@ -1271,7 +1386,7 @@ export class SupabaseSync {
       }
 
       const rows = items.map(y => this.mapYarnAllocationToRow(y));
-      const chunkSize = 50;
+      const chunkSize = 250;
       let insertedCount = 0;
 
       for (let i = 0; i < rows.length; i += chunkSize) {
@@ -1285,6 +1400,10 @@ export class SupabaseSync {
           if (!error) {
             chunkSuccess = true;
             insertedCount += chunk.length;
+            const pct = Math.min(100, Math.round((insertedCount / rows.length) * 100));
+            if (onProgress) {
+              onProgress(insertedCount, rows.length, pct, `Uploading ${insertedCount.toLocaleString()} / ${rows.length.toLocaleString()} records to Supabase...`);
+            }
             break;
           }
 
@@ -1318,6 +1437,10 @@ export class SupabaseSync {
             error: `Failed to insert chunk at row ${i}: ${error.message} (${error.code || ''})` 
           };
         }
+      }
+
+      if (onProgress) {
+        onProgress(rows.length, rows.length, 100, 'Upload complete!');
       }
 
       return { success: true, count: insertedCount };

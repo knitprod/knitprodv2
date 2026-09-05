@@ -97,7 +97,7 @@ interface HeaderMatchResult {
 interface UploadLedgerExcelModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onImportComplete: (records: LedgerRecord[], mode: 'append' | 'replace') => void;
+  onImportComplete: (records: LedgerRecord[], mode: 'append' | 'replace', onProgress?: (loaded: number, total: number, percent: number) => void) => Promise<void> | void;
   existingCount: number;
 }
 
@@ -110,6 +110,8 @@ export default function UploadLedgerExcelModal({
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [isParsing, setIsParsing] = useState<boolean>(false);
+  const [isCommitting, setIsCommitting] = useState<boolean>(false);
+  const [commitProgress, setCommitProgress] = useState<{ loaded: number; total: number; percent: number }>({ loaded: 0, total: 0, percent: 0 });
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [parsedRecords, setParsedRecords] = useState<LedgerRecord[] | null>(null);
   const [matchResult, setMatchResult] = useState<HeaderMatchResult | null>(null);
@@ -127,6 +129,8 @@ export default function UploadLedgerExcelModal({
     setMatchResult(null);
     setUploadError(null);
     setIsParsing(false);
+    setIsCommitting(false);
+    setCommitProgress({ loaded: 0, total: 0, percent: 0 });
     setShowMismatchDetails(false);
     setInternalDuplicatesCount(0);
     if (fileInputRef.current) {
@@ -534,11 +538,20 @@ export default function UploadLedgerExcelModal({
     XLSX.writeFile(wb, 'Production_Ledger_Standard_Template.xlsx');
   };
 
-  const handleCommit = () => {
-    if (!parsedRecords || parsedRecords.length === 0) return;
-    onImportComplete(parsedRecords, importMode);
-    handleReset();
-    onClose();
+  const handleCommit = async () => {
+    if (!parsedRecords || parsedRecords.length === 0 || isCommitting) return;
+    setIsCommitting(true);
+    setCommitProgress({ loaded: 0, total: parsedRecords.length, percent: 0 });
+    try {
+      await onImportComplete(parsedRecords, importMode, (loaded, total, percent) => {
+        setCommitProgress({ loaded, total, percent });
+      });
+      handleReset();
+      onClose();
+    } catch (err) {
+      console.error('Commit import error:', err);
+      setIsCommitting(false);
+    }
   };
 
   const totalKg = parsedRecords?.reduce((sum, r) => sum + (r.totalProduction || 0), 0) || 0;
@@ -941,28 +954,63 @@ export default function UploadLedgerExcelModal({
             </div>
           )}
 
+          {/* Live Progress Bar during Commit */}
+          {isCommitting && (
+            <div className="rounded-xl bg-emerald-50/80 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 p-3.5 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
+                  <UploadCloud className="h-4 w-4 text-emerald-600 animate-bounce" />
+                  <span>Synchronizing records with Supabase database...</span>
+                </span>
+                <span className="font-mono font-black text-emerald-700 dark:text-emerald-300">
+                  {commitProgress.percent}%
+                </span>
+              </div>
+              <div className="w-full bg-emerald-200/70 dark:bg-emerald-900/60 rounded-full h-2 overflow-hidden">
+                <div 
+                  className="bg-emerald-600 h-2 rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${Math.min(100, Math.max(5, commitProgress.percent))}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                <span>{commitProgress.loaded.toLocaleString()} / {commitProgress.total.toLocaleString()} rows</span>
+                <span>{importMode === 'replace' ? 'Replacing entire ledger' : 'Merging into ledger'}</span>
+              </div>
+            </div>
+          )}
+
           {/* Action buttons */}
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
             <button
               type="button"
+              disabled={isCommitting}
               onClick={() => {
                 handleReset();
                 onClose();
               }}
-              className="px-4 py-2 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+              className="px-4 py-2 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="button"
-              disabled={!parsedRecords || parsedRecords.length === 0 || isParsing || (matchResult && !matchResult.canProceed)}
+              disabled={!parsedRecords || parsedRecords.length === 0 || isParsing || isCommitting || (matchResult && !matchResult.canProceed)}
               onClick={handleCommit}
               className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:cursor-not-allowed rounded-xl transition-all shadow-xs cursor-pointer"
             >
-              <CheckCircle2 className="h-4 w-4" />
-              <span>
-                {importMode === 'replace' ? 'Confirm & Replace Ledger' : 'Confirm & Merge Data'}
-              </span>
+              {isCommitting ? (
+                <>
+                  <div className="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                  <span>Uploading to Supabase...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>
+                    {importMode === 'replace' ? 'Confirm & Replace Ledger' : 'Confirm & Merge Data'}
+                  </span>
+                </>
+              )}
             </button>
           </div>
 

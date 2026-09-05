@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { 
   Search, 
@@ -27,6 +27,7 @@ import { UserRecord } from './UserManagementView';
 import { useTableColumns, ColumnCustomizerDropdown, ResizableTh, ColumnDef } from './TableColumnCustomizer';
 import { GasClient } from '../lib/gasClient';
 import { useGlobalData } from '../context/GlobalDataContext';
+import { SupabaseSync } from '../lib/supabaseClient';
 
 export interface MasterUploadInfo {
   lastUploadedAt: string | null;
@@ -476,27 +477,126 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
 
   const [isLoadingSaved, setIsLoadingSaved] = useState(false);
 
-  // Load saved yarn allocations from server database on mount if global context is still empty
+  // Real-time Progress Bar States for Upload, Download, and Export
+  const [uploadProgress, setUploadProgress] = useState<{
+    isUploading: boolean;
+    loaded: number;
+    total: number;
+    percent: number;
+    stage: string;
+  }>({
+    isUploading: false,
+    loaded: 0,
+    total: 0,
+    percent: 0,
+    stage: ''
+  });
+
+  const [downloadProgress, setDownloadProgress] = useState<{
+    isDownloading: boolean;
+    loaded: number;
+    total: number;
+    percent: number;
+    stage: string;
+  }>({
+    isDownloading: false,
+    loaded: 0,
+    total: 0,
+    percent: 0,
+    stage: ''
+  });
+
+  const [exportProgress, setExportProgress] = useState<{
+    isExporting: boolean;
+    percent: number;
+    message: string;
+  }>({
+    isExporting: false,
+    percent: 0,
+    message: ''
+  });
+
+  // Download all Yarn Allocation records from Supabase using range pagination (bypassing PostgREST 1,000-row limit)
+  const fetchAllocationsFromSupabase = useCallback(async (forceRefresh: boolean = false) => {
+    setIsLoadingSaved(true);
+    setDownloadProgress({ 
+      isDownloading: true, 
+      loaded: 0, 
+      total: 0, 
+      percent: 0, 
+      stage: 'Connecting to Supabase cloud database...' 
+    });
+
+    try {
+      const data = await SupabaseSync.fetchYarnAllocations((loaded, total, percent) => {
+        setDownloadProgress({
+          isDownloading: true,
+          loaded,
+          total,
+          percent,
+          stage: total > 0 
+            ? `Downloading ${loaded.toLocaleString()} of ${total.toLocaleString()} records from Supabase...`
+            : `Downloading ${loaded.toLocaleString()} records...`
+        });
+      });
+
+      if (data && data.length > 0) {
+        setYarnAllocations(data);
+        setUploadInfo(prev => ({
+          ...prev,
+          totalRecords: data.length
+        }));
+        try {
+          localStorage.setItem('cached_yarn_allocations', JSON.stringify(data));
+        } catch (e) {}
+      } else {
+        // Fallback to GasClient if Supabase returned 0 rows
+        const fallback = await GasClient.fetchYarnAllocations(forceRefresh);
+        if (fallback && Array.isArray(fallback) && fallback.length > 0) {
+          setYarnAllocations(fallback as YarnAllocationRecord[]);
+          setUploadInfo(prev => ({
+            ...prev,
+            totalRecords: fallback.length
+          }));
+        }
+      }
+    } catch (err: any) {
+      console.warn("Notice fetching allocations from Supabase:", err);
+    } finally {
+      setIsLoadingSaved(false);
+      setDownloadProgress(prev => ({ ...prev, percent: 100, stage: 'Download complete!' }));
+      setTimeout(() => {
+        setDownloadProgress(prev => ({ ...prev, isDownloading: false }));
+      }, 1000);
+    }
+  }, []);
+
+  // Synchronize state when globalYarn changes from GlobalDataContext
+  useEffect(() => {
+    if (globalYarn && globalYarn.length > 0) {
+      setYarnAllocations(globalYarn);
+      setUploadInfo(prev => ({
+        ...prev,
+        totalRecords: globalYarn.length
+      }));
+    }
+  }, [globalYarn]);
+
+  // Load saved yarn allocations from Supabase on mount
   useEffect(() => {
     let isMounted = true;
-    if (!globalYarn || globalYarn.length === 0) {
-      setIsLoadingSaved(true);
-      GasClient.fetchYarnAllocations()
-        .then(data => {
-          if (isMounted && data && Array.isArray(data) && data.length > 0) {
-            setYarnAllocations(data);
-          }
-        })
-        .catch(err => {
-          console.warn("Failed to load saved yarn allocations:", err);
-        })
-        .finally(() => {
-          if (isMounted) setIsLoadingSaved(false);
-        });
+    if (globalYarn && globalYarn.length > 1000) {
+      setYarnAllocations(globalYarn);
+      setUploadInfo(prev => ({
+        ...prev,
+        totalRecords: globalYarn.length
+      }));
+    } else {
+      fetchAllocationsFromSupabase(false);
     }
 
     return () => { isMounted = false; };
-  }, [globalYarn]);
+  }, [fetchAllocationsFromSupabase, globalYarn]);
 
   // User-based Buyer Access Restriction (Only restrict if non-admin and assigned buyers explicitly configured)
   const userAssignedBuyers = useMemo(() => {
@@ -649,34 +749,70 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
   const { updateDate, updateTime, userName } = formatYarnMetadata();
 
   const handleExportYarnExcel = () => {
-    const exportData = filteredYarnAllocations.map(item => ({
-      'Actual Yarn Requisition date': item.actualRequisitionDate,
-      'Buyer': item.buyer,
-      'Order Number': item.orderNumber,
-      'Fabrics Type': item.fabricsType,
-      'Fabric Shade': item.fabricShade,
-      'Fabric GSM': item.fabricGsm,
-      'Yarn Required': item.yarnRequired,
-      'Lot Ref': item.lotRef,
-      'Allocated Yarn': item.allocatedYarn,
-      'Lot #': item.lotNo,
-      "Spinner's Name": item.spinnersName,
-      'Allocation Status': item.allocationStatus,
-      'Yarn Stock Status': item.yarnStockStatus,
-      'Yarn Delivery Status': item.yarnDeliveryStatus,
-      'Proposed Allocation Date': item.proposedAllocationDate,
-      'Allocation Sart Date to End Date': item.allocationDateRange,
-      'Allocation No': item.allocationNo,
-      'Yarn Rq Qty': item.yarnRqQty,
-      'Allocated Qty': item.allocatedQty,
-      'Balance': item.balance === 0 ? '-' : item.balance,
-      'Remarks': item.remarks
-    }));
+    if (filteredYarnAllocations.length === 0) return;
 
-    const worksheet = XLSX.utils.json_to_sheet(exportData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Yarn Allocation');
-    XLSX.writeFile(workbook, `Yarn_Allocation_Summary_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    setExportProgress({
+      isExporting: true,
+      percent: 20,
+      message: `Preparing export for ${filteredYarnAllocations.length.toLocaleString()} allocation records...`
+    });
+
+    setTimeout(() => {
+      try {
+        setExportProgress({
+          isExporting: true,
+          percent: 50,
+          message: `Formatting ${filteredYarnAllocations.length.toLocaleString()} rows into Excel schema...`
+        });
+
+        const exportData = filteredYarnAllocations.map(item => ({
+          'Actual Yarn Requisition date': item.actualRequisitionDate,
+          'Buyer': item.buyer,
+          'Order Number': item.orderNumber,
+          'Fabrics Type': item.fabricsType,
+          'Fabric Shade': item.fabricShade,
+          'Fabric GSM': item.fabricGsm,
+          'Yarn Required': item.yarnRequired,
+          'Lot Ref': item.lotRef,
+          'Allocated Yarn': item.allocatedYarn,
+          'Lot #': item.lotNo,
+          "Spinner's Name": item.spinnersName,
+          'Allocation Status': item.allocationStatus,
+          'Yarn Stock Status': item.yarnStockStatus,
+          'Yarn Delivery Status': item.yarnDeliveryStatus,
+          'Proposed Allocation Date': item.proposedAllocationDate,
+          'Allocation Sart Date to End Date': item.allocationDateRange,
+          'Allocation No': item.allocationNo,
+          'Yarn Rq Qty': item.yarnRqQty,
+          'Allocated Qty': item.allocatedQty,
+          'Balance': item.balance === 0 ? '-' : item.balance,
+          'Remarks': item.remarks
+        }));
+
+        setExportProgress({
+          isExporting: true,
+          percent: 85,
+          message: 'Writing XLSX file and initiating browser download...'
+        });
+
+        const worksheet = XLSX.utils.json_to_sheet(exportData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Yarn Allocation');
+        XLSX.writeFile(workbook, `Yarn_Allocation_Summary_${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+        setExportProgress({
+          isExporting: true,
+          percent: 100,
+          message: 'Download ready!'
+        });
+      } catch (err: any) {
+        console.error("Export Excel error:", err);
+      } finally {
+        setTimeout(() => {
+          setExportProgress({ isExporting: false, percent: 0, message: '' });
+        }, 800);
+      }
+    }, 120);
   };
 
   const processSelectedFile = (file: File) => {
@@ -1051,24 +1187,8 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     }
   };
 
-  // Load yarn allocations from Google Sheets / GasClient on mount & sync event
+  // Sync event listener for remote updates
   useEffect(() => {
-    const fetchAllocations = (force: boolean = false) => {
-      GasClient.fetchYarnAllocations(force).then((remoteData) => {
-        if (remoteData && Array.isArray(remoteData) && remoteData.length > 0) {
-          setYarnAllocations(remoteData as YarnAllocationRecord[]);
-          setUploadInfo(prev => ({
-            ...prev,
-            totalRecords: remoteData.length
-          }));
-        }
-      }).catch((err) => {
-        console.warn("Could not load yarn allocations from Google Sheets:", err);
-      });
-    };
-
-    fetchAllocations(false);
-
     // Fetch latest master upload metadata from Server DB
     GasClient.fetchServerDb().then((db) => {
       if (db && db.master_yarn_upload_info) {
@@ -1076,15 +1196,17 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
       }
     }).catch(() => {});
 
-    const handleSync = () => fetchAllocations(true);
+    const handleSync = () => fetchAllocationsFromSupabase(true);
     window.addEventListener('gas_data_synced', handleSync);
+    window.addEventListener('supabase_data_synced', handleSync);
 
     return () => {
       window.removeEventListener('gas_data_synced', handleSync);
+      window.removeEventListener('supabase_data_synced', handleSync);
     };
-  }, []);
+  }, [fetchAllocationsFromSupabase]);
 
-  const handleConfirmUpload = () => {
+  const handleConfirmUpload = async () => {
     if (!parsedData || parsedData.length === 0 || isSaving) return;
 
     setIsSaving(true);
@@ -1094,9 +1216,16 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     const fileName = uploadFile?.name || 'Master_Yarn_Allocation.xlsx';
     const isReplace = replaceEntireDataset;
 
-    // ========================================================
-    // STEP 1: LOAD THE BROWSER 1ST (INSTANT UI & LOCAL CACHE)
-    // ========================================================
+    // Initialize upload progress
+    setUploadProgress({
+      isUploading: true,
+      loaded: 0,
+      total: dataToSave.length,
+      percent: 0,
+      stage: isReplace ? 'Purging previous records from Supabase database...' : 'Connecting to Supabase...'
+    });
+
+    // 1. Instant local state update for snappy UI feedback
     if (isReplace) {
       setYarnAllocations(dataToSave);
       try {
@@ -1107,11 +1236,6 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     }
     setCurrentPage(1);
     GasClient.clearYarnCache();
-
-    // Update GlobalDataContext synchronously in memory & trigger Supabase purge/replace
-    globalBulkSaveYarnAllocations(dataToSave, isReplace).catch(err => {
-      console.warn("Global data context update notice:", err);
-    });
 
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-GB', {
@@ -1142,43 +1266,71 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
       localStorage.setItem('master_yarn_upload_info', JSON.stringify(newUploadInfo));
     } catch (e) {}
 
-    // Save immediately to persistent server DB cache (replaces the array if isReplace is true)
+    // Save metadata to persistent server DB cache
     GasClient.saveServerDb({ master_yarn_upload_info: newUploadInfo, yarnAllocations: dataToSave }).catch(err => console.warn("Server DB notice:", err));
 
-    // Close upload modal immediately so user can interact with the newly loaded records in the browser
-    setShowUploadModal(false);
-    setUploadFile(null);
-    setParsedData(null);
-    setUploadError(null);
-    setIsSaving(false);
-    setIsSyncingToSheet(true);
-    setUploadSuccessBanner(
-      isReplace
-        ? `Replaced entire dataset with ${dataToSave.length.toLocaleString()} records in Web Browser. Synchronizing Supabase database & Google Sheets in background...`
-        : `Loaded ${dataToSave.length.toLocaleString()} records in Browser. Synchronizing with data servers in background...`
-    );
-
-    // ========================================================
-    // STEP 2: UPLOAD DATA IN GOOGLE SHEET (BACKGROUND ASYNC)
-    // ========================================================
-    GasClient.saveYarnAllocations(dataToSave, isReplace)
-      .then(() => {
-        setIsSyncingToSheet(false);
-        setUploadSuccessBanner(
-          isReplace
-            ? `All Data Servers Synchronized: Previous dataset was completely deleted and replaced with ${dataToSave.length.toLocaleString()} records across Web, Supabase, and Google Sheets.`
-            : `Google Sheet Synchronized: Successfully uploaded ${dataToSave.length.toLocaleString()} records to Google Sheet.`
-        );
-      })
-      .catch((err) => {
-        setIsSyncingToSheet(false);
-        console.warn("Background Google Sheets sync notice:", err);
-        setUploadSuccessBanner(
-          isReplace
-            ? `Replaced entire dataset with ${dataToSave.length.toLocaleString()} records in Browser & Supabase (Google Sheet sync note: ${err.message || 'Saved locally'}).`
-            : `Loaded ${dataToSave.length.toLocaleString()} records in Browser. (Google Sheet sync note: ${err.message || 'Saved locally'}).`
-        );
+    try {
+      // 2. Primary Database Bulk Save: Supabase with real-time live progress updates
+      const res = await globalBulkSaveYarnAllocations(dataToSave, isReplace, (loaded, total, percent, stage) => {
+        setUploadProgress({
+          isUploading: true,
+          loaded,
+          total,
+          percent,
+          stage: stage || `Uploading ${loaded.toLocaleString()} / ${total.toLocaleString()} records to Supabase...`
+        });
       });
+
+      if (!res.success && res.message) {
+        setUploadError(res.message);
+        setIsSaving(false);
+        setUploadProgress(prev => ({ ...prev, isUploading: false }));
+        return;
+      }
+
+      setUploadProgress({
+        isUploading: true,
+        loaded: dataToSave.length,
+        total: dataToSave.length,
+        percent: 100,
+        stage: 'Upload complete! 100% saved to Supabase.'
+      });
+
+      // Brief delay to display 100% completion before closing modal
+      setTimeout(() => {
+        setShowUploadModal(false);
+        setUploadFile(null);
+        setParsedData(null);
+        setIsSaving(false);
+        setUploadProgress(prev => ({ ...prev, isUploading: false }));
+        setIsSyncingToSheet(true);
+        setUploadSuccessBanner(
+          isReplace
+            ? `Replaced entire dataset with ${dataToSave.length.toLocaleString()} records in Web Browser & Supabase database. Archiving to Google Sheets in background...`
+            : `Loaded ${dataToSave.length.toLocaleString()} records in Browser & Supabase. Archiving to Google Sheets in background...`
+        );
+
+        // 3. Background Cold Archive: Google Sheets
+        GasClient.saveYarnAllocations(dataToSave, isReplace)
+          .then(() => {
+            setIsSyncingToSheet(false);
+            setUploadSuccessBanner(
+              isReplace
+                ? `All Data Servers Synchronized: Previous dataset was completely deleted and replaced with ${dataToSave.length.toLocaleString()} records across Web, Supabase, and Google Sheets.`
+                : `Google Sheet Synchronized: Successfully uploaded ${dataToSave.length.toLocaleString()} records to Google Sheet.`
+            );
+          })
+          .catch((err) => {
+            setIsSyncingToSheet(false);
+            console.warn("Background Google Sheets sync notice:", err);
+          });
+      }, 700);
+
+    } catch (err: any) {
+      setUploadError(err.message || 'Error saving to Supabase');
+      setIsSaving(false);
+      setUploadProgress(prev => ({ ...prev, isUploading: false }));
+    }
   };
 
   return (
@@ -1202,12 +1354,24 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Optional manual sync button with progress */}
+          <button
+            onClick={() => fetchAllocationsFromSupabase(true)}
+            disabled={downloadProgress.isDownloading || isSaving}
+            className="flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 dark:border-indigo-800 dark:bg-indigo-950/50 px-3.5 py-2 text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-all cursor-pointer shadow-xs disabled:opacity-50"
+            title="Auto-loaded on startup & synced in real time. Click only if you wish to force a manual refresh from Supabase."
+          >
+            <RefreshCw className={`h-4 w-4 text-indigo-600 dark:text-indigo-400 ${downloadProgress.isDownloading ? 'animate-spin' : ''}`} />
+            <span>{downloadProgress.isDownloading ? 'Syncing...' : 'Sync from Cloud'}</span>
+          </button>
+
           <button
             onClick={handleExportYarnExcel}
-            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800 px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all cursor-pointer shadow-xs"
+            disabled={exportProgress.isExporting || filteredYarnAllocations.length === 0}
+            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800 px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all cursor-pointer shadow-xs disabled:opacity-50"
           >
-            <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-            <span>Export Excel</span>
+            <Download className={`h-4 w-4 text-emerald-600 dark:text-emerald-400 ${exportProgress.isExporting ? 'animate-bounce' : ''}`} />
+            <span>{exportProgress.isExporting ? 'Exporting...' : 'Export Excel'}</span>
           </button>
 
           <button
@@ -1224,6 +1388,108 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
           </button>
         </div>
       </div>
+
+      {/* DOWNLOAD PROGRESS BAR (SUPABASE DATASET DOWNLOAD) */}
+      {downloadProgress.isDownloading && (
+        <div className="rounded-2xl border border-indigo-200 dark:border-indigo-800 bg-gradient-to-r from-indigo-50/90 via-blue-50/70 to-indigo-50/90 dark:from-indigo-950/60 dark:via-slate-900 dark:to-indigo-950/60 p-4 shadow-sm animate-pulse-subtle">
+          <div className="flex items-center justify-between gap-4 mb-2">
+            <div className="flex items-center gap-2.5">
+              <div className="h-7 w-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              </div>
+              <div>
+                <span className="text-xs font-bold text-indigo-950 dark:text-indigo-200 block">
+                  Downloading Yarn Allocations from Supabase
+                </span>
+                <span className="text-[11px] text-indigo-600 dark:text-indigo-400 block font-medium">
+                  {downloadProgress.stage || 'Loading records via paginated streaming...'}
+                </span>
+              </div>
+            </div>
+            <div className="text-right">
+              <span className="text-sm font-black font-mono text-indigo-700 dark:text-indigo-300">
+                {downloadProgress.percent}%
+              </span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-mono">
+                {downloadProgress.loaded.toLocaleString()}{downloadProgress.total > 0 ? ` / ${downloadProgress.total.toLocaleString()}` : ''} rows
+              </span>
+            </div>
+          </div>
+          {/* Progress track */}
+          <div className="w-full bg-indigo-100 dark:bg-indigo-950/80 rounded-full h-2.5 overflow-hidden">
+            <div 
+              className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300 ease-out"
+              style={{ width: `${Math.min(100, Math.max(5, downloadProgress.percent))}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* UPLOAD PROGRESS BAR (SUPABASE MASTER UPLOAD) */}
+      {uploadProgress.isUploading && (
+        <div className="rounded-2xl border border-blue-200 dark:border-blue-800 bg-gradient-to-r from-blue-50/90 via-sky-50/70 to-blue-50/90 dark:from-blue-950/60 dark:via-slate-900 dark:to-blue-950/60 p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-4 mb-2">
+            <div className="flex items-center gap-2.5">
+              <div className="h-7 w-7 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0">
+                <UploadCloud className="h-4 w-4 animate-bounce" />
+              </div>
+              <div>
+                <span className="text-xs font-bold text-blue-950 dark:text-blue-200 block">
+                  Uploading Dataset to Supabase Database
+                </span>
+                <span className="text-[11px] text-blue-600 dark:text-blue-400 block font-medium">
+                  {uploadProgress.stage || 'Saving chunks...'}
+                </span>
+              </div>
+            </div>
+            <div className="text-right">
+              <span className="text-sm font-black font-mono text-blue-700 dark:text-blue-300">
+                {uploadProgress.percent}%
+              </span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-mono">
+                {uploadProgress.loaded.toLocaleString()} / {uploadProgress.total.toLocaleString()} rows
+              </span>
+            </div>
+          </div>
+          {/* Progress track */}
+          <div className="w-full bg-blue-100 dark:bg-blue-950/80 rounded-full h-2.5 overflow-hidden">
+            <div 
+              className="bg-blue-600 h-2.5 rounded-full transition-all duration-300 ease-out"
+              style={{ width: `${Math.min(100, Math.max(4, uploadProgress.percent))}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* EXPORT PROGRESS BAR (EXCEL FILE GENERATION) */}
+      {exportProgress.isExporting && (
+        <div className="rounded-2xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/80 dark:bg-emerald-950/50 p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-4 mb-2">
+            <div className="flex items-center gap-2.5">
+              <div className="h-7 w-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                <Download className="h-4 w-4 animate-pulse" />
+              </div>
+              <div>
+                <span className="text-xs font-bold text-emerald-950 dark:text-emerald-200 block">
+                  Exporting Excel Spreadsheet
+                </span>
+                <span className="text-[11px] text-emerald-600 dark:text-emerald-400 block font-medium">
+                  {exportProgress.message}
+                </span>
+              </div>
+            </div>
+            <span className="text-sm font-black font-mono text-emerald-700 dark:text-emerald-300">
+              {exportProgress.percent}%
+            </span>
+          </div>
+          <div className="w-full bg-emerald-100 dark:bg-emerald-950/80 rounded-full h-2.5 overflow-hidden">
+            <div 
+              className="bg-emerald-600 h-2.5 rounded-full transition-all duration-200 ease-out"
+              style={{ width: `${exportProgress.percent}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* YARN ALLOCATION UPDATE STATUS BANNER */}
       <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs">
@@ -1257,14 +1523,10 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
                   <span className="text-slate-400 font-medium">User Name:</span>{' '}
                   <span className="font-black text-blue-600 dark:text-sky-400">{userName}</span>
                 </span>
-                {uploadInfo.totalRecords ? (
-                  <>
-                    <span className="text-slate-300 dark:text-slate-700">•</span>
-                    <span className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-md font-bold">
-                      {uploadInfo.totalRecords} Records
-                    </span>
-                  </>
-                ) : null}
+                <span className="text-slate-300 dark:text-slate-700">•</span>
+                <span className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-md font-bold">
+                  {yarnAllocations.length > 0 ? `${yarnAllocations.length.toLocaleString()} Records` : (uploadInfo.totalRecords ? `${uploadInfo.totalRecords.toLocaleString()} Records` : '0 Records')}
+                </span>
               </div>
             </div>
           </div>
@@ -1949,6 +2211,31 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
                   </div>
                 </div>
               </div>
+
+              {/* Live Upload Progress Bar inside Modal */}
+              {(uploadProgress.isUploading || isSaving) && (
+                <div className="rounded-xl bg-blue-50/80 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 p-3.5 space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                      <UploadCloud className="h-4 w-4 text-blue-600 animate-bounce" />
+                      <span>{uploadProgress.stage || 'Uploading dataset to Supabase...'}</span>
+                    </span>
+                    <span className="font-mono font-black text-blue-700 dark:text-blue-300">
+                      {uploadProgress.percent}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-blue-200/70 dark:bg-blue-900/60 rounded-full h-2 overflow-hidden">
+                    <div 
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-300 ease-out"
+                      style={{ width: `${Math.min(100, Math.max(5, uploadProgress.percent))}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                    <span>{uploadProgress.loaded.toLocaleString()} / {uploadProgress.total.toLocaleString()} rows</span>
+                    <span>{replaceEntireDataset ? 'Replacing entire database table' : 'Appending to database'}</span>
+                  </div>
+                </div>
+              )}
 
               {/* Actions */}
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">

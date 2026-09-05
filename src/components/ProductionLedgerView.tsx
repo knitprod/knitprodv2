@@ -1319,7 +1319,11 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   };
 
   // Handler for Excel bulk import
-  const handleImportExcelComplete = async (importedRecords: LedgerRecord[], mode: 'append' | 'replace') => {
+  const handleImportExcelComplete = async (
+    importedRecords: LedgerRecord[], 
+    mode: 'append' | 'replace',
+    onProgress?: (loaded: number, total: number, percent: number) => void
+  ) => {
     try {
       let combined: LedgerRecord[] = [];
       if (mode === 'replace') {
@@ -1339,15 +1343,19 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
       }
 
       setLedger(combined);
-      globalBulkSaveLedgerRecords(combined, mode === 'replace').catch(() => {});
+      
+      // Bulk save to Supabase primary database with live progress callback
+      await globalBulkSaveLedgerRecords(combined, mode === 'replace', (loaded, total, percent) => {
+        onProgress?.(loaded, total, percent);
+      });
 
       // 1. Save to Server DB cache so refresh never loses data
       await GasClient.saveServerDb({ ledger: combined });
 
       // 2. Batch sync with Google Sheets (GAS)
-      await GasClient.saveLedgerRecords(combined, mode === 'replace');
+      GasClient.saveLedgerRecords(combined, mode === 'replace').catch(() => {});
 
-      triggerToast(`Successfully imported and synchronized ${importedRecords.length} production record(s) via Excel to Google Sheets & Database.`);
+      triggerToast(`Successfully imported and synchronized ${importedRecords.length} production record(s) via Excel to Supabase & Data Servers.`);
     } catch (err: any) {
       console.error('Error processing Excel import:', err);
       triggerToast(`Import notice: ${err.message || 'Records imported with partial sync'}`);
