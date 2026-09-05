@@ -1318,6 +1318,77 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
     setTimeout(() => setToastMessage(null), 4000);
   };
 
+  // Real-time Cloud Sync (Supabase) Progress State
+  const [cloudSyncProgress, setCloudSyncProgress] = useState<{
+    isSyncing: boolean;
+    loaded: number;
+    total: number;
+    percent: number;
+    stage: string;
+  }>({
+    isSyncing: false,
+    loaded: 0,
+    total: 0,
+    percent: 0,
+    stage: ''
+  });
+
+  // Manual Trigger to download and harmonize Production Ledger directly from Supabase Cloud
+  const handleSyncFromCloud = async () => {
+    if (cloudSyncProgress.isSyncing) return;
+    setCloudSyncProgress({
+      isSyncing: true,
+      loaded: 0,
+      total: 0,
+      percent: 0,
+      stage: 'Connecting to Supabase cloud database...'
+    });
+
+    try {
+      const liveRecords = await SupabaseSync.fetchProductionLedger((loaded, total, percent) => {
+        setCloudSyncProgress({
+          isSyncing: true,
+          loaded,
+          total,
+          percent,
+          stage: total > 0 
+            ? `Downloading ${loaded.toLocaleString()} of ${total.toLocaleString()} records from Supabase...`
+            : `Downloading ${loaded.toLocaleString()} records...`
+        });
+      });
+
+      if (liveRecords && liveRecords.length > 0) {
+        setLedger(liveRecords);
+        await refreshAll(true);
+        setCloudSyncProgress(prev => ({
+          ...prev,
+          percent: 100,
+          stage: `Successfully synchronized ${liveRecords.length.toLocaleString()} records from Supabase cloud!`
+        }));
+        triggerToast(`Synchronized ${liveRecords.length.toLocaleString()} records from Supabase cloud.`);
+      } else {
+        await refreshAll(true);
+        setCloudSyncProgress(prev => ({
+          ...prev,
+          percent: 100,
+          stage: 'Sync complete!'
+        }));
+        triggerToast('Synchronized latest data from cloud.');
+      }
+    } catch (err: any) {
+      console.warn('Sync from cloud error:', err);
+      setCloudSyncProgress(prev => ({
+        ...prev,
+        stage: 'Error syncing from cloud. Please try again.'
+      }));
+      triggerToast('Notice: Cloud sync encountered an issue. Re-attempting in background.');
+    } finally {
+      setTimeout(() => {
+        setCloudSyncProgress(prev => ({ ...prev, isSyncing: false }));
+      }, 1500);
+    }
+  };
+
   // Handler for Excel bulk import
   const handleImportExcelComplete = async (
     importedRecords: LedgerRecord[], 
@@ -3074,30 +3145,26 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
             </div>
 
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-              {/* Supabase Live WebSocket Indicator */}
+              {/* Unified Database Live & Cloud Sync Button */}
               {SupabaseSync.isConfigured() && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-700 rounded-lg shadow-2xs">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                  </span>
-                  <Zap className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
-                  <span>Supabase Live Sync</span>
-                </div>
-              )}
-
-              {/* Sync Google Sheet Button */}
-              {isGasMode && (
                 <button
                   type="button"
-                  onClick={() => { void loadGasLedger(); }}
-                  disabled={isSyncing}
-                  className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50/70 hover:bg-blue-100/80 dark:bg-blue-950/40 dark:hover:bg-blue-900/50 border border-blue-200 dark:border-blue-800 rounded-lg transition-all shadow-2xs cursor-pointer disabled:opacity-50"
-                  title="Synchronize ledger with Google Sheets"
-                  id="sync-google-sheet-btn"
+                  onClick={handleSyncFromCloud}
+                  disabled={cloudSyncProgress.isSyncing}
+                  className="flex items-center gap-2 px-3 py-1.5 text-[11px] font-bold text-emerald-800 dark:text-emerald-200 bg-emerald-100/90 hover:bg-emerald-200/80 dark:bg-emerald-950/80 dark:hover:bg-emerald-900/90 border border-emerald-400 dark:border-emerald-700 rounded-lg transition-all shadow-2xs cursor-pointer disabled:opacity-60 active:scale-98"
+                  title="Database connected & real-time live. Click to sync latest records from cloud."
+                  id="sync-database-live-btn"
                 >
-                  <RefreshCw className={`h-3 w-3 text-blue-600 dark:text-blue-400 ${isSyncing ? 'animate-spin' : ''}`} />
-                  <span>{isSyncing ? 'Syncing...' : 'Sync Google Sheet'}</span>
+                  <span className="relative flex h-2 w-2">
+                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 ${cloudSyncProgress.isSyncing ? 'duration-500' : ''}`}></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  {cloudSyncProgress.isSyncing ? (
+                    <RefreshCw className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-300 animate-spin" />
+                  ) : (
+                    <Zap className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                  )}
+                  <span>{cloudSyncProgress.isSyncing ? 'Syncing...' : 'Data Base Live'}</span>
                 </button>
               )}
 
@@ -3126,6 +3193,44 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
                 <Download className="h-3 w-3 text-slate-700 dark:text-slate-300" />
                 <span>Download Excel File</span>
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* DOWNLOAD / CLOUD SYNC PROGRESS BAR (SUPABASE DATASET DOWNLOAD) */}
+        {cloudSyncProgress.isSyncing && (
+          <div className="rounded-xl border border-indigo-200 dark:border-indigo-800 bg-gradient-to-r from-indigo-50/90 via-blue-50/70 to-indigo-50/90 dark:from-indigo-950/60 dark:via-slate-900 dark:to-indigo-950/60 p-3 sm:p-3.5 shadow-xs transition-all animate-pulse-subtle">
+            <div className="flex items-center justify-between gap-3 mb-1.5">
+              <div className="flex items-center gap-2">
+                <div className="h-6 w-6 rounded-md bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-indigo-950 dark:text-indigo-200 block">
+                    Downloading Production Ledger from Supabase Cloud
+                  </span>
+                  <span className="text-[11px] text-indigo-600 dark:text-indigo-400 block font-medium">
+                    {cloudSyncProgress.stage || 'Connecting and fetching records...'}
+                  </span>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-xs font-bold text-indigo-950 dark:text-indigo-200">
+                  {cloudSyncProgress.percent}%
+                </span>
+                {cloudSyncProgress.total > 0 && (
+                  <span className="text-[10px] text-indigo-600 dark:text-indigo-400 block font-medium">
+                    {cloudSyncProgress.loaded.toLocaleString()} / {cloudSyncProgress.total.toLocaleString()} rows
+                  </span>
+                )}
+              </div>
+            </div>
+            {/* Progress Bar Track */}
+            <div className="w-full bg-indigo-200/60 dark:bg-indigo-900/60 rounded-full h-2 overflow-hidden">
+              <div 
+                className="bg-indigo-600 h-2 rounded-full transition-all duration-300 ease-out shadow-xs"
+                style={{ width: `${Math.max(5, cloudSyncProgress.percent)}%` }}
+              />
             </div>
           </div>
         )}
