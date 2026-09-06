@@ -231,17 +231,30 @@ export default function App() {
       try {
         let targetUid: string | null = null;
 
-        // 1. Check stored session UID from sessionStorage / localStorage
+        // 1. Check active session UID strictly from sessionStorage (tab session lifecycle)
         let clientSessionUid: string | null = null;
         try {
-          clientSessionUid = sessionStorage.getItem('ekl_session_uid') || localStorage.getItem('ekl_session_uid');
+          localStorage.removeItem('ekl_session_uid');
+          localStorage.removeItem('active_current_page');
+          clientSessionUid = sessionStorage.getItem('ekl_session_uid');
         } catch (e) {}
 
-        // 2. Check secure server session (passing x-session-uid if present)
+        // If clientSessionUid is missing (e.g. browser was closed and re-opened),
+        // do not restore session — prompt for User ID / Password immediately.
+        if (!clientSessionUid || !clientSessionUid.trim()) {
+          if (isMounted) {
+            setCurrentUser(null);
+            GasClient.setActiveUser(null);
+            setAuthLoading(false);
+          }
+          return;
+        }
+
+        // 2. Check secure server session (passing active tab's x-session-uid)
         try {
           const res = await fetch('/api/auth/session', { 
             credentials: 'same-origin',
-            headers: clientSessionUid ? { 'x-session-uid': clientSessionUid.trim().toUpperCase() } : {}
+            headers: { 'x-session-uid': clientSessionUid.trim().toUpperCase() }
           });
           if (res.ok) {
             const data = await res.json();
@@ -405,8 +418,8 @@ export default function App() {
         const fromHash = getPageFromHash(window.location.hash);
         if (fromHash) return fromHash;
       }
-      // 2. Check sessionStorage or localStorage
-      const savedPage = sessionStorage.getItem('active_current_page') || localStorage.getItem('active_current_page');
+      // 2. Check sessionStorage
+      const savedPage = sessionStorage.getItem('active_current_page');
       if (savedPage) return savedPage;
     } catch (e) {}
     return 'Dashboard';
@@ -417,7 +430,7 @@ export default function App() {
     try {
       if (currentPage) {
         sessionStorage.setItem('active_current_page', currentPage);
-        localStorage.setItem('active_current_page', currentPage);
+        localStorage.removeItem('active_current_page');
 
         const targetHash = PAGE_TO_HASH[currentPage] || currentPage.toLowerCase().replace(/\s+/g, '-');
         if (typeof window !== 'undefined' && window.location.hash !== `#${targetHash}`) {
@@ -1093,10 +1106,9 @@ export default function App() {
           try {
             const cleanUid = safeUser.uid.trim().toUpperCase();
             sessionStorage.setItem('ekl_session_uid', cleanUid);
-            localStorage.setItem('ekl_session_uid', cleanUid);
+            localStorage.removeItem('ekl_session_uid');
             const saved = (typeof window !== 'undefined' && getPageFromHash(window.location.hash)) ||
-              sessionStorage.getItem('active_current_page') || 
-              localStorage.getItem('active_current_page');
+              sessionStorage.getItem('active_current_page');
             if (saved) {
               setCurrentPage(saved);
             }

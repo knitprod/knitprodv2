@@ -486,16 +486,15 @@ function parseCookies(cookieHeader?: string): Record<string, string> {
   return list;
 }
 
-// GET auth session state via HTTP-only cookie or x-session-uid header
+// GET auth session state via active tab x-session-uid header
 app.get('/api/auth/session', (req, res) => {
-  const cookies = parseCookies(req.headers.cookie);
   const headerUid = req.headers['x-session-uid'];
-  const sessionUid = (typeof headerUid === 'string' && headerUid.trim())
-    ? headerUid.trim()
-    : cookies['ekl_auth_session'];
-
-  if (sessionUid && sessionUid.trim()) {
-    res.json({ authenticated: true, uid: sessionUid.trim().toUpperCase() });
+  
+  // A valid session requires an active tab session identifier (from sessionStorage).
+  // When the browser is closed and re-opened, sessionStorage is cleared, ensuring
+  // the user is prompted for credentials.
+  if (typeof headerUid === 'string' && headerUid.trim()) {
+    res.json({ authenticated: true, uid: headerUid.trim().toUpperCase() });
   } else {
     res.json({ authenticated: false, uid: null });
   }
@@ -511,9 +510,10 @@ app.post('/api/auth/session', (req, res) => {
 
   if (rawUid && rawUid.trim()) {
     const cleanUid = rawUid.trim().toUpperCase();
+    // Do NOT specify Max-Age so this is an ephemeral Session Cookie (purged on browser close)
     res.setHeader(
       'Set-Cookie',
-      `ekl_auth_session=${encodeURIComponent(cleanUid)}; Path=/; HttpOnly; SameSite=None; Secure; Partitioned; Max-Age=2592000`
+      `ekl_auth_session=${encodeURIComponent(cleanUid)}; Path=/; HttpOnly; SameSite=None; Secure; Partitioned`
     );
     res.json({ success: true, uid: cleanUid });
   } else {

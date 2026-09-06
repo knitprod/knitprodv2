@@ -17,6 +17,9 @@ if (typeof window !== 'undefined') {
     localStorage.removeItem('supabase_anon_key');
     sessionStorage.removeItem('supabase_url');
     sessionStorage.removeItem('supabase_anon_key');
+    // Ensure credentials and session tokens are NEVER stored in persistent localStorage
+    localStorage.removeItem('ekl_session_uid');
+    localStorage.removeItem('active_current_page');
   } catch (e) {
     // Ignore storage access restrictions if any
   }
