@@ -50,6 +50,7 @@ import AdminPanelView from './components/AdminPanelView';
 import ProductionLedgerView from './components/ProductionLedgerView';
 import PlanOrderFollowupView from './components/PlanOrderFollowupView';
 import YarnAllocationView from './components/YarnAllocationView';
+import KnittingStatusView from './components/KnittingStatusView';
 import DashboardFilterToolbar, { FilterState } from './components/DashboardFilterToolbar';
 import DashboardUnitwiseCards from './components/DashboardUnitwiseCards';
 import DashboardQualityLossCards from './components/DashboardQualityLossCards';
@@ -178,6 +179,7 @@ export const PAGE_TO_HASH: Record<string, string> = {
   'Buyer Plan vs Actual': 'buyer-plan-actual',
   'Yarn Allocation': 'yarn-allocation',
   'Delivery Schedule': 'delivery-schedule',
+  'Knitting Status': 'knitting-status',
   'Admin Panel': 'admin-panel',
   'User Management': 'user-management',
   'Database Connection': 'database-connection',
@@ -203,8 +205,8 @@ export const isPageAllowedForUser = (user: UserRecord | null, tabName: string) =
   if (user.allowedTabs && user.allowedTabs.length > 0) {
     if (user.allowedTabs.includes(tabName)) return true;
     if (
-      ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Buyer Plan vs Actual', 'Delivery Schedule', 'Order Plan & Status', 'Plan Order Followup'].includes(tabName) &&
-      (user.allowedTabs.includes('Plan Order Followup') || user.allowedTabs.includes('Order Plan & Status'))
+      ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Buyer Plan vs Actual', 'Delivery Schedule', 'Knitting Status', 'Order Plan & Status', 'Plan Order Followup'].includes(tabName) &&
+      (user.allowedTabs.includes('Plan Order Followup') || user.allowedTabs.includes('Order Plan & Status') || user.allowedTabs.includes('Knitting Status'))
     ) {
       return true;
     }
@@ -230,6 +232,38 @@ export default function App() {
     const restoreSession = async () => {
       try {
         let targetUid: string | null = null;
+
+        // Check whether this window startup is an in-tab page reload (refresh)
+        // or a new navigation / browser reopen.
+        // On browser reopen or new window navigation, prompt for User ID and Password immediately.
+        const isPageReload = (() => {
+          try {
+            const navEntries = performance.getEntriesByType('navigation');
+            if (navEntries && navEntries.length > 0) {
+              return (navEntries[0] as PerformanceNavigationTiming).type === 'reload';
+            }
+            return (performance as any)?.navigation?.type === 1;
+          } catch (e) {
+            return false;
+          }
+        })();
+
+        // If browser was closed and reopened (not an in-tab reload), purge session and prompt for credentials immediately
+        if (!isPageReload) {
+          try {
+            sessionStorage.removeItem('ekl_session_uid');
+            sessionStorage.removeItem('active_current_page');
+            localStorage.removeItem('ekl_session_uid');
+            localStorage.removeItem('active_current_page');
+          } catch (e) {}
+          fetch('/api/auth/session', { method: 'DELETE' }).catch(() => {});
+          if (isMounted) {
+            setCurrentUser(null);
+            GasClient.setActiveUser(null);
+            setAuthLoading(false);
+          }
+          return;
+        }
 
         // 1. Check active session UID strictly from sessionStorage (tab session lifecycle)
         let clientSessionUid: string | null = null;
@@ -1096,6 +1130,7 @@ export default function App() {
     return (
       <PreLoginWelcomePage 
         inactivityNotice={inactivityNotice}
+        defaultShowLoginForm={true}
         onLoginSuccess={(user) => {
           // Strip plain password before storing session in memory for enterprise security
           const safeUser = { ...user };
@@ -1328,6 +1363,7 @@ export default function App() {
                               { name: 'Buyer Plan vs Actual', icon: Target, label: 'Buyer Plan vs Actual' },
                               { name: 'Yarn Allocation', icon: Layers, label: 'Yarn Allocation' },
                               { name: 'Delivery Schedule', icon: CalendarCheck, label: 'Delivery Schedule' },
+                              { name: 'Knitting Status', icon: Layers, label: 'Knitting Status' },
                             ].map((sub) => {
                               if (!isTabAllowed(sub.name)) return null;
                               const Icon = sub.icon;
@@ -1551,6 +1587,12 @@ export default function App() {
             {currentPage === 'Yarn Allocation' && (
               <div className="animate-fade-in">
                 <YarnAllocationView currentUser={currentUser} />
+              </div>
+            )}
+
+            {currentPage === 'Knitting Status' && (
+              <div className="animate-fade-in">
+                <KnittingStatusView currentUser={currentUser} />
               </div>
             )}
 

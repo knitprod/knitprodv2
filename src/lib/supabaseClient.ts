@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { UserRecord, LedgerRecord, YarnAllocationRecord } from '../types';
+import { UserRecord, LedgerRecord, YarnAllocationRecord, OrderPlan, KnittingStatusOrder } from '../types';
 
 /**
  * Supabase Client & Sync Manager for Epyllion Knitex ERP
@@ -1507,6 +1507,641 @@ export class SupabaseSync {
     }
   }
 
+  // ==========================================
+  // 7. ORDER PLANS & STATUS (PLAN ORDER FOLLOWUP)
+  // ==========================================
+
+  /**
+   * Converts a Supabase PostgreSQL row into an app OrderPlan
+   */
+  static mapRowToOrderPlan(row: any): OrderPlan {
+    const raw = row.raw_data || {};
+    return {
+      id: String(row.id || raw.id || row.ewo || raw.ewo || ''),
+      planMonth: row.plan_month || raw.planMonth || '',
+      planType: row.plan_type || raw.planType || '',
+      ewo: row.ewo || raw.ewo || '',
+      buyer: row.buyer || raw.buyer || '',
+      color: row.color || raw.color || '',
+      knitStart: row.knit_start || raw.knitStart || '',
+      knitEnd: row.knit_end || raw.knitEnd || '',
+      target: parseFloat(String(row.target ?? raw.target ?? 0)) || 0,
+      targetNextMonth: parseFloat(String(row.target_next_month ?? raw.targetNextMonth ?? 0)) || 0,
+      allocationStart: row.allocation_start || raw.allocationStart || '',
+      allocationEnd: row.allocation_end || raw.allocationEnd || '',
+      allocatedQty: parseFloat(String(row.allocated_qty ?? raw.allocatedQty ?? 0)) || 0,
+      allocatedBal: parseFloat(String(row.allocated_bal ?? raw.allocatedBal ?? 0)) || 0,
+      greyReq: parseFloat(String(row.grey_req ?? raw.greyReq ?? 0)) || 0,
+      knitPro: parseFloat(String(row.knit_pro ?? raw.knitPro ?? 0)) || 0,
+      knitBal: parseFloat(String(row.knit_bal ?? raw.knitBal ?? 0)) || 0,
+      aKnitStart: row.a_knit_start || raw.aKnitStart || '',
+      lastProductionDate: row.last_production_date || raw.lastProductionDate || '',
+      avgProdDay: parseFloat(String(row.avg_prod_day ?? raw.avgProdDay ?? 0)) || 0,
+      expectedKnitEnd: row.expected_knit_end || raw.expectedKnitEnd || '',
+      knitStartOtd: (row.knit_start_otd || raw.knitStartOtd || 'Pending') as any,
+      knitEndOtd: (row.knit_end_otd || raw.knitEndOtd || 'Pending') as any,
+      knitStartRemarks: row.knit_start_remarks || raw.knitStartRemarks || '',
+      knitEndRemarks: row.knit_end_remarks || raw.knitEndRemarks || '',
+      knitTeamLeaders: row.knit_team_leaders || raw.knitTeamLeaders || '',
+      updatedBy: row.updated_by || raw.updatedBy || '',
+      createdAt: row.created_at || raw.createdAt,
+      updatedAt: row.updated_at || raw.updatedAt
+    };
+  }
+
+  /**
+   * Converts an app OrderPlan into a Supabase PostgreSQL row
+   */
+  static mapOrderPlanToRow(item: OrderPlan): Record<string, any> {
+    const rawId = String(item.id || item.ewo || `ord-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`);
+    return {
+      id: rawId,
+      plan_month: String(item.planMonth || ''),
+      plan_type: String(item.planType || ''),
+      ewo: String(item.ewo || ''),
+      buyer: String(item.buyer || ''),
+      color: String(item.color || ''),
+      knit_start: String(item.knitStart || ''),
+      knit_end: String(item.knitEnd || ''),
+      target: parseFloat(String(item.target || 0)) || 0,
+      target_next_month: parseFloat(String(item.targetNextMonth || 0)) || 0,
+      allocation_start: String(item.allocationStart || ''),
+      allocation_end: String(item.allocationEnd || ''),
+      allocated_qty: parseFloat(String(item.allocatedQty || 0)) || 0,
+      allocated_bal: parseFloat(String(item.allocatedBal || 0)) || 0,
+      grey_req: parseFloat(String(item.greyReq || 0)) || 0,
+      knit_pro: parseFloat(String(item.knitPro || 0)) || 0,
+      knit_bal: parseFloat(String(item.knitBal || 0)) || 0,
+      a_knit_start: String(item.aKnitStart || ''),
+      last_production_date: String(item.lastProductionDate || ''),
+      avg_prod_day: parseFloat(String(item.avgProdDay || 0)) || 0,
+      expected_knit_end: String(item.expectedKnitEnd || ''),
+      knit_start_otd: String(item.knitStartOtd || 'Pending'),
+      knit_end_otd: String(item.knitEndOtd || 'Pending'),
+      knit_start_remarks: String(item.knitStartRemarks || ''),
+      knit_end_remarks: String(item.knitEndRemarks || ''),
+      knit_team_leaders: String(item.knitTeamLeaders || ''),
+      updated_by: String(item.updatedBy || ''),
+      raw_data: item,
+      updated_at: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Fetch all Order Plans from Supabase (paginated beyond 1,000-row PostgREST limit)
+   */
+  static async fetchOrderPlans(
+    onProgress?: (loaded: number, total: number, percentage: number) => void
+  ): Promise<OrderPlan[]> {
+    const client = this.getClient();
+    if (!client) return [];
+
+    try {
+      let totalCount = 0;
+      try {
+        const { count, error: countErr } = await client
+          .from('order_plans')
+          .select('*', { count: 'exact', head: true });
+        if (!countErr && typeof count === 'number') {
+          totalCount = count;
+        }
+      } catch (cntErr) {
+        console.warn('Supabase order_plans count query notice:', cntErr);
+      }
+
+      if (totalCount > 0 && onProgress) {
+        onProgress(0, totalCount, 0);
+      }
+
+      const allRows: any[] = [];
+      const BATCH_SIZE = 1000;
+      let from = 0;
+
+      while (true) {
+        const to = from + BATCH_SIZE - 1;
+        const { data, error } = await client
+          .from('order_plans')
+          .select('*')
+          .order('id', { ascending: false })
+          .range(from, to);
+
+        if (error) {
+          if (error.code === 'PGRST205' || error.code === '42P01' || error.message?.includes('does not exist') || error.message?.includes('schema cache')) {
+            // Table does not exist yet; graceful fallback
+            return [];
+          } else {
+            console.warn('Supabase fetchOrderPlans notice:', error.message);
+          }
+          break;
+        }
+
+        if (!data || !Array.isArray(data) || data.length === 0) {
+          break;
+        }
+
+        allRows.push(...data);
+        const currentTotal = totalCount > 0 ? totalCount : Math.max(allRows.length, allRows.length + (data.length === BATCH_SIZE ? BATCH_SIZE : 0));
+        const pct = currentTotal > 0 ? Math.min(100, Math.round((allRows.length / currentTotal) * 100)) : 100;
+        if (onProgress) {
+          onProgress(allRows.length, currentTotal, pct);
+        }
+
+        if (data.length < BATCH_SIZE || (totalCount > 0 && allRows.length >= totalCount)) {
+          break;
+        }
+
+        from += BATCH_SIZE;
+      }
+
+      if (onProgress && allRows.length > 0) {
+        onProgress(allRows.length, allRows.length, 100);
+      }
+
+      return allRows.map(row => this.mapRowToOrderPlan(row));
+    } catch (err) {
+      console.warn('Supabase fetchOrderPlans exception:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Save or update a single order plan record in Supabase
+   */
+  static async saveOrderPlan(item: OrderPlan): Promise<{ success: boolean; error?: string }> {
+    const client = this.getClient();
+    if (!client) return { success: false, error: 'Supabase client is not initialized or credentials missing.' };
+
+    try {
+      let row = this.sanitizeRowForSupabase(this.mapOrderPlanToRow(item));
+      let attempts = 0;
+      while (attempts < 6) {
+        attempts++;
+        const { error } = await client.from('order_plans').upsert(row, { onConflict: 'id' });
+        if (!error) {
+          return { success: true };
+        }
+
+        if (error.code === 'PGRST205' || error.code === '42P01' || error.message?.includes('schema cache') || error.message?.includes('does not exist')) {
+          return {
+            success: false,
+            error: "Table 'public.order_plans' does not exist in Supabase yet. Please run the Order Plans SQL script in your Supabase SQL Editor."
+          };
+        }
+
+        const match = error.message?.match(/Could not find the '([^']+)' column/) ||
+                      error.message?.match(/column "([^"]+)" of relation/) ||
+                      error.message?.match(/column '([^']+)' does not exist/);
+
+        if (match && match[1]) {
+          const missingCol = match[1];
+          this.knownMissingColumns.add(missingCol);
+          delete row[missingCol];
+          continue;
+        }
+
+        return { success: false, error: error.message };
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      console.warn('Supabase saveOrderPlan exception:', err.message || String(err));
+      return { success: false, error: err.message || String(err) };
+    }
+  }
+
+  /**
+   * Purge all order plans from Supabase (used during full replace sync)
+   */
+  static async deleteAllOrderPlans(): Promise<boolean> {
+    const client = this.getClient();
+    if (!client) return false;
+    try {
+      const { error } = await client
+        .from('order_plans')
+        .delete()
+        .neq('id', '___PURGE_ALL_PREVIOUS_RECORDS___');
+      if (error && error.code !== 'PGRST205' && error.code !== '42P01') {
+        console.warn('Supabase deleteAllOrderPlans notice:', error.message);
+      }
+      return !error;
+    } catch (err) {
+      console.warn('Supabase deleteAllOrderPlans error:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Bulk save/upsert an array of Order Plans into Supabase.
+   * If replace = true, purges previous rows before inserting.
+   */
+  static async bulkSaveOrderPlans(
+    items: OrderPlan[],
+    replace: boolean = false,
+    onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void
+  ): Promise<{ success: boolean; count: number; error?: string }> {
+    const client = this.getClient();
+    if (!client) {
+      return { success: false, count: 0, error: 'Supabase client is not initialized. Please verify your Project URL and Anon Key in Database Settings.' };
+    }
+
+    try {
+      if (onProgress) {
+        onProgress(0, items?.length || 0, 0, replace ? 'Purging previous order plans from Supabase...' : 'Preparing order plans upload...');
+      }
+
+      if (replace) {
+        try {
+          const { error: delError } = await client
+            .from('order_plans')
+            .delete()
+            .neq('id', '___PURGE_ALL_PREVIOUS_RECORDS___');
+          if (delError && delError.code !== 'PGRST205' && delError.code !== '42P01') {
+            console.warn('Supabase purge order_plans notice:', delError.message);
+          }
+        } catch (delErr: any) {
+          console.warn('Supabase purge order_plans exception:', delErr);
+        }
+      }
+
+      if (!items || items.length === 0) {
+        return { success: true, count: 0 };
+      }
+
+      const rows = items.map(o => this.mapOrderPlanToRow(o));
+      const chunkSize = 200;
+      let insertedCount = 0;
+
+      for (let i = 0; i < rows.length; i += chunkSize) {
+        let chunk = rows.slice(i, i + chunkSize).map(r => this.sanitizeRowForSupabase(r));
+        let chunkSuccess = false;
+        let attempts = 0;
+
+        while (!chunkSuccess && attempts < 8) {
+          attempts++;
+          const { error } = await client.from('order_plans').upsert(chunk, { onConflict: 'id' });
+          if (!error) {
+            chunkSuccess = true;
+            insertedCount += chunk.length;
+            const pct = Math.min(100, Math.round((insertedCount / rows.length) * 100));
+            if (onProgress) {
+              onProgress(insertedCount, rows.length, pct, `Uploading ${insertedCount.toLocaleString()} / ${rows.length.toLocaleString()} orders to Supabase...`);
+            }
+            break;
+          }
+
+          if (error.code === 'PGRST205' || error.code === '42P01' || error.message?.includes('schema cache') || error.message?.includes('does not exist')) {
+            return {
+              success: false,
+              count: insertedCount,
+              error: "Table 'public.order_plans' was not found in your Supabase database schema cache. Please copy and run the Plan Order Followup SQL script in your Supabase SQL Editor first."
+            };
+          }
+
+          const match = error.message?.match(/Could not find the '([^']+)' column/) ||
+                        error.message?.match(/column "([^"]+)" of relation/) ||
+                        error.message?.match(/column '([^']+)' does not exist/);
+
+          if (match && match[1]) {
+            const missingCol = match[1];
+            this.knownMissingColumns.add(missingCol);
+            chunk = chunk.map(r => {
+              const cp = { ...r };
+              delete cp[missingCol];
+              return cp;
+            });
+            continue;
+          }
+
+          console.warn(`Supabase bulkSaveOrderPlans chunk ${i} notice:`, error.message);
+          return {
+            success: false,
+            count: insertedCount,
+            error: `Failed to insert orders chunk at row ${i}: ${error.message} (${error.code || ''})`
+          };
+        }
+      }
+
+      if (onProgress) {
+        onProgress(rows.length, rows.length, 100, 'Order Plans upload complete!');
+      }
+
+      return { success: true, count: insertedCount };
+    } catch (err: any) {
+      console.warn('Supabase bulkSaveOrderPlans notice:', err.message || String(err));
+      return { success: false, count: 0, error: err.message || String(err) };
+    }
+  }
+
+  /**
+   * Delete an order plan from Supabase
+   */
+  static async deleteOrderPlan(id: string): Promise<boolean> {
+    const client = this.getClient();
+    if (!client) return false;
+
+    try {
+      const { error } = await client.from('order_plans').delete().or(`id.eq.${id},ewo.eq.${id}`);
+      return !error;
+    } catch (err) {
+      console.warn('Supabase deleteOrderPlan error:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Real-time Multi-Device WebSocket Subscription for Order Plans
+   */
+  static subscribeToOrderPlans(
+    onRecordChange: (change: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: OrderPlan; id: string }) => void
+  ): () => void {
+    const client = this.getClient();
+    if (!client) return () => {};
+
+    try {
+      const channel = client
+        .channel('realtime:order_plans')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'order_plans' },
+          (payload: any) => {
+            const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE';
+            const row = payload.new || payload.old;
+            if (row) {
+              const record = SupabaseSync.mapRowToOrderPlan(row);
+              onRecordChange({
+                eventType,
+                record,
+                id: String(row.id || (payload.old && payload.old.id) || '')
+              });
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        try {
+          client.removeChannel(channel);
+        } catch {}
+      };
+    } catch (err) {
+      console.warn('Supabase subscribeToOrderPlans error:', err);
+      return () => {};
+    }
+  }
+
+  // ==========================================
+  // 8. KNITTING ORDERS & FABRICS (LAYERED STATUS)
+  // ==========================================
+
+  static mapRowToKnittingOrder(row: any): KnittingStatusOrder {
+    const raw = row.raw_data || {};
+    return {
+      id: String(row.id || raw.id || row.order_no || raw.orderNo || ''),
+      orderNo: row.order_no || raw.orderNo || '',
+      buyerName: row.buyer_name || raw.buyerName || '',
+      teamLeader: row.team_leader || raw.teamLeader || '',
+      knitStartDate: row.knit_start_date || raw.knitStartDate || '',
+      knitEndDate: row.knit_end_date || raw.knitEndDate || '',
+      reqQty: parseFloat(String(row.req_qty ?? raw.reqQty ?? 0)) || 0,
+      greyQty: parseFloat(String(row.grey_qty ?? raw.greyQty ?? 0)) || 0,
+      production: parseFloat(String(row.production ?? raw.production ?? 0)) || 0,
+      knitBalance: parseFloat(String(row.knit_balance ?? raw.knitBalance ?? 0)) || 0,
+      items: Array.isArray(row.items) ? row.items : (raw.items || []),
+      remarks: row.remarks || raw.remarks || '',
+      createdAt: row.created_at || raw.createdAt,
+      updatedAt: row.updated_at || raw.updatedAt
+    };
+  }
+
+  static mapKnittingOrderToRow(item: KnittingStatusOrder): Record<string, any> {
+    const rawId = String(item.id || item.orderNo || `kord-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`);
+    return {
+      id: rawId,
+      order_no: String(item.orderNo || ''),
+      buyer_name: String(item.buyerName || ''),
+      team_leader: String(item.teamLeader || ''),
+      knit_start_date: String(item.knitStartDate || ''),
+      knit_end_date: String(item.knitEndDate || ''),
+      req_qty: parseFloat(String(item.reqQty || 0)) || 0,
+      grey_qty: parseFloat(String(item.greyQty || 0)) || 0,
+      production: parseFloat(String(item.production || 0)) || 0,
+      knit_balance: parseFloat(String(item.knitBalance || 0)) || 0,
+      items: item.items || [],
+      remarks: String(item.remarks || ''),
+      raw_data: item,
+      updated_at: new Date().toISOString()
+    };
+  }
+
+  static async fetchKnittingOrders(): Promise<KnittingStatusOrder[]> {
+    const client = this.getClient();
+    if (!client) return [];
+
+    try {
+      const { data, error } = await client
+        .from('knitting_orders')
+        .select('*')
+        .order('id', { ascending: false });
+
+      if (error || !data) return [];
+      return data.map(row => this.mapRowToKnittingOrder(row));
+    } catch {
+      return [];
+    }
+  }
+
+  static async saveKnittingOrder(item: KnittingStatusOrder): Promise<{ success: boolean; error?: string }> {
+    const client = this.getClient();
+    if (!client) return { success: false, error: 'Supabase client is not initialized.' };
+
+    try {
+      const row = this.sanitizeRowForSupabase(this.mapKnittingOrderToRow(item));
+      const { error } = await client.from('knitting_orders').upsert(row, { onConflict: 'id' });
+      if (error) return { success: false, error: error.message };
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || String(err) };
+    }
+  }
+
+  static async bulkSaveKnittingOrders(items: KnittingStatusOrder[], replace: boolean = false): Promise<{ success: boolean; count: number; error?: string }> {
+    const client = this.getClient();
+    if (!client) return { success: false, count: 0, error: 'Supabase not initialized.' };
+
+    try {
+      if (replace) {
+        await client.from('knitting_orders').delete().neq('id', '___PURGE___');
+      }
+      if (!items || items.length === 0) return { success: true, count: 0 };
+
+      const rows = items.map(o => this.sanitizeRowForSupabase(this.mapKnittingOrderToRow(o)));
+      const { error } = await client.from('knitting_orders').upsert(rows, { onConflict: 'id' });
+      if (error) return { success: false, count: 0, error: error.message };
+      return { success: true, count: rows.length };
+    } catch (err: any) {
+      return { success: false, count: 0, error: err.message || String(err) };
+    }
+  }
+
+  static async deleteKnittingOrder(id: string): Promise<{ success: boolean; error?: string }> {
+    const client = this.getClient();
+    if (!client) return { success: false, error: 'Supabase client not initialized.' };
+    try {
+      const { error } = await client.from('knitting_orders').delete().eq('id', id);
+      if (error) return { success: false, error: error.message };
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || String(err) };
+    }
+  }
+
+  /**
+   * Real-time Multi-Device WebSocket Subscription for Knitting Orders
+   */
+  static subscribeToKnittingOrders(
+    onRecordChange: (change: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: KnittingStatusOrder; id: string }) => void
+  ): () => void {
+    const client = this.getClient();
+    if (!client) return () => {};
+
+    try {
+      const channel = client
+        .channel('realtime:knitting_orders')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'knitting_orders' },
+          (payload: any) => {
+            const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE';
+            const row = payload.new || payload.old;
+            if (row) {
+              const record = SupabaseSync.mapRowToKnittingOrder(row);
+              onRecordChange({
+                eventType,
+                record,
+                id: String(row.id || (payload.old && payload.old.id) || '')
+              });
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        try {
+          client.removeChannel(channel);
+        } catch {}
+      };
+    } catch (err) {
+      console.warn('Supabase subscribeToKnittingOrders error:', err);
+      return () => {};
+    }
+  }
+
+  /**
+   * Dedicated SQL script for Plan Order Followup & Status table only (safe, idempotent, fast)
+   */
+  static getOrderPlansSetupSQL(): string {
+    return `-- =========================================================
+-- EPYLLION KNITEX ERP: PLAN ORDER FOLLOWUP & STATUS CLOUD TABLE
+-- Paste and Run in Supabase Dashboard > SQL Editor (Free Forever)
+-- =========================================================
+
+-- 1. Create Order Plans Table
+CREATE TABLE IF NOT EXISTS public.order_plans (
+  id TEXT PRIMARY KEY,
+  plan_month TEXT,
+  plan_type TEXT,
+  ewo TEXT,
+  buyer TEXT,
+  color TEXT,
+  knit_start TEXT,
+  knit_end TEXT,
+  target NUMERIC DEFAULT 0,
+  target_next_month NUMERIC DEFAULT 0,
+  allocation_start TEXT,
+  allocation_end TEXT,
+  allocated_qty NUMERIC DEFAULT 0,
+  allocated_bal NUMERIC DEFAULT 0,
+  grey_req NUMERIC DEFAULT 0,
+  knit_pro NUMERIC DEFAULT 0,
+  knit_bal NUMERIC DEFAULT 0,
+  a_knit_start TEXT,
+  last_production_date TEXT,
+  avg_prod_day NUMERIC DEFAULT 0,
+  expected_knit_end TEXT,
+  knit_start_otd TEXT DEFAULT 'Pending',
+  knit_end_otd TEXT DEFAULT 'Pending',
+  knit_start_remarks TEXT,
+  knit_end_remarks TEXT,
+  knit_team_leaders TEXT,
+  updated_by TEXT,
+  raw_data JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. Create Layered Knitting Orders Table
+CREATE TABLE IF NOT EXISTS public.knitting_orders (
+  id TEXT PRIMARY KEY,
+  order_no TEXT,
+  buyer_name TEXT,
+  team_leader TEXT,
+  knit_start_date TEXT,
+  knit_end_date TEXT,
+  req_qty NUMERIC DEFAULT 0,
+  grey_qty NUMERIC DEFAULT 0,
+  production NUMERIC DEFAULT 0,
+  knit_balance NUMERIC DEFAULT 0,
+  items JSONB DEFAULT '[]'::jsonb,
+  remarks TEXT,
+  raw_data JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. Fast Query Indexes
+CREATE INDEX IF NOT EXISTS idx_order_plans_ewo ON public.order_plans(ewo);
+CREATE INDEX IF NOT EXISTS idx_order_plans_buyer ON public.order_plans(buyer);
+CREATE INDEX IF NOT EXISTS idx_order_plans_plan_month ON public.order_plans(plan_month);
+CREATE INDEX IF NOT EXISTS idx_order_plans_team_leaders ON public.order_plans(knit_team_leaders);
+CREATE INDEX IF NOT EXISTS idx_knitting_orders_order_no ON public.knitting_orders(order_no);
+CREATE INDEX IF NOT EXISTS idx_knitting_orders_buyer_name ON public.knitting_orders(buyer_name);
+
+-- 4. Row Level Security & Access Policies
+ALTER TABLE public.order_plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.knitting_orders ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public full access to order_plans" ON public.order_plans;
+DROP POLICY IF EXISTS "Allow public full access to knitting_orders" ON public.knitting_orders;
+
+CREATE POLICY "Allow public full access to order_plans" ON public.order_plans FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public full access to knitting_orders" ON public.knitting_orders FOR ALL USING (true) WITH CHECK (true);
+
+-- 5. Enable Instant Sub-50ms Real-Time WebSocket Replication
+DO $$ 
+BEGIN 
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+    AND schemaname = 'public' 
+    AND tablename = 'order_plans'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.order_plans;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+    AND schemaname = 'public' 
+    AND tablename = 'knitting_orders'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.knitting_orders;
+  END IF;
+EXCEPTION WHEN OTHERS THEN 
+  NULL;
+END $$;
+`;
+  }
+
   /**
    * Helper SQL schema for automatic copy-paste in Supabase SQL Editor
    */
@@ -1724,6 +2359,68 @@ CREATE INDEX IF NOT EXISTS idx_yarn_allocations_buyer ON public.yarn_allocations
 CREATE INDEX IF NOT EXISTS idx_yarn_allocations_allocation_no ON public.yarn_allocations(allocation_no);
 CREATE INDEX IF NOT EXISTS idx_yarn_allocations_lot_no ON public.yarn_allocations(lot_no);
 
+-- 7. ORDER PLANS & STATUS (PLAN ORDER FOLLOWUP)
+CREATE TABLE IF NOT EXISTS public.order_plans (
+  id TEXT PRIMARY KEY,
+  plan_month TEXT,
+  plan_type TEXT,
+  ewo TEXT,
+  buyer TEXT,
+  color TEXT,
+  knit_start TEXT,
+  knit_end TEXT,
+  target NUMERIC DEFAULT 0,
+  target_next_month NUMERIC DEFAULT 0,
+  allocation_start TEXT,
+  allocation_end TEXT,
+  allocated_qty NUMERIC DEFAULT 0,
+  allocated_bal NUMERIC DEFAULT 0,
+  grey_req NUMERIC DEFAULT 0,
+  knit_pro NUMERIC DEFAULT 0,
+  knit_bal NUMERIC DEFAULT 0,
+  a_knit_start TEXT,
+  last_production_date TEXT,
+  avg_prod_day NUMERIC DEFAULT 0,
+  expected_knit_end TEXT,
+  knit_start_otd TEXT DEFAULT 'Pending',
+  knit_end_otd TEXT DEFAULT 'Pending',
+  knit_start_remarks TEXT,
+  knit_end_remarks TEXT,
+  knit_team_leaders TEXT,
+  updated_by TEXT,
+  raw_data JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Fast Indexes for Order Plans
+CREATE INDEX IF NOT EXISTS idx_order_plans_ewo ON public.order_plans(ewo);
+CREATE INDEX IF NOT EXISTS idx_order_plans_buyer ON public.order_plans(buyer);
+CREATE INDEX IF NOT EXISTS idx_order_plans_plan_month ON public.order_plans(plan_month);
+CREATE INDEX IF NOT EXISTS idx_order_plans_team_leaders ON public.order_plans(knit_team_leaders);
+
+-- 8. KNITTING ORDERS & FABRICS (LAYERED STATUS)
+CREATE TABLE IF NOT EXISTS public.knitting_orders (
+  id TEXT PRIMARY KEY,
+  order_no TEXT,
+  buyer_name TEXT,
+  team_leader TEXT,
+  knit_start_date TEXT,
+  knit_end_date TEXT,
+  req_qty NUMERIC DEFAULT 0,
+  grey_qty NUMERIC DEFAULT 0,
+  production NUMERIC DEFAULT 0,
+  knit_balance NUMERIC DEFAULT 0,
+  items JSONB DEFAULT '[]'::jsonb,
+  remarks TEXT,
+  raw_data JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_knitting_orders_order_no ON public.knitting_orders(order_no);
+CREATE INDEX IF NOT EXISTS idx_knitting_orders_buyer_name ON public.knitting_orders(buyer_name);
+
 -- Enable Row Level Security (RLS)
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.factory_units ENABLE ROW LEVEL SECURITY;
@@ -1732,6 +2429,8 @@ ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.production_ledger ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.yarn_allocations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.order_plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.knitting_orders ENABLE ROW LEVEL SECURITY;
 
 -- Drop existing policies first so it never throws error 42710
 DROP POLICY IF EXISTS "Allow public full access to users" ON public.users;
@@ -1741,6 +2440,8 @@ DROP POLICY IF EXISTS "Allow public full access to system_settings" ON public.sy
 DROP POLICY IF EXISTS "Allow public full access to production_ledger" ON public.production_ledger;
 DROP POLICY IF EXISTS "Allow public full access to activity_logs" ON public.activity_logs;
 DROP POLICY IF EXISTS "Allow public full access to yarn_allocations" ON public.yarn_allocations;
+DROP POLICY IF EXISTS "Allow public full access to order_plans" ON public.order_plans;
+DROP POLICY IF EXISTS "Allow public full access to knitting_orders" ON public.knitting_orders;
 
 -- Recreate policies cleanly
 CREATE POLICY "Allow public full access to users" ON public.users FOR ALL USING (true) WITH CHECK (true);
@@ -1750,8 +2451,10 @@ CREATE POLICY "Allow public full access to system_settings" ON public.system_set
 CREATE POLICY "Allow public full access to production_ledger" ON public.production_ledger FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public full access to activity_logs" ON public.activity_logs FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public full access to yarn_allocations" ON public.yarn_allocations FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public full access to order_plans" ON public.order_plans FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public full access to knitting_orders" ON public.knitting_orders FOR ALL USING (true) WITH CHECK (true);
 
--- Enable Real-Time Broadcast for Production Ledger and Yarn Allocations
+-- Enable Real-Time Broadcast for Tables
 DO $$ 
 BEGIN 
   IF NOT EXISTS (
@@ -1769,6 +2472,22 @@ BEGIN
     AND tablename = 'yarn_allocations'
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.yarn_allocations;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+    AND schemaname = 'public' 
+    AND tablename = 'order_plans'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.order_plans;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+    AND schemaname = 'public' 
+    AND tablename = 'knitting_orders'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.knitting_orders;
   END IF;
 EXCEPTION WHEN OTHERS THEN 
   NULL;

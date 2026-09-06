@@ -1354,15 +1354,20 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Optional manual sync button with progress */}
+          {/* Unified Database Live & Cloud Sync Button */}
           <button
             onClick={() => fetchAllocationsFromSupabase(true)}
             disabled={downloadProgress.isDownloading || isSaving}
-            className="flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 dark:border-indigo-800 dark:bg-indigo-950/50 px-3.5 py-2 text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-all cursor-pointer shadow-xs disabled:opacity-50"
-            title="Auto-loaded on startup & synced in real time. Click only if you wish to force a manual refresh from Supabase."
+            className="flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50/90 dark:border-emerald-700 dark:bg-emerald-950/80 px-3.5 py-2 text-xs font-bold text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900 transition-all cursor-pointer shadow-xs disabled:opacity-50"
+            title="Database connected & real-time live. Click to sync latest records from cloud."
+            id="yarn-database-live-btn"
           >
-            <RefreshCw className={`h-4 w-4 text-indigo-600 dark:text-indigo-400 ${downloadProgress.isDownloading ? 'animate-spin' : ''}`} />
-            <span>{downloadProgress.isDownloading ? 'Syncing...' : 'Sync from Cloud'}</span>
+            <span className="relative flex h-2 w-2">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 ${downloadProgress.isDownloading ? 'duration-500' : ''}`}></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <RefreshCw className={`h-4 w-4 text-emerald-600 dark:text-emerald-400 ${downloadProgress.isDownloading ? 'animate-spin' : ''}`} />
+            <span>{downloadProgress.isDownloading ? 'Syncing...' : 'Data Base Live'}</span>
           </button>
 
           <button

@@ -39,7 +39,11 @@ export interface GlobalDataContextType {
   // Order Plans
   saveOrderPlan: (order: OrderPlan) => Promise<{ success: boolean; message?: string }>;
   deleteOrderPlan: (id: string) => Promise<{ success: boolean; message?: string }>;
-  bulkSaveOrderPlans: (orders: OrderPlan[], replace?: boolean) => Promise<{ success: boolean; message?: string }>;
+  bulkSaveOrderPlans: (
+    orders: OrderPlan[], 
+    replace?: boolean,
+    onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void
+  ) => Promise<{ success: boolean; message?: string }>;
 
   // Yarn Allocations
   saveYarnAllocation: (item: YarnAllocationRecord) => Promise<{ success: boolean; message?: string }>;
@@ -340,14 +344,15 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   /**
-   * Bulk Fetch All Datasets: Production Ledger & Yarn Allocations from Supabase, Orders from Google Sheets.
+   * Bulk Fetch All Datasets: Production Ledger, Yarn Allocations, and Order Plans from Supabase, with Google Sheets backup.
    */
   const refreshAll = useCallback(async (forceRefresh: boolean = false) => {
     setIsSyncing(true);
     try {
-      // 1. Fetch Production Ledger & Yarn Allocations from Supabase (sub-second queries, zero Vercel bandwidth)
+      // 1. Fetch Production Ledger, Yarn Allocations & Order Plans from Supabase (sub-second queries, zero Vercel bandwidth)
       const supabaseLedgerPromise = SupabaseSync.fetchProductionLedger().catch(() => []);
       const supabaseYarnPromise = SupabaseSync.fetchYarnAllocations().catch(() => []);
+      const supabaseOrdersPromise = SupabaseSync.fetchOrderPlans().catch(() => []);
 
       // 2. Fetch Orders from Google Sheets (/api/sheets?action=all)
       const url = forceRefresh ? '/api/sheets?action=all&refresh=true' : '/api/sheets?action=all';
@@ -356,9 +361,10 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         signal: AbortSignal.timeout(40000)
       }).catch(() => null);
 
-      const [supabaseLedger, supabaseYarn, sheetsRes] = await Promise.all([
+      const [supabaseLedger, supabaseYarn, supabaseOrders, sheetsRes] = await Promise.all([
         supabaseLedgerPromise,
         supabaseYarnPromise,
+        supabaseOrdersPromise,
         sheetsPromise
       ]);
 
@@ -382,6 +388,13 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         loadedSuccessfully = true;
       }
 
+      // Process Supabase Order Plans (Primary source for Plan Order Followup & Status)
+      if (Array.isArray(supabaseOrders) && supabaseOrders.length > 0) {
+        cleanOrders = filterDeletedOrders(deduplicateWithUniqueIds(supabaseOrders, 'ord'));
+        setOrderPlans(cleanOrders);
+        loadedSuccessfully = true;
+      }
+
       // Process Google Sheets for Orders and (fallback/archive seeding) Yarn & Ledger
       if (sheetsRes && sheetsRes.ok) {
         const json = await sheetsRes.json().catch(() => null);
@@ -391,7 +404,14 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           const remoteLedger = json.data.ledger || json.data.records;
           const remoteFloors = json.data.floors;
 
-          if (Array.isArray(remoteOrders) && remoteOrders.length > 0) {
+          // If Supabase was empty on first setup for Orders, populate from Google Sheets & auto-seed
+          if ((!cleanOrders || cleanOrders.length === 0) && Array.isArray(remoteOrders) && remoteOrders.length > 0) {
+            cleanOrders = filterDeletedOrders(deduplicateWithUniqueIds(remoteOrders, 'ord'));
+            setOrderPlans(cleanOrders);
+            loadedSuccessfully = true;
+            // Auto-seed into Supabase so future queries are instant
+            SupabaseSync.bulkSaveOrderPlans(cleanOrders).catch(err => console.warn('Supabase auto-seed order_plans notice:', err));
+          } else if (Array.isArray(remoteOrders) && remoteOrders.length > 0 && (!cleanOrders || cleanOrders.length === 0)) {
             cleanOrders = filterDeletedOrders(deduplicateWithUniqueIds(remoteOrders, 'ord'));
             setOrderPlans(cleanOrders);
             loadedSuccessfully = true;
@@ -518,13 +538,36 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     });
 
+    const unsubOrderPlans = SupabaseSync.subscribeToOrderPlans(({ eventType, record, id }) => {
+      if (eventType === 'DELETE') {
+        setOrderPlans(prev => {
+          const next = prev.filter(o => o.id !== id && o.ewo !== id);
+          try {
+            localStorage.setItem('cached_order_plans', JSON.stringify(next));
+          } catch (e) {}
+          return next;
+        });
+      } else if (eventType === 'INSERT' || eventType === 'UPDATE') {
+        if (!record || (!record.id && !record.ewo)) return;
+        setOrderPlans(prev => {
+          const idx = prev.findIndex(o => (o.id && record.id && o.id === record.id) || (o.ewo && record.ewo && o.ewo === record.ewo));
+          const next = idx >= 0 ? prev.map((o, i) => i === idx ? record : o) : [record, ...prev];
+          try {
+            localStorage.setItem('cached_order_plans', JSON.stringify(next));
+          } catch (e) {}
+          return next;
+        });
+      }
+    });
+
     return () => {
       unsubLedger();
       unsubYarn();
+      unsubOrderPlans();
     };
   }, []);
 
-  // 3. Lightweight Background Polling for Google Sheets (Orders only; Yarn is handled in real-time via Supabase)
+  // 3. Lightweight Background Polling for Google Sheets (Orders and Yarn backup if Supabase unconfigured)
   useEffect(() => {
     let isFetching = false;
 
@@ -545,7 +588,8 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const json = await res.json();
         if (json && json.success && json.data) {
           const { orderPlans: rOrders, yarnAllocations: rYarn } = json.data;
-          if (Array.isArray(rOrders) && rOrders.length > 0) {
+          // Only pull Orders from Google Sheets if Supabase is unconfigured or local orders is empty (Google Sheets is cold archive)
+          if ((!SupabaseSync.isConfigured() || orderPlans.length === 0) && Array.isArray(rOrders) && rOrders.length > 0) {
             const cleanOrders = filterDeletedOrders(deduplicateWithUniqueIds(rOrders, 'ord'));
             setOrderPlans(prev => {
               if (prev.length !== cleanOrders.length || JSON.stringify(prev) !== JSON.stringify(cleanOrders)) {
@@ -609,10 +653,10 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, [refreshAll]);
 
   // ==========================================================
-  // OPTIMISTIC MUTATIONS WITH DIRECT GOOGLE SHEETS SYNC
+  // OPTIMISTIC MUTATIONS WITH DIRECT SUPABASE CLOUD & BACKUP SYNC
   // ==========================================================
 
-  // --- Order Plans ---
+  // --- Order Plans (Powered by Supabase Cloud Database + Real-time WebSockets) ---
   const saveOrderPlan = async (order: OrderPlan) => {
     if (order.id) deletedOrderIdsRef.current.delete(order.id);
     if (order.ewo) deletedOrderIdsRef.current.delete(order.ewo);
@@ -628,8 +672,16 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return [order, ...prev];
     });
 
-    // 2. Dispatched with keepalive: true to Google Sheets
-    return executeKeepaliveMutation('orders/save', { orderPlans: [order], replace: false });
+    // 2. Direct Supabase Cloud Save (Live across all devices in <50ms)
+    const supabaseResult = await SupabaseSync.saveOrderPlan(order);
+
+    // 3. Fallback background sync to Google Sheets
+    executeKeepaliveMutation('orders/save', { orderPlans: [order], replace: false }).catch(() => {});
+
+    return {
+      success: true,
+      message: supabaseResult.success ? 'Order plan saved live to Supabase' : `Saved locally (${supabaseResult.error || 'offline'})`
+    };
   };
 
   const deleteOrderPlan = async (id: string) => {
@@ -641,16 +693,36 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       } catch (e) {}
       return next;
     });
+
+    // Supabase delete
+    await SupabaseSync.deleteOrderPlan(id);
+
     return executeKeepaliveMutation('orders/delete', { id });
   };
 
-  const bulkSaveOrderPlans = async (orders: OrderPlan[], replace: boolean = false) => {
+  const bulkSaveOrderPlans = async (
+    orders: OrderPlan[], 
+    replace: boolean = false,
+    onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void
+  ) => {
     orders.forEach(o => {
       if (o.id) deletedOrderIdsRef.current.delete(o.id);
       if (o.ewo) deletedOrderIdsRef.current.delete(o.ewo);
     });
-    setOrderPlans(prev => replace ? orders : [...orders, ...prev.filter(p => !orders.some(o => o.id === p.id))]);
-    return executeKeepaliveMutation('orders/save', { orderPlans: orders, replace });
+
+    if (replace) {
+      setOrderPlans(orders);
+    } else {
+      setOrderPlans(prev => [...orders, ...prev.filter(p => !orders.some(o => o.id === p.id || (o.ewo && o.ewo === p.ewo)))]);
+    }
+
+    // 1. Primary Database Bulk Save: Supabase (purges all previous rows if replace is true) with real-time progress
+    const supabaseRes = await SupabaseSync.bulkSaveOrderPlans(orders, replace, onProgress);
+
+    // 2. Background Cold Archive: Google Sheets
+    executeKeepaliveMutation('orders/save', { orderPlans: orders, replace }).catch(() => {});
+
+    return { success: supabaseRes.success, message: supabaseRes.error };
   };
 
   // --- Yarn Allocations (Primary: Supabase Cloud DB + Live WebSockets | Cold Archive: Google Sheets) ---

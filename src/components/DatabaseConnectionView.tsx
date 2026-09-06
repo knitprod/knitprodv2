@@ -41,7 +41,7 @@ interface DatabaseConnectionViewProps {
 }
 
 export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConnectionViewProps) {
-  const { ledger, yarnAllocations, refreshAll } = useGlobalData();
+  const { ledger, yarnAllocations, orderPlans, refreshAll } = useGlobalData();
 
   // Google Sheets database connection states
   const [databaseMode, setDatabaseMode] = useState<'mock' | 'gas'>(() => GasClient.getDatabaseMode());
@@ -70,6 +70,12 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
   const [migrateYarnStatus, setMigrateYarnStatus] = useState<string | null>(null);
   const [copiedYarnSql, setCopiedYarnSql] = useState(false);
   const [showYarnSql, setShowYarnSql] = useState(false);
+
+  // Plan Order Followup to Supabase Migration State
+  const [isMigratingOrders, setIsMigratingOrders] = useState(false);
+  const [migrateOrdersStatus, setMigrateOrdersStatus] = useState<string | null>(null);
+  const [copiedOrdersSql, setCopiedOrdersSql] = useState(false);
+  const [showOrdersSql, setShowOrdersSql] = useState(false);
 
   // Two-Way Synchronization states
   const [isSyncing, setIsSyncing] = useState(false);
@@ -144,6 +150,43 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
       setTimeout(() => setCopiedYarnSql(false), 2500);
     } catch (err) {
       console.error('Failed to copy Yarn SQL:', err);
+    }
+  };
+
+  const handleMigrateOrdersToSupabase = async () => {
+    if (!SupabaseSync.isConfigured()) {
+      if (onSuccessNotice) onSuccessNotice("Please enter and save your Supabase credentials first.");
+      return;
+    }
+    setIsMigratingOrders(true);
+    setMigrateOrdersStatus("Migrating Plan Order Followup & Status to Supabase...");
+    try {
+      const res = await SupabaseSync.bulkSaveOrderPlans(orderPlans);
+      if (res.success) {
+        setMigrateOrdersStatus(`Successfully migrated ${res.count} Plan Orders to Supabase! Live WebSockets active.`);
+        if (onSuccessNotice) onSuccessNotice(`Transferred ${res.count} Plan Orders to Supabase!`);
+      } else {
+        if (res.error?.includes('order_plans') || res.error?.includes('schema cache') || res.error?.includes('PGRST205')) {
+          setShowOrdersSql(true);
+          setMigrateOrdersStatus("Table 'public.order_plans' does not exist in Supabase yet. Please copy the SQL script below, run it in your Supabase SQL Editor, and then click Migration.");
+        } else {
+          setMigrateOrdersStatus(`Error transferring records: ${res.error || 'Check Supabase SQL Editor and table structure.'}`);
+        }
+      }
+    } catch (err: any) {
+      setMigrateOrdersStatus(`Migration notice: ${err.message || String(err)}`);
+    } finally {
+      setIsMigratingOrders(false);
+    }
+  };
+
+  const handleCopyOrdersSql = async () => {
+    try {
+      await navigator.clipboard.writeText(SupabaseSync.getOrderPlansSetupSQL());
+      setCopiedOrdersSql(true);
+      setTimeout(() => setCopiedOrdersSql(false), 2500);
+    } catch (err) {
+      console.error('Failed to copy Order Plans SQL:', err);
     }
   };
 
@@ -603,6 +646,108 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
                 : 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800'
             }`}>
               {migrateYarnStatus}
+            </div>
+          )}
+        </div>
+
+        {/* Plan Order Followup & Status Supabase Transfer & Real-time Status Card */}
+        <div className="rounded-xl border border-indigo-200 dark:border-indigo-900 bg-white/80 dark:bg-slate-900/80 p-4 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                <span className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">
+                  Plan Order Followup & Status Real-Time Cloud Engine (Supabase WebSockets)
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300">
+                  Sub-50ms Live Sync
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Plan Order Followup & Status uses Supabase as the primary operational database with live multi-device WebSocket updates. Google Sheets serves as an asynchronous backup mirror.
+              </p>
+              <p className="text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+                ⚡ <strong>Setup Requirement:</strong> Ensure table <code className="px-1 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/80 font-mono text-[10px]">public.order_plans</code> exists in your Supabase project before migrating.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleCopyOrdersSql}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-indigo-300 dark:border-indigo-700 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950 dark:hover:bg-indigo-900 text-indigo-800 dark:text-indigo-200 text-xs font-bold transition-all cursor-pointer shadow-2xs whitespace-nowrap"
+                title="Copy the SQL script to create the order_plans table in Supabase"
+              >
+                {copiedOrdersSql ? (
+                  <>
+                    <Check className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span>Copied Orders SQL!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span>Copy Orders SQL</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowOrdersSql(!showOrdersSql)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-all cursor-pointer shadow-2xs whitespace-nowrap"
+              >
+                <Code className="h-3.5 w-3.5 text-slate-500" />
+                <span>{showOrdersSql ? 'Hide SQL' : 'View SQL'}</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isMigratingOrders || !isSupabaseActive}
+                onClick={handleMigrateOrdersToSupabase}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-xs whitespace-nowrap"
+                title="Seed your existing plan order followup records into Supabase"
+              >
+                {isMigratingOrders ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Transferring Plan Orders...</span>
+                  </>
+                ) : (
+                  <>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                    <span>One-Time Initial Migration ({orderPlans.length} orders)</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {showOrdersSql && (
+            <div className="rounded-xl border border-indigo-200 dark:border-indigo-800 bg-slate-950 p-3.5 space-y-2 text-slate-200 animate-fade-in font-mono text-[11px]">
+              <div className="flex items-center justify-between text-xs pb-1 border-b border-slate-800">
+                <span className="text-indigo-400 font-bold">SQL Editor Script (Order Plans Table & Realtime)</span>
+                <button
+                  type="button"
+                  onClick={handleCopyOrdersSql}
+                  className="inline-flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 font-semibold cursor-pointer"
+                >
+                  {copiedOrdersSql ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                  {copiedOrdersSql ? 'Copied' : 'Copy Query'}
+                </button>
+              </div>
+              <pre className="overflow-x-auto max-h-48 text-[11px] leading-relaxed text-slate-300 selection:bg-indigo-800">
+                {SupabaseSync.getOrderPlansSetupSQL()}
+              </pre>
+            </div>
+          )}
+
+          {migrateOrdersStatus && (
+            <div className={`text-xs font-semibold px-3 py-2 rounded-lg border animate-fade-in ${
+              migrateOrdersStatus.includes('Successfully')
+                ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
+                : 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+            }`}>
+              {migrateOrdersStatus}
             </div>
           )}
         </div>

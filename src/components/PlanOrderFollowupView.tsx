@@ -21,6 +21,7 @@ import {
   Filter, 
   Plus, 
   Download, 
+  Upload,
   CheckCircle2, 
   Clock, 
   AlertTriangle, 
@@ -36,13 +37,19 @@ import {
   AlertCircle,
   RefreshCw,
   Shield,
+  ShieldAlert,
+  ShieldCheck,
+  Database,
+  Lock,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   Building2,
   Users,
+  Check,
 } from 'lucide-react';
+import { formatExcelDate } from '../lib/knittingStatusStore';
 
 export const getYesterdayDateString = (): string => {
   const d = new Date();
@@ -552,6 +559,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     refreshAll,
     saveOrderPlan: globalSaveOrderPlan,
     deleteOrderPlan: globalDeleteOrderPlan,
+    bulkSaveOrderPlans,
     saveYarnAllocation: globalSaveYarnAllocation,
     deleteYarnAllocation: globalDeleteYarnAllocation
   } = useGlobalData();
@@ -1049,6 +1057,588 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     }
   };
 
+  // Upload, Merge & Admin Overwrite State
+  const uploadInputRef = React.useRef<HTMLInputElement>(null);
+  const overwriteInputRef = React.useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [uploadProgressStage, setUploadProgressStage] = useState<string>('');
+  const [showUploadChoiceModal, setShowUploadChoiceModal] = useState<boolean>(false);
+  const [showAdminOverwriteModal, setShowAdminOverwriteModal] = useState<boolean>(false);
+  const [overwriteConfirmedCheckbox, setOverwriteConfirmedCheckbox] = useState<boolean>(false);
+  const [uploadFeedback, setUploadFeedback] = useState<{
+    show: boolean;
+    title: string;
+    message: string;
+    mode?: 'merge' | 'overwrite';
+    stats?: {
+      totalRowsProcessed: number;
+      matchedOrdersCount: number;
+      updatedOrdersCount: number;
+      filledBlanksCount: number;
+      newOrdersCount: number;
+      unalteredCount: number;
+      purgedCount?: number;
+    };
+  } | null>(null);
+
+  // Flexible Excel Column Resolution Helpers
+  const normalizeKey = (str: string): string => {
+    return String(str || '').toLowerCase().replace(/[\r\n\t_.\-/\s]+/g, '');
+  };
+
+  const getExcelRowValue = (row: Record<string, any>, candidateKeys: string[], defaultValue: any = ''): any => {
+    if (!row) return defaultValue;
+    for (const k of candidateKeys) {
+      if (row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== '') {
+        return row[k];
+      }
+    }
+    const rowKeys = Object.keys(row);
+    const normalizedRowMap = new Map<string, string>();
+    for (const rk of rowKeys) {
+      const norm = normalizeKey(rk);
+      if (!normalizedRowMap.has(norm)) {
+        normalizedRowMap.set(norm, rk);
+      }
+    }
+    for (const candidate of candidateKeys) {
+      const normCand = normalizeKey(candidate);
+      const matchedKey = normalizedRowMap.get(normCand);
+      if (matchedKey && row[matchedKey] !== undefined && row[matchedKey] !== null && String(row[matchedKey]).trim() !== '') {
+        return row[matchedKey];
+      }
+    }
+    for (const candidate of candidateKeys) {
+      const normCand = normalizeKey(candidate);
+      if (normCand.length < 3) continue;
+      for (const [normRk, origRk] of normalizedRowMap.entries()) {
+        if (normRk.includes(normCand) || normCand.includes(normRk)) {
+          if (row[origRk] !== undefined && row[origRk] !== null && String(row[origRk]).trim() !== '') {
+            return row[origRk];
+          }
+        }
+      }
+    }
+    return defaultValue;
+  };
+
+  const normOrderNum = (str: any): string => {
+    return String(str || '').trim().replace(/^#+/, '').toUpperCase().replace(/\s+/g, '');
+  };
+
+  const normColorName = (str: any): string => {
+    return String(str || '').trim().toUpperCase().replace(/\s+/g, '');
+  };
+
+  // Smart Upload & Non-destructive Merge Handler
+  const handleSmartFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
+
+        const allRows: any[] = [];
+        wb.SheetNames.forEach(sName => {
+          const sheet = wb.Sheets[sName];
+          const raw = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+          if (Array.isArray(raw) && raw.length > 0) {
+            allRows.push(...raw);
+          }
+        });
+
+        if (allRows.length === 0) {
+          setUploadFeedback({
+            show: true,
+            title: 'Empty Spreadsheet',
+            message: 'The selected Excel file contains no valid data rows.'
+          });
+          setIsUploading(false);
+          return;
+        }
+
+        let updatedOrdersCount = 0;
+        let filledBlanksCount = 0;
+        let newOrdersCount = 0;
+        let matchedOrdersCount = 0;
+
+        // Clone current orders to avoid direct state mutation
+        const mergedOrders = [...orders];
+
+        // Map existing orders by exact composite key (Order + Color)
+        const existingByKey = new Map<string, number>();
+        mergedOrders.forEach((o, index) => {
+          const ordKey = normOrderNum(o.ewo || o.id);
+          const colKey = normColorName(o.color);
+          existingByKey.set(`${ordKey}___${colKey}`, index);
+        });
+
+        const modifiedIndices = new Set<number>();
+        const newlyAddedOrders: OrderPlan[] = [];
+
+        allRows.forEach((row, rowIdx) => {
+          const rawEwo = getExcelRowValue(row, [
+            'EWO', 'Order No.', 'Order No', 'Order', 'Order Number', 'Order#', 'EWO No', 'EWO#', 'orderNo', 'OrderNo'
+          ]);
+          const ewo = String(rawEwo || '').trim().replace(/^#+/, '');
+          if (!ewo) return; // Skip invalid rows without order number
+
+          const rawColor = getExcelRowValue(row, ['Color', 'Colour', 'Fabric Color', 'Shade', 'Item Color', 'Color Name']);
+          const color = String(rawColor || '').trim();
+
+          const ordKey = normOrderNum(ewo);
+          const colKey = normColorName(color);
+          const primaryKey = `${ordKey}___${colKey}`;
+
+          // Match by Order Number AND Color
+          let targetIndex = existingByKey.get(primaryKey);
+
+          // If no exact match with color, check if existing order has blank color
+          if (targetIndex === undefined) {
+            targetIndex = existingByKey.get(`${ordKey}___`);
+          }
+
+          // Extract values from uploaded row
+          const upBuyer = String(getExcelRowValue(row, ['Buyer', 'Buyer Name', 'Buyer\nName', 'Brand', 'Customer', 'BuyerName']) || '').trim();
+          const upPlanMonth = String(getExcelRowValue(row, ['Plan Month', 'PlanMonth', 'Month']) || '').trim();
+          const upPlanType = String(getExcelRowValue(row, ['Plan Type', 'PlanType', 'Type']) || '').trim();
+          
+          const rawKnitStart = getExcelRowValue(row, ['Knit Start', 'Knit Start Date', 'Planned Knit Start', 'KnitStart', 'Start Date']);
+          const upKnitStart = rawKnitStart ? formatExcelDate(rawKnitStart) : '';
+
+          const rawKnitEnd = getExcelRowValue(row, ['Knit End', 'Knit End Date', 'Planned Knit End', 'KnitEnd', 'End Date']);
+          const upKnitEnd = rawKnitEnd ? formatExcelDate(rawKnitEnd) : '';
+
+          const rawTarget = getExcelRowValue(row, ['Target', 'Target (Kg)', 'Target(Kg)', 'Target Qty']);
+          const upTarget = rawTarget !== '' && rawTarget !== undefined && !isNaN(Number(rawTarget)) ? Number(rawTarget) : undefined;
+
+          const rawTargetNext = getExcelRowValue(row, ['Target Next Month', 'Target Next', 'Next Month Target']);
+          const upTargetNextMonth = rawTargetNext !== '' && rawTargetNext !== undefined && !isNaN(Number(rawTargetNext)) ? Number(rawTargetNext) : undefined;
+
+          const rawAllocStart = getExcelRowValue(row, ['Allocation Start', 'Allocation Start Date', 'Alloc Start']);
+          const upAllocStart = rawAllocStart ? formatExcelDate(rawAllocStart) : '';
+
+          const rawAllocEnd = getExcelRowValue(row, ['Allocation End', 'Allocation End Date', 'Alloc End']);
+          const upAllocEnd = rawAllocEnd ? formatExcelDate(rawAllocEnd) : '';
+
+          const rawAllocQty = getExcelRowValue(row, ['Allocated QTY', 'Allocated Qty', 'Allocated', 'Alloc Qty']);
+          const upAllocQty = rawAllocQty !== '' && rawAllocQty !== undefined && !isNaN(Number(rawAllocQty)) ? Number(rawAllocQty) : undefined;
+
+          const rawAllocBal = getExcelRowValue(row, ['Allocated Bal.', 'Allocated Bal', 'Alloc Bal']);
+          const upAllocBal = rawAllocBal !== '' && rawAllocBal !== undefined && !isNaN(Number(rawAllocBal)) ? Number(rawAllocBal) : undefined;
+
+          const rawGreyReq = getExcelRowValue(row, ['GREY REQ.', 'Grey Req', 'Grey Requirement', 'Grey Req.', 'Grey Qty', 'GreyQty']);
+          const upGreyReq = rawGreyReq !== '' && rawGreyReq !== undefined && !isNaN(Number(rawGreyReq)) ? Number(rawGreyReq) : undefined;
+
+          const rawKnitPro = getExcelRowValue(row, ['KNIT PRO.', 'Knit Pro', 'Knitting Production', 'Knit Prod', 'Production', 'Total Prod']);
+          const upKnitPro = rawKnitPro !== '' && rawKnitPro !== undefined && !isNaN(Number(rawKnitPro)) ? Number(rawKnitPro) : undefined;
+
+          const rawKnitBal = getExcelRowValue(row, ['KNIT BAL.', 'Knit Bal', 'Knitting Balance', 'Knit Balance', 'Balance']);
+          const upKnitBal = rawKnitBal !== '' && rawKnitBal !== undefined && !isNaN(Number(rawKnitBal)) ? Number(rawKnitBal) : undefined;
+
+          const rawAKnitStart = getExcelRowValue(row, ['A.Knit Start', 'A. Knit Start', 'A. Knit Star', 'Actual Knit Start', 'Actual Start']);
+          const upAKnitStart = rawAKnitStart ? formatExcelDate(rawAKnitStart) : '';
+
+          const rawLastProd = getExcelRowValue(row, ['A. Knit End/Last Production Date', 'Last Production Date', 'A. Knit End', 'A.Knit End', 'Actual Knit End', 'A. Knit End Date']);
+          const upLastProd = rawLastProd ? formatExcelDate(rawLastProd) : '';
+
+          const rawAvgProd = getExcelRowValue(row, ['Avg Prod/Day', 'Avg. Prod/Day', 'Avg Prod', 'Avg.Prod/Day']);
+          const upAvgProd = rawAvgProd !== '' && rawAvgProd !== undefined && !isNaN(Number(rawAvgProd)) ? Number(rawAvgProd) : undefined;
+
+          const rawExpEnd = getExcelRowValue(row, ['Expected Knit End', 'Exp Knit End', 'Expected End']);
+          const upExpEnd = rawExpEnd ? formatExcelDate(rawExpEnd) : '';
+
+          const rawKnitStartOtd = getExcelRowValue(row, ['Knit Start OTD', 'Start OTD']);
+          const upKnitStartOtd = (rawKnitStartOtd === 'Passed' || rawKnitStartOtd === 'Failed' || rawKnitStartOtd === 'Pending') ? rawKnitStartOtd : undefined;
+
+          const rawKnitEndOtd = getExcelRowValue(row, ['Knit End OTD', 'End OTD']);
+          const upKnitEndOtd = (rawKnitEndOtd === 'Passed' || rawKnitEndOtd === 'Failed' || rawKnitEndOtd === 'Pending') ? rawKnitEndOtd : undefined;
+
+          const upKnitStartRemarks = String(getExcelRowValue(row, ['Knit Start Remarks', 'Start Remarks', 'Start Delay Reason']) || '').trim();
+          const upKnitEndRemarks = String(getExcelRowValue(row, ['Knit End Remarks', 'End Remarks', 'End Delay Reason']) || '').trim();
+          const upTeamLeaders = String(getExcelRowValue(row, ['Knit Team Leader', 'Team Leader', 'Team\nLeader', 'TeamLeader', 'Leader']) || '').trim();
+
+          if (targetIndex !== undefined) {
+            // MATCHED EXISTING ORDER: SMART UPDATE & FILL BLANKS
+            matchedOrdersCount++;
+            const existing = mergedOrders[targetIndex];
+            let rowChanged = false;
+            const updated = { ...existing };
+
+            // Helper to apply string field: fill if blank, update if new in upload, keep if blank in upload
+            const applyStringField = (fieldName: keyof OrderPlan, uploadVal: string) => {
+              if (!uploadVal) return; // Do not overwrite existing data with empty cells
+              const currentVal = String(existing[fieldName] || '').trim();
+              if (!currentVal) {
+                (updated as any)[fieldName] = uploadVal;
+                filledBlanksCount++;
+                rowChanged = true;
+              } else if (currentVal !== uploadVal) {
+                (updated as any)[fieldName] = uploadVal;
+                rowChanged = true;
+              }
+            };
+
+            // Helper to apply numeric field: fill if 0, update if different
+            const applyNumberField = (fieldName: keyof OrderPlan, uploadVal?: number) => {
+              if (uploadVal === undefined || isNaN(uploadVal)) return;
+              const currentVal = Number(existing[fieldName]) || 0;
+              if (currentVal === 0 && uploadVal > 0) {
+                (updated as any)[fieldName] = uploadVal;
+                filledBlanksCount++;
+                rowChanged = true;
+              } else if (currentVal !== uploadVal) {
+                (updated as any)[fieldName] = uploadVal;
+                rowChanged = true;
+              }
+            };
+
+            applyStringField('color', color);
+            applyStringField('buyer', upBuyer);
+            applyStringField('planMonth', upPlanMonth);
+            applyStringField('planType', upPlanType);
+            applyStringField('knitStart', upKnitStart);
+            applyStringField('knitEnd', upKnitEnd);
+            applyNumberField('target', upTarget);
+            applyNumberField('targetNextMonth', upTargetNextMonth);
+            applyStringField('allocationStart', upAllocStart);
+            applyStringField('allocationEnd', upAllocEnd);
+            applyNumberField('allocatedQty', upAllocQty);
+            applyNumberField('allocatedBal', upAllocBal);
+            applyNumberField('greyReq', upGreyReq);
+            applyNumberField('knitPro', upKnitPro);
+            applyNumberField('knitBal', upKnitBal);
+            applyStringField('aKnitStart', upAKnitStart);
+            applyStringField('lastProductionDate', upLastProd);
+            applyNumberField('avgProdDay', upAvgProd);
+            applyStringField('expectedKnitEnd', upExpEnd);
+            if (upKnitStartOtd && existing.knitStartOtd !== upKnitStartOtd) {
+              updated.knitStartOtd = upKnitStartOtd;
+              rowChanged = true;
+            }
+            if (upKnitEndOtd && existing.knitEndOtd !== upKnitEndOtd) {
+              updated.knitEndOtd = upKnitEndOtd;
+              rowChanged = true;
+            }
+            applyStringField('knitStartRemarks', upKnitStartRemarks);
+            applyStringField('knitEndRemarks', upKnitEndRemarks);
+            applyStringField('knitTeamLeaders', upTeamLeaders);
+
+            // Re-evaluate knit balance if production or greyReq updated and knitBal wasn't explicitly given
+            if (upKnitBal === undefined && (upKnitPro !== undefined || upGreyReq !== undefined)) {
+              const newBal = Math.max(0, (updated.greyReq || 0) - (updated.knitPro || 0));
+              if (updated.knitBal !== newBal) {
+                updated.knitBal = newBal;
+                rowChanged = true;
+              }
+            }
+
+            if (rowChanged) {
+              mergedOrders[targetIndex] = updated;
+              modifiedIndices.add(targetIndex);
+              updatedOrdersCount++;
+            }
+          } else {
+            // NEW ORDER: ADD IT WHILE PRESERVING ALL EXISTING DATA
+            const newOrder: OrderPlan = {
+              id: `ord-${ordKey}-${colKey || 'main'}-${Date.now()}-${rowIdx}`,
+              planMonth: upPlanMonth || 'August',
+              planType: upPlanType || 'Confirm',
+              ewo,
+              buyer: upBuyer || '',
+              color: color || '',
+              knitStart: upKnitStart || '',
+              knitEnd: upKnitEnd || '',
+              target: upTarget || 0,
+              targetNextMonth: upTargetNextMonth || 0,
+              allocationStart: upAllocStart || '',
+              allocationEnd: upAllocEnd || '',
+              allocatedQty: upAllocQty || 0,
+              allocatedBal: upAllocBal || 0,
+              greyReq: upGreyReq || 0,
+              knitPro: upKnitPro || 0,
+              knitBal: upKnitBal !== undefined ? upKnitBal : (upGreyReq || 0),
+              aKnitStart: upAKnitStart || '',
+              lastProductionDate: upLastProd || '',
+              avgProdDay: upAvgProd || 0,
+              expectedKnitEnd: upExpEnd || '',
+              knitStartOtd: upKnitStartOtd || 'Pending',
+              knitEndOtd: upKnitEndOtd || 'Pending',
+              knitStartRemarks: upKnitStartRemarks || '',
+              knitEndRemarks: upKnitEndRemarks || '',
+              knitTeamLeaders: upTeamLeaders || ''
+            };
+
+            newlyAddedOrders.push(newOrder);
+            existingByKey.set(primaryKey, mergedOrders.length + newlyAddedOrders.length - 1);
+            newOrdersCount++;
+          }
+        });
+
+        const finalOrders = [...newlyAddedOrders, ...mergedOrders];
+        setOrders(finalOrders);
+
+        // Sync changed & new records to Supabase Cloud & Global context
+        const changedOrders = [
+          ...newlyAddedOrders,
+          ...Array.from(modifiedIndices).map(idx => mergedOrders[idx])
+        ];
+
+        if (changedOrders.length > 0) {
+          bulkSaveOrderPlans(changedOrders, false).catch(err => {
+            console.warn('Supabase bulk save error:', err);
+          });
+        }
+
+        const unalteredCount = Math.max(0, mergedOrders.length - modifiedIndices.size);
+
+        setUploadFeedback({
+          show: true,
+          title: 'Smart Update Successful',
+          message: `Excel data processed. Only new and missing values were updated. Your existing data remains 100% intact.`,
+          stats: {
+            totalRowsProcessed: allRows.length,
+            matchedOrdersCount,
+            updatedOrdersCount,
+            filledBlanksCount,
+            newOrdersCount,
+            unalteredCount
+          }
+        });
+      } catch (err: any) {
+        console.error('Smart file upload error:', err);
+        setUploadFeedback({
+          show: true,
+          title: 'Upload Failed',
+          message: `Error reading file: ${err.message || String(err)}`
+        });
+      } finally {
+        setIsUploading(false);
+        if (e.target) e.target.value = '';
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  // Admin-Only Master Database Overwrite Handler
+  const handleAdminOverwriteUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!isAdmin) {
+      alert("Access Denied: Only administrators are authorized to overwrite the database.");
+      if (e.target) e.target.value = '';
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadProgressStage('Reading file for master database overwrite...');
+    const reader = new FileReader();
+
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
+
+        const allRows: any[] = [];
+        wb.SheetNames.forEach(sName => {
+          const sheet = wb.Sheets[sName];
+          const raw = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+          if (Array.isArray(raw) && raw.length > 0) {
+            allRows.push(...raw);
+          }
+        });
+
+        if (allRows.length === 0) {
+          setUploadFeedback({
+            show: true,
+            title: 'Empty Spreadsheet',
+            message: 'The selected Excel file contains no valid data rows.',
+            mode: 'overwrite'
+          });
+          setIsUploading(false);
+          return;
+        }
+
+        const previousCount = orders.length;
+        setUploadProgressStage(`Parsing ${allRows.length} rows...`);
+
+        const replacementOrders: OrderPlan[] = [];
+        const seenKeys = new Map<string, number>();
+
+        allRows.forEach((row, rowIdx) => {
+          const rawEwo = getExcelRowValue(row, [
+            'EWO', 'Order No.', 'Order No', 'Order', 'Order Number', 'Order#', 'EWO No', 'EWO#', 'orderNo', 'OrderNo'
+          ]);
+          const ewo = String(rawEwo || '').trim().replace(/^#+/, '');
+          if (!ewo) return;
+
+          const rawColor = getExcelRowValue(row, ['Color', 'Colour', 'Fabric Color', 'Shade', 'Item Color', 'Color Name']);
+          const color = String(rawColor || '').trim();
+
+          const ordKey = normOrderNum(ewo);
+          const colKey = normColorName(color);
+          const primaryKey = `${ordKey}___${colKey}`;
+
+          const upBuyer = String(getExcelRowValue(row, ['Buyer', 'Buyer Name', 'Buyer\nName', 'Brand', 'Customer', 'BuyerName']) || '').trim();
+          const upPlanMonth = String(getExcelRowValue(row, ['Plan Month', 'PlanMonth', 'Month']) || '').trim();
+          const upPlanType = String(getExcelRowValue(row, ['Plan Type', 'PlanType', 'Type']) || '').trim();
+
+          const rawKnitStart = getExcelRowValue(row, ['Knit Start', 'Knit Start Date', 'Planned Knit Start', 'KnitStart', 'Start Date']);
+          const upKnitStart = rawKnitStart ? formatExcelDate(rawKnitStart) : '';
+
+          const rawKnitEnd = getExcelRowValue(row, ['Knit End', 'Knit End Date', 'Planned Knit End', 'KnitEnd', 'End Date']);
+          const upKnitEnd = rawKnitEnd ? formatExcelDate(rawKnitEnd) : '';
+
+          const rawTarget = getExcelRowValue(row, ['Target', 'Target (Kg)', 'Target(Kg)', 'Target Qty']);
+          const upTarget = rawTarget !== '' && rawTarget !== undefined && !isNaN(Number(rawTarget)) ? Number(rawTarget) : undefined;
+
+          const rawTargetNext = getExcelRowValue(row, ['Target Next Month', 'Target Next', 'Next Month Target']);
+          const upTargetNextMonth = rawTargetNext !== '' && rawTargetNext !== undefined && !isNaN(Number(rawTargetNext)) ? Number(rawTargetNext) : undefined;
+
+          const rawAllocStart = getExcelRowValue(row, ['Allocation Start', 'Allocation Start Date', 'Alloc Start']);
+          const upAllocStart = rawAllocStart ? formatExcelDate(rawAllocStart) : '';
+
+          const rawAllocEnd = getExcelRowValue(row, ['Allocation End', 'Allocation End Date', 'Alloc End']);
+          const upAllocEnd = rawAllocEnd ? formatExcelDate(rawAllocEnd) : '';
+
+          const rawAllocQty = getExcelRowValue(row, ['Allocated QTY', 'Allocated Qty', 'Allocated', 'Alloc Qty']);
+          const upAllocQty = rawAllocQty !== '' && rawAllocQty !== undefined && !isNaN(Number(rawAllocQty)) ? Number(rawAllocQty) : undefined;
+
+          const rawAllocBal = getExcelRowValue(row, ['Allocated Bal.', 'Allocated Bal', 'Alloc Bal']);
+          const upAllocBal = rawAllocBal !== '' && rawAllocBal !== undefined && !isNaN(Number(rawAllocBal)) ? Number(rawAllocBal) : undefined;
+
+          const rawGreyReq = getExcelRowValue(row, ['GREY REQ.', 'Grey Req', 'Grey Requirement', 'Grey Req.', 'Grey Qty', 'GreyQty']);
+          const upGreyReq = rawGreyReq !== '' && rawGreyReq !== undefined && !isNaN(Number(rawGreyReq)) ? Number(rawGreyReq) : undefined;
+
+          const rawKnitPro = getExcelRowValue(row, ['KNIT PRO.', 'Knit Pro', 'Knitting Production', 'Knit Prod', 'Production', 'Total Prod']);
+          const upKnitPro = rawKnitPro !== '' && rawKnitPro !== undefined && !isNaN(Number(rawKnitPro)) ? Number(rawKnitPro) : undefined;
+
+          const rawKnitBal = getExcelRowValue(row, ['KNIT BAL.', 'Knit Bal', 'Knitting Balance', 'Knit Balance', 'Balance']);
+          const upKnitBal = rawKnitBal !== '' && rawKnitBal !== undefined && !isNaN(Number(rawKnitBal))
+            ? Number(rawKnitBal)
+            : (upGreyReq !== undefined ? Math.max(0, (upGreyReq || 0) - (upKnitPro || 0)) : undefined);
+
+          const rawAKnitStart = getExcelRowValue(row, ['A.Knit Start', 'A. Knit Start', 'A. Knit Star', 'Actual Knit Start', 'Actual Start']);
+          const upAKnitStart = rawAKnitStart ? formatExcelDate(rawAKnitStart) : '';
+
+          const rawLastProd = getExcelRowValue(row, ['A. Knit End/Last Production Date', 'Last Production Date', 'A. Knit End', 'A.Knit End', 'Actual Knit End', 'A. Knit End Date']);
+          const upLastProd = rawLastProd ? formatExcelDate(rawLastProd) : '';
+
+          const rawAvgProd = getExcelRowValue(row, ['Avg Prod/Day', 'Avg. Prod/Day', 'Avg Prod', 'Avg.Prod/Day']);
+          const upAvgProd = rawAvgProd !== '' && rawAvgProd !== undefined && !isNaN(Number(rawAvgProd)) ? Number(rawAvgProd) : undefined;
+
+          const rawExpEnd = getExcelRowValue(row, ['Expected Knit End', 'Exp Knit End', 'Expected End']);
+          const upExpEnd = rawExpEnd ? formatExcelDate(rawExpEnd) : '';
+
+          const rawKnitStartOtd = getExcelRowValue(row, ['Knit Start OTD', 'Start OTD']);
+          const upKnitStartOtd = (rawKnitStartOtd === 'Passed' || rawKnitStartOtd === 'Failed' || rawKnitStartOtd === 'Pending') ? rawKnitStartOtd : undefined;
+
+          const rawKnitEndOtd = getExcelRowValue(row, ['Knit End OTD', 'End OTD']);
+          const upKnitEndOtd = (rawKnitEndOtd === 'Passed' || rawKnitEndOtd === 'Failed' || rawKnitEndOtd === 'Pending') ? rawKnitEndOtd : undefined;
+
+          const upKnitStartRemarks = String(getExcelRowValue(row, ['Knit Start Remarks', 'Start Remarks', 'Start Delay Reason']) || '').trim();
+          const upKnitEndRemarks = String(getExcelRowValue(row, ['Knit End Remarks', 'End Remarks', 'End Delay Reason']) || '').trim();
+          const upTeamLeaders = String(getExcelRowValue(row, ['Knit Team Leader', 'Team Leader', 'Team\nLeader', 'TeamLeader', 'Leader']) || '').trim();
+
+          if (seenKeys.has(primaryKey)) {
+            const prevIdx = seenKeys.get(primaryKey)!;
+            const prev = replacementOrders[prevIdx];
+            replacementOrders[prevIdx] = {
+              ...prev,
+              target: (prev.target || 0) + (upTarget || 0),
+              greyReq: (prev.greyReq || 0) + (upGreyReq || 0),
+              knitPro: (prev.knitPro || 0) + (upKnitPro || 0),
+              knitBal: (prev.knitBal || 0) + (upKnitBal || 0),
+              allocatedQty: (prev.allocatedQty || 0) + (upAllocQty || 0),
+              allocatedBal: (prev.allocatedBal || 0) + (upAllocBal || 0),
+              buyer: prev.buyer || upBuyer,
+              knitStart: prev.knitStart || upKnitStart,
+              knitEnd: prev.knitEnd || upKnitEnd,
+              knitTeamLeaders: prev.knitTeamLeaders || upTeamLeaders,
+              planMonth: prev.planMonth || upPlanMonth
+            };
+            return;
+          }
+
+          const newOrder: OrderPlan = {
+            id: `ord-${ordKey}-${colKey || 'main'}-${Date.now()}-${rowIdx}`,
+            planMonth: upPlanMonth || 'August',
+            planType: upPlanType || 'Confirm',
+            ewo,
+            buyer: upBuyer || '',
+            color: color || '',
+            knitStart: upKnitStart || '',
+            knitEnd: upKnitEnd || '',
+            target: upTarget || 0,
+            targetNextMonth: upTargetNextMonth || 0,
+            allocationStart: upAllocStart || '',
+            allocationEnd: upAllocEnd || '',
+            allocatedQty: upAllocQty || 0,
+            allocatedBal: upAllocBal || 0,
+            greyReq: upGreyReq || 0,
+            knitPro: upKnitPro || 0,
+            knitBal: upKnitBal !== undefined ? upKnitBal : (upGreyReq || 0),
+            aKnitStart: upAKnitStart || '',
+            lastProductionDate: upLastProd || '',
+            avgProdDay: upAvgProd || 0,
+            expectedKnitEnd: upExpEnd || '',
+            knitStartOtd: upKnitStartOtd || 'Pending',
+            knitEndOtd: upKnitEndOtd || 'Pending',
+            knitStartRemarks: upKnitStartRemarks || '',
+            knitEndRemarks: upKnitEndRemarks || '',
+            knitTeamLeaders: upTeamLeaders || ''
+          };
+
+          seenKeys.set(primaryKey, replacementOrders.length);
+          replacementOrders.push(newOrder);
+        });
+
+        setUploadProgressStage(`Purging ${previousCount} old records and persisting ${replacementOrders.length} replacement records...`);
+
+        // OVERWRITE: execute with replace: true to purge and replace
+        await bulkSaveOrderPlans(replacementOrders, true);
+        setOrders(replacementOrders);
+
+        setUploadFeedback({
+          show: true,
+          title: 'Master Database Overwritten (Admin)',
+          message: `The database has been completely replaced with ${replacementOrders.length} records parsed from your uploaded file. All ${previousCount} previous records have been purged.`,
+          mode: 'overwrite',
+          stats: {
+            totalRowsProcessed: allRows.length,
+            matchedOrdersCount: 0,
+            updatedOrdersCount: 0,
+            filledBlanksCount: 0,
+            newOrdersCount: replacementOrders.length,
+            unalteredCount: 0,
+            purgedCount: previousCount
+          }
+        });
+      } catch (err: any) {
+        console.error('Admin overwrite upload error:', err);
+        setUploadFeedback({
+          show: true,
+          title: 'Database Overwrite Failed',
+          message: `Error during database overwrite: ${err.message || String(err)}`,
+          mode: 'overwrite'
+        });
+      } finally {
+        setIsUploading(false);
+        setUploadProgressStage('');
+        setShowAdminOverwriteModal(false);
+        setOverwriteConfirmedCheckbox(false);
+        if (e.target) e.target.value = '';
+      }
+    };
+
+    reader.readAsBinaryString(file);
+  };
+
   // Export to Excel (.xlsx)
   const exportToExcel = () => {
     const headers = [
@@ -1098,7 +1688,64 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Hidden File Inputs */}
+          <input
+            type="file"
+            ref={uploadInputRef}
+            onChange={handleSmartFileUpload}
+            accept=".xlsx, .xls, .csv"
+            className="hidden"
+            id="plan-order-excel-file-input"
+          />
+
+          <input
+            type="file"
+            ref={overwriteInputRef}
+            onChange={handleAdminOverwriteUpload}
+            accept=".xlsx, .xls, .csv"
+            className="hidden"
+            id="plan-order-admin-overwrite-input"
+          />
+
+          {/* Smart Upload Button (Non-destructive Merge & Blank Fill) */}
+          <button
+            onClick={() => uploadInputRef.current?.click()}
+            disabled={isUploading}
+            className="flex items-center gap-2 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/70 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-3.5 py-2 text-xs font-bold transition-all cursor-pointer shadow-xs disabled:opacity-60"
+            title="Upload Excel to smartly update values and fill blank cells by matching Order Number and Color"
+            id="smart-upload-order-btn"
+          >
+            <Upload className={`h-4 w-4 text-blue-600 dark:text-blue-400 ${isUploading ? 'animate-bounce' : ''}`} />
+            <span>{isUploading ? (uploadProgressStage || 'Updating...') : 'Upload Excel'}</span>
+          </button>
+
+          {/* Admin Full Database Overwrite Button (Only accessible to Admins) */}
+          {isAdmin ? (
+            <button
+              onClick={() => {
+                setOverwriteConfirmedCheckbox(false);
+                setShowAdminOverwriteModal(true);
+              }}
+              disabled={isUploading}
+              className="flex items-center gap-2 rounded-xl border border-rose-300 dark:border-rose-900 bg-rose-50/90 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 px-3.5 py-2 text-xs font-bold transition-all cursor-pointer shadow-xs disabled:opacity-60"
+              title="Admin privilege: completely replace the entire database with an uploaded Excel spreadsheet"
+              id="admin-overwrite-database-btn"
+            >
+              <ShieldAlert className="h-4 w-4 text-rose-600 dark:text-rose-400" />
+              <span>Overwrite DB (Admin)</span>
+            </button>
+          ) : (
+            <button
+              disabled
+              className="flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100/60 dark:bg-slate-800/40 text-slate-400 px-3 py-2 text-xs font-bold cursor-not-allowed opacity-60"
+              title="Database overwrite is restricted to Admin accounts only"
+            >
+              <Lock className="h-3.5 w-3.5 text-slate-400" />
+              <span>Overwrite DB</span>
+            </button>
+          )}
+
           <button
             onClick={() => loadOrders(true)}
             disabled={isSyncing}
@@ -1961,6 +2608,17 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                 onToggleFreeze={toggleFreeze}
                 onSetFreezeCount={setFreezeCount}
               />
+
+              <button
+                type="button"
+                onClick={() => uploadInputRef.current?.click()}
+                disabled={isUploading}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-blue-700 dark:text-blue-300 bg-blue-50/70 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800 transition-all cursor-pointer shadow-2xs w-full sm:w-auto disabled:opacity-60"
+                title="Upload Excel to update data & fill blanks"
+              >
+                <Upload className={`h-3.5 w-3.5 text-blue-600 dark:text-blue-400 ${isUploading ? 'animate-bounce' : ''}`} />
+                <span>{isUploading ? 'Updating...' : 'Upload Excel'}</span>
+              </button>
 
               {(searchQuery !== '' || buyerFilter !== 'All' || teamLeaderFilter !== 'All' || planMonthFilter !== 'All' || knitStartSelect !== 'All' || knitEndSelect !== 'All' || otdFilter !== 'All') && (
                 <button
@@ -2941,6 +3599,217 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ADMIN FULL DATABASE OVERWRITE CONFIRMATION MODAL */}
+      {showAdminOverwriteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-4 animate-fade-in">
+          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border-2 border-rose-500/50 dark:border-rose-500/40 shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between border-b border-rose-100 dark:border-rose-950/60 px-6 py-4 bg-rose-50/80 dark:bg-rose-950/40">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-rose-100 dark:bg-rose-900/60 flex items-center justify-center text-rose-600 dark:text-rose-400">
+                  <ShieldAlert className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-rose-950 dark:text-rose-100 flex items-center gap-1.5">
+                    <span>Admin Database Overwrite</span>
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-rose-200 dark:bg-rose-900 text-rose-800 dark:text-rose-200">
+                      Restricted
+                    </span>
+                  </h3>
+                  <p className="text-xs text-rose-600 dark:text-rose-400 font-semibold">Master database replacement operation</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowAdminOverwriteModal(false);
+                  setOverwriteConfirmedCheckbox(false);
+                }}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-900/60 flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div className="text-xs text-amber-900 dark:text-amber-200 leading-relaxed font-medium">
+                  <strong className="font-bold">Permanent Replacement:</strong> This operation will purge all <strong className="underline">{orders.length} current orders</strong> in the database and fully replace them with the spreadsheet records. Unlike normal upload, this does <strong className="underline">not</strong> merge.
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-3.5 space-y-2 text-xs text-slate-600 dark:text-slate-300">
+                <div className="flex items-center justify-between font-bold">
+                  <span>Current Database Orders:</span>
+                  <span className="font-mono font-black text-slate-900 dark:text-white">{orders.length.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between font-bold">
+                  <span>Authorized User:</span>
+                  <span className="font-mono text-emerald-600 dark:text-emerald-400">Admin Privileges Active</span>
+                </div>
+              </div>
+
+              <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  checked={overwriteConfirmedCheckbox}
+                  onChange={(e) => setOverwriteConfirmedCheckbox(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                />
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 select-none">
+                  I understand that this action will permanently purge existing orders and replace the database with the uploaded file.
+                </span>
+              </label>
+
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAdminOverwriteModal(false);
+                    setOverwriteConfirmedCheckbox(false);
+                  }}
+                  className="rounded-xl px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!overwriteConfirmedCheckbox || isUploading}
+                  onClick={() => {
+                    overwriteInputRef.current?.click();
+                  }}
+                  className="rounded-xl bg-rose-600 hover:bg-rose-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white disabled:text-slate-500 px-5 py-2 text-xs font-bold shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
+                >
+                  <Database className="h-4 w-4" />
+                  <span>Select File & Overwrite Database</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SMART UPLOAD / OVERWRITE FEEDBACK MODAL */}
+      {uploadFeedback?.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fade-in">
+          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+            <div className={`flex items-center justify-between border-b px-6 py-4 ${
+              uploadFeedback.mode === 'overwrite'
+                ? 'border-rose-100 dark:border-rose-950/60 bg-rose-50/50 dark:bg-rose-950/30'
+                : 'border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30'
+            }`}>
+              <div className="flex items-center gap-2.5">
+                <div className={`h-8 w-8 rounded-xl flex items-center justify-center ${
+                  uploadFeedback.mode === 'overwrite'
+                    ? 'bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-400'
+                    : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400'
+                }`}>
+                  {uploadFeedback.mode === 'overwrite' ? (
+                    <ShieldCheck className="h-5 w-5" />
+                  ) : (
+                    <CheckCircle2 className="h-5 w-5" />
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                    {uploadFeedback.title}
+                  </h3>
+                  {uploadFeedback.mode === 'overwrite' && (
+                    <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider">
+                      Master Overwrite Mode
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button 
+                onClick={() => setUploadFeedback(null)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 leading-relaxed">
+                {uploadFeedback.message}
+              </p>
+
+              {uploadFeedback.stats && (
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Rows Processed</span>
+                    <p className="text-lg font-black text-slate-900 dark:text-white mt-0.5">
+                      {uploadFeedback.stats.totalRowsProcessed.toLocaleString()}
+                    </p>
+                  </div>
+
+                  {uploadFeedback.mode === 'overwrite' ? (
+                    <>
+                      <div className="p-3 rounded-xl bg-rose-50/60 dark:bg-rose-950/30 border border-rose-200/60 dark:border-rose-900/40">
+                        <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider">Previous Records Purged</span>
+                        <p className="text-lg font-black text-rose-700 dark:text-rose-300 mt-0.5">
+                          {(uploadFeedback.stats.purgedCount ?? 0).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-900/40 col-span-2">
+                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Active Replacement Orders in Database</span>
+                        <p className="text-lg font-black text-emerald-700 dark:text-emerald-300 mt-0.5">
+                          {uploadFeedback.stats.newOrdersCount.toLocaleString()}
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="p-3 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-900/40">
+                        <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Matched Orders</span>
+                        <p className="text-lg font-black text-blue-700 dark:text-blue-300 mt-0.5">
+                          {uploadFeedback.stats.matchedOrdersCount.toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="p-3 rounded-xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200/60 dark:border-indigo-900/40">
+                        <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Updated with New Data</span>
+                        <p className="text-lg font-black text-indigo-700 dark:text-indigo-300 mt-0.5">
+                          {uploadFeedback.stats.updatedOrdersCount.toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-900/40">
+                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Blank Cells Filled</span>
+                        <p className="text-lg font-black text-emerald-700 dark:text-emerald-300 mt-0.5">
+                          {uploadFeedback.stats.filledBlanksCount.toLocaleString()}
+                        </p>
+                      </div>
+                      {uploadFeedback.stats.newOrdersCount > 0 && (
+                        <div className="p-3 rounded-xl bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-900/40">
+                          <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider">New Orders Added</span>
+                          <p className="text-lg font-black text-purple-700 dark:text-purple-300 mt-0.5">
+                            {uploadFeedback.stats.newOrdersCount.toLocaleString()}
+                          </p>
+                        </div>
+                      )}
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Preserved Intact</span>
+                        <p className="text-lg font-black text-slate-700 dark:text-slate-300 mt-0.5">
+                          {uploadFeedback.stats.unalteredCount.toLocaleString()}
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setUploadFeedback(null)}
+                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 text-xs font-bold shadow-md transition-all cursor-pointer"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

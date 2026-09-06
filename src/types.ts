@@ -224,5 +224,42 @@ export interface YarnAllocationRecord extends SyncMetadata {
   remarks: string;
 }
 
+export interface KnittingStatusItem {
+  id: string;
+  color: string;
+  mcType: string;         // M/C Type
+  fabType: string;        // Fab. Type
+  fgsm: number | string;  // FGSM
+  fWidth: string;         // F. Width
+  yarnCount: string;      // Yarn Count
+  gaugeDia: string;       // Gauge & Dia
+  knitStartDate: string;  // Knit Start Date
+  knitEndDate: string;    // Knit End Date
+  reqQty: number;         // Req. Qty
+  greyQty: number;        // Grey Qty
+  production: number;     // Production
+  hold: number;           // Hold
+  reject: number;         // Reject
+  itmQty: number;         // ITM QTY
+  knitBalance: number;    // Knit Balance
+  productionUnit: string; // Production Unit
+  avgProdPerDay: number;  // Avg. Prod/Day
+}
+
+export interface KnittingStatusOrder extends SyncMetadata {
+  id: string;
+  orderNo: string;
+  buyerName: string;
+  teamLeader: string;
+  knitStartDate: string;
+  knitEndDate: string;
+  reqQty: number;
+  greyQty: number;
+  production: number;
+  knitBalance: number;
+  items: KnittingStatusItem[];
+  remarks?: string;
+}
+
 
 

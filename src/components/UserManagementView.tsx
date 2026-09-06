@@ -76,6 +76,7 @@ export const ALL_TABS = [
   'Team Leader OTD Status',
   'Buyerwise OTD Status',
   'Orderwise OTD Status',
+  'Knitting Status',
   'Buyer Plan vs Actual',
   'Yarn Allocation',
   'Delivery Schedule',
@@ -95,6 +96,7 @@ export const getTabEmoji = (tabName: string): string => {
     case 'Team Leader OTD Status': return '👥';
     case 'Buyerwise OTD Status': return '🏢';
     case 'Orderwise OTD Status': return '📄';
+    case 'Knitting Status': return '🧵';
     case 'Buyer Plan vs Actual': return '🛍️';
     case 'Yarn Allocation': return '🧶';
     case 'Delivery Schedule': return '🚚';
@@ -1966,6 +1968,7 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
                             case 'Management Dashboard': return '📈';
                             case 'Reports': return '📈';
                             case 'Plan Order Followup': return '📋';
+                            case 'Knitting Status': return '🧵';
                             case 'Buyer Plan vs Actual': return '🛍️';
                             case 'Yarn Allocation': return '🧶';
                             case 'Delivery Schedule': return '🚚';

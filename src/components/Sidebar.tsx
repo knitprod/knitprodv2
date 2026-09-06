@@ -26,7 +26,8 @@ import {
   Building2,
   FileSpreadsheet,
   ShieldCheck,
-  Database
+  Database,
+  Activity
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
 
@@ -61,6 +62,7 @@ export default function Sidebar({
     'Team Leader OTD Status',
     'Buyerwise OTD Status',
     'Orderwise OTD Status',
+    'Knitting Status',
     'Buyer Plan vs Actual',
     'Yarn Allocation',
     'Delivery Schedule'
@@ -91,8 +93,8 @@ export default function Sidebar({
     if (currentUser?.allowedTabs && currentUser.allowedTabs.length > 0) {
       if (currentUser.allowedTabs.includes(tabName)) return true;
       if (
-        ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order Plan & Status', 'Plan Order Followup'].includes(tabName) &&
-        (currentUser.allowedTabs.includes('Plan Order Followup') || currentUser.allowedTabs.includes('Order Plan & Status'))
+        ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order Plan & Status', 'Plan Order Followup', 'Knitting Status'].includes(tabName) &&
+        (currentUser.allowedTabs.includes('Plan Order Followup') || currentUser.allowedTabs.includes('Order Plan & Status') || currentUser.allowedTabs.includes('Knitting Status'))
       ) {
         return true;
       }
@@ -300,6 +302,7 @@ export default function Sidebar({
 
                   {/* Other Plan Order Followup Items */}
                   {[
+                    { name: 'Knitting Status', icon: Activity, label: 'Knitting Status' },
                     { name: 'Buyer Plan vs Actual', icon: Target, label: 'Buyer Plan vs Actual' },
                     { name: 'Yarn Allocation', icon: Layers, label: 'Yarn Allocation' },
                     { name: 'Delivery Schedule', icon: CalendarCheck, label: 'Delivery Schedule' },

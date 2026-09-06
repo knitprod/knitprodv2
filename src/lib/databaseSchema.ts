@@ -171,6 +171,101 @@ CREATE TABLE IF NOT EXISTS public.activity_logs (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 7. YARN ALLOCATIONS & INVENTORY
+CREATE TABLE IF NOT EXISTS public.yarn_allocations (
+  id TEXT PRIMARY KEY,
+  order_number TEXT,
+  buyer TEXT,
+  order_qty NUMERIC DEFAULT 0,
+  item TEXT,
+  fabrication TEXT,
+  fabric_shade TEXT,
+  fabric_gsm TEXT,
+  yarn_required TEXT,
+  lot_ref TEXT,
+  allocated_yarn TEXT,
+  lot_no TEXT,
+  spinners_name TEXT,
+  allocation_status TEXT,
+  yarn_stock_status TEXT,
+  yarn_delivery_status TEXT,
+  proposed_allocation_date TEXT,
+  allocation_date_range TEXT,
+  allocation_no TEXT,
+  yarn_rq_qty NUMERIC DEFAULT 0,
+  allocated_qty NUMERIC DEFAULT 0,
+  balance NUMERIC DEFAULT 0,
+  remarks TEXT,
+  updated_by TEXT,
+  raw_data JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_yarn_allocations_order_number ON public.yarn_allocations(order_number);
+CREATE INDEX IF NOT EXISTS idx_yarn_allocations_buyer ON public.yarn_allocations(buyer);
+
+-- 8. ORDER PLANS & STATUS (PLAN ORDER FOLLOWUP)
+CREATE TABLE IF NOT EXISTS public.order_plans (
+  id TEXT PRIMARY KEY,
+  plan_month TEXT,
+  plan_type TEXT,
+  ewo TEXT,
+  buyer TEXT,
+  color TEXT,
+  knit_start TEXT,
+  knit_end TEXT,
+  target NUMERIC DEFAULT 0,
+  target_next_month NUMERIC DEFAULT 0,
+  allocation_start TEXT,
+  allocation_end TEXT,
+  allocated_qty NUMERIC DEFAULT 0,
+  allocated_bal NUMERIC DEFAULT 0,
+  grey_req NUMERIC DEFAULT 0,
+  knit_pro NUMERIC DEFAULT 0,
+  knit_bal NUMERIC DEFAULT 0,
+  a_knit_start TEXT,
+  last_production_date TEXT,
+  avg_prod_day NUMERIC DEFAULT 0,
+  expected_knit_end TEXT,
+  knit_start_otd TEXT DEFAULT 'Pending',
+  knit_end_otd TEXT DEFAULT 'Pending',
+  knit_start_remarks TEXT,
+  knit_end_remarks TEXT,
+  knit_team_leaders TEXT,
+  updated_by TEXT,
+  raw_data JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_plans_ewo ON public.order_plans(ewo);
+CREATE INDEX IF NOT EXISTS idx_order_plans_buyer ON public.order_plans(buyer);
+CREATE INDEX IF NOT EXISTS idx_order_plans_plan_month ON public.order_plans(plan_month);
+CREATE INDEX IF NOT EXISTS idx_order_plans_team_leaders ON public.order_plans(knit_team_leaders);
+
+-- 9. KNITTING ORDERS & FABRICS (LAYERED STATUS)
+CREATE TABLE IF NOT EXISTS public.knitting_orders (
+  id TEXT PRIMARY KEY,
+  order_no TEXT,
+  buyer_name TEXT,
+  team_leader TEXT,
+  knit_start_date TEXT,
+  knit_end_date TEXT,
+  req_qty NUMERIC DEFAULT 0,
+  grey_qty NUMERIC DEFAULT 0,
+  production NUMERIC DEFAULT 0,
+  knit_balance NUMERIC DEFAULT 0,
+  items JSONB DEFAULT '[]'::jsonb,
+  remarks TEXT,
+  raw_data JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_knitting_orders_order_no ON public.knitting_orders(order_no);
+CREATE INDEX IF NOT EXISTS idx_knitting_orders_buyer_name ON public.knitting_orders(buyer_name);
+
 -- Row Level Security (RLS) Configuration
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.factory_units ENABLE ROW LEVEL SECURITY;
@@ -178,6 +273,9 @@ ALTER TABLE public.buyers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.production_ledger ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.yarn_allocations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.order_plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.knitting_orders ENABLE ROW LEVEL SECURITY;
 
 -- Allow public access for anon client API key
 DROP POLICY IF EXISTS "Allow public full access to users" ON public.users;
@@ -186,6 +284,9 @@ DROP POLICY IF EXISTS "Allow public full access to buyers" ON public.buyers;
 DROP POLICY IF EXISTS "Allow public full access to system_settings" ON public.system_settings;
 DROP POLICY IF EXISTS "Allow public full access to production_ledger" ON public.production_ledger;
 DROP POLICY IF EXISTS "Allow public full access to activity_logs" ON public.activity_logs;
+DROP POLICY IF EXISTS "Allow public full access to yarn_allocations" ON public.yarn_allocations;
+DROP POLICY IF EXISTS "Allow public full access to order_plans" ON public.order_plans;
+DROP POLICY IF EXISTS "Allow public full access to knitting_orders" ON public.knitting_orders;
 
 CREATE POLICY "Allow public full access to users" ON public.users FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public full access to factory_units" ON public.factory_units FOR ALL USING (true) WITH CHECK (true);
@@ -193,8 +294,11 @@ CREATE POLICY "Allow public full access to buyers" ON public.buyers FOR ALL USIN
 CREATE POLICY "Allow public full access to system_settings" ON public.system_settings FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public full access to production_ledger" ON public.production_ledger FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public full access to activity_logs" ON public.activity_logs FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public full access to yarn_allocations" ON public.yarn_allocations FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public full access to order_plans" ON public.order_plans FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public full access to knitting_orders" ON public.knitting_orders FOR ALL USING (true) WITH CHECK (true);
 
--- Enable Real-Time Broadcast for Production Ledger
+-- Enable Real-Time Broadcast for Tables
 DO $$ 
 BEGIN 
   IF NOT EXISTS (
@@ -204,6 +308,30 @@ BEGIN
     AND tablename = 'production_ledger'
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.production_ledger;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+    AND schemaname = 'public' 
+    AND tablename = 'yarn_allocations'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.yarn_allocations;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+    AND schemaname = 'public' 
+    AND tablename = 'order_plans'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.order_plans;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+    AND schemaname = 'public' 
+    AND tablename = 'knitting_orders'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.knitting_orders;
   END IF;
 EXCEPTION WHEN OTHERS THEN 
   NULL;
