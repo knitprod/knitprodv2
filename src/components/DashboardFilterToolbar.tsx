@@ -249,7 +249,7 @@ export default function DashboardFilterToolbar({
             value={dateFrom}
             onChange={(val) => setDateFrom(val)}
             allowedDates={availableLedgerDates}
-            maxDate={dateTo || maxAvailableDate}
+            maxDate={dateTo || undefined}
             placeholder="Select From Date"
           />
         </div>
@@ -265,8 +265,8 @@ export default function DashboardFilterToolbar({
             value={dateTo}
             onChange={(val) => setDateTo(val)}
             allowedDates={availableLedgerDates}
-            minDate={dateFrom || minAvailableDate}
-            maxDate={maxAvailableDate}
+            minDate={dateFrom || undefined}
+            align="right"
             placeholder="Select To Date"
           />
         </div>

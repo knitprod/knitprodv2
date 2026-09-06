@@ -713,8 +713,8 @@ export default function OtherSparePartsLedgerDrawer({
                       setCurrentPage(1);
                     }}
                     allowedDates={availableDates}
-                    minDate={localDateFrom || minAvailableDate}
-                    maxDate={maxAvailableDate}
+                    minDate={localDateFrom || undefined}
+                    align="right"
                     placeholder="Select To Date"
                   />
                 </div>

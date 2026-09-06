@@ -1262,27 +1262,11 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   const maxAvailableDate = availableLedgerDates[availableLedgerDates.length - 1] || '';
 
   const handleFromDateChange = (val: string) => {
-    if (!val) {
-      setFilterFromDate('');
-      return;
-    }
-    if (availableLedgerDates.length > 0 && !availableLedgerDates.includes(val)) {
-      triggerToast(`Date "${val}" is not entered in the Ledger. Please select an entered date (${availableLedgerDates.map(formatSingleDate).join(', ')}).`);
-      return;
-    }
-    setFilterFromDate(val);
+    setFilterFromDate(val || '');
   };
 
   const handleToDateChange = (val: string) => {
-    if (!val) {
-      setFilterToDate('');
-      return;
-    }
-    if (availableLedgerDates.length > 0 && !availableLedgerDates.includes(val)) {
-      triggerToast(`Date "${val}" is not entered in the Ledger. Please select an entered date (${availableLedgerDates.map(formatSingleDate).join(', ')}).`);
-      return;
-    }
-    setFilterToDate(val);
+    setFilterToDate(val || '');
   };
 
   // Grid/UI states
@@ -2416,14 +2400,6 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   // HANDLERS: FILTER ACTIONS
   // ----------------------------------------------------
   const handleApplyFilters = () => {
-    if (filterFromDate && availableLedgerDates.length > 0 && !availableLedgerDates.includes(filterFromDate)) {
-      triggerToast(`From Date "${filterFromDate}" is not entered in the Ledger.`);
-      return;
-    }
-    if (filterToDate && availableLedgerDates.length > 0 && !availableLedgerDates.includes(filterToDate)) {
-      triggerToast(`To Date "${filterToDate}" is not entered in the Ledger.`);
-      return;
-    }
     if (filterFromDate && filterToDate && filterFromDate > filterToDate) {
       triggerToast("From Date cannot be later than To Date.");
       return;
@@ -3315,8 +3291,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
               value={filterFromDate}
               onChange={handleFromDateChange}
               allowedDates={availableLedgerDates}
-              minDate={minAvailableDate}
-              maxDate={maxAvailableDate}
+              maxDate={filterToDate || undefined}
               placeholder="Select From Date"
             />
           </div>
@@ -3329,8 +3304,8 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
               value={filterToDate}
               onChange={handleToDateChange}
               allowedDates={availableLedgerDates}
-              minDate={filterFromDate || minAvailableDate}
-              maxDate={maxAvailableDate}
+              minDate={filterFromDate || undefined}
+              align="right"
               placeholder="Select To Date"
             />
           </div>
