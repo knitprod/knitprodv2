@@ -6,6 +6,7 @@
  */
 
 import { KnittingStatusOrder, KnittingStatusItem, OrderPlan } from '../types';
+import * as XLSX from 'xlsx';
 
 export type KnittingCondition = 'Pending' | 'Running' | 'Complete';
 
@@ -18,16 +19,21 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 
 export function formatDateDisplay(date: Date): string {
   if (!date || isNaN(date.getTime())) return '';
-  // Check if date was created at UTC midnight (which is what XLSX.read cellDates: true outputs,
-  // or epoch timestamp Math.round((num - 25569) * 86400 * 1000)).
-  // In timezones with negative UTC offset (e.g. UTC-7), calling date.getDate() on UTC midnight
-  // shifts the day backwards by 1 (e.g. 6 Sept 00:00:00 UTC becomes 5 Sept 17:00:00 local time).
-  const isUtcMidnight = (date.getUTCHours() === 0 && date.getUTCMinutes() === 0 && date.getUTCSeconds() === 0) ||
-                        (date.getHours() === 0 && date.getMinutes() === 0 && date.getSeconds() === 0);
-  const d = String(isUtcMidnight ? date.getUTCDate() : date.getDate()).padStart(2, '0');
-  const m = MONTH_NAMES[isUtcMidnight ? date.getUTCMonth() : date.getMonth()];
-  const y = isUtcMidnight ? date.getUTCFullYear() : date.getFullYear();
-  return `${d}-${m}-${y}`;
+
+  // 1. If created at local midnight (00:00:00), use local date components:
+  const isLocalMidnight = date.getHours() === 0 && date.getMinutes() === 0 && date.getSeconds() === 0;
+  if (isLocalMidnight) {
+    return `${String(date.getDate()).padStart(2, '0')}-${MONTH_NAMES[date.getMonth()]}-${date.getFullYear()}`;
+  }
+
+  // 2. If created at UTC midnight (00:00:00 UTC), use UTC date components:
+  const isUtcMidnight = date.getUTCHours() === 0 && date.getUTCMinutes() === 0 && date.getUTCSeconds() === 0;
+  if (isUtcMidnight) {
+    return `${String(date.getUTCDate()).padStart(2, '0')}-${MONTH_NAMES[date.getUTCMonth()]}-${date.getUTCFullYear()}`;
+  }
+
+  // 3. Fallback: use local date components
+  return `${String(date.getDate()).padStart(2, '0')}-${MONTH_NAMES[date.getMonth()]}-${date.getFullYear()}`;
 }
 
 /**
@@ -42,6 +48,18 @@ export function formatExcelDate(value: any): string {
   }
   if (typeof value === 'number') {
     if (value > 1000 && value < 100000) {
+      try {
+        const dateObj = XLSX.SSF.parse_date_code(value);
+        if (dateObj && dateObj.y && dateObj.m && dateObj.d) {
+          const yr = dateObj.y < 100 ? 2000 + dateObj.y : dateObj.y;
+          const mIdx = dateObj.m - 1;
+          if (mIdx >= 0 && mIdx < 12) {
+            return `${String(dateObj.d).padStart(2, '0')}-${MONTH_NAMES[mIdx]}-${yr}`;
+          }
+        }
+      } catch {
+        // fallback to JS Date below
+      }
       const date = new Date(Math.round((value - 25569) * 86400 * 1000));
       if (!isNaN(date.getTime())) {
         return formatDateDisplay(date);
@@ -54,18 +72,41 @@ export function formatExcelDate(value: any): string {
 
   if (/^\d{5}$/.test(s)) {
     const num = Number(s);
+    try {
+      const dateObj = XLSX.SSF.parse_date_code(num);
+      if (dateObj && dateObj.y && dateObj.m && dateObj.d) {
+        const yr = dateObj.y < 100 ? 2000 + dateObj.y : dateObj.y;
+        const mIdx = dateObj.m - 1;
+        if (mIdx >= 0 && mIdx < 12) {
+          return `${String(dateObj.d).padStart(2, '0')}-${MONTH_NAMES[mIdx]}-${yr}`;
+        }
+      }
+    } catch {
+      // fallback
+    }
     const date = new Date(Math.round((num - 25569) * 86400 * 1000));
     if (!isNaN(date.getTime())) {
       return formatDateDisplay(date);
     }
   }
 
-  // 1) Match DD-MMM-YYYY or DD MMM YYYY or D-MMM-YYYY or DD-Month-YYYY (e.g. 6 Sept 2026, 6-Sep-2026, 06-September-2026, 6-Sep-26)
-  const dmyAlpha = s.match(/^(\d{1,2})[-/\s]([A-Za-z]{3,12})[-/\s](\d{2,4})$/);
+  // 1) Match ISO style string (e.g. 2026-07-06T00:00:00.000Z or 2026-07-06 or 2026/07/06)
+  const isoMatch = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (isoMatch) {
+    const y = parseInt(isoMatch[1], 10);
+    const m = parseInt(isoMatch[2], 10) - 1;
+    const d = parseInt(isoMatch[3], 10);
+    if (m >= 0 && m < 12) {
+      return `${String(d).padStart(2, '0')}-${MONTH_NAMES[m]}-${y}`;
+    }
+  }
+
+  // 2) Match DD-MMM-YYYY or DD MMM YYYY or D-MMM-YYYY or DD-Month-YYYY or "6 July" / "7 Sep" (optional year)
+  const dmyAlpha = s.match(/^(\d{1,2})[-/\s]([A-Za-z]{3,12})(?:[-/\s](\d{2,4}))?$/);
   if (dmyAlpha) {
     const day = parseInt(dmyAlpha[1], 10);
     const monStr = dmyAlpha[2].toLowerCase();
-    let year = parseInt(dmyAlpha[3], 10);
+    let year = dmyAlpha[3] ? parseInt(dmyAlpha[3], 10) : new Date().getFullYear();
     if (year < 100) year += 2000;
     const mIdx = MONTH_MAP[monStr] !== undefined ? MONTH_MAP[monStr] : MONTH_MAP[monStr.slice(0, 3)];
     if (mIdx !== undefined && mIdx >= 0 && mIdx < 12) {
@@ -73,18 +114,20 @@ export function formatExcelDate(value: any): string {
     }
   }
 
-  // 2) Match YYYY-MM-DD or YYYY/MM/DD (ISO style, e.g. 2026-09-06)
-  const ymdNum = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
-  if (ymdNum) {
-    const y = parseInt(ymdNum[1], 10);
-    const m = parseInt(ymdNum[2], 10) - 1;
-    const d = parseInt(ymdNum[3], 10);
-    if (m >= 0 && m < 12) {
-      return `${String(d).padStart(2, '0')}-${MONTH_NAMES[m]}-${y}`;
+  // 3) Match Month-DD-YYYY or Month DD (e.g. July 6, July 6 2026, Sep 7 2026)
+  const mdyAlpha = s.match(/^([A-Za-z]{3,12})[-/\s](\d{1,2})(?:[-/,\s]+(\d{2,4}))?$/);
+  if (mdyAlpha) {
+    const monStr = mdyAlpha[1].toLowerCase();
+    const day = parseInt(mdyAlpha[2], 10);
+    let year = mdyAlpha[3] ? parseInt(mdyAlpha[3], 10) : new Date().getFullYear();
+    if (year < 100) year += 2000;
+    const mIdx = MONTH_MAP[monStr] !== undefined ? MONTH_MAP[monStr] : MONTH_MAP[monStr.slice(0, 3)];
+    if (mIdx !== undefined && mIdx >= 0 && mIdx < 12) {
+      return `${String(day).padStart(2, '0')}-${MONTH_NAMES[mIdx]}-${year}`;
     }
   }
 
-  // 3) Match DD/MM/YYYY or DD-MM-YYYY (e.g. 06/09/2026 or 6/9/2026)
+  // 4) Match DD/MM/YYYY or DD-MM-YYYY (e.g. 06/09/2026 or 6/9/2026)
   const dmyNum = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
   if (dmyNum) {
     const d = parseInt(dmyNum[1], 10);
@@ -96,7 +139,7 @@ export function formatExcelDate(value: any): string {
     }
   }
 
-  // 4) Try Date.parse if it looks like a standard date string (e.g. "Sun Sep 06 2026")
+  // 5) Try Date.parse if it looks like a standard date string (e.g. "Sun Sep 06 2026")
   const parsed = Date.parse(s);
   if (!isNaN(parsed) && !/^\d+$/.test(s)) {
     const date = new Date(parsed);

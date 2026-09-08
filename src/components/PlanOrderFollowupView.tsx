@@ -22,6 +22,7 @@ import {
   Plus, 
   Download, 
   Upload,
+  UploadCloud,
   CheckCircle2, 
   Clock, 
   AlertTriangle, 
@@ -69,7 +70,7 @@ import {
 export const getYesterdayDateString = (): string => {
   const d = new Date();
   d.setDate(d.getDate() - 1);
-  return formatDisplayDate(d.toISOString());
+  return formatDisplayDate(d);
 };
 
 export function isSameDateStr(d1: string | null | undefined, d2: string | null | undefined): boolean {
@@ -145,11 +146,18 @@ function parseDateString(dateStr: string | undefined | null): Date | null {
   const str = dateStr.toString().trim();
   if (!str || str === '-' || str === 'Pending') return null;
 
-  // Try standard Date parsing
-  const d = new Date(str);
-  if (!isNaN(d.getTime())) return d;
+  // 1) Try parsing ISO "YYYY-MM-DD" or "YYYY/MM/DD"
+  const isoMatch = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (isoMatch) {
+    const y = parseInt(isoMatch[1], 10);
+    const m = parseInt(isoMatch[2], 10) - 1;
+    const d = parseInt(isoMatch[3], 10);
+    if (m >= 0 && m < 12 && !isNaN(d) && !isNaN(y)) {
+      return new Date(y, m, d);
+    }
+  }
 
-  // Try parsing "27-Jun-26" or "27-Jun-2026"
+  // 2) Try parsing "27-Jun-26" or "27-Jun-2026" or "06-September-2026"
   const parts = str.split(/[-/ ]/);
   if (parts.length === 3) {
     let day = parseInt(parts[0], 10);
@@ -173,6 +181,10 @@ function parseDateString(dateStr: string | undefined | null): Date | null {
       return new Date(year, month, day);
     }
   }
+
+  // 3) Fallback to standard Date parsing
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) return d;
 
   return null;
 }
@@ -203,176 +215,7 @@ function calculateDateVariance(plannedStr: string, actualStr: string) {
   }
 }
 
-const INITIAL_ORDERS: OrderPlan[] = [
-  {
-    id: 'ord-aug-12-1',
-    planMonth: 'August',
-    planType: 'Confirm',
-    ewo: '271890',
-    buyer: 'Vogue Sourcin',
-    color: 'Navy Blue',
-    knitStart: '12-August-2026',
-    knitEnd: '25-August-2026',
-    target: 1500,
-    targetNextMonth: 0,
-    allocationStart: '01-August-2026',
-    allocationEnd: '10-August-2026',
-    allocatedQty: 1600,
-    allocatedBal: 0,
-    greyReq: 1550,
-    knitPro: 450,
-    knitBal: 1050,
-    aKnitStart: '12-August-2026',
-    lastProductionDate: '12-August-2026',
-    avgProdDay: 150,
-    expectedKnitEnd: '22-August-2026',
-    knitStartOtd: 'Passed',
-    knitEndOtd: 'Pending',
-    knitStartRemarks: 'On time start',
-    knitEndRemarks: '',
-    knitTeamLeaders: ''
-  },
-  {
-    id: 'ord-aug-12-2',
-    planMonth: 'August',
-    planType: 'Confirm',
-    ewo: '271891',
-    buyer: 'S.Oliver',
-    color: 'Olive Green',
-    knitStart: '12-August-2026',
-    knitEnd: '28-August-2026',
-    target: 2400,
-    targetNextMonth: 0,
-    allocationStart: '02-August-2026',
-    allocationEnd: '11-August-2026',
-    allocatedQty: 2500,
-    allocatedBal: 0,
-    greyReq: 2450,
-    knitPro: 800,
-    knitBal: 1600,
-    aKnitStart: '12-August-2026',
-    lastProductionDate: '12-August-2026',
-    avgProdDay: 200,
-    expectedKnitEnd: '26-August-2026',
-    knitStartOtd: 'Passed',
-    knitEndOtd: 'Pending',
-    knitStartRemarks: 'On time start',
-    knitEndRemarks: '',
-    knitTeamLeaders: ''
-  },
-  {
-    id: 'ord-270258-1',
-    planMonth: 'July',
-    planType: 'Confirm',
-    ewo: '270258',
-    buyer: 'Vogue Sourcin',
-    color: 'Mid Blue',
-    knitStart: '27-Jun-26',
-    knitEnd: '15-Jul-26',
-    target: 314,
-    targetNextMonth: 0,
-    allocationStart: '5-May-26',
-    allocationEnd: '5-May-26',
-    allocatedQty: 336,
-    allocatedBal: 0,
-    greyReq: 334,
-    knitPro: 20,
-    knitBal: 314,
-    aKnitStart: '22-Jun-26',
-    lastProductionDate: '15-Jul-26',
-    avgProdDay: 5,
-    expectedKnitEnd: '23-Sep-26',
-    knitStartOtd: 'Passed',
-    knitEndOtd: 'Passed',
-    knitStartRemarks: '',
-    knitEndRemarks: '',
-    knitTeamLeaders: ''
-  },
-  {
-    id: 'ord-270258-2',
-    planMonth: 'July',
-    planType: 'Confirm',
-    ewo: '270258',
-    buyer: 'Vogue Sourcin',
-    color: 'Blue Marl',
-    knitStart: '27-Jun-26',
-    knitEnd: '15-Jul-26',
-    target: 3866,
-    targetNextMonth: 0,
-    allocationStart: '7-May-26',
-    allocationEnd: '15-Jul-26',
-    allocatedQty: 6253,
-    allocatedBal: 2,
-    greyReq: 5787,
-    knitPro: 3106,
-    knitBal: 2681,
-    aKnitStart: '29-Jun-26',
-    lastProductionDate: '21-Jul-26',
-    avgProdDay: 80,
-    expectedKnitEnd: '25-Aug-26',
-    knitStartOtd: 'Failed',
-    knitEndOtd: 'Failed',
-    knitStartRemarks: '',
-    knitEndRemarks: '',
-    knitTeamLeaders: ''
-  },
-  {
-    id: 'ord-270418',
-    planMonth: 'July',
-    planType: 'Confirm',
-    ewo: '270418',
-    buyer: 'Vogue Sourcin',
-    color: 'Next Black',
-    knitStart: '10-Jun-26',
-    knitEnd: '25-Jun-26',
-    target: 282,
-    targetNextMonth: 0,
-    allocationStart: '14-May-26',
-    allocationEnd: '24-May-26',
-    allocatedQty: 3124,
-    allocatedBal: 0,
-    greyReq: 2960,
-    knitPro: 2600,
-    knitBal: 359,
-    aKnitStart: '19-Jun-26',
-    lastProductionDate: '20-Jul-26',
-    avgProdDay: 65,
-    expectedKnitEnd: '28-Jul-26',
-    knitStartOtd: 'Failed',
-    knitEndOtd: 'Failed',
-    knitStartRemarks: '',
-    knitEndRemarks: '',
-    knitTeamLeaders: ''
-  },
-  {
-    id: 'ord-270435',
-    planMonth: 'July',
-    planType: 'Confirm',
-    ewo: '270435',
-    buyer: 'S.Oliver',
-    color: 'S.Oliver-9999',
-    knitStart: '16-Jul-26',
-    knitEnd: '20-Jul-26',
-    target: 730,
-    targetNextMonth: 0,
-    allocationStart: '',
-    allocationEnd: '',
-    allocatedQty: 0,
-    allocatedBal: 0,
-    greyReq: 730,
-    knitPro: 0,
-    knitBal: 730,
-    aKnitStart: '',
-    lastProductionDate: '',
-    avgProdDay: 0,
-    expectedKnitEnd: '',
-    knitStartOtd: 'Pending',
-    knitEndOtd: 'Pending',
-    knitStartRemarks: '',
-    knitEndRemarks: '',
-    knitTeamLeaders: ''
-  }
-];
+const INITIAL_ORDERS: OrderPlan[] = [];
 
 export interface YarnAllocationRecord {
   id: string;
@@ -599,23 +442,52 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   } = useGlobalData();
 
   const [orders, setOrders] = useState<OrderPlan[]>(() => {
-    const base = globalOrders && globalOrders.length > 0 ? globalOrders : INITIAL_ORDERS;
+    const base = globalOrders && globalOrders.length > 0 
+      ? globalOrders.filter(o => !o.id.startsWith('ord-aug-12-') && !o.id.startsWith('ord-270'))
+      : [];
     return deduplicateOrderPlans(base);
   });
   useEffect(() => {
     if (globalOrders && globalOrders.length > 0) {
-      const sanitized = globalOrders.map(sanitizeOrderPlanRemarks);
-      const deduplicated = deduplicateOrderPlans(sanitized);
+      // 1. Filter out mock INITIAL_ORDERS (ord-aug-12-* and old hardcoded test IDs)
+      let cleaned = globalOrders.filter(o => !o.id.startsWith('ord-aug-12-') && !o.id.startsWith('ord-270'));
+
+      // 2. Auto-clean any orders where actual dates were erroneously cloned from planned dates
+      // (exact signature of the former parser cross-matching: aKnitStart === knitStart && lastProductionDate === knitEnd)
+      let datesFixed = false;
+      cleaned = cleaned.map(o => {
+        let order = sanitizeOrderPlanRemarks(o);
+        if (
+          order.aKnitStart && 
+          order.knitStart && 
+          order.aKnitStart === order.knitStart && 
+          order.lastProductionDate && 
+          order.knitEnd && 
+          order.lastProductionDate === order.knitEnd
+        ) {
+          datesFixed = true;
+          return {
+            ...order,
+            aKnitStart: '',
+            lastProductionDate: ''
+          };
+        }
+        return order;
+      });
+
+      const deduplicated = deduplicateOrderPlans(cleaned);
       setOrders(deduplicated);
 
-      // Auto-heal persistent storage if any orders had duplicate entries or leaked date strings
-      const hadDuplicates = deduplicated.length !== sanitized.length;
+      // Auto-heal persistent storage if any orders had mock entries, duplicate entries, leaked date strings, or bogus cloned dates
+      const hadMockOrDuplicates = deduplicated.length !== globalOrders.length;
       const hadCorrupted = globalOrders.some(
         o => isDateOrTimestampString(o.knitStartRemarks) || isDateOrTimestampString(o.knitEndRemarks)
       );
-      if (hadDuplicates || hadCorrupted) {
+      if (hadMockOrDuplicates || hadCorrupted || datesFixed) {
         bulkSaveOrderPlans(deduplicated, true).catch(() => {});
       }
+    } else {
+      setOrders([]);
     }
   }, [globalOrders, bulkSaveOrderPlans]);
   const [activeSubTab, setActiveSubTab] = useState<'team_leader' | 'buyer' | 'summary' | 'delivery'>(
@@ -1109,7 +981,36 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   const uploadInputRef = React.useRef<HTMLInputElement>(null);
   const overwriteInputRef = React.useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
+  const [isDraggingPage, setIsDraggingPage] = useState<boolean>(false);
+  const [isDraggingDropzone, setIsDraggingDropzone] = useState<boolean>(false);
+
+  // Staged Upload State for Confirmation / Save & Cancel Flow
+  interface StagedUploadData {
+    fileName: string;
+    fileSize: string;
+    totalRows: number;
+    mergedOrders: OrderPlan[];
+    changedOrders: OrderPlan[];
+    changesList: OrderChangeRecord[];
+    stats: {
+      totalRowsProcessed: number;
+      matchedOrdersCount: number;
+      updatedOrdersCount: number;
+      filledBlanksCount: number;
+      newOrdersCount: number;
+      unalteredCount: number;
+      totalFieldsChanged: number;
+    };
+  }
+  const [stagedUpload, setStagedUpload] = useState<StagedUploadData | null>(null);
+  const [isSavingStaged, setIsSavingStaged] = useState<boolean>(false);
+
+  const [uploadProgressPercent, setUploadProgressPercent] = useState<number>(0);
   const [uploadProgressStage, setUploadProgressStage] = useState<string>('');
+  const [uploadProgressDetail, setUploadProgressDetail] = useState<string>('');
+  const [uploadFileName, setUploadFileName] = useState<string>('');
+  const [uploadFileSize, setUploadFileSize] = useState<string>('');
   const [showUploadChoiceModal, setShowUploadChoiceModal] = useState<boolean>(false);
   const [showAdminOverwriteModal, setShowAdminOverwriteModal] = useState<boolean>(false);
   const [overwriteConfirmedCheckbox, setOverwriteConfirmedCheckbox] = useState<boolean>(false);
@@ -1143,22 +1044,53 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     return String(str || '').toLowerCase().replace(/[\r\n\t_.\-/\s]+/g, '');
   };
 
-  const getExcelRowValue = (row: Record<string, any>, candidateKeys: string[], defaultValue: any = ''): any => {
+  interface ExcelRowLookupOptions {
+    forbiddenWords?: string[];
+    mustContain?: string[];
+    exactMatchOnly?: boolean;
+  }
+
+  const getExcelRowValue = (
+    row: Record<string, any>, 
+    candidateKeys: string[], 
+    defaultValue: any = '',
+    options?: ExcelRowLookupOptions
+  ): any => {
     if (!row) return defaultValue;
+    const forbidden = options?.forbiddenWords?.map(w => normalizeKey(w)) || [];
+    const must = options?.mustContain?.map(w => normalizeKey(w)) || [];
+
+    const isHeaderAllowed = (headerKey: string): boolean => {
+      const norm = normalizeKey(headerKey);
+      for (const f of forbidden) {
+        if (norm.includes(f)) return false;
+      }
+      if (must.length > 0) {
+        const hasMust = must.some(m => norm.includes(m));
+        if (!hasMust) return false;
+      }
+      return true;
+    };
+
     // 1. Direct exact candidate match
     for (const k of candidateKeys) {
       if (row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== '') {
-        return row[k];
+        if (isHeaderAllowed(k)) {
+          return row[k];
+        }
       }
     }
+
     const rowKeys = Object.keys(row);
     const normalizedRowMap = new Map<string, string>();
     for (const rk of rowKeys) {
+      if (!isHeaderAllowed(rk)) continue;
       const norm = normalizeKey(rk);
       if (!normalizedRowMap.has(norm)) {
         normalizedRowMap.set(norm, rk);
       }
     }
+
     // 2. Normalized exact match
     for (const candidate of candidateKeys) {
       const normCand = normalizeKey(candidate);
@@ -1167,20 +1099,17 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         return row[matchedKey];
       }
     }
-    // 3. Substring inclusion match (Excel header contains candidate, or candidate contains Excel header)
+
+    if (options?.exactMatchOnly) {
+      return defaultValue;
+    }
+
+    // 3. Substring inclusion match (Excel header contains candidate)
     for (const candidate of candidateKeys) {
       const normCand = normalizeKey(candidate);
       if (normCand.length < 3) continue;
       for (const [normRk, origRk] of normalizedRowMap.entries()) {
-        const isSafeInclusion = normRk.includes(normCand) || (
-          normCand.includes(normRk) && 
-          normRk.length >= 4 && 
-          !normRk.includes('remark') && 
-          !normRk.includes('reason') && 
-          !normCand.includes('remark') && 
-          !normCand.includes('reason')
-        );
-        if (isSafeInclusion) {
+        if (normRk.includes(normCand)) {
           if (row[origRk] !== undefined && row[origRk] !== null && String(row[origRk]).trim() !== '') {
             return row[origRk];
           }
@@ -1191,14 +1120,32 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   };
 
   // Smart Upload & Non-destructive Merge Handler
-  const handleSmartFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const processSmartUploadFile = async (file: File) => {
     if (!file) return;
+    const name = file.name.toLowerCase();
+    if (!name.endsWith('.xlsx') && !name.endsWith('.xls') && !name.endsWith('.csv')) {
+      alert('Please select a valid Excel spreadsheet (.xlsx, .xls) or CSV file.');
+      return;
+    }
 
+    setShowUploadModal(true);
     setIsUploading(true);
+    setUploadFileName(file.name);
+    setUploadFileSize(file.size > 1024 * 1024 ? (file.size / (1024 * 1024)).toFixed(2) + ' MB' : (file.size / 1024).toFixed(1) + ' KB');
+    setUploadProgressPercent(8);
+    setUploadProgressStage('Reading Spreadsheet File');
+    setUploadProgressDetail(`Opening "${file.name}"...`);
+
+    await new Promise(r => setTimeout(r, 60));
+
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
+        setUploadProgressPercent(20);
+        setUploadProgressStage('Parsing Worksheets');
+        setUploadProgressDetail('Extracting sheets, columns and data cells...');
+        await new Promise(r => setTimeout(r, 60));
+
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
 
@@ -1212,15 +1159,29 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         });
 
         if (allRows.length === 0) {
+          setShowUploadModal(false);
+          setIsUploading(false);
           setUploadFeedback({
             show: true,
             title: 'Empty Spreadsheet',
             message: 'The selected Excel file contains no valid data rows.'
           });
-          setIsUploading(false);
           return;
         }
 
+        setUploadProgressPercent(32);
+        setUploadProgressStage('Analyzing Spreadsheet Structure');
+        setUploadProgressDetail(`Found ${allRows.length} data rows across ${wb.SheetNames.length} sheet(s)...`);
+        await new Promise(r => setTimeout(r, 60));
+
+        const totalRows = allRows.length;
+        const progressBatchSize = Math.max(10, Math.floor(totalRows / 25));
+
+        // -------------------------------------------------------------
+        // SMART AUTO-PROCESS: Automatically matches orders by EWO + Color,
+        // fills blank fields, updates changed values, and appends new orders.
+        // Stages results for review before committing to database.
+        // -------------------------------------------------------------
         let updatedOrdersCount = 0;
         let filledBlanksCount = 0;
         let newOrdersCount = 0;
@@ -1242,12 +1203,24 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         const newOrderIndices = new Set<number>();
         const changesByOrderId = new Map<string, OrderChangeRecord>();
 
-        allRows.forEach((row, rowIdx) => {
+        for (let rowIdx = 0; rowIdx < totalRows; rowIdx++) {
+          const row = allRows[rowIdx];
+
+          if (rowIdx % progressBatchSize === 0 || rowIdx === totalRows - 1) {
+            const currentPct = Math.min(80, Math.round(35 + ((rowIdx + 1) / totalRows) * 45));
+            setUploadProgressPercent(currentPct);
+            setUploadProgressStage('Matching & Merging Orders');
+            setUploadProgressDetail(`Processing row ${rowIdx + 1} of ${totalRows}...`);
+            if (rowIdx % (progressBatchSize * 2) === 0) {
+              await new Promise(r => setTimeout(r, 0));
+            }
+          }
+
           const rawEwo = getExcelRowValue(row, [
             'EWO', 'EWO No', 'EWO No.', 'EWO#', 'Order No.', 'Order No', 'Order', 'Order Number', 'Order#', 'orderNo', 'OrderNo', 'Job No', 'Job#', 'Job No.'
           ]);
           const ewo = String(rawEwo || '').trim().replace(/^#+/, '');
-          if (!ewo) return; // Skip invalid rows without order number
+          if (!ewo) continue; // Skip invalid rows without order number
 
           const rawColor = getExcelRowValue(row, [
             'Color', 'Colour', 'Fabric Color', 'Fabric Colour', 'Fabric Shade', 'Shade', 'Item Color', 'Item Colour', 'Color Name', 'Colour Name', 'Colorway', 'Y/D Stripe', 'Color / Stripe', 'Colour / Stripe', 'Stripe'
@@ -1297,10 +1270,10 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
           const upPlanMonth = String(getExcelRowValue(row, ['Plan Month', 'PlanMonth', 'Month', 'Month Name']) || '').trim();
           const upPlanType = String(getExcelRowValue(row, ['Plan Type', 'PlanType', 'Type', 'Order Type']) || '').trim();
           
-          const rawKnitStart = getExcelRowValue(row, ['Knit Start', 'Knit Start Date', 'Planned Knit Start', 'Plan Knit Start', 'KnitStart', 'Start Date']);
+          const rawKnitStart = getExcelRowValue(row, ['Knit Start', 'Knit Start Date', 'Planned Knit Start', 'Plan Knit Start', 'KnitStart', 'Start Date'], '', { forbiddenWords: ['actual', 'a.', 'last', 'prod'] });
           const upKnitStart = rawKnitStart ? formatExcelDate(rawKnitStart) : '';
 
-          const rawKnitEnd = getExcelRowValue(row, ['Knit End', 'Knit End Date', 'Planned Knit End', 'Plan Knit End', 'KnitEnd', 'End Date']);
+          const rawKnitEnd = getExcelRowValue(row, ['Knit End', 'Knit End Date', 'Planned Knit End', 'Plan Knit End', 'KnitEnd', 'End Date'], '', { forbiddenWords: ['actual', 'a.', 'last', 'prod'] });
           const upKnitEnd = rawKnitEnd ? formatExcelDate(rawKnitEnd) : '';
 
           const rawTarget = getExcelRowValue(row, ['Target', 'Target (Kg)', 'Target(Kg)', 'Target Qty', 'Order Target', 'Plan Target']);
@@ -1330,7 +1303,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
           const rawKnitBal = getExcelRowValue(row, ['KNIT BAL.', 'KNIT BAL', 'Knit Bal', 'Knit Bal.', 'Knitting Balance', 'Knit Balance', 'Balance', 'Total Balance', 'Remaining Knit']);
           const upKnitBal = rawKnitBal !== '' && rawKnitBal !== undefined && !isNaN(Number(rawKnitBal)) ? Number(rawKnitBal) : undefined;
 
-          const rawAKnitStart = getExcelRowValue(row, ['A.Knit Start', 'A. Knit Start', 'A. Knit Star', 'Actual Knit Start', 'Actual Start', 'A. Knit Start Date', 'Actual Knit Start Date', 'A.Knit Start Date']);
+          const rawAKnitStart = getExcelRowValue(row, ['A.Knit Start', 'A. Knit Start', 'A. Knit Star', 'Actual Knit Start', 'Actual Start', 'A. Knit Start Date', 'Actual Knit Start Date', 'A.Knit Start Date'], '', { forbiddenWords: ['planned', 'plan'], mustContain: ['actual', 'a.', 'a_knit', 'aknit'] });
           const upAKnitStart = rawAKnitStart ? formatExcelDate(rawAKnitStart) : '';
 
           const rawLastProd = getExcelRowValue(row, [
@@ -1354,25 +1327,19 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
             'Last Knit Date',
             'Latest Production Date',
             'Latest Prod Date',
-            'Knit End/Last Production Date',
-            'Knit End / Last Production Date',
-            'Knit End/Last Prod Date',
-            'Knit End / Last Prod',
-            'End/Last Production Date',
-            'End/Last Prod Date',
             'A. Knit End',
             'A.Knit End',
             'Actual Knit End',
             'Actual Knit End Date',
             'A. Knit End Date',
             'A.Knit End Date'
-          ]);
+          ], '', { forbiddenWords: ['planned', 'plan'], mustContain: ['last', 'prod', 'actual', 'a.', 'aknit'] });
           const upLastProd = rawLastProd ? formatExcelDate(rawLastProd) : '';
 
           const rawAvgProd = getExcelRowValue(row, ['Avg Prod/Day', 'Avg. Prod/Day', 'Avg Prod', 'Avg.Prod/Day', 'Daily Avg Prod']);
           const upAvgProd = rawAvgProd !== '' && rawAvgProd !== undefined && !isNaN(Number(rawAvgProd)) ? Number(rawAvgProd) : undefined;
 
-          const rawExpEnd = getExcelRowValue(row, ['Expected Knit End', 'Exp Knit End', 'Expected End', 'Exp. Knit End']);
+          const rawExpEnd = getExcelRowValue(row, ['Expected Knit End', 'Exp Knit End', 'Expected End', 'Exp. Knit End'], '', { mustContain: ['exp'] });
           const upExpEnd = rawExpEnd ? formatExcelDate(rawExpEnd) : '';
 
           const rawKnitStartOtd = getExcelRowValue(row, ['Knit Start OTD', 'Start OTD', 'Knit Start Status']);
@@ -1639,27 +1606,22 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
               changes: newOrderDiffs
             });
           }
-        });
+        }
+
+        setUploadProgressPercent(85);
+        setUploadProgressStage('Calculating Metrics & Variance');
+        setUploadProgressDetail('Applying deduplication & OTD analysis...');
+        await new Promise(r => setTimeout(r, 60));
 
         const finalOrders = deduplicateOrderPlans(mergedOrders);
-        setOrders(finalOrders);
-
-        // Sync changed & new records to Supabase Cloud & Global context
         const allChangedIndices = new Set([...newOrderIndices, ...modifiedIndices]);
         const changedOrders = deduplicateOrderPlans(
           Array.from(allChangedIndices).map(idx => mergedOrders[idx]).filter(Boolean)
         );
-
-        if (changedOrders.length > 0) {
-          bulkSaveOrderPlans(changedOrders, false).catch(err => {
-            console.warn('Supabase bulk save error:', err);
-          });
-        }
-
         const unalteredCount = Math.max(0, mergedOrders.length - allChangedIndices.size);
         const allChangesRecords = Array.from(changesByOrderId.values());
 
-        // Auto-expand all updated orders initially
+        // Auto-expand all updated/new orders initially for easy inspection
         const defaultExpanded = new Set<string>();
         allChangesRecords.forEach(r => defaultExpanded.add(r.orderId));
         setExpandedOrderIds(defaultExpanded);
@@ -1667,13 +1629,20 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         setChangeCategoryFilter('all');
         setChangeSearchQuery('');
 
-        setUploadFeedback({
-          show: true,
-          title: 'Smart Update Complete: Changes Summary',
-          message: updatedOrdersCount > 0 || newOrdersCount > 0
-            ? `Processed ${allRows.length} rows. Found ${updatedOrdersCount} orders with ${totalFieldsChangedCount} field updates, and ${newOrdersCount} new orders.`
-            : `Processed ${allRows.length} rows. No new or differing values found; all existing records are identical to upload.`,
-          mode: 'merge',
+        setUploadProgressPercent(100);
+        setUploadProgressStage('Analysis Ready for Review');
+        setUploadProgressDetail(`Found ${allChangesRecords.length} orders with updates or additions.`);
+        await new Promise(r => setTimeout(r, 200));
+
+        // Stage the parsed upload in memory — DO NOT save to database yet!
+        // The user must explicitly confirm with "Save & Apply" or abort with "Cancel Upload".
+        setStagedUpload({
+          fileName: file.name,
+          fileSize: file.size > 1024 * 1024 ? (file.size / (1024 * 1024)).toFixed(2) + ' MB' : (file.size / 1024).toFixed(1) + ' KB',
+          totalRows: allRows.length,
+          mergedOrders: finalOrders,
+          changedOrders,
+          changesList: allChangesRecords,
           stats: {
             totalRowsProcessed: allRows.length,
             matchedOrdersCount,
@@ -1682,11 +1651,12 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
             newOrdersCount,
             unalteredCount,
             totalFieldsChanged: totalFieldsChangedCount
-          },
-          changesList: allChangesRecords
+          }
         });
       } catch (err: any) {
         console.error('Smart file upload error:', err);
+        setShowUploadModal(false);
+        setStagedUpload(null);
         setUploadFeedback({
           show: true,
           title: 'Upload Failed',
@@ -1694,10 +1664,95 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         });
       } finally {
         setIsUploading(false);
-        if (e.target) e.target.value = '';
       }
     };
     reader.readAsBinaryString(file);
+  };
+
+  // Save Staged Upload: Commits all changed orders to Supabase cloud and updates local state
+  const handleSaveStagedUpload = async () => {
+    if (!stagedUpload) return;
+    setIsSavingStaged(true);
+    try {
+      if (stagedUpload.changedOrders.length > 0) {
+        await bulkSaveOrderPlans(stagedUpload.changedOrders, false);
+      }
+      setOrders(stagedUpload.mergedOrders);
+
+      setUploadFeedback({
+        show: true,
+        title: 'Upload Saved Successfully',
+        message: stagedUpload.stats.updatedOrdersCount > 0 || stagedUpload.stats.newOrdersCount > 0
+          ? `Successfully saved ${stagedUpload.stats.updatedOrdersCount} updated orders (${stagedUpload.stats.totalFieldsChanged} fields) and ${stagedUpload.stats.newOrdersCount} new orders to the database.`
+          : `Verified ${stagedUpload.stats.totalRowsProcessed} rows. Database is fully up to date with no differences found.`,
+        mode: 'merge',
+        stats: stagedUpload.stats,
+        changesList: stagedUpload.changesList
+      });
+
+      setStagedUpload(null);
+      setShowUploadModal(false);
+    } catch (err: any) {
+      console.error('Error saving staged upload:', err);
+      alert('Failed to save orders to database: ' + (err.message || String(err)));
+    } finally {
+      setIsSavingStaged(false);
+    }
+  };
+
+  // Cancel Staged Upload: Discard staged data completely without modifying the database
+  const handleCancelStagedUpload = () => {
+    setStagedUpload(null);
+    setShowUploadModal(false);
+    setIsUploading(false);
+    if (uploadInputRef.current) {
+      uploadInputRef.current.value = '';
+    }
+  };
+
+  // Admin: Overwrite entire database with staged file data
+  const handleAdminOverwriteWithStaged = async () => {
+    if (!stagedUpload || !isAdmin) return;
+    const confirmMsg = `Admin Overwrite Confirmation:\n\nAre you sure you want to completely PURGE all ${orders.length} current orders in the database and replace them with the ${stagedUpload.mergedOrders.length} orders from "${stagedUpload.fileName}"?\n\nThis action cannot be undone.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsSavingStaged(true);
+    try {
+      await bulkSaveOrderPlans(stagedUpload.mergedOrders, true);
+      setOrders(stagedUpload.mergedOrders);
+
+      setUploadFeedback({
+        show: true,
+        title: 'Master Database Overwritten (Admin)',
+        message: `Database purged and replaced with ${stagedUpload.mergedOrders.length} orders from "${stagedUpload.fileName}".`,
+        mode: 'overwrite',
+        stats: {
+          totalRowsProcessed: stagedUpload.stats.totalRowsProcessed,
+          matchedOrdersCount: 0,
+          updatedOrdersCount: 0,
+          filledBlanksCount: 0,
+          newOrdersCount: stagedUpload.mergedOrders.length,
+          unalteredCount: 0,
+          purgedCount: orders.length
+        }
+      });
+
+      setStagedUpload(null);
+      setShowUploadModal(false);
+    } catch (err: any) {
+      console.error('Error overwriting database:', err);
+      alert('Failed to overwrite database: ' + (err.message || String(err)));
+    } finally {
+      setIsSavingStaged(false);
+    }
+  };
+
+  const handleSmartFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processSmartUploadFile(file);
+    }
+    if (e.target) e.target.value = '';
   };
 
   // Admin-Only Master Database Overwrite Handler
@@ -1764,10 +1819,10 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
           const upPlanMonth = String(getExcelRowValue(row, ['Plan Month', 'PlanMonth', 'Month']) || '').trim();
           const upPlanType = String(getExcelRowValue(row, ['Plan Type', 'PlanType', 'Type']) || '').trim();
 
-          const rawKnitStart = getExcelRowValue(row, ['Knit Start', 'Knit Start Date', 'Planned Knit Start', 'KnitStart', 'Start Date']);
+          const rawKnitStart = getExcelRowValue(row, ['Knit Start', 'Knit Start Date', 'Planned Knit Start', 'Plan Knit Start', 'KnitStart', 'Start Date'], '', { forbiddenWords: ['actual', 'a.', 'last', 'prod'] });
           const upKnitStart = rawKnitStart ? formatExcelDate(rawKnitStart) : '';
 
-          const rawKnitEnd = getExcelRowValue(row, ['Knit End', 'Knit End Date', 'Planned Knit End', 'KnitEnd', 'End Date']);
+          const rawKnitEnd = getExcelRowValue(row, ['Knit End', 'Knit End Date', 'Planned Knit End', 'Plan Knit End', 'KnitEnd', 'End Date'], '', { forbiddenWords: ['actual', 'a.', 'last', 'prod'] });
           const upKnitEnd = rawKnitEnd ? formatExcelDate(rawKnitEnd) : '';
 
           const rawTarget = getExcelRowValue(row, ['Target', 'Target (Kg)', 'Target(Kg)', 'Target Qty']);
@@ -1799,7 +1854,9 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
             ? Number(rawKnitBal)
             : (upGreyReq !== undefined ? Math.max(0, (upGreyReq || 0) - (upKnitPro || 0)) : undefined);
 
-          const rawAKnitStart = getExcelRowValue(row, ['A.Knit Start', 'A. Knit Start', 'A. Knit Star', 'Actual Knit Start', 'Actual Start']);
+          const rawAKnitStart = getExcelRowValue(row, [
+            'A.Knit Start', 'A. Knit Start', 'A. Knit Star', 'Actual Knit Start', 'Actual Start', 'A. Knit Start Date', 'Actual Knit Start Date', 'A.Knit Start Date'
+          ], '', { forbiddenWords: ['planned', 'plan'], mustContain: ['actual', 'a.', 'a_knit', 'aknit'] });
           const upAKnitStart = rawAKnitStart ? formatExcelDate(rawAKnitStart) : '';
 
           const rawLastProd = getExcelRowValue(row, [
@@ -1823,25 +1880,19 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
             'Last Knit Date',
             'Latest Production Date',
             'Latest Prod Date',
-            'Knit End/Last Production Date',
-            'Knit End / Last Production Date',
-            'Knit End/Last Prod Date',
-            'Knit End / Last Prod',
-            'End/Last Production Date',
-            'End/Last Prod Date',
             'A. Knit End',
             'A.Knit End',
             'Actual Knit End',
             'Actual Knit End Date',
             'A. Knit End Date',
             'A.Knit End Date'
-          ]);
+          ], '', { forbiddenWords: ['planned', 'plan'], mustContain: ['last', 'prod', 'actual', 'a.', 'aknit'] });
           const upLastProd = rawLastProd ? formatExcelDate(rawLastProd) : '';
 
           const rawAvgProd = getExcelRowValue(row, ['Avg Prod/Day', 'Avg. Prod/Day', 'Avg Prod', 'Avg.Prod/Day']);
           const upAvgProd = rawAvgProd !== '' && rawAvgProd !== undefined && !isNaN(Number(rawAvgProd)) ? Number(rawAvgProd) : undefined;
 
-          const rawExpEnd = getExcelRowValue(row, ['Expected Knit End', 'Exp Knit End', 'Expected End']);
+          const rawExpEnd = getExcelRowValue(row, ['Expected Knit End', 'Exp Knit End', 'Expected End'], '', { mustContain: ['exp'] });
           const upExpEnd = rawExpEnd ? formatExcelDate(rawExpEnd) : '';
 
           const rawKnitStartOtd = getExcelRowValue(row, ['Knit Start OTD', 'Start OTD']);
@@ -1969,7 +2020,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         o.target, o.targetNextMonth, o.allocationStart, o.allocationEnd, o.allocatedQty,
         o.allocatedBal, o.greyReq, o.knitPro, o.knitBal, o.aKnitStart,
         startVar.formatted, o.lastProductionDate, endVar.formatted,
-        o.avgProdDay, o.expectedKnitEnd, o.knitStartOtd,
+        o.avgProdDay, ((o.knitBal !== undefined && o.knitBal !== null && !isNaN(Number(o.knitBal)) && Number(o.knitBal) < 0) ? '' : formatDisplayDate(o.expectedKnitEnd)), o.knitStartOtd,
         o.knitEndOtd, o.knitStartRemarks, o.knitEndRemarks, o.knitTeamLeaders || ''
       ];
     });
@@ -1980,10 +2031,13 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     XLSX.writeFile(workbook, `Order_Plan_Status_${new Date().toISOString().slice(0,10)}.xlsx`);
   };
 
-  // Upload Summary Modal Computed Filter & Actions
+  // Upload Summary Modal Computed Filter & Actions (supports staged review & feedback)
+  const activeChangesList = stagedUpload?.changesList || uploadFeedback?.changesList || [];
+  const activeStats = stagedUpload?.stats || uploadFeedback?.stats;
+
   const filteredUploadChanges = useMemo(() => {
-    if (!uploadFeedback?.changesList) return [];
-    return uploadFeedback.changesList.filter(item => {
+    if (!activeChangesList || activeChangesList.length === 0) return [];
+    return activeChangesList.filter(item => {
       // 1. Search Query Filter
       if (changeSearchQuery.trim()) {
         const q = changeSearchQuery.toLowerCase().trim();
@@ -2036,19 +2090,19 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       }
       return true;
     });
-  }, [uploadFeedback?.changesList, changeSearchQuery, changeCategoryFilter]);
+  }, [activeChangesList, changeSearchQuery, changeCategoryFilter]);
 
   const handleCopyChangeSummary = () => {
-    if (!uploadFeedback?.changesList) return;
+    if (!activeChangesList || activeChangesList.length === 0) return;
     let text = `=== EXCEL UPLOAD FIELD CHANGE SUMMARY ===\n`;
     text += `Time: ${new Date().toLocaleString()}\n`;
-    text += `Rows Processed: ${uploadFeedback.stats?.totalRowsProcessed || 0}\n`;
-    text += `Orders Updated: ${uploadFeedback.stats?.updatedOrdersCount || 0}\n`;
-    text += `Total Fields Modified: ${uploadFeedback.stats?.totalFieldsChanged || 0}\n`;
-    text += `New Orders Added: ${uploadFeedback.stats?.newOrdersCount || 0}\n`;
-    text += `Unaltered Orders: ${uploadFeedback.stats?.unalteredCount || 0}\n\n`;
+    text += `Rows Processed: ${activeStats?.totalRowsProcessed || 0}\n`;
+    text += `Orders Updated: ${activeStats?.updatedOrdersCount || 0}\n`;
+    text += `Total Fields Modified: ${activeStats?.totalFieldsChanged || 0}\n`;
+    text += `New Orders Added: ${activeStats?.newOrdersCount || 0}\n`;
+    text += `Unaltered Orders: ${activeStats?.unalteredCount || 0}\n\n`;
 
-    uploadFeedback.changesList.forEach((rec, idx) => {
+    activeChangesList.forEach((rec, idx) => {
       text += `[${rec.isNew ? 'NEW ORDER' : 'UPDATED'}] #${idx + 1} EWO: ${rec.ewo} | Buyer: ${rec.buyer} | Color: ${rec.color}\n`;
       rec.changes.forEach(ch => {
         text += `   • ${ch.fieldLabel}: ${ch.oldValue} -> ${ch.newValue} ${ch.isFilledBlank ? '(Filled Blank)' : ''}\n`;
@@ -2074,18 +2128,25 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   };
 
   const toggleExpandAll = () => {
-    if (!uploadFeedback?.changesList) return;
-    if (expandedOrderIds.size === uploadFeedback.changesList.length) {
+    if (!activeChangesList || activeChangesList.length === 0) return;
+    if (expandedOrderIds.size === activeChangesList.length) {
       setExpandedOrderIds(new Set());
     } else {
       const all = new Set<string>();
-      uploadFeedback.changesList.forEach(c => all.add(c.orderId));
+      activeChangesList.forEach(c => all.add(c.orderId));
       setExpandedOrderIds(all);
     }
   };
 
   return (
-    <div className="space-y-5 pb-8">
+    <div 
+      className="space-y-5 pb-8 relative"
+      onDragEnter={(e) => {
+        if (e.dataTransfer.types.includes('Files')) {
+          setIsDraggingPage(true);
+        }
+      }}
+    >
       {/* Top Header Banner */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
         <div>
@@ -2122,43 +2183,17 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
             id="plan-order-admin-overwrite-input"
           />
 
-          {/* Smart Upload Button (Non-destructive Merge & Blank Fill) */}
+          {/* Merged Upload Excel Button (Opens upload modal with Smart Merge, Exclusive Dataset, and Admin Overwrite DB) */}
           <button
-            onClick={() => uploadInputRef.current?.click()}
+            onClick={() => setShowUploadModal(true)}
             disabled={isUploading}
             className="flex items-center gap-2 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/70 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-3.5 py-2 text-xs font-bold transition-all cursor-pointer shadow-xs disabled:opacity-60"
-            title="Upload Excel to smartly update values and fill blank cells by matching Order Number and Color"
+            title="Upload Excel (Smart Merge or Admin Master Overwrite)"
             id="smart-upload-order-btn"
           >
             <Upload className={`h-4 w-4 text-blue-600 dark:text-blue-400 ${isUploading ? 'animate-bounce' : ''}`} />
             <span>{isUploading ? (uploadProgressStage || 'Updating...') : 'Upload Excel'}</span>
           </button>
-
-          {/* Admin Full Database Overwrite Button (Only accessible to Admins) */}
-          {isAdmin ? (
-            <button
-              onClick={() => {
-                setOverwriteConfirmedCheckbox(false);
-                setShowAdminOverwriteModal(true);
-              }}
-              disabled={isUploading}
-              className="flex items-center gap-2 rounded-xl border border-rose-300 dark:border-rose-900 bg-rose-50/90 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 px-3.5 py-2 text-xs font-bold transition-all cursor-pointer shadow-xs disabled:opacity-60"
-              title="Admin privilege: completely replace the entire database with an uploaded Excel spreadsheet"
-              id="admin-overwrite-database-btn"
-            >
-              <ShieldAlert className="h-4 w-4 text-rose-600 dark:text-rose-400" />
-              <span>Overwrite DB (Admin)</span>
-            </button>
-          ) : (
-            <button
-              disabled
-              className="flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100/60 dark:bg-slate-800/40 text-slate-400 px-3 py-2 text-xs font-bold cursor-not-allowed opacity-60"
-              title="Database overwrite is restricted to Admin accounts only"
-            >
-              <Lock className="h-3.5 w-3.5 text-slate-400" />
-              <span>Overwrite DB</span>
-            </button>
-          )}
 
           <button
             onClick={() => loadOrders(true)}
@@ -3025,7 +3060,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
 
               <button
                 type="button"
-                onClick={() => uploadInputRef.current?.click()}
+                onClick={() => setShowUploadModal(true)}
                 disabled={isUploading}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-blue-700 dark:text-blue-300 bg-blue-50/70 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800 transition-all cursor-pointer shadow-2xs w-full sm:w-auto disabled:opacity-60"
                 title="Upload Excel to update data & fill blanks"
@@ -3341,7 +3376,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                           )}
                           {isColVisible('expectedKnitEnd') && (
                             <td style={{ width: `${getColWidth('expectedKnitEnd')}px`, minWidth: `${getColWidth('expectedKnitEnd')}px`, maxWidth: `${getColWidth('expectedKnitEnd')}px`, ...getStickyStyle('expectedKnitEnd') }} className={`px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-slate-600 dark:text-slate-400 ${getStickyClass('expectedKnitEnd')}`}>
-                              {formatDisplayDate(ord.expectedKnitEnd)}
+                              {(ord.knitBal !== undefined && ord.knitBal !== null && !isNaN(Number(ord.knitBal)) && Number(ord.knitBal) < 0) ? '-' : formatDisplayDate(ord.expectedKnitEnd)}
                             </td>
                           )}
                           {isColVisible('knitStartOTD') && (
@@ -4013,6 +4048,528 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* SMART UPLOAD EXCEL MODAL WITH AUTO-MATCH & STAGED SAVE/CANCEL FLOW */}
+      {showUploadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-3 sm:p-4 animate-fade-in">
+          {stagedUpload ? (
+            /* STAGED REVIEW & CONFIRMATION SCREEN (Explicit Save & Cancel Buttons) */
+            <div className="w-full max-w-4xl max-h-[90vh] rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col animate-fade-in">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 px-5 py-3.5 bg-slate-50/80 dark:bg-slate-800/40 shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-emerald-100 dark:bg-emerald-950/80 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0 shadow-2xs">
+                    <FileSpreadsheet className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                        Review Staged Changes: {stagedUpload.fileName}
+                      </h3>
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300">
+                        Pending Save
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                      {stagedUpload.fileSize} • {stagedUpload.totalRows} rows analyzed • Verify changes before saving to database
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleCancelStagedUpload}
+                  disabled={isSavingStaged}
+                  className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  title="Close & discard staged changes"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+                {/* 4 Key Metric Summary Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800">
+                    <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block">Total Rows Analyzed</span>
+                    <span className="text-xl font-extrabold font-mono text-slate-900 dark:text-white block mt-0.5">
+                      {stagedUpload.stats.totalRowsProcessed}
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40">
+                    <span className="text-[11px] font-semibold text-blue-700 dark:text-blue-300 block">Orders to Update</span>
+                    <div className="flex items-baseline gap-1.5 mt-0.5">
+                      <span className="text-xl font-extrabold font-mono text-blue-900 dark:text-blue-100">
+                        {stagedUpload.stats.updatedOrdersCount}
+                      </span>
+                      <span className="text-[10px] font-medium text-blue-600 dark:text-blue-400">
+                        ({stagedUpload.stats.totalFieldsChanged} fields)
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40">
+                    <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 block">Blanks to Fill</span>
+                    <span className="text-xl font-extrabold font-mono text-amber-900 dark:text-amber-100 block mt-0.5">
+                      {stagedUpload.stats.filledBlanksCount}
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40">
+                    <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 block">New Orders Found</span>
+                    <span className="text-xl font-extrabold font-mono text-emerald-900 dark:text-emerald-100 block mt-0.5">
+                      {stagedUpload.stats.newOrdersCount}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Staged Confirmation Warning Banner */}
+                <div className="flex items-start gap-3 p-3.5 rounded-xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-xs text-amber-900 dark:text-amber-200 leading-relaxed font-medium">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <strong>Action Required:</strong> These changes are currently staged in memory and have <strong>NOT</strong> been saved to your database. Review the changes below, then click <strong>"Save & Apply to Database"</strong> to save them, or click <strong>"Cancel Upload"</strong> to discard them without touching any existing data.
+                  </div>
+                </div>
+
+                {/* Search & Filter Toolbar */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-1">
+                  <div className="relative flex-1 max-w-sm">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                    <input
+                      type="text"
+                      value={changeSearchQuery}
+                      onChange={(e) => setChangeSearchQuery(e.target.value)}
+                      placeholder="Search order #, buyer, color, field..."
+                      className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setChangeCategoryFilter('all')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                        changeCategoryFilter === 'all'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+                      }`}
+                    >
+                      All ({activeChangesList.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChangeCategoryFilter('dates')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                        changeCategoryFilter === 'dates'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+                      }`}
+                    >
+                      Dates
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChangeCategoryFilter('progress')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                        changeCategoryFilter === 'progress'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+                      }`}
+                    >
+                      Progress / Balances
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChangeCategoryFilter('new')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                        changeCategoryFilter === 'new'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+                      }`}
+                    >
+                      New Orders ({stagedUpload.stats.newOrdersCount})
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={toggleExpandAll}
+                      className="ml-auto px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer"
+                    >
+                      {expandedOrderIds.size === activeChangesList.length ? 'Collapse All' : 'Expand All'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleCopyChangeSummary}
+                      className="px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer flex items-center gap-1"
+                      title="Copy diff summary to clipboard"
+                    >
+                      {copiedSummary ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+                      <span>{copiedSummary ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Changed Orders Accordion List */}
+                <div className="space-y-2.5">
+                  {filteredUploadChanges.length === 0 ? (
+                    <div className="p-8 text-center rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
+                      <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                        {stagedUpload.changesList.length === 0
+                          ? 'No differences found: All data in this file exactly matches the current database.'
+                          : 'No orders match your filter criteria.'}
+                      </p>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        {stagedUpload.changesList.length === 0
+                          ? 'You can still click Save to verify, or Cancel to dismiss.'
+                          : 'Try changing the filter or search query.'}
+                      </p>
+                    </div>
+                  ) : (
+                    filteredUploadChanges.map((rec) => {
+                      const isExpanded = expandedOrderIds.has(rec.orderId);
+                      return (
+                        <div
+                          key={rec.orderId}
+                          className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/60 overflow-hidden shadow-2xs"
+                        >
+                          {/* Card Header */}
+                          <div
+                            onClick={() => toggleExpandOrder(rec.orderId)}
+                            className="p-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-slate-50/70 dark:hover:bg-slate-800 transition-colors"
+                          >
+                            <div className="flex items-center gap-2.5 flex-wrap min-w-0">
+                              <span className="font-mono font-black text-xs px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300">
+                                {rec.ewo}
+                              </span>
+                              <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                {rec.color}
+                              </span>
+                              {rec.buyer && (
+                                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                                  ({rec.buyer})
+                                </span>
+                              )}
+                              {rec.isNew ? (
+                                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300">
+                                  New Order
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                                  {rec.changes.length} {rec.changes.length === 1 ? 'field update' : 'fields updated'}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {isExpanded ? (
+                                <ChevronUp className="h-4 w-4 text-slate-400" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4 text-slate-400" />
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Card Diff Table */}
+                          {isExpanded && (
+                            <div className="border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 p-3">
+                              <div className="space-y-1.5">
+                                {rec.changes.map((ch, cIdx) => (
+                                  <div
+                                    key={cIdx}
+                                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 text-xs"
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-bold text-slate-700 dark:text-slate-300">
+                                        {ch.fieldLabel}
+                                      </span>
+                                      {ch.isFilledBlank && (
+                                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300">
+                                          Blank Filled
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2 font-mono text-[11px]">
+                                      <span className="text-slate-400 line-through">
+                                        {String(ch.oldValue ?? '') || '(blank)'}
+                                      </span>
+                                      <ArrowRight className="h-3 w-3 text-slate-400" />
+                                      <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                                        {String(ch.newValue ?? '') || '(blank)'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Modal Footer with Explicit Save and Cancel Buttons */}
+              <div className="px-5 py-3.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/50 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleCancelStagedUpload}
+                  disabled={isSavingStaged}
+                  className="px-4 py-2 rounded-xl border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-400 bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
+                  id="cancel-upload-staged-btn"
+                >
+                  <X className="h-4 w-4 text-rose-500" />
+                  <span>Cancel Upload (Discard Changes)</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={handleAdminOverwriteWithStaged}
+                      disabled={isSavingStaged}
+                      className="px-3.5 py-2 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
+                      title="Admin: Purge existing records and overwrite completely with this file"
+                    >
+                      <Database className="h-3.5 w-3.5" />
+                      <span>Overwrite All (Admin)</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleSaveStagedUpload}
+                    disabled={isSavingStaged}
+                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-bold transition-all shadow-md cursor-pointer flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    id="save-upload-staged-btn"
+                  >
+                    {isSavingStaged ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        <span>Saving Changes to Database...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="h-4 w-4" />
+                        <span>Save & Apply to Database</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* COMPACT INITIAL DROPZONE MODAL (No huge columns or manual options) */
+            <div className="w-full max-w-md max-h-[85vh] rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col animate-fade-in">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 px-5 py-3.5 bg-slate-50/80 dark:bg-slate-800/40 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-9 w-9 rounded-xl bg-blue-100 dark:bg-blue-950 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0 shadow-2xs">
+                    <UploadCloud className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                      Upload Order Plan Spreadsheet
+                    </h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                      Smart match, preview & verify before saving
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    if (!isUploading) {
+                      setShowUploadModal(false);
+                      setIsDraggingDropzone(false);
+                    }
+                  }}
+                  disabled={isUploading}
+                  className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="p-4 sm:p-5 space-y-3.5 flex-1 overflow-y-auto">
+                {isUploading ? (
+                  /* Uploading & Processing State: Progress Bar */
+                  <div className="py-2 space-y-4">
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-800/50">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <FileSpreadsheet className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">{uploadFileName || 'Spreadsheet file'}</p>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400">{uploadFileSize || 'Processing'}</p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-black font-mono px-2 py-0.5 rounded-md bg-blue-600 text-white shadow-xs">
+                        {uploadProgressPercent}%
+                      </span>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs font-bold">
+                        <span className="flex items-center gap-1.5 text-slate-800 dark:text-slate-200 text-xs">
+                          <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600"></span>
+                          </span>
+                          <span>{uploadProgressStage || 'Analyzing rows...'}</span>
+                        </span>
+                        <span className="font-mono text-blue-600 dark:text-blue-400 font-extrabold text-xs">{uploadProgressPercent}%</span>
+                      </div>
+
+                      <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-200 dark:border-slate-700 shadow-inner">
+                        <div
+                          className="h-full rounded-full bg-linear-to-r from-blue-600 via-indigo-600 to-sky-500 transition-all duration-300 ease-out shadow-xs relative"
+                          style={{ width: `${Math.max(4, uploadProgressPercent)}%` }}
+                        />
+                      </div>
+
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate pt-0.5">
+                        {uploadProgressDetail || 'Comparing orders and staging differences...'}
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-1.5 text-center text-[10px] font-bold">
+                      <div className={`p-1.5 rounded-lg border transition-all ${uploadProgressPercent >= 20 ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950/60 dark:border-blue-800 dark:text-blue-300' : 'bg-slate-50 border-slate-200 text-slate-400 dark:bg-slate-800/40 dark:border-slate-800'}`}>
+                        1. Read
+                      </div>
+                      <div className={`p-1.5 rounded-lg border transition-all ${uploadProgressPercent >= 40 ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950/60 dark:border-blue-800 dark:text-blue-300' : 'bg-slate-50 border-slate-200 text-slate-400 dark:bg-slate-800/40 dark:border-slate-800'}`}>
+                        2. Match
+                      </div>
+                      <div className={`p-1.5 rounded-lg border transition-all ${uploadProgressPercent >= 80 ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950/60 dark:border-blue-800 dark:text-blue-300' : 'bg-slate-50 border-slate-200 text-slate-400 dark:bg-slate-800/40 dark:border-slate-800'}`}>
+                        3. Diff
+                      </div>
+                      <div className={`p-1.5 rounded-lg border transition-all ${uploadProgressPercent >= 95 ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950/60 dark:border-blue-800 dark:text-blue-300' : 'bg-slate-50 border-slate-200 text-slate-400 dark:bg-slate-800/40 dark:border-slate-800'}`}>
+                        4. Review
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Compact Drag & Drop Zone */
+                  <>
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsDraggingDropzone(true);
+                      }}
+                      onDragLeave={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsDraggingDropzone(false);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsDraggingDropzone(false);
+                        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                          processSmartUploadFile(e.dataTransfer.files[0]);
+                        }
+                      }}
+                      onClick={() => uploadInputRef.current?.click()}
+                      className={`border-2 border-dashed rounded-xl py-6 px-4 text-center cursor-pointer transition-all duration-200 flex flex-col items-center justify-center gap-2 group ${
+                        isDraggingDropzone
+                          ? 'border-blue-500 bg-blue-50/80 dark:bg-blue-950/40 ring-4 ring-blue-500/20 scale-[1.01]'
+                          : 'border-slate-300 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 bg-slate-50/50 dark:bg-slate-800/40 hover:bg-blue-50/20'
+                      }`}
+                      id="order-plan-upload-dropzone"
+                    >
+                      <div className={`h-10 w-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-105 shadow-2xs ${
+                        isDraggingDropzone 
+                          ? 'bg-blue-600 text-white animate-bounce' 
+                          : 'bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400'
+                      }`}>
+                        <UploadCloud className="h-5 w-5" />
+                      </div>
+
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+                          {isDraggingDropzone ? 'Release file to start Smart Upload' : 'Click to browse or drag & drop Excel file'}
+                        </span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-0.5">
+                          Supports .xlsx, .xls, and .csv formats
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Smart Auto-Detection Callout */}
+                    <div className="flex items-start gap-2.5 p-3 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 text-xs text-blue-900 dark:text-blue-200">
+                      <Sparkles className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                      <p className="text-[11px] leading-relaxed">
+                        <strong>Smart Auto-Match:</strong> The app automatically compares spreadsheet rows against existing orders by Order # and Color. It updates differing figures, fills blank dates, and appends new orders safely.
+                      </p>
+                    </div>
+
+                    {/* Safe Preview Guarantee */}
+                    <div className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      <p className="text-[11px] leading-relaxed">
+                        <strong>Preview & Confirm:</strong> Nothing is saved immediately. You can review all detected differences and click <strong>Save</strong> or <strong>Cancel</strong> before anything touches your database.
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {!isUploading && (
+                <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800 px-5 py-3 bg-slate-50/60 dark:bg-slate-800/30 shrink-0">
+                  <div className="flex items-center gap-2">
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowUploadModal(false);
+                          setOverwriteConfirmedCheckbox(false);
+                          setShowAdminOverwriteModal(true);
+                        }}
+                        className="text-[11px] font-bold text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <Database className="h-3.5 w-3.5" />
+                        <span>Overwrite DB (Admin)</span>
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowUploadModal(false)}
+                    className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* FULL PAGE DRAG & DROP OVERLAY */}
+      {isDraggingPage && (
+        <div 
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingPage(false); }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDraggingPage(false);
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+              processSmartUploadFile(e.dataTransfer.files[0]);
+            }
+          }}
+          className="fixed inset-0 z-50 bg-blue-900/70 backdrop-blur-xs flex flex-col items-center justify-center p-6 border-4 border-dashed border-blue-400 animate-fade-in text-white cursor-pointer"
+        >
+          <div className="h-20 w-20 rounded-3xl bg-white/20 flex items-center justify-center mb-4 shadow-2xl animate-bounce">
+            <UploadCloud className="h-10 w-10 text-white" />
+          </div>
+          <h2 className="text-2xl font-black mb-1.5 tracking-tight">Drop Excel spreadsheet here</h2>
+          <p className="text-sm text-blue-100 font-medium">Release to start Smart Upload & merge orders</p>
+          <div className="mt-4 flex items-center gap-2 text-xs font-bold text-blue-200 bg-white/10 px-4 py-2 rounded-full backdrop-blur-xs">
+            <span>Supports .xlsx, .xls, .csv</span>
           </div>
         </div>
       )}

@@ -28,6 +28,7 @@ import { useTableColumns, ColumnCustomizerDropdown, ResizableTh, ColumnDef } fro
 import { GasClient } from '../lib/gasClient';
 import { useGlobalData } from '../context/GlobalDataContext';
 import { SupabaseSync } from '../lib/supabaseClient';
+import { formatDateDisplay } from '../lib/knittingStatusStore';
 
 export interface MasterUploadInfo {
   lastUploadedAt: string | null;
@@ -199,6 +200,11 @@ function formatYarnQty(val: number): string {
 
 export function formatDisplayDate(val: any): string {
   if (!val && val !== 0) return '-';
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return '-';
+    return formatDateDisplay(val);
+  }
+
   const str = String(val).trim();
   if (!str || str === '-' || str === 'Pending') return str || '-';
 
@@ -212,24 +218,26 @@ export function formatDisplayDate(val: any): string {
     return parts.map(p => formatDisplayDate(p)).join(' To ');
   }
 
-  // 1) Match ISO format YYYY-MM-DD... (e.g. 2026-07-04T18:00:00.000Z or 2026-07-04)
-  const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  // 1) Match ISO date string YYYY-MM-DD or YYYY/MM/DD (with or without 'T' time)
+  const isoMatch = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
   if (isoMatch) {
     const yr = isoMatch[1];
     const mIdx = parseInt(isoMatch[2], 10) - 1;
-    const dy = isoMatch[3].padStart(2, '0');
+    const dy = String(parseInt(isoMatch[3], 10)).padStart(2, '0');
     if (mIdx >= 0 && mIdx < 12) {
       return `${dy}-${fullMonths[mIdx]}-${yr}`;
     }
   }
 
-  // 2) Match DD-MMM-YY or DD-Month-YYYY (e.g. 28-Jun-25, 4-July-2026, 04-Jul-2026, 6 Sept 2026)
-  const dmyMatch = str.match(/^(\d{1,2})[-/\s]([A-Za-z]+)[-/\s](\d{2,4})$/);
+  // 2) Match DD-MMM-YY or DD-Month-YYYY or "6 July" / "7 Sep" (optional year)
+  const dmyMatch = str.match(/^(\d{1,2})[-/\s]([A-Za-z]+)(?:[-/\s](\d{2,4}))?$/);
   if (dmyMatch) {
     const dy = dmyMatch[1].padStart(2, '0');
     const mStr = dmyMatch[2].toLowerCase();
     let yr = dmyMatch[3];
-    if (yr.length === 2) {
+    if (!yr) {
+      yr = String(new Date().getFullYear());
+    } else if (yr.length === 2) {
       yr = `20${yr}`;
     }
     const mIdx = fullMonths.findIndex(m => m.toLowerCase().startsWith(mStr.slice(0, 3)));
@@ -238,7 +246,24 @@ export function formatDisplayDate(val: any): string {
     }
   }
 
-  // 2b) Match DD/MM/YYYY or DD-MM-YYYY (e.g. 06/09/2026 or 06-09-2026)
+  // 3) Match Month DD or Month-DD-YYYY (e.g. July 6, July 6 2026, Sep 7 2026)
+  const mdyMatch = str.match(/^([A-Za-z]+)[-/\s](\d{1,2})(?:[-/,\s]+(\d{2,4}))?$/);
+  if (mdyMatch) {
+    const mStr = mdyMatch[1].toLowerCase();
+    const dy = mdyMatch[2].padStart(2, '0');
+    let yr = mdyMatch[3];
+    if (!yr) {
+      yr = String(new Date().getFullYear());
+    } else if (yr.length === 2) {
+      yr = `20${yr}`;
+    }
+    const mIdx = fullMonths.findIndex(m => m.toLowerCase().startsWith(mStr.slice(0, 3)));
+    if (mIdx !== -1) {
+      return `${dy}-${fullMonths[mIdx]}-${yr}`;
+    }
+  }
+
+  // 4) Match DD/MM/YYYY or DD-MM-YYYY (e.g. 06/09/2026 or 06-09-2026)
   const dmyNumMatch = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
   if (dmyNumMatch) {
     const dy = dmyNumMatch[1].padStart(2, '0');
@@ -250,15 +275,28 @@ export function formatDisplayDate(val: any): string {
     }
   }
 
-  // 3) Try JS Date parsing
+  // 5) Try JS Date parsing with clean local midnight / UTC midnight check
   const dObj = new Date(str);
   if (!isNaN(dObj.getTime())) {
-    const isUtc = (dObj.getUTCHours() === 0 && dObj.getUTCMinutes() === 0 && dObj.getUTCSeconds() === 0) ||
-                  (dObj.getHours() === 0 && dObj.getMinutes() === 0 && dObj.getSeconds() === 0);
-    const dy = String(isUtc ? dObj.getUTCDate() : dObj.getDate()).padStart(2, '0');
-    const mName = fullMonths[isUtc ? dObj.getUTCMonth() : dObj.getMonth()];
-    const yr = isUtc ? dObj.getUTCFullYear() : dObj.getFullYear();
-    return `${dy}-${mName}-${yr}`;
+    const isLocalMidnight = dObj.getHours() === 0 && dObj.getMinutes() === 0 && dObj.getSeconds() === 0;
+    const isUtcMidnight = dObj.getUTCHours() === 0 && dObj.getUTCMinutes() === 0 && dObj.getUTCSeconds() === 0;
+    let dy: number;
+    let mIdx: number;
+    let yr: number;
+    if (isLocalMidnight) {
+      dy = dObj.getDate();
+      mIdx = dObj.getMonth();
+      yr = dObj.getFullYear();
+    } else if (isUtcMidnight) {
+      dy = dObj.getUTCDate();
+      mIdx = dObj.getUTCMonth();
+      yr = dObj.getUTCFullYear();
+    } else {
+      dy = dObj.getDate();
+      mIdx = dObj.getMonth();
+      yr = dObj.getFullYear();
+    }
+    return `${String(dy).padStart(2, '0')}-${fullMonths[mIdx]}-${yr}`;
   }
 
   return str;
@@ -280,7 +318,7 @@ function parseExcelDate(val: any): string {
     }
   }
   if (val instanceof Date) {
-    return formatDisplayDate(val.toISOString());
+    return formatDateDisplay(val);
   }
   return formatDisplayDate(String(val).trim());
 }
