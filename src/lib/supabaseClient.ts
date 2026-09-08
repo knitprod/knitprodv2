@@ -1519,7 +1519,11 @@ export class SupabaseSync {
     const raw = row.raw_data || {};
     const ewoVal = row.ewo || raw.ewo || '';
     const colVal = row.color || raw.color || '';
-    const idVal = getOrderPlanCanonicalId({ ewo: ewoVal, color: colVal, id: row.id || raw.id });
+    const idVal = row.id && String(row.id).trim()
+      ? String(row.id).trim()
+      : (raw.id && String(raw.id).trim()
+          ? String(raw.id).trim()
+          : getOrderPlanCanonicalId({ ewo: ewoVal, color: colVal }));
     return {
       id: idVal,
       planMonth: row.plan_month || raw.planMonth || '',
@@ -1557,7 +1561,7 @@ export class SupabaseSync {
    * Converts an app OrderPlan into a Supabase PostgreSQL row
    */
   static mapOrderPlanToRow(item: OrderPlan): Record<string, any> {
-    const rawId = getOrderPlanCanonicalId(item);
+    const rawId = item.id && String(item.id).trim() ? String(item.id).trim() : getOrderPlanCanonicalId(item);
     return {
       id: rawId,
       plan_month: String(item.planMonth || ''),
@@ -1938,18 +1942,60 @@ export class SupabaseSync {
     };
   }
 
-  static async fetchKnittingOrders(): Promise<KnittingStatusOrder[]> {
+  static async fetchKnittingOrders(
+    onProgress?: (loaded: number, total: number, percent: number) => void
+  ): Promise<KnittingStatusOrder[]> {
     const client = this.getClient();
     if (!client) return [];
 
     try {
-      const { data, error } = await client
-        .from('knitting_orders')
-        .select('*')
-        .order('id', { ascending: false });
+      let totalCount = 0;
+      try {
+        const { count, error: countErr } = await client
+          .from('knitting_orders')
+          .select('*', { count: 'exact', head: true });
+        if (!countErr && typeof count === 'number') {
+          totalCount = count;
+        }
+      } catch (cntErr) {
+        console.warn('Supabase knitting_orders count error:', cntErr);
+      }
 
-      if (error || !data) return [];
-      return data.map(row => this.mapRowToKnittingOrder(row));
+      const allRows: any[] = [];
+      const BATCH_SIZE = 1000;
+      let from = 0;
+
+      while (true) {
+        const to = from + BATCH_SIZE - 1;
+        const { data, error } = await client
+          .from('knitting_orders')
+          .select('*')
+          .order('id', { ascending: false })
+          .range(from, to);
+
+        if (error) {
+          console.warn('Supabase fetchKnittingOrders range error:', error.message);
+          break;
+        }
+
+        if (!data || !Array.isArray(data) || data.length === 0) {
+          break;
+        }
+
+        allRows.push(...data);
+        const percent = totalCount > 0 ? Math.min(100, Math.round((allRows.length / totalCount) * 100)) : 100;
+        if (onProgress) {
+          onProgress(allRows.length, totalCount || allRows.length, percent);
+        }
+
+        if (data.length < BATCH_SIZE || (totalCount > 0 && allRows.length >= totalCount)) {
+          break;
+        }
+
+        from += BATCH_SIZE;
+      }
+
+      return allRows.map(row => this.mapRowToKnittingOrder(row));
     } catch {
       return [];
     }
@@ -1969,7 +2015,11 @@ export class SupabaseSync {
     }
   }
 
-  static async bulkSaveKnittingOrders(items: KnittingStatusOrder[], replace: boolean = false): Promise<{ success: boolean; count: number; error?: string }> {
+  static async bulkSaveKnittingOrders(
+    items: KnittingStatusOrder[], 
+    replace: boolean = false,
+    onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void
+  ): Promise<{ success: boolean; count: number; error?: string }> {
     const client = this.getClient();
     if (!client) return { success: false, count: 0, error: 'Supabase not initialized.' };
 
@@ -1980,9 +2030,24 @@ export class SupabaseSync {
       if (!items || items.length === 0) return { success: true, count: 0 };
 
       const rows = items.map(o => this.sanitizeRowForSupabase(this.mapKnittingOrderToRow(o)));
-      const { error } = await client.from('knitting_orders').upsert(rows, { onConflict: 'id' });
-      if (error) return { success: false, count: 0, error: error.message };
-      return { success: true, count: rows.length };
+      const CHUNK_SIZE = 200;
+      let insertedCount = 0;
+
+      for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        const chunk = rows.slice(i, i + CHUNK_SIZE);
+        const { error } = await client.from('knitting_orders').upsert(chunk, { onConflict: 'id' });
+        if (error) {
+          console.warn('Supabase bulkSaveKnittingOrders chunk error:', error.message);
+          return { success: false, count: insertedCount, error: error.message };
+        }
+        insertedCount += chunk.length;
+        if (onProgress) {
+          const pct = Math.round((insertedCount / rows.length) * 100);
+          onProgress(insertedCount, rows.length, pct, `Saving knitting orders (${insertedCount}/${rows.length})...`);
+        }
+      }
+
+      return { success: true, count: insertedCount };
     } catch (err: any) {
       return { success: false, count: 0, error: err.message || String(err) };
     }

@@ -200,18 +200,32 @@ function formatYarnQty(val: number): string {
 
 export function formatDisplayDate(val: any): string {
   if (!val && val !== 0) return '-';
-  if (val instanceof Date) {
-    if (isNaN(val.getTime())) return '-';
-    return formatDateDisplay(val);
-  }
-
-  const str = String(val).trim();
-  if (!str || str === '-' || str === 'Pending') return str || '-';
 
   const fullMonths = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
   ];
+
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return '-';
+    let d = val;
+    if (d.getUTCHours() >= 18) {
+      d = new Date(d.getTime() + 6 * 3600 * 1000);
+      return `${String(d.getUTCDate()).padStart(2, '0')}-${fullMonths[d.getUTCMonth()]}-${d.getUTCFullYear()}`;
+    }
+    const formatted = formatDateDisplay(val);
+    const match = formatted.match(/^(\d{1,2})-([A-Za-z]+)-(\d{4})$/);
+    if (match) {
+      const mIdx = fullMonths.findIndex(m => m.toLowerCase().startsWith(match[2].toLowerCase().slice(0, 3)));
+      if (mIdx !== -1) {
+        return `${match[1].padStart(2, '0')}-${fullMonths[mIdx]}-${match[3]}`;
+      }
+    }
+    return formatted || '-';
+  }
+
+  const str = String(val).trim();
+  if (!str || str === '-' || str === 'Pending') return str || '-';
 
   if (/\s+to\s+/i.test(str)) {
     const parts = str.split(/\s+to\s+/i);
@@ -219,13 +233,23 @@ export function formatDisplayDate(val: any): string {
   }
 
   // 1) Match ISO date string YYYY-MM-DD or YYYY/MM/DD (with or without 'T' time)
-  const isoMatch = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  const isoMatch = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T\s](\d{1,2}):(\d{1,2}))?/);
   if (isoMatch) {
-    const yr = isoMatch[1];
-    const mIdx = parseInt(isoMatch[2], 10) - 1;
-    const dy = String(parseInt(isoMatch[3], 10)).padStart(2, '0');
+    let yr = parseInt(isoMatch[1], 10);
+    let mIdx = parseInt(isoMatch[2], 10) - 1;
+    let dy = parseInt(isoMatch[3], 10);
+    const hr = isoMatch[4] ? parseInt(isoMatch[4], 10) : undefined;
+    if (hr !== undefined && hr >= 18) {
+      const dObj = new Date(str);
+      if (!isNaN(dObj.getTime())) {
+        const bstDate = new Date(dObj.getTime() + 6 * 3600 * 1000);
+        dy = bstDate.getUTCDate();
+        mIdx = bstDate.getUTCMonth();
+        yr = bstDate.getUTCFullYear();
+      }
+    }
     if (mIdx >= 0 && mIdx < 12) {
-      return `${dy}-${fullMonths[mIdx]}-${yr}`;
+      return `${String(dy).padStart(2, '0')}-${fullMonths[mIdx]}-${yr}`;
     }
   }
 

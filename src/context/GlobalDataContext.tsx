@@ -40,6 +40,7 @@ export interface GlobalDataContextType {
   // Order Plans
   saveOrderPlan: (order: OrderPlan) => Promise<{ success: boolean; message?: string }>;
   deleteOrderPlan: (id: string) => Promise<{ success: boolean; message?: string }>;
+  clearAllOrderPlans: () => Promise<{ success: boolean; message?: string }>;
   bulkSaveOrderPlans: (
     orders: OrderPlan[], 
     replace?: boolean,
@@ -398,6 +399,11 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         cleanOrders = filterDeletedOrders(deduplicateOrderPlans(supabaseOrders));
         setOrderPlans(cleanOrders);
         loadedSuccessfully = true;
+      } else if (Array.isArray(supabaseOrders) && SupabaseSync.isConfigured()) {
+        // Supabase is configured and connected, but table has 0 records (e.g. user purged/deleted all codes)
+        cleanOrders = [];
+        setOrderPlans([]);
+        loadedSuccessfully = true;
       }
 
       // Process Google Sheets for Orders and (fallback/archive seeding) Yarn & Ledger
@@ -409,14 +415,8 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           const remoteLedger = json.data.ledger || json.data.records;
           const remoteFloors = json.data.floors;
 
-          // If Supabase was empty on first setup for Orders, populate from Google Sheets & auto-seed
-          if ((!cleanOrders || cleanOrders.length === 0) && Array.isArray(remoteOrders) && remoteOrders.length > 0) {
-            cleanOrders = filterDeletedOrders(deduplicateOrderPlans(remoteOrders));
-            setOrderPlans(cleanOrders);
-            loadedSuccessfully = true;
-            // Auto-seed into Supabase so future queries are instant
-            SupabaseSync.bulkSaveOrderPlans(cleanOrders).catch(err => console.warn('Supabase auto-seed order_plans notice:', err));
-          } else if (Array.isArray(remoteOrders) && remoteOrders.length > 0 && (!cleanOrders || cleanOrders.length === 0)) {
+          // Only seed Orders from Google Sheets if Supabase is NOT configured
+          if (!SupabaseSync.isConfigured() && (!cleanOrders || cleanOrders.length === 0) && Array.isArray(remoteOrders) && remoteOrders.length > 0) {
             cleanOrders = filterDeletedOrders(deduplicateOrderPlans(remoteOrders));
             setOrderPlans(cleanOrders);
             loadedSuccessfully = true;
@@ -448,19 +448,23 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       }
 
-      // Fallback: If Google Sheets failed for Orders or Yarn (and Supabase had none)
-      if (!cleanOrders || !cleanYarn) {
-        const [ordersRes, yarnRes] = await Promise.allSettled([
-          GasClient.fetchOrderPlans(forceRefresh),
-          !cleanYarn ? GasClient.fetchYarnAllocations(forceRefresh) : Promise.resolve([])
+      // Fallback: If Supabase is unconfigured and Google Sheets failed
+      if (!SupabaseSync.isConfigured() && !cleanOrders) {
+        const [ordersRes] = await Promise.allSettled([
+          GasClient.fetchOrderPlans(forceRefresh)
         ]);
-
         if (ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value) && ordersRes.value.length > 0) {
           cleanOrders = filterDeletedOrders(deduplicateOrderPlans(ordersRes.value));
           setOrderPlans(cleanOrders);
           loadedSuccessfully = true;
         }
-        if (!cleanYarn && yarnRes.status === 'fulfilled' && Array.isArray(yarnRes.value) && yarnRes.value.length > 0) {
+      }
+
+      if (!cleanYarn) {
+        const [yarnRes] = await Promise.allSettled([
+          GasClient.fetchYarnAllocations(forceRefresh)
+        ]);
+        if (yarnRes.status === 'fulfilled' && Array.isArray(yarnRes.value) && yarnRes.value.length > 0) {
           cleanYarn = filterDeletedYarn(deduplicateWithUniqueIds(yarnRes.value, 'yarn'));
           setYarnAllocations(cleanYarn);
           loadedSuccessfully = true;
@@ -703,6 +707,28 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await SupabaseSync.deleteOrderPlan(id);
 
     return executeKeepaliveMutation('orders/delete', { id });
+  };
+
+  const clearAllOrderPlans = async (): Promise<{ success: boolean; message?: string }> => {
+    // 1. Purge all records from Supabase database
+    const success = await SupabaseSync.deleteAllOrderPlans();
+
+    // 2. Clear local React state immediately
+    setOrderPlans([]);
+
+    // 3. Clear localStorage caches
+    try {
+      localStorage.removeItem('cached_order_plans');
+      localStorage.removeItem('order_plan_upload_info');
+    } catch (e) {}
+
+    // 4. Notify cold archive if needed
+    executeKeepaliveMutation('orders/save', { orderPlans: [], replace: true }).catch(() => {});
+
+    return {
+      success,
+      message: success ? 'All order plans have been cleared from Supabase.' : 'Failed to purge orders from Supabase.'
+    };
   };
 
   const bulkSaveOrderPlans = async (
@@ -989,6 +1015,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     refreshAll,
     saveOrderPlan,
     deleteOrderPlan,
+    clearAllOrderPlans,
     bulkSaveOrderPlans,
     saveYarnAllocation,
     deleteYarnAllocation,

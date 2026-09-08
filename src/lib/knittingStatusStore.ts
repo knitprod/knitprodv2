@@ -32,7 +32,20 @@ export function formatDateDisplay(date: Date): string {
     return `${String(date.getUTCDate()).padStart(2, '0')}-${MONTH_NAMES[date.getUTCMonth()]}-${date.getUTCFullYear()}`;
   }
 
-  // 3. Fallback: use local date components
+  // 3. If timestamp has evening UTC hours (18:00 - 23:59 UTC), it represents Bangladesh Standard Time (BST = UTC+6) date:
+  if (date.getUTCHours() >= 18) {
+    const bstDate = new Date(date.getTime() + 6 * 3600 * 1000);
+    return `${String(bstDate.getUTCDate()).padStart(2, '0')}-${MONTH_NAMES[bstDate.getUTCMonth()]}-${bstDate.getUTCFullYear()}`;
+  }
+
+  // 4. Fallback: select whichever timezone is closest to midnight (00:00)
+  // This completely eliminates +/- 1 day shifting caused by timezone offsets on date-only values
+  const localDist = Math.min(date.getHours(), 24 - date.getHours());
+  const utcDist = Math.min(date.getUTCHours(), 24 - date.getUTCHours());
+
+  if (utcDist < localDist) {
+    return `${String(date.getUTCDate()).padStart(2, '0')}-${MONTH_NAMES[date.getUTCMonth()]}-${date.getUTCFullYear()}`;
+  }
   return `${String(date.getDate()).padStart(2, '0')}-${MONTH_NAMES[date.getMonth()]}-${date.getFullYear()}`;
 }
 
@@ -91,11 +104,21 @@ export function formatExcelDate(value: any): string {
   }
 
   // 1) Match ISO style string (e.g. 2026-07-06T00:00:00.000Z or 2026-07-06 or 2026/07/06)
-  const isoMatch = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  const isoMatch = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T\s](\d{1,2}):(\d{1,2}))?/);
   if (isoMatch) {
-    const y = parseInt(isoMatch[1], 10);
-    const m = parseInt(isoMatch[2], 10) - 1;
-    const d = parseInt(isoMatch[3], 10);
+    let y = parseInt(isoMatch[1], 10);
+    let m = parseInt(isoMatch[2], 10) - 1;
+    let d = parseInt(isoMatch[3], 10);
+    const hr = isoMatch[4] ? parseInt(isoMatch[4], 10) : undefined;
+    if (hr !== undefined && hr >= 18) {
+      const dObj = new Date(s);
+      if (!isNaN(dObj.getTime())) {
+        const bstDate = new Date(dObj.getTime() + 6 * 3600 * 1000);
+        d = bstDate.getUTCDate();
+        m = bstDate.getUTCMonth();
+        y = bstDate.getUTCFullYear();
+      }
+    }
     if (m >= 0 && m < 12) {
       return `${String(d).padStart(2, '0')}-${MONTH_NAMES[m]}-${y}`;
     }
@@ -719,12 +742,15 @@ export function normColorName(str: any): string {
  * This guarantees consistent identity across sessions, Excel uploads, and database upserts.
  */
 export function getOrderPlanCanonicalId(order: Partial<OrderPlan>): string {
-  const ordKey = normOrderNum(order.ewo || order.id);
+  if (order.id && String(order.id).trim() !== '') {
+    return String(order.id).trim();
+  }
+  const ordKey = normOrderNum(order.ewo);
   const colKey = normColorName(order.color);
   if (ordKey) {
     return `ord-${ordKey}-${colKey || 'MAIN'}`;
   }
-  return String(order.id || `ord-${Date.now()}`);
+  return `ord-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 }
 
 /**
@@ -741,13 +767,15 @@ export function deduplicateOrderPlans(orders: OrderPlan[]): OrderPlan[] {
     if (!rawOrd) return;
     const ord = sanitizeOrderPlanRemarks(rawOrd);
     const ordKey = normOrderNum(ord.ewo || ord.id);
-    if (!ordKey) return;
+    if (!ordKey && !ord.id) return;
     const colKey = normColorName(ord.color);
-    const compositeKey = `${ordKey}___${colKey}`;
+    
+    // If order already has a persistent unique ID, use it so existing distinct database records are never lost
+    const compositeKey = ord.id ? `ID_${ord.id}` : `${ordKey}___${colKey}`;
 
     const existing = map.get(compositeKey);
     if (!existing) {
-      const canonicalId = getOrderPlanCanonicalId(ord);
+      const canonicalId = ord.id || getOrderPlanCanonicalId(ord);
       map.set(compositeKey, { ...ord, id: canonicalId });
     } else {
       // Merge records: preserve non-empty/latest values and populated fields
@@ -803,14 +831,15 @@ export function deduplicateOrderPlans(orders: OrderPlan[]): OrderPlan[] {
   results.forEach(o => {
     const k = normOrderNum(o.ewo || o.id);
     const colKey = normColorName(o.color);
-    const compositeKey = `${k}___${colKey}`;
-    if (processedKeys.has(compositeKey)) return;
+    const uniqueKey = o.id ? `ID_${o.id}` : `${k}___${colKey}`;
+    if (processedKeys.has(uniqueKey)) return;
 
     const group = byEwo.get(k) || [];
-    if (group.length === 2) {
+    // Only merge if neither record has an explicit distinct ID, or if one is clearly a blank color duplicate of the other
+    if (group.length === 2 && !o.id) {
       const blankOrder = group.find(g => !normColorName(g.color));
       const coloredOrder = group.find(g => !!normColorName(g.color));
-      if (blankOrder && coloredOrder) {
+      if (blankOrder && coloredOrder && blankOrder !== coloredOrder) {
         const mergedCol: OrderPlan = {
           ...blankOrder,
           ...coloredOrder,
@@ -824,7 +853,7 @@ export function deduplicateOrderPlans(orders: OrderPlan[]): OrderPlan[] {
       }
     }
 
-    processedKeys.add(compositeKey);
+    processedKeys.add(uniqueKey);
     finalResults.push(o);
   });
 
