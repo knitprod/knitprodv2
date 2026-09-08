@@ -49,7 +49,7 @@ import {
   Users,
   Check,
 } from 'lucide-react';
-import { formatExcelDate } from '../lib/knittingStatusStore';
+import { formatExcelDate, isDateOrTimestampString, sanitizeRemarksValue, sanitizeOrderPlanRemarks } from '../lib/knittingStatusStore';
 
 export const getYesterdayDateString = (): string => {
   const d = new Date();
@@ -564,12 +564,24 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     deleteYarnAllocation: globalDeleteYarnAllocation
   } = useGlobalData();
 
-  const [orders, setOrders] = useState<OrderPlan[]>(globalOrders || INITIAL_ORDERS);
+  const [orders, setOrders] = useState<OrderPlan[]>(() => {
+    const base = globalOrders && globalOrders.length > 0 ? globalOrders : INITIAL_ORDERS;
+    return base.map(sanitizeOrderPlanRemarks);
+  });
   useEffect(() => {
     if (globalOrders && globalOrders.length > 0) {
-      setOrders(globalOrders);
+      const sanitized = globalOrders.map(sanitizeOrderPlanRemarks);
+      setOrders(sanitized);
+
+      // Auto-heal persistent storage if any orders had leaked date strings
+      const hadCorrupted = globalOrders.some(
+        o => isDateOrTimestampString(o.knitStartRemarks) || isDateOrTimestampString(o.knitEndRemarks)
+      );
+      if (hadCorrupted) {
+        bulkSaveOrderPlans(sanitized, true).catch(() => {});
+      }
     }
-  }, [globalOrders]);
+  }, [globalOrders, bulkSaveOrderPlans]);
   const [activeSubTab, setActiveSubTab] = useState<'team_leader' | 'buyer' | 'summary' | 'delivery'>(
     initialSubTab || 'team_leader'
   );
@@ -1112,7 +1124,10 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       const normCand = normalizeKey(candidate);
       if (normCand.length < 3) continue;
       for (const [normRk, origRk] of normalizedRowMap.entries()) {
-        if (normRk.includes(normCand) || normCand.includes(normRk)) {
+        // Only allow normRk to include normCand (the header in Excel contains the full candidate phrase).
+        // NEVER allow normCand.includes(normRk), because e.g. candidate "knitstartremarks" contains "knitstart",
+        // which caused the Knit Start DATE column to falsely match the Knit Start Remarks column!
+        if (normRk.includes(normCand)) {
           if (row[origRk] !== undefined && row[origRk] !== null && String(row[origRk]).trim() !== '') {
             return row[origRk];
           }
@@ -1258,8 +1273,8 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
           const rawKnitEndOtd = getExcelRowValue(row, ['Knit End OTD', 'End OTD']);
           const upKnitEndOtd = (rawKnitEndOtd === 'Passed' || rawKnitEndOtd === 'Failed' || rawKnitEndOtd === 'Pending') ? rawKnitEndOtd : undefined;
 
-          const upKnitStartRemarks = String(getExcelRowValue(row, ['Knit Start Remarks', 'Start Remarks', 'Start Delay Reason']) || '').trim();
-          const upKnitEndRemarks = String(getExcelRowValue(row, ['Knit End Remarks', 'End Remarks', 'End Delay Reason']) || '').trim();
+          const upKnitStartRemarks = sanitizeRemarksValue(getExcelRowValue(row, ['Knit Start Remarks', 'Knit Start Delay Reason', 'Start Remarks', 'Start Delay Reason', 'Start Reason']));
+          const upKnitEndRemarks = sanitizeRemarksValue(getExcelRowValue(row, ['Knit End Remarks', 'Knit End Delay Reason', 'End Remarks', 'End Delay Reason', 'End Reason']));
           const upTeamLeaders = String(getExcelRowValue(row, ['Knit Team Leader', 'Team Leader', 'Team\nLeader', 'TeamLeader', 'Leader']) || '').trim();
 
           if (targetIndex !== undefined) {
@@ -1541,8 +1556,8 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
           const rawKnitEndOtd = getExcelRowValue(row, ['Knit End OTD', 'End OTD']);
           const upKnitEndOtd = (rawKnitEndOtd === 'Passed' || rawKnitEndOtd === 'Failed' || rawKnitEndOtd === 'Pending') ? rawKnitEndOtd : undefined;
 
-          const upKnitStartRemarks = String(getExcelRowValue(row, ['Knit Start Remarks', 'Start Remarks', 'Start Delay Reason']) || '').trim();
-          const upKnitEndRemarks = String(getExcelRowValue(row, ['Knit End Remarks', 'End Remarks', 'End Delay Reason']) || '').trim();
+          const upKnitStartRemarks = sanitizeRemarksValue(getExcelRowValue(row, ['Knit Start Remarks', 'Knit Start Delay Reason', 'Start Remarks', 'Start Delay Reason', 'Start Reason']));
+          const upKnitEndRemarks = sanitizeRemarksValue(getExcelRowValue(row, ['Knit End Remarks', 'Knit End Delay Reason', 'End Remarks', 'End Delay Reason', 'End Reason']));
           const upTeamLeaders = String(getExcelRowValue(row, ['Knit Team Leader', 'Team Leader', 'Team\nLeader', 'TeamLeader', 'Leader']) || '').trim();
 
           if (seenKeys.has(primaryKey)) {

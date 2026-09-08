@@ -5,7 +5,7 @@
  * Epyllion Knitex Ltd. - Knitting Status Data Store & Helpers
  */
 
-import { KnittingStatusOrder, KnittingStatusItem } from '../types';
+import { KnittingStatusOrder, KnittingStatusItem, OrderPlan } from '../types';
 
 export type KnittingCondition = 'Pending' | 'Running' | 'Complete';
 
@@ -51,6 +51,48 @@ export function formatExcelDate(value: any): string {
     }
   }
   return str;
+}
+
+/**
+ * Detects if a value is a Date object, an ISO date string, or a JavaScript Date.toString()
+ * (such as "Tue Jun 30 2026 23:59:40 GMT+0600 (Bangladesh Standard Time)").
+ */
+export function isDateOrTimestampString(val: any): boolean {
+  if (val === undefined || val === null || val === '') return false;
+  if (val instanceof Date) return true;
+  const str = String(val).trim();
+  if (!str) return false;
+  if (/\bGMT[+-]\d{4}\b/i.test(str)) return true;
+  if (/Standard Time/i.test(str)) return true;
+  if (/^[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{4}\s+\d{2}:\d{2}:\d{2}/.test(str)) return true;
+  return false;
+}
+
+/**
+ * Sanitizes order remarks so that date objects or leaked Date.toString() values
+ * (such as "Tue Jun 30 2026 23:59:40 GMT+0600 (Bangladesh Standard Time)") are eliminated.
+ */
+export function sanitizeRemarksValue(val: any): string {
+  if (val === undefined || val === null || val === '') return '';
+  if (isDateOrTimestampString(val)) return '';
+  return String(val).trim();
+}
+
+/**
+ * Cleans any leaked date string in an OrderPlan's knitStartRemarks and knitEndRemarks.
+ */
+export function sanitizeOrderPlanRemarks(order: OrderPlan): OrderPlan {
+  if (!order) return order;
+  const startBad = isDateOrTimestampString(order.knitStartRemarks);
+  const endBad = isDateOrTimestampString(order.knitEndRemarks);
+  if (startBad || endBad) {
+    return {
+      ...order,
+      knitStartRemarks: startBad ? '' : (order.knitStartRemarks || '').trim(),
+      knitEndRemarks: endBad ? '' : (order.knitEndRemarks || '').trim()
+    };
+  }
+  return order;
 }
 
 /**

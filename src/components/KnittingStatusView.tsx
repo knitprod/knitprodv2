@@ -427,7 +427,9 @@ export default function KnittingStatusView({ currentUser }: KnittingStatusViewPr
       const normCand = normalizeKey(candidate);
       if (normCand.length < 4) continue;
       for (const [normRk, origRk] of normalizedRowMap.entries()) {
-        if (normRk.includes(normCand) || normCand.includes(normRk)) {
+        // Only allow normRk to include normCand (the header in Excel contains the full candidate phrase).
+        // Never allow normCand.includes(normRk) to prevent specific compound names matching shorter prefix columns.
+        if (normRk.includes(normCand)) {
           if (row[origRk] !== undefined && row[origRk] !== null && String(row[origRk]).trim() !== '') {
             return row[origRk];
           }
