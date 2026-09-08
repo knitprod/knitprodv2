@@ -1229,13 +1229,13 @@ export default function KnittingStatusView({ currentUser }: KnittingStatusViewPr
                   </td>
                 </tr>
               ) : (
-                paginatedOrders.map(order => {
+                paginatedOrders.map((order, orderIdx) => {
                   const isExpanded = expandedOrderIds.has(order.id);
                   const itemsCount = order.items?.length || 0;
                   const percentDone = order.greyQty > 0 ? Math.min(100, Math.round((order.production / order.greyQty) * 100)) : 0;
 
                   return (
-                    <React.Fragment key={order.id}>
+                    <React.Fragment key={order.id ? `${order.id}-${orderIdx}` : `ks-order-${orderIdx}`}>
                       {/* 1st Layer: Order Row */}
                       <tr
                         className={`transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/50 cursor-pointer ${
@@ -1405,8 +1405,8 @@ export default function KnittingStatusView({ currentUser }: KnittingStatusViewPr
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                      {sortKnittingItems(order.items || []).map(itm => (
-                                        <tr key={itm.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                                      {sortKnittingItems(order.items || []).map((itm, itmIdx) => (
+                                        <tr key={itm.id ? `${itm.id}-${itmIdx}` : `itm-${itmIdx}`} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                                           {/* Color */}
                                           <td className="py-2 px-2.5 font-semibold text-slate-900 dark:text-white">
                                             {itm.color}

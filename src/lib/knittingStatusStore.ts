@@ -10,16 +10,23 @@ import { KnittingStatusOrder, KnittingStatusItem, OrderPlan } from '../types';
 export type KnittingCondition = 'Pending' | 'Running' | 'Complete';
 
 const MONTH_MAP: Record<string, number> = {
-  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
-  january: 0, february: 1, march: 2, april: 3, june: 5, july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11,
+  january: 0, february: 1, march: 2, april: 3, may_: 4, june: 5, july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
 };
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export function formatDateDisplay(date: Date): string {
-  const d = String(date.getDate()).padStart(2, '0');
-  const m = MONTH_NAMES[date.getMonth()];
-  const y = date.getFullYear();
+  if (!date || isNaN(date.getTime())) return '';
+  // Check if date was created at UTC midnight (which is what XLSX.read cellDates: true outputs,
+  // or epoch timestamp Math.round((num - 25569) * 86400 * 1000)).
+  // In timezones with negative UTC offset (e.g. UTC-7), calling date.getDate() on UTC midnight
+  // shifts the day backwards by 1 (e.g. 6 Sept 00:00:00 UTC becomes 5 Sept 17:00:00 local time).
+  const isUtcMidnight = (date.getUTCHours() === 0 && date.getUTCMinutes() === 0 && date.getUTCSeconds() === 0) ||
+                        (date.getHours() === 0 && date.getMinutes() === 0 && date.getSeconds() === 0);
+  const d = String(isUtcMidnight ? date.getUTCDate() : date.getDate()).padStart(2, '0');
+  const m = MONTH_NAMES[isUtcMidnight ? date.getUTCMonth() : date.getMonth()];
+  const y = isUtcMidnight ? date.getUTCFullYear() : date.getFullYear();
   return `${d}-${m}-${y}`;
 }
 
@@ -42,15 +49,61 @@ export function formatExcelDate(value: any): string {
     }
     return String(value);
   }
-  const str = String(value).trim();
-  if (/^\d{5}$/.test(str)) {
-    const num = Number(str);
+  const s = String(value).trim();
+  if (!s || s === '-' || s.toLowerCase() === 'pending' || s.toLowerCase() === 'n/a') return '';
+
+  if (/^\d{5}$/.test(s)) {
+    const num = Number(s);
     const date = new Date(Math.round((num - 25569) * 86400 * 1000));
     if (!isNaN(date.getTime())) {
       return formatDateDisplay(date);
     }
   }
-  return str;
+
+  // 1) Match DD-MMM-YYYY or DD MMM YYYY or D-MMM-YYYY or DD-Month-YYYY (e.g. 6 Sept 2026, 6-Sep-2026, 06-September-2026, 6-Sep-26)
+  const dmyAlpha = s.match(/^(\d{1,2})[-/\s]([A-Za-z]{3,12})[-/\s](\d{2,4})$/);
+  if (dmyAlpha) {
+    const day = parseInt(dmyAlpha[1], 10);
+    const monStr = dmyAlpha[2].toLowerCase();
+    let year = parseInt(dmyAlpha[3], 10);
+    if (year < 100) year += 2000;
+    const mIdx = MONTH_MAP[monStr] !== undefined ? MONTH_MAP[monStr] : MONTH_MAP[monStr.slice(0, 3)];
+    if (mIdx !== undefined && mIdx >= 0 && mIdx < 12) {
+      return `${String(day).padStart(2, '0')}-${MONTH_NAMES[mIdx]}-${year}`;
+    }
+  }
+
+  // 2) Match YYYY-MM-DD or YYYY/MM/DD (ISO style, e.g. 2026-09-06)
+  const ymdNum = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (ymdNum) {
+    const y = parseInt(ymdNum[1], 10);
+    const m = parseInt(ymdNum[2], 10) - 1;
+    const d = parseInt(ymdNum[3], 10);
+    if (m >= 0 && m < 12) {
+      return `${String(d).padStart(2, '0')}-${MONTH_NAMES[m]}-${y}`;
+    }
+  }
+
+  // 3) Match DD/MM/YYYY or DD-MM-YYYY (e.g. 06/09/2026 or 6/9/2026)
+  const dmyNum = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
+  if (dmyNum) {
+    const d = parseInt(dmyNum[1], 10);
+    const m = parseInt(dmyNum[2], 10) - 1;
+    let y = parseInt(dmyNum[3], 10);
+    if (y < 100) y += 2000;
+    if (m >= 0 && m < 12) {
+      return `${String(d).padStart(2, '0')}-${MONTH_NAMES[m]}-${y}`;
+    }
+  }
+
+  // 4) Try Date.parse if it looks like a standard date string (e.g. "Sun Sep 06 2026")
+  const parsed = Date.parse(s);
+  if (!isNaN(parsed) && !/^\d+$/.test(s)) {
+    const date = new Date(parsed);
+    return formatDateDisplay(date);
+  }
+
+  return s;
 }
 
 /**
@@ -602,4 +655,135 @@ export class KnittingStatusStorage {
     this.saveOrders(fresh);
     return fresh;
   }
+}
+
+/**
+ * Normalizes an order number / EWO for consistent lookups and deduplication.
+ */
+export function normOrderNum(str: any): string {
+  return String(str || '').trim().replace(/^#+/, '').toUpperCase().replace(/\s+/g, '');
+}
+
+/**
+ * Normalizes a fabric color name for consistent lookups and deduplication.
+ */
+export function normColorName(str: any): string {
+  return String(str || '').trim().toUpperCase().replace(/\s+/g, '');
+}
+
+/**
+ * Produces a deterministic, unique canonical ID for an OrderPlan record.
+ * This guarantees consistent identity across sessions, Excel uploads, and database upserts.
+ */
+export function getOrderPlanCanonicalId(order: Partial<OrderPlan>): string {
+  const ordKey = normOrderNum(order.ewo || order.id);
+  const colKey = normColorName(order.color);
+  if (ordKey) {
+    return `ord-${ordKey}-${colKey || 'MAIN'}`;
+  }
+  return String(order.id || `ord-${Date.now()}`);
+}
+
+/**
+ * Comprehensive deduplication for OrderPlan records.
+ * Identifies duplicate orders by Order Number (EWO) and Color.
+ * Merges duplicate entries safely by combining the most populated/recent values
+ * and assigns consistent deterministic canonical IDs to prevent duplicate database rows.
+ */
+export function deduplicateOrderPlans(orders: OrderPlan[]): OrderPlan[] {
+  if (!orders || !Array.isArray(orders)) return [];
+  const map = new Map<string, OrderPlan>();
+
+  orders.forEach(rawOrd => {
+    if (!rawOrd) return;
+    const ord = sanitizeOrderPlanRemarks(rawOrd);
+    const ordKey = normOrderNum(ord.ewo || ord.id);
+    if (!ordKey) return;
+    const colKey = normColorName(ord.color);
+    const compositeKey = `${ordKey}___${colKey}`;
+
+    const existing = map.get(compositeKey);
+    if (!existing) {
+      const canonicalId = getOrderPlanCanonicalId(ord);
+      map.set(compositeKey, { ...ord, id: canonicalId });
+    } else {
+      // Merge records: preserve non-empty/latest values and populated fields
+      const latestProdDate = (ord.lastProductionDate && ord.lastProductionDate !== '-') ? ord.lastProductionDate : existing.lastProductionDate;
+      const latestAKnitStart = (ord.aKnitStart && ord.aKnitStart !== '-') ? ord.aKnitStart : existing.aKnitStart;
+      const merged: OrderPlan = {
+        ...existing,
+        ...ord,
+        id: existing.id || getOrderPlanCanonicalId(ord),
+        planMonth: ord.planMonth || existing.planMonth,
+        planType: ord.planType || existing.planType,
+        ewo: existing.ewo || ord.ewo,
+        buyer: ord.buyer || existing.buyer,
+        color: ord.color || existing.color,
+        knitStart: ord.knitStart || existing.knitStart,
+        knitEnd: ord.knitEnd || existing.knitEnd,
+        target: (ord.target !== undefined && ord.target !== 0) ? ord.target : (existing.target || 0),
+        targetNextMonth: (ord.targetNextMonth !== undefined && ord.targetNextMonth !== 0) ? ord.targetNextMonth : (existing.targetNextMonth || 0),
+        allocationStart: ord.allocationStart || existing.allocationStart,
+        allocationEnd: ord.allocationEnd || existing.allocationEnd,
+        allocatedQty: (ord.allocatedQty !== undefined && ord.allocatedQty !== 0) ? ord.allocatedQty : (existing.allocatedQty || 0),
+        allocatedBal: (ord.allocatedBal !== undefined && ord.allocatedBal !== 0) ? ord.allocatedBal : (existing.allocatedBal || 0),
+        greyReq: (ord.greyReq !== undefined && ord.greyReq !== 0) ? ord.greyReq : (existing.greyReq || 0),
+        knitPro: (ord.knitPro !== undefined && ord.knitPro !== 0) ? ord.knitPro : (existing.knitPro || 0),
+        knitBal: ord.knitBal !== undefined ? ord.knitBal : existing.knitBal,
+        aKnitStart: latestAKnitStart,
+        lastProductionDate: latestProdDate,
+        avgProdDay: (ord.avgProdDay !== undefined && ord.avgProdDay !== 0) ? ord.avgProdDay : (existing.avgProdDay || 0),
+        expectedKnitEnd: ord.expectedKnitEnd || existing.expectedKnitEnd,
+        knitStartOtd: (ord.knitStartOtd && ord.knitStartOtd !== 'Pending') ? ord.knitStartOtd : existing.knitStartOtd,
+        knitEndOtd: (ord.knitEndOtd && ord.knitEndOtd !== 'Pending') ? ord.knitEndOtd : existing.knitEndOtd,
+        knitStartRemarks: ord.knitStartRemarks || existing.knitStartRemarks,
+        knitEndRemarks: ord.knitEndRemarks || existing.knitEndRemarks,
+        knitTeamLeaders: ord.knitTeamLeaders || existing.knitTeamLeaders,
+      };
+      map.set(compositeKey, merged);
+    }
+  });
+
+  const results = Array.from(map.values());
+
+  // Second pass: If an order exists with blank color and there is an exact single matching order for that EWO with a color, merge them
+  const byEwo = new Map<string, OrderPlan[]>();
+  results.forEach(o => {
+    const k = normOrderNum(o.ewo || o.id);
+    if (!byEwo.has(k)) byEwo.set(k, []);
+    byEwo.get(k)!.push(o);
+  });
+
+  const finalResults: OrderPlan[] = [];
+  const processedKeys = new Set<string>();
+
+  results.forEach(o => {
+    const k = normOrderNum(o.ewo || o.id);
+    const colKey = normColorName(o.color);
+    const compositeKey = `${k}___${colKey}`;
+    if (processedKeys.has(compositeKey)) return;
+
+    const group = byEwo.get(k) || [];
+    if (group.length === 2) {
+      const blankOrder = group.find(g => !normColorName(g.color));
+      const coloredOrder = group.find(g => !!normColorName(g.color));
+      if (blankOrder && coloredOrder) {
+        const mergedCol: OrderPlan = {
+          ...blankOrder,
+          ...coloredOrder,
+          id: coloredOrder.id || blankOrder.id,
+          color: coloredOrder.color
+        };
+        finalResults.push(mergedCol);
+        processedKeys.add(`${k}___`);
+        processedKeys.add(`${k}___${normColorName(coloredOrder.color)}`);
+        return;
+      }
+    }
+
+    processedKeys.add(compositeKey);
+    finalResults.push(o);
+  });
+
+  return finalResults;
 }

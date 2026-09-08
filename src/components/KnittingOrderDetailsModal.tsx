@@ -367,7 +367,7 @@ export function KnittingOrderDetailsModal({ order, onClose }: KnittingOrderDetai
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {items.map((itm, idx) => (
-                      <tr key={itm.id || idx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50">
+                      <tr key={itm.id ? `${itm.id}-${idx}` : `itm-${idx}`} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50">
                         <td className="py-2 px-2.5 text-center text-slate-400 font-mono">{idx + 1}</td>
                         <td className="py-2 px-2.5 font-bold text-slate-900 dark:text-white">
                           {itm.color ? (

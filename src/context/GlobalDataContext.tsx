@@ -19,7 +19,7 @@ import { GasClient } from '../lib/gasClient';
 import { generateInitialLedger } from '../components/ProductionLedgerView';
 import { normalizeDateKey, normalizeFloorKey } from '../lib/userPermissions';
 import { SupabaseSync } from '../lib/supabaseClient';
-import { sanitizeOrderPlanRemarks } from '../lib/knittingStatusStore';
+import { sanitizeOrderPlanRemarks, deduplicateOrderPlans, getOrderPlanCanonicalId } from '../lib/knittingStatusStore';
 
 export interface GlobalDataContextType {
   // Datasets
@@ -217,7 +217,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map(sanitizeOrderPlanRemarks);
+          return deduplicateOrderPlans(parsed);
         }
       }
     } catch (e) {}
@@ -395,7 +395,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       // Process Supabase Order Plans (Primary source for Plan Order Followup & Status)
       if (Array.isArray(supabaseOrders) && supabaseOrders.length > 0) {
-        cleanOrders = filterDeletedOrders(deduplicateWithUniqueIds(supabaseOrders, 'ord'));
+        cleanOrders = filterDeletedOrders(deduplicateOrderPlans(supabaseOrders));
         setOrderPlans(cleanOrders);
         loadedSuccessfully = true;
       }
@@ -411,13 +411,13 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
           // If Supabase was empty on first setup for Orders, populate from Google Sheets & auto-seed
           if ((!cleanOrders || cleanOrders.length === 0) && Array.isArray(remoteOrders) && remoteOrders.length > 0) {
-            cleanOrders = filterDeletedOrders(deduplicateWithUniqueIds(remoteOrders, 'ord'));
+            cleanOrders = filterDeletedOrders(deduplicateOrderPlans(remoteOrders));
             setOrderPlans(cleanOrders);
             loadedSuccessfully = true;
             // Auto-seed into Supabase so future queries are instant
             SupabaseSync.bulkSaveOrderPlans(cleanOrders).catch(err => console.warn('Supabase auto-seed order_plans notice:', err));
           } else if (Array.isArray(remoteOrders) && remoteOrders.length > 0 && (!cleanOrders || cleanOrders.length === 0)) {
-            cleanOrders = filterDeletedOrders(deduplicateWithUniqueIds(remoteOrders, 'ord'));
+            cleanOrders = filterDeletedOrders(deduplicateOrderPlans(remoteOrders));
             setOrderPlans(cleanOrders);
             loadedSuccessfully = true;
           }
@@ -456,7 +456,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         ]);
 
         if (ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value) && ordersRes.value.length > 0) {
-          cleanOrders = filterDeletedOrders(deduplicateWithUniqueIds(ordersRes.value, 'ord'));
+          cleanOrders = filterDeletedOrders(deduplicateOrderPlans(ordersRes.value));
           setOrderPlans(cleanOrders);
           loadedSuccessfully = true;
         }
@@ -555,8 +555,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       } else if (eventType === 'INSERT' || eventType === 'UPDATE') {
         if (!record || (!record.id && !record.ewo)) return;
         setOrderPlans(prev => {
-          const idx = prev.findIndex(o => (o.id && record.id && o.id === record.id) || (o.ewo && record.ewo && o.ewo === record.ewo));
-          const next = idx >= 0 ? prev.map((o, i) => i === idx ? record : o) : [record, ...prev];
+          const next = deduplicateOrderPlans([record, ...prev]);
           try {
             localStorage.setItem('cached_order_plans', JSON.stringify(next));
           } catch (e) {}
@@ -595,7 +594,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           const { orderPlans: rOrders, yarnAllocations: rYarn } = json.data;
           // Only pull Orders from Google Sheets if Supabase is unconfigured or local orders is empty (Google Sheets is cold archive)
           if ((!SupabaseSync.isConfigured() || orderPlans.length === 0) && Array.isArray(rOrders) && rOrders.length > 0) {
-            const cleanOrders = filterDeletedOrders(deduplicateWithUniqueIds(rOrders, 'ord'));
+            const cleanOrders = filterDeletedOrders(deduplicateOrderPlans(rOrders));
             setOrderPlans(prev => {
               if (prev.length !== cleanOrders.length || JSON.stringify(prev) !== JSON.stringify(cleanOrders)) {
                 try {
@@ -664,25 +663,25 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // --- Order Plans (Powered by Supabase Cloud Database + Real-time WebSockets) ---
   const saveOrderPlan = async (order: OrderPlan) => {
     const cleanOrder = sanitizeOrderPlanRemarks(order);
-    if (cleanOrder.id) deletedOrderIdsRef.current.delete(cleanOrder.id);
-    if (cleanOrder.ewo) deletedOrderIdsRef.current.delete(cleanOrder.ewo);
+    const canonicalId = getOrderPlanCanonicalId(cleanOrder);
+    const finalizedOrder = { ...cleanOrder, id: canonicalId };
+    if (finalizedOrder.id) deletedOrderIdsRef.current.delete(finalizedOrder.id);
+    if (finalizedOrder.ewo) deletedOrderIdsRef.current.delete(finalizedOrder.ewo);
 
     // 1. Optimistic local update
     setOrderPlans(prev => {
-      const idx = prev.findIndex(o => (o.id && o.id === cleanOrder.id) || (o.ewo && o.ewo === cleanOrder.ewo));
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = cleanOrder;
-        return next;
-      }
-      return [cleanOrder, ...prev];
+      const next = deduplicateOrderPlans([finalizedOrder, ...prev]);
+      try {
+        localStorage.setItem('cached_order_plans', JSON.stringify(next));
+      } catch (e) {}
+      return next;
     });
 
     // 2. Direct Supabase Cloud Save (Live across all devices in <50ms)
-    const supabaseResult = await SupabaseSync.saveOrderPlan(cleanOrder);
+    const supabaseResult = await SupabaseSync.saveOrderPlan(finalizedOrder);
 
     // 3. Fallback background sync to Google Sheets
-    executeKeepaliveMutation('orders/save', { orderPlans: [cleanOrder], replace: false }).catch(() => {});
+    executeKeepaliveMutation('orders/save', { orderPlans: [finalizedOrder], replace: false }).catch(() => {});
 
     return {
       success: true,
@@ -711,7 +710,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     replace: boolean = false,
     onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void
   ) => {
-    const cleanOrders = orders.map(sanitizeOrderPlanRemarks);
+    const cleanOrders = deduplicateOrderPlans(orders);
     cleanOrders.forEach(o => {
       if (o.id) deletedOrderIdsRef.current.delete(o.id);
       if (o.ewo) deletedOrderIdsRef.current.delete(o.ewo);
@@ -719,8 +718,17 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     if (replace) {
       setOrderPlans(cleanOrders);
+      try {
+        localStorage.setItem('cached_order_plans', JSON.stringify(cleanOrders));
+      } catch (e) {}
     } else {
-      setOrderPlans(prev => [...cleanOrders, ...prev.filter(p => !cleanOrders.some(o => o.id === p.id || (o.ewo && o.ewo === p.ewo)))]);
+      setOrderPlans(prev => {
+        const next = deduplicateOrderPlans([...cleanOrders, ...prev]);
+        try {
+          localStorage.setItem('cached_order_plans', JSON.stringify(next));
+        } catch (e) {}
+        return next;
+      });
     }
 
     // 1. Primary Database Bulk Save: Supabase (purges all previous rows if replace is true) with real-time progress

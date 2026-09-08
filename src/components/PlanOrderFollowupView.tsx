@@ -48,8 +48,23 @@ import {
   Building2,
   Users,
   Check,
+  ArrowRight,
+  Copy,
+  ChevronUp,
+  Sparkles,
+  History,
+  ListChecks,
 } from 'lucide-react';
-import { formatExcelDate, isDateOrTimestampString, sanitizeRemarksValue, sanitizeOrderPlanRemarks } from '../lib/knittingStatusStore';
+import { 
+  formatExcelDate, 
+  isDateOrTimestampString, 
+  sanitizeRemarksValue, 
+  sanitizeOrderPlanRemarks,
+  deduplicateOrderPlans,
+  getOrderPlanCanonicalId,
+  normOrderNum,
+  normColorName
+} from '../lib/knittingStatusStore';
 
 export const getYesterdayDateString = (): string => {
   const d = new Date();
@@ -101,6 +116,25 @@ export interface OrderPlan {
   knitStartRemarks: string;
   knitEndRemarks: string;
   knitTeamLeaders: string;
+}
+
+// Field Diff & Change Summary Types for Upload
+export interface OrderFieldDiff {
+  fieldKey: string;
+  fieldLabel: string;
+  oldValue: any;
+  newValue: any;
+  isFilledBlank: boolean;
+}
+
+export interface OrderChangeRecord {
+  orderId: string;
+  ewo: string;
+  color: string;
+  buyer: string;
+  planMonth?: string;
+  isNew: boolean;
+  changes: OrderFieldDiff[];
 }
 
 /**
@@ -566,19 +600,21 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
 
   const [orders, setOrders] = useState<OrderPlan[]>(() => {
     const base = globalOrders && globalOrders.length > 0 ? globalOrders : INITIAL_ORDERS;
-    return base.map(sanitizeOrderPlanRemarks);
+    return deduplicateOrderPlans(base);
   });
   useEffect(() => {
     if (globalOrders && globalOrders.length > 0) {
       const sanitized = globalOrders.map(sanitizeOrderPlanRemarks);
-      setOrders(sanitized);
+      const deduplicated = deduplicateOrderPlans(sanitized);
+      setOrders(deduplicated);
 
-      // Auto-heal persistent storage if any orders had leaked date strings
+      // Auto-heal persistent storage if any orders had duplicate entries or leaked date strings
+      const hadDuplicates = deduplicated.length !== sanitized.length;
       const hadCorrupted = globalOrders.some(
         o => isDateOrTimestampString(o.knitStartRemarks) || isDateOrTimestampString(o.knitEndRemarks)
       );
-      if (hadCorrupted) {
-        bulkSaveOrderPlans(sanitized, true).catch(() => {});
+      if (hadDuplicates || hadCorrupted) {
+        bulkSaveOrderPlans(deduplicated, true).catch(() => {});
       }
     }
   }, [globalOrders, bulkSaveOrderPlans]);
@@ -961,7 +997,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     const allocVal = parseFloat(formAllocatedQty) || targetVal;
 
     const newEntry: OrderPlan = {
-      id: `ord-${Date.now()}`,
+      id: getOrderPlanCanonicalId({ ewo: formEwo.trim(), color: formColor.trim() }),
       planMonth: formPlanMonth,
       planType: formPlanType,
       ewo: formEwo.trim(),
@@ -989,7 +1025,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       knitTeamLeaders: ''
     };
 
-    const updated = [newEntry, ...orders];
+    const updated = deduplicateOrderPlans([newEntry, ...orders]);
     setOrders(updated);
     globalSaveOrderPlan(newEntry).catch(err => console.warn('Global save order plan warning:', err));
     setShowAddModal(false);
@@ -1090,8 +1126,17 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       newOrdersCount: number;
       unalteredCount: number;
       purgedCount?: number;
+      totalFieldsChanged?: number;
     };
+    changesList?: OrderChangeRecord[];
   } | null>(null);
+
+  // Upload Summary Modal Controls
+  const [changeSearchQuery, setChangeSearchQuery] = useState<string>('');
+  const [changeCategoryFilter, setChangeCategoryFilter] = useState<'all' | 'dates' | 'progress' | 'remarks' | 'new'>('all');
+  const [changeTab, setChangeTab] = useState<'changes' | 'overview'>('changes');
+  const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set());
+  const [copiedSummary, setCopiedSummary] = useState<boolean>(false);
 
   // Flexible Excel Column Resolution Helpers
   const normalizeKey = (str: string): string => {
@@ -1100,6 +1145,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
 
   const getExcelRowValue = (row: Record<string, any>, candidateKeys: string[], defaultValue: any = ''): any => {
     if (!row) return defaultValue;
+    // 1. Direct exact candidate match
     for (const k of candidateKeys) {
       if (row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== '') {
         return row[k];
@@ -1113,6 +1159,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         normalizedRowMap.set(norm, rk);
       }
     }
+    // 2. Normalized exact match
     for (const candidate of candidateKeys) {
       const normCand = normalizeKey(candidate);
       const matchedKey = normalizedRowMap.get(normCand);
@@ -1120,14 +1167,20 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         return row[matchedKey];
       }
     }
+    // 3. Substring inclusion match (Excel header contains candidate, or candidate contains Excel header)
     for (const candidate of candidateKeys) {
       const normCand = normalizeKey(candidate);
       if (normCand.length < 3) continue;
       for (const [normRk, origRk] of normalizedRowMap.entries()) {
-        // Only allow normRk to include normCand (the header in Excel contains the full candidate phrase).
-        // NEVER allow normCand.includes(normRk), because e.g. candidate "knitstartremarks" contains "knitstart",
-        // which caused the Knit Start DATE column to falsely match the Knit Start Remarks column!
-        if (normRk.includes(normCand)) {
+        const isSafeInclusion = normRk.includes(normCand) || (
+          normCand.includes(normRk) && 
+          normRk.length >= 4 && 
+          !normRk.includes('remark') && 
+          !normRk.includes('reason') && 
+          !normCand.includes('remark') && 
+          !normCand.includes('reason')
+        );
+        if (isSafeInclusion) {
           if (row[origRk] !== undefined && row[origRk] !== null && String(row[origRk]).trim() !== '') {
             return row[origRk];
           }
@@ -1135,14 +1188,6 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       }
     }
     return defaultValue;
-  };
-
-  const normOrderNum = (str: any): string => {
-    return String(str || '').trim().replace(/^#+/, '').toUpperCase().replace(/\s+/g, '');
-  };
-
-  const normColorName = (str: any): string => {
-    return String(str || '').trim().toUpperCase().replace(/\s+/g, '');
   };
 
   // Smart Upload & Non-destructive Merge Handler
@@ -1180,6 +1225,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         let filledBlanksCount = 0;
         let newOrdersCount = 0;
         let matchedOrdersCount = 0;
+        let totalFieldsChangedCount = 0;
 
         // Clone current orders to avoid direct state mutation
         const mergedOrders = [...orders];
@@ -1193,16 +1239,19 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         });
 
         const modifiedIndices = new Set<number>();
-        const newlyAddedOrders: OrderPlan[] = [];
+        const newOrderIndices = new Set<number>();
+        const changesByOrderId = new Map<string, OrderChangeRecord>();
 
         allRows.forEach((row, rowIdx) => {
           const rawEwo = getExcelRowValue(row, [
-            'EWO', 'Order No.', 'Order No', 'Order', 'Order Number', 'Order#', 'EWO No', 'EWO#', 'orderNo', 'OrderNo'
+            'EWO', 'EWO No', 'EWO No.', 'EWO#', 'Order No.', 'Order No', 'Order', 'Order Number', 'Order#', 'orderNo', 'OrderNo', 'Job No', 'Job#', 'Job No.'
           ]);
           const ewo = String(rawEwo || '').trim().replace(/^#+/, '');
           if (!ewo) return; // Skip invalid rows without order number
 
-          const rawColor = getExcelRowValue(row, ['Color', 'Colour', 'Fabric Color', 'Shade', 'Item Color', 'Color Name']);
+          const rawColor = getExcelRowValue(row, [
+            'Color', 'Colour', 'Fabric Color', 'Fabric Colour', 'Fabric Shade', 'Shade', 'Item Color', 'Item Colour', 'Color Name', 'Colour Name', 'Colorway', 'Y/D Stripe', 'Color / Stripe', 'Colour / Stripe', 'Stripe'
+          ]);
           const color = String(rawColor || '').trim();
 
           const ordKey = normOrderNum(ewo);
@@ -1217,138 +1266,288 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
             targetIndex = existingByKey.get(`${ordKey}___`);
           }
 
-          // Extract values from uploaded row
+          // Fallback: Check all existing orders matching this EWO
+          if (targetIndex === undefined) {
+            const matchingIndices: number[] = [];
+            mergedOrders.forEach((o, idx) => {
+              if (normOrderNum(o.ewo || o.id) === ordKey) {
+                matchingIndices.push(idx);
+              }
+            });
+
+            if (matchingIndices.length === 1) {
+              targetIndex = matchingIndices[0];
+            } else if (matchingIndices.length > 1) {
+              if (!colKey) {
+                targetIndex = matchingIndices[0];
+              } else {
+                const matchedByColor = matchingIndices.find(idx => {
+                  const existCol = normColorName(mergedOrders[idx].color);
+                  return existCol.includes(colKey) || colKey.includes(existCol);
+                });
+                if (matchedByColor !== undefined) {
+                  targetIndex = matchedByColor;
+                }
+              }
+            }
+          }
+
+          // Extract values from uploaded row with comprehensive candidate synonyms
           const upBuyer = String(getExcelRowValue(row, ['Buyer', 'Buyer Name', 'Buyer\nName', 'Brand', 'Customer', 'BuyerName']) || '').trim();
-          const upPlanMonth = String(getExcelRowValue(row, ['Plan Month', 'PlanMonth', 'Month']) || '').trim();
-          const upPlanType = String(getExcelRowValue(row, ['Plan Type', 'PlanType', 'Type']) || '').trim();
+          const upPlanMonth = String(getExcelRowValue(row, ['Plan Month', 'PlanMonth', 'Month', 'Month Name']) || '').trim();
+          const upPlanType = String(getExcelRowValue(row, ['Plan Type', 'PlanType', 'Type', 'Order Type']) || '').trim();
           
-          const rawKnitStart = getExcelRowValue(row, ['Knit Start', 'Knit Start Date', 'Planned Knit Start', 'KnitStart', 'Start Date']);
+          const rawKnitStart = getExcelRowValue(row, ['Knit Start', 'Knit Start Date', 'Planned Knit Start', 'Plan Knit Start', 'KnitStart', 'Start Date']);
           const upKnitStart = rawKnitStart ? formatExcelDate(rawKnitStart) : '';
 
-          const rawKnitEnd = getExcelRowValue(row, ['Knit End', 'Knit End Date', 'Planned Knit End', 'KnitEnd', 'End Date']);
+          const rawKnitEnd = getExcelRowValue(row, ['Knit End', 'Knit End Date', 'Planned Knit End', 'Plan Knit End', 'KnitEnd', 'End Date']);
           const upKnitEnd = rawKnitEnd ? formatExcelDate(rawKnitEnd) : '';
 
-          const rawTarget = getExcelRowValue(row, ['Target', 'Target (Kg)', 'Target(Kg)', 'Target Qty']);
+          const rawTarget = getExcelRowValue(row, ['Target', 'Target (Kg)', 'Target(Kg)', 'Target Qty', 'Order Target', 'Plan Target']);
           const upTarget = rawTarget !== '' && rawTarget !== undefined && !isNaN(Number(rawTarget)) ? Number(rawTarget) : undefined;
 
-          const rawTargetNext = getExcelRowValue(row, ['Target Next Month', 'Target Next', 'Next Month Target']);
+          const rawTargetNext = getExcelRowValue(row, ['Target Next Month', 'Target Next', 'Next Month Target', 'Next Target', 'Next Target (Kg)']);
           const upTargetNextMonth = rawTargetNext !== '' && rawTargetNext !== undefined && !isNaN(Number(rawTargetNext)) ? Number(rawTargetNext) : undefined;
 
-          const rawAllocStart = getExcelRowValue(row, ['Allocation Start', 'Allocation Start Date', 'Alloc Start']);
+          const rawAllocStart = getExcelRowValue(row, ['Allocation Start', 'Allocation Start Date', 'Alloc Start', 'Alloc. Start']);
           const upAllocStart = rawAllocStart ? formatExcelDate(rawAllocStart) : '';
 
-          const rawAllocEnd = getExcelRowValue(row, ['Allocation End', 'Allocation End Date', 'Alloc End']);
+          const rawAllocEnd = getExcelRowValue(row, ['Allocation End', 'Allocation End Date', 'Alloc End', 'Alloc. End']);
           const upAllocEnd = rawAllocEnd ? formatExcelDate(rawAllocEnd) : '';
 
-          const rawAllocQty = getExcelRowValue(row, ['Allocated QTY', 'Allocated Qty', 'Allocated', 'Alloc Qty']);
+          const rawAllocQty = getExcelRowValue(row, ['Allocated QTY', 'Allocated Qty', 'Allocated', 'Alloc Qty', 'Alloc. Qty']);
           const upAllocQty = rawAllocQty !== '' && rawAllocQty !== undefined && !isNaN(Number(rawAllocQty)) ? Number(rawAllocQty) : undefined;
 
-          const rawAllocBal = getExcelRowValue(row, ['Allocated Bal.', 'Allocated Bal', 'Alloc Bal']);
+          const rawAllocBal = getExcelRowValue(row, ['Allocated Bal.', 'Allocated Bal', 'Alloc Bal', 'Alloc. Bal']);
           const upAllocBal = rawAllocBal !== '' && rawAllocBal !== undefined && !isNaN(Number(rawAllocBal)) ? Number(rawAllocBal) : undefined;
 
-          const rawGreyReq = getExcelRowValue(row, ['GREY REQ.', 'Grey Req', 'Grey Requirement', 'Grey Req.', 'Grey Qty', 'GreyQty']);
+          const rawGreyReq = getExcelRowValue(row, ['GREY REQ.', 'GREY REQ', 'Grey Req', 'Grey Requirement', 'Grey Req.', 'Grey Qty', 'GreyQty', 'Grey Required', 'Grey Demand']);
           const upGreyReq = rawGreyReq !== '' && rawGreyReq !== undefined && !isNaN(Number(rawGreyReq)) ? Number(rawGreyReq) : undefined;
 
-          const rawKnitPro = getExcelRowValue(row, ['KNIT PRO.', 'Knit Pro', 'Knitting Production', 'Knit Prod', 'Production', 'Total Prod']);
+          const rawKnitPro = getExcelRowValue(row, ['KNIT PRO.', 'KNIT PRO', 'Knit Pro', 'Knit Pro.', 'Knitting Production', 'Knit Prod', 'Knit Prod.', 'Production', 'Total Prod', 'Total Production', 'Actual Knit Pro']);
           const upKnitPro = rawKnitPro !== '' && rawKnitPro !== undefined && !isNaN(Number(rawKnitPro)) ? Number(rawKnitPro) : undefined;
 
-          const rawKnitBal = getExcelRowValue(row, ['KNIT BAL.', 'Knit Bal', 'Knitting Balance', 'Knit Balance', 'Balance']);
+          const rawKnitBal = getExcelRowValue(row, ['KNIT BAL.', 'KNIT BAL', 'Knit Bal', 'Knit Bal.', 'Knitting Balance', 'Knit Balance', 'Balance', 'Total Balance', 'Remaining Knit']);
           const upKnitBal = rawKnitBal !== '' && rawKnitBal !== undefined && !isNaN(Number(rawKnitBal)) ? Number(rawKnitBal) : undefined;
 
-          const rawAKnitStart = getExcelRowValue(row, ['A.Knit Start', 'A. Knit Start', 'A. Knit Star', 'Actual Knit Start', 'Actual Start']);
+          const rawAKnitStart = getExcelRowValue(row, ['A.Knit Start', 'A. Knit Start', 'A. Knit Star', 'Actual Knit Start', 'Actual Start', 'A. Knit Start Date', 'Actual Knit Start Date', 'A.Knit Start Date']);
           const upAKnitStart = rawAKnitStart ? formatExcelDate(rawAKnitStart) : '';
 
-          const rawLastProd = getExcelRowValue(row, ['A. Knit End/Last Production Date', 'Last Production Date', 'A. Knit End', 'A.Knit End', 'Actual Knit End', 'A. Knit End Date']);
+          const rawLastProd = getExcelRowValue(row, [
+            'A. Knit End/Last Production Date',
+            'A. Knit End / Last Production Date',
+            'A. Knit End/Last Prod Date',
+            'A. Knit End / Last Prod Date',
+            'A. Knit End/Last Prod',
+            'A. Knit End / Last Prod',
+            'A.Knit End/Last Production Date',
+            'A.Knit End / Last Production Date',
+            'A.Knit End/Last Prod Date',
+            'A.Knit End / Last Prod',
+            'Last Production Date',
+            'Last Production',
+            'Last Prod Date',
+            'Last Prod. Date',
+            'Last Prod',
+            'Last Prod.',
+            'Last Knitted Date',
+            'Last Knit Date',
+            'Latest Production Date',
+            'Latest Prod Date',
+            'Knit End/Last Production Date',
+            'Knit End / Last Production Date',
+            'Knit End/Last Prod Date',
+            'Knit End / Last Prod',
+            'End/Last Production Date',
+            'End/Last Prod Date',
+            'A. Knit End',
+            'A.Knit End',
+            'Actual Knit End',
+            'Actual Knit End Date',
+            'A. Knit End Date',
+            'A.Knit End Date'
+          ]);
           const upLastProd = rawLastProd ? formatExcelDate(rawLastProd) : '';
 
-          const rawAvgProd = getExcelRowValue(row, ['Avg Prod/Day', 'Avg. Prod/Day', 'Avg Prod', 'Avg.Prod/Day']);
+          const rawAvgProd = getExcelRowValue(row, ['Avg Prod/Day', 'Avg. Prod/Day', 'Avg Prod', 'Avg.Prod/Day', 'Daily Avg Prod']);
           const upAvgProd = rawAvgProd !== '' && rawAvgProd !== undefined && !isNaN(Number(rawAvgProd)) ? Number(rawAvgProd) : undefined;
 
-          const rawExpEnd = getExcelRowValue(row, ['Expected Knit End', 'Exp Knit End', 'Expected End']);
+          const rawExpEnd = getExcelRowValue(row, ['Expected Knit End', 'Exp Knit End', 'Expected End', 'Exp. Knit End']);
           const upExpEnd = rawExpEnd ? formatExcelDate(rawExpEnd) : '';
 
-          const rawKnitStartOtd = getExcelRowValue(row, ['Knit Start OTD', 'Start OTD']);
+          const rawKnitStartOtd = getExcelRowValue(row, ['Knit Start OTD', 'Start OTD', 'Knit Start Status']);
           const upKnitStartOtd = (rawKnitStartOtd === 'Passed' || rawKnitStartOtd === 'Failed' || rawKnitStartOtd === 'Pending') ? rawKnitStartOtd : undefined;
 
-          const rawKnitEndOtd = getExcelRowValue(row, ['Knit End OTD', 'End OTD']);
+          const rawKnitEndOtd = getExcelRowValue(row, ['Knit End OTD', 'End OTD', 'Knit End Status']);
           const upKnitEndOtd = (rawKnitEndOtd === 'Passed' || rawKnitEndOtd === 'Failed' || rawKnitEndOtd === 'Pending') ? rawKnitEndOtd : undefined;
 
           const upKnitStartRemarks = sanitizeRemarksValue(getExcelRowValue(row, ['Knit Start Remarks', 'Knit Start Delay Reason', 'Start Remarks', 'Start Delay Reason', 'Start Reason']));
           const upKnitEndRemarks = sanitizeRemarksValue(getExcelRowValue(row, ['Knit End Remarks', 'Knit End Delay Reason', 'End Remarks', 'End Delay Reason', 'End Reason']));
-          const upTeamLeaders = String(getExcelRowValue(row, ['Knit Team Leader', 'Team Leader', 'Team\nLeader', 'TeamLeader', 'Leader']) || '').trim();
+          const upTeamLeaders = String(getExcelRowValue(row, ['Knit Team Leader', 'Team Leader', 'Team\nLeader', 'TeamLeader', 'Leader', 'Assigned Leader']) || '').trim();
 
           if (targetIndex !== undefined) {
-            // MATCHED EXISTING ORDER: SMART UPDATE & FILL BLANKS
+            // MATCHED EXISTING ORDER: SMART UPDATE & FILL BLANKS WITH DETAILED CHANGE TRACKING
             matchedOrdersCount++;
             const existing = mergedOrders[targetIndex];
             let rowChanged = false;
             const updated = { ...existing };
+            const orderDiffs: OrderFieldDiff[] = [];
+
+            // Helper for Date Fields with normalized display formatting comparison
+            const applyDateField = (fieldName: keyof OrderPlan, uploadVal: string, fieldLabel: string) => {
+              if (!uploadVal) return;
+              const currentRaw = String(existing[fieldName] || '').trim();
+              const currentFormatted = currentRaw ? formatDisplayDate(currentRaw) : '';
+              const uploadFormatted = formatDisplayDate(uploadVal);
+
+              if (!currentFormatted || currentFormatted === '-' || currentFormatted.toLowerCase() === 'pending') {
+                (updated as any)[fieldName] = uploadVal;
+                filledBlanksCount++;
+                rowChanged = true;
+                totalFieldsChangedCount++;
+                orderDiffs.push({
+                  fieldKey: fieldName,
+                  fieldLabel,
+                  oldValue: currentRaw || '(Blank)',
+                  newValue: uploadFormatted,
+                  isFilledBlank: true
+                });
+              } else if (currentFormatted !== uploadFormatted) {
+                (updated as any)[fieldName] = uploadVal;
+                rowChanged = true;
+                totalFieldsChangedCount++;
+                orderDiffs.push({
+                  fieldKey: fieldName,
+                  fieldLabel,
+                  oldValue: currentFormatted,
+                  newValue: uploadFormatted,
+                  isFilledBlank: false
+                });
+              }
+            };
 
             // Helper to apply string field: fill if blank, update if new in upload, keep if blank in upload
-            const applyStringField = (fieldName: keyof OrderPlan, uploadVal: string) => {
+            const applyStringField = (fieldName: keyof OrderPlan, uploadVal: string, fieldLabel: string) => {
               if (!uploadVal) return; // Do not overwrite existing data with empty cells
               const currentVal = String(existing[fieldName] || '').trim();
               if (!currentVal) {
                 (updated as any)[fieldName] = uploadVal;
                 filledBlanksCount++;
                 rowChanged = true;
+                totalFieldsChangedCount++;
+                orderDiffs.push({
+                  fieldKey: fieldName,
+                  fieldLabel,
+                  oldValue: '(Blank)',
+                  newValue: uploadVal,
+                  isFilledBlank: true
+                });
               } else if (currentVal !== uploadVal) {
                 (updated as any)[fieldName] = uploadVal;
                 rowChanged = true;
+                totalFieldsChangedCount++;
+                orderDiffs.push({
+                  fieldKey: fieldName,
+                  fieldLabel,
+                  oldValue: currentVal,
+                  newValue: uploadVal,
+                  isFilledBlank: false
+                });
               }
             };
 
             // Helper to apply numeric field: fill if 0, update if different
-            const applyNumberField = (fieldName: keyof OrderPlan, uploadVal?: number) => {
+            const applyNumberField = (fieldName: keyof OrderPlan, uploadVal: number | undefined, fieldLabel: string) => {
               if (uploadVal === undefined || isNaN(uploadVal)) return;
               const currentVal = Number(existing[fieldName]) || 0;
               if (currentVal === 0 && uploadVal > 0) {
                 (updated as any)[fieldName] = uploadVal;
                 filledBlanksCount++;
                 rowChanged = true;
+                totalFieldsChangedCount++;
+                orderDiffs.push({
+                  fieldKey: fieldName,
+                  fieldLabel,
+                  oldValue: '0',
+                  newValue: uploadVal.toLocaleString(),
+                  isFilledBlank: true
+                });
               } else if (currentVal !== uploadVal) {
                 (updated as any)[fieldName] = uploadVal;
                 rowChanged = true;
+                totalFieldsChangedCount++;
+                orderDiffs.push({
+                  fieldKey: fieldName,
+                  fieldLabel,
+                  oldValue: currentVal.toLocaleString(),
+                  newValue: uploadVal.toLocaleString(),
+                  isFilledBlank: false
+                });
               }
             };
 
-            applyStringField('color', color);
-            applyStringField('buyer', upBuyer);
-            applyStringField('planMonth', upPlanMonth);
-            applyStringField('planType', upPlanType);
-            applyStringField('knitStart', upKnitStart);
-            applyStringField('knitEnd', upKnitEnd);
-            applyNumberField('target', upTarget);
-            applyNumberField('targetNextMonth', upTargetNextMonth);
-            applyStringField('allocationStart', upAllocStart);
-            applyStringField('allocationEnd', upAllocEnd);
-            applyNumberField('allocatedQty', upAllocQty);
-            applyNumberField('allocatedBal', upAllocBal);
-            applyNumberField('greyReq', upGreyReq);
-            applyNumberField('knitPro', upKnitPro);
-            applyNumberField('knitBal', upKnitBal);
-            applyStringField('aKnitStart', upAKnitStart);
-            applyStringField('lastProductionDate', upLastProd);
-            applyNumberField('avgProdDay', upAvgProd);
-            applyStringField('expectedKnitEnd', upExpEnd);
+            applyStringField('color', color, 'Color');
+            applyStringField('buyer', upBuyer, 'Buyer');
+            applyStringField('planMonth', upPlanMonth, 'Plan Month');
+            applyStringField('planType', upPlanType, 'Plan Type');
+            applyDateField('knitStart', upKnitStart, 'Knit Start (Planned)');
+            applyDateField('knitEnd', upKnitEnd, 'Knit End (Planned)');
+            applyNumberField('target', upTarget, 'Target (Kg)');
+            applyNumberField('targetNextMonth', upTargetNextMonth, 'Target Next Month');
+            applyDateField('allocationStart', upAllocStart, 'Allocation Start');
+            applyDateField('allocationEnd', upAllocEnd, 'Allocation End');
+            applyNumberField('allocatedQty', upAllocQty, 'Allocated QTY');
+            applyNumberField('allocatedBal', upAllocBal, 'Allocated Bal.');
+            applyNumberField('greyReq', upGreyReq, 'GREY REQ. (Kg)');
+            applyNumberField('knitPro', upKnitPro, 'KNIT PRO. (Kg)');
+            applyNumberField('knitBal', upKnitBal, 'KNIT BAL. (Kg)');
+            applyDateField('aKnitStart', upAKnitStart, 'A. Knit Start (Actual)');
+            applyDateField('lastProductionDate', upLastProd, 'A. Knit End/Last Production Date');
+            applyNumberField('avgProdDay', upAvgProd, 'Avg Prod/Day');
+            applyDateField('expectedKnitEnd', upExpEnd, 'Expected Knit End');
+            
             if (upKnitStartOtd && existing.knitStartOtd !== upKnitStartOtd) {
+              orderDiffs.push({
+                fieldKey: 'knitStartOtd',
+                fieldLabel: 'Knit Start OTD',
+                oldValue: existing.knitStartOtd || 'Pending',
+                newValue: upKnitStartOtd,
+                isFilledBlank: !existing.knitStartOtd || existing.knitStartOtd === 'Pending'
+              });
               updated.knitStartOtd = upKnitStartOtd;
               rowChanged = true;
+              totalFieldsChangedCount++;
             }
             if (upKnitEndOtd && existing.knitEndOtd !== upKnitEndOtd) {
+              orderDiffs.push({
+                fieldKey: 'knitEndOtd',
+                fieldLabel: 'Knit End OTD',
+                oldValue: existing.knitEndOtd || 'Pending',
+                newValue: upKnitEndOtd,
+                isFilledBlank: !existing.knitEndOtd || existing.knitEndOtd === 'Pending'
+              });
               updated.knitEndOtd = upKnitEndOtd;
               rowChanged = true;
+              totalFieldsChangedCount++;
             }
-            applyStringField('knitStartRemarks', upKnitStartRemarks);
-            applyStringField('knitEndRemarks', upKnitEndRemarks);
-            applyStringField('knitTeamLeaders', upTeamLeaders);
+            applyStringField('knitStartRemarks', upKnitStartRemarks, 'Knit Start Remarks');
+            applyStringField('knitEndRemarks', upKnitEndRemarks, 'Knit End Remarks');
+            applyStringField('knitTeamLeaders', upTeamLeaders, 'Team Leader');
 
             // Re-evaluate knit balance if production or greyReq updated and knitBal wasn't explicitly given
             if (upKnitBal === undefined && (upKnitPro !== undefined || upGreyReq !== undefined)) {
               const newBal = Math.max(0, (updated.greyReq || 0) - (updated.knitPro || 0));
               if (updated.knitBal !== newBal) {
+                orderDiffs.push({
+                  fieldKey: 'knitBal',
+                  fieldLabel: 'KNIT BAL. (Auto-calculated)',
+                  oldValue: (existing.knitBal || 0).toLocaleString(),
+                  newValue: newBal.toLocaleString(),
+                  isFilledBlank: false
+                });
                 updated.knitBal = newBal;
                 rowChanged = true;
+                totalFieldsChangedCount++;
               }
             }
 
@@ -1356,11 +1555,34 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
               mergedOrders[targetIndex] = updated;
               modifiedIndices.add(targetIndex);
               updatedOrdersCount++;
+
+              const recKey = existing.id || getOrderPlanCanonicalId({ ewo: existing.ewo || ewo, color: existing.color || color });
+              const existingRec = changesByOrderId.get(recKey);
+              if (existingRec) {
+                orderDiffs.forEach(diff => {
+                  const dIdx = existingRec.changes.findIndex(c => c.fieldKey === diff.fieldKey);
+                  if (dIdx >= 0) {
+                    existingRec.changes[dIdx].newValue = diff.newValue;
+                  } else {
+                    existingRec.changes.push(diff);
+                  }
+                });
+              } else {
+                changesByOrderId.set(recKey, {
+                  orderId: recKey,
+                  ewo: existing.ewo || ewo,
+                  color: updated.color || existing.color || '-',
+                  buyer: updated.buyer || existing.buyer || '-',
+                  planMonth: updated.planMonth || existing.planMonth,
+                  isNew: false,
+                  changes: orderDiffs
+                });
+              }
             }
           } else {
             // NEW ORDER: ADD IT WHILE PRESERVING ALL EXISTING DATA
             const newOrder: OrderPlan = {
-              id: `ord-${ordKey}-${colKey || 'main'}-${Date.now()}-${rowIdx}`,
+              id: getOrderPlanCanonicalId({ ewo, color }),
               planMonth: upPlanMonth || 'August',
               planType: upPlanType || 'Confirm',
               ewo,
@@ -1388,20 +1610,45 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
               knitTeamLeaders: upTeamLeaders || ''
             };
 
-            newlyAddedOrders.push(newOrder);
-            existingByKey.set(primaryKey, mergedOrders.length + newlyAddedOrders.length - 1);
+            const newOrderIndex = mergedOrders.length;
+            mergedOrders.push(newOrder);
+            existingByKey.set(primaryKey, newOrderIndex);
+            if (!colKey) {
+              existingByKey.set(`${ordKey}___`, newOrderIndex);
+            }
+            newOrderIndices.add(newOrderIndex);
             newOrdersCount++;
+
+            const newOrderDiffs: OrderFieldDiff[] = [];
+            if (upPlanMonth) newOrderDiffs.push({ fieldKey: 'planMonth', fieldLabel: 'Plan Month', oldValue: '(New)', newValue: upPlanMonth, isFilledBlank: true });
+            if (upBuyer) newOrderDiffs.push({ fieldKey: 'buyer', fieldLabel: 'Buyer', oldValue: '(New)', newValue: upBuyer, isFilledBlank: true });
+            if (color) newOrderDiffs.push({ fieldKey: 'color', fieldLabel: 'Color', oldValue: '(New)', newValue: color, isFilledBlank: true });
+            if (upTarget) newOrderDiffs.push({ fieldKey: 'target', fieldLabel: 'Target (Kg)', oldValue: '(New)', newValue: upTarget.toLocaleString(), isFilledBlank: true });
+            if (upGreyReq) newOrderDiffs.push({ fieldKey: 'greyReq', fieldLabel: 'GREY REQ. (Kg)', oldValue: '(New)', newValue: upGreyReq.toLocaleString(), isFilledBlank: true });
+            if (upKnitPro) newOrderDiffs.push({ fieldKey: 'knitPro', fieldLabel: 'KNIT PRO. (Kg)', oldValue: '(New)', newValue: upKnitPro.toLocaleString(), isFilledBlank: true });
+            if (upLastProd) newOrderDiffs.push({ fieldKey: 'lastProductionDate', fieldLabel: 'A. Knit End/Last Production Date', oldValue: '(New)', newValue: formatDisplayDate(upLastProd), isFilledBlank: true });
+            if (upAKnitStart) newOrderDiffs.push({ fieldKey: 'aKnitStart', fieldLabel: 'A. Knit Start (Actual)', oldValue: '(New)', newValue: formatDisplayDate(upAKnitStart), isFilledBlank: true });
+
+            changesByOrderId.set(newOrder.id, {
+              orderId: newOrder.id,
+              ewo,
+              color: color || '-',
+              buyer: upBuyer || '-',
+              planMonth: upPlanMonth,
+              isNew: true,
+              changes: newOrderDiffs
+            });
           }
         });
 
-        const finalOrders = [...newlyAddedOrders, ...mergedOrders];
+        const finalOrders = deduplicateOrderPlans(mergedOrders);
         setOrders(finalOrders);
 
         // Sync changed & new records to Supabase Cloud & Global context
-        const changedOrders = [
-          ...newlyAddedOrders,
-          ...Array.from(modifiedIndices).map(idx => mergedOrders[idx])
-        ];
+        const allChangedIndices = new Set([...newOrderIndices, ...modifiedIndices]);
+        const changedOrders = deduplicateOrderPlans(
+          Array.from(allChangedIndices).map(idx => mergedOrders[idx]).filter(Boolean)
+        );
 
         if (changedOrders.length > 0) {
           bulkSaveOrderPlans(changedOrders, false).catch(err => {
@@ -1409,20 +1656,34 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
           });
         }
 
-        const unalteredCount = Math.max(0, mergedOrders.length - modifiedIndices.size);
+        const unalteredCount = Math.max(0, mergedOrders.length - allChangedIndices.size);
+        const allChangesRecords = Array.from(changesByOrderId.values());
+
+        // Auto-expand all updated orders initially
+        const defaultExpanded = new Set<string>();
+        allChangesRecords.forEach(r => defaultExpanded.add(r.orderId));
+        setExpandedOrderIds(defaultExpanded);
+        setChangeTab('changes');
+        setChangeCategoryFilter('all');
+        setChangeSearchQuery('');
 
         setUploadFeedback({
           show: true,
-          title: 'Smart Update Successful',
-          message: `Excel data processed. Only new and missing values were updated. Your existing data remains 100% intact.`,
+          title: 'Smart Update Complete: Changes Summary',
+          message: updatedOrdersCount > 0 || newOrdersCount > 0
+            ? `Processed ${allRows.length} rows. Found ${updatedOrdersCount} orders with ${totalFieldsChangedCount} field updates, and ${newOrdersCount} new orders.`
+            : `Processed ${allRows.length} rows. No new or differing values found; all existing records are identical to upload.`,
+          mode: 'merge',
           stats: {
             totalRowsProcessed: allRows.length,
             matchedOrdersCount,
             updatedOrdersCount,
             filledBlanksCount,
             newOrdersCount,
-            unalteredCount
-          }
+            unalteredCount,
+            totalFieldsChanged: totalFieldsChangedCount
+          },
+          changesList: allChangesRecords
         });
       } catch (err: any) {
         console.error('Smart file upload error:', err);
@@ -1541,7 +1802,40 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
           const rawAKnitStart = getExcelRowValue(row, ['A.Knit Start', 'A. Knit Start', 'A. Knit Star', 'Actual Knit Start', 'Actual Start']);
           const upAKnitStart = rawAKnitStart ? formatExcelDate(rawAKnitStart) : '';
 
-          const rawLastProd = getExcelRowValue(row, ['A. Knit End/Last Production Date', 'Last Production Date', 'A. Knit End', 'A.Knit End', 'Actual Knit End', 'A. Knit End Date']);
+          const rawLastProd = getExcelRowValue(row, [
+            'A. Knit End/Last Production Date',
+            'A. Knit End / Last Production Date',
+            'A. Knit End/Last Prod Date',
+            'A. Knit End / Last Prod Date',
+            'A. Knit End/Last Prod',
+            'A. Knit End / Last Prod',
+            'A.Knit End/Last Production Date',
+            'A.Knit End / Last Production Date',
+            'A.Knit End/Last Prod Date',
+            'A.Knit End / Last Prod',
+            'Last Production Date',
+            'Last Production',
+            'Last Prod Date',
+            'Last Prod. Date',
+            'Last Prod',
+            'Last Prod.',
+            'Last Knitted Date',
+            'Last Knit Date',
+            'Latest Production Date',
+            'Latest Prod Date',
+            'Knit End/Last Production Date',
+            'Knit End / Last Production Date',
+            'Knit End/Last Prod Date',
+            'Knit End / Last Prod',
+            'End/Last Production Date',
+            'End/Last Prod Date',
+            'A. Knit End',
+            'A.Knit End',
+            'Actual Knit End',
+            'Actual Knit End Date',
+            'A. Knit End Date',
+            'A.Knit End Date'
+          ]);
           const upLastProd = rawLastProd ? formatExcelDate(rawLastProd) : '';
 
           const rawAvgProd = getExcelRowValue(row, ['Avg Prod/Day', 'Avg. Prod/Day', 'Avg Prod', 'Avg.Prod/Day']);
@@ -1581,7 +1875,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
           }
 
           const newOrder: OrderPlan = {
-            id: `ord-${ordKey}-${colKey || 'main'}-${Date.now()}-${rowIdx}`,
+            id: getOrderPlanCanonicalId({ ewo, color }),
             planMonth: upPlanMonth || 'August',
             planType: upPlanType || 'Confirm',
             ewo,
@@ -1616,8 +1910,9 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         setUploadProgressStage(`Purging ${previousCount} old records and persisting ${replacementOrders.length} replacement records...`);
 
         // OVERWRITE: execute with replace: true to purge and replace
-        await bulkSaveOrderPlans(replacementOrders, true);
-        setOrders(replacementOrders);
+        const cleanReplacements = deduplicateOrderPlans(replacementOrders);
+        await bulkSaveOrderPlans(cleanReplacements, true);
+        setOrders(cleanReplacements);
 
         setUploadFeedback({
           show: true,
@@ -1683,6 +1978,110 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Order Plan Status");
     XLSX.writeFile(workbook, `Order_Plan_Status_${new Date().toISOString().slice(0,10)}.xlsx`);
+  };
+
+  // Upload Summary Modal Computed Filter & Actions
+  const filteredUploadChanges = useMemo(() => {
+    if (!uploadFeedback?.changesList) return [];
+    return uploadFeedback.changesList.filter(item => {
+      // 1. Search Query Filter
+      if (changeSearchQuery.trim()) {
+        const q = changeSearchQuery.toLowerCase().trim();
+        const matchOrder = item.ewo.toLowerCase().includes(q) ||
+          item.buyer.toLowerCase().includes(q) ||
+          item.color.toLowerCase().includes(q) ||
+          (item.planMonth && item.planMonth.toLowerCase().includes(q));
+        const matchField = item.changes.some(c => 
+          c.fieldLabel.toLowerCase().includes(q) ||
+          String(c.oldValue).toLowerCase().includes(q) ||
+          String(c.newValue).toLowerCase().includes(q)
+        );
+        if (!matchOrder && !matchField) return false;
+      }
+
+      // 2. Category Filter
+      if (changeCategoryFilter === 'new') {
+        return item.isNew;
+      }
+      if (changeCategoryFilter === 'dates') {
+        return item.changes.some(c => 
+          c.fieldKey === 'lastProductionDate' ||
+          c.fieldKey === 'aKnitStart' ||
+          c.fieldKey === 'knitStart' ||
+          c.fieldKey === 'knitEnd' ||
+          c.fieldKey === 'expectedKnitEnd' ||
+          c.fieldKey === 'allocationStart' ||
+          c.fieldKey === 'allocationEnd'
+        );
+      }
+      if (changeCategoryFilter === 'progress') {
+        return item.changes.some(c => 
+          c.fieldKey === 'knitPro' ||
+          c.fieldKey === 'knitBal' ||
+          c.fieldKey === 'greyReq' ||
+          c.fieldKey === 'target' ||
+          c.fieldKey === 'allocatedQty' ||
+          c.fieldKey === 'allocatedBal' ||
+          c.fieldKey === 'avgProdDay'
+        );
+      }
+      if (changeCategoryFilter === 'remarks') {
+        return item.changes.some(c => 
+          c.fieldKey === 'knitStartRemarks' ||
+          c.fieldKey === 'knitEndRemarks' ||
+          c.fieldKey === 'knitTeamLeaders' ||
+          c.fieldKey === 'knitStartOtd' ||
+          c.fieldKey === 'knitEndOtd'
+        );
+      }
+      return true;
+    });
+  }, [uploadFeedback?.changesList, changeSearchQuery, changeCategoryFilter]);
+
+  const handleCopyChangeSummary = () => {
+    if (!uploadFeedback?.changesList) return;
+    let text = `=== EXCEL UPLOAD FIELD CHANGE SUMMARY ===\n`;
+    text += `Time: ${new Date().toLocaleString()}\n`;
+    text += `Rows Processed: ${uploadFeedback.stats?.totalRowsProcessed || 0}\n`;
+    text += `Orders Updated: ${uploadFeedback.stats?.updatedOrdersCount || 0}\n`;
+    text += `Total Fields Modified: ${uploadFeedback.stats?.totalFieldsChanged || 0}\n`;
+    text += `New Orders Added: ${uploadFeedback.stats?.newOrdersCount || 0}\n`;
+    text += `Unaltered Orders: ${uploadFeedback.stats?.unalteredCount || 0}\n\n`;
+
+    uploadFeedback.changesList.forEach((rec, idx) => {
+      text += `[${rec.isNew ? 'NEW ORDER' : 'UPDATED'}] #${idx + 1} EWO: ${rec.ewo} | Buyer: ${rec.buyer} | Color: ${rec.color}\n`;
+      rec.changes.forEach(ch => {
+        text += `   • ${ch.fieldLabel}: ${ch.oldValue} -> ${ch.newValue} ${ch.isFilledBlank ? '(Filled Blank)' : ''}\n`;
+      });
+      text += `\n`;
+    });
+
+    navigator.clipboard.writeText(text);
+    setCopiedSummary(true);
+    setTimeout(() => setCopiedSummary(false), 2000);
+  };
+
+  const toggleExpandOrder = (orderId: string) => {
+    setExpandedOrderIds(prev => {
+      const next = new Set(prev);
+      if (next.has(orderId)) {
+        next.delete(orderId);
+      } else {
+        next.add(orderId);
+      }
+      return next;
+    });
+  };
+
+  const toggleExpandAll = () => {
+    if (!uploadFeedback?.changesList) return;
+    if (expandedOrderIds.size === uploadFeedback.changesList.length) {
+      setExpandedOrderIds(new Set());
+    } else {
+      const all = new Set<string>();
+      uploadFeedback.changesList.forEach(c => all.add(c.orderId));
+      setExpandedOrderIds(all);
+    }
   };
 
   return (
@@ -2020,7 +2419,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-                {displayTeamLeaders.map(tl => {
+                {displayTeamLeaders.map((tl, tlIdx) => {
                   const tlOrders = filteredOrders.filter(o => {
                     const leader = o.knitTeamLeaders?.trim() || 'Unassigned';
                     return leader === tl;
@@ -2082,7 +2481,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                     : 'No Failures (100% On-Time)';
 
                   return (
-                    <div key={tl} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4 hover:border-slate-300 dark:hover:border-slate-700 transition-all">
+                    <div key={`${tl}-${tlIdx}`} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4 hover:border-slate-300 dark:hover:border-slate-700 transition-all">
                       {/* Team Leader Header */}
                       <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
                         <div className="flex items-center gap-3">
@@ -2355,7 +2754,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-                {displayBuyers.map(b => {
+                {displayBuyers.map((b, bIdx) => {
                   const buyerOrders = filteredOrders.filter(o => o.buyer === b);
                   if (buyerOrders.length === 0 && buyerFilter === 'All') return null;
 
@@ -2414,7 +2813,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                     : 'No Failures (100% On-Time)';
 
                   return (
-                    <div key={b} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4 hover:border-slate-300 dark:hover:border-slate-700 transition-all">
+                    <div key={`${b}-${bIdx}`} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4 hover:border-slate-300 dark:hover:border-slate-700 transition-all">
                       {/* Buyer Header */}
                       <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
                         <div className="flex items-center gap-3">
@@ -3707,115 +4106,397 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         </div>
       )}
 
-      {/* SMART UPLOAD / OVERWRITE FEEDBACK MODAL */}
+      {/* SMART UPLOAD / OVERWRITE FEEDBACK & FIELD CHANGES SUMMARY MODAL */}
       {uploadFeedback?.show && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fade-in">
-          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
-            <div className={`flex items-center justify-between border-b px-6 py-4 ${
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 animate-fade-in">
+          <div className="w-full max-w-4xl max-h-[92vh] rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className={`flex items-center justify-between border-b px-5 py-4 ${
               uploadFeedback.mode === 'overwrite'
                 ? 'border-rose-100 dark:border-rose-950/60 bg-rose-50/50 dark:bg-rose-950/30'
-                : 'border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30'
+                : 'border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40'
             }`}>
-              <div className="flex items-center gap-2.5">
-                <div className={`h-8 w-8 rounded-xl flex items-center justify-center ${
+              <div className="flex items-center gap-3">
+                <div className={`h-9 w-9 rounded-xl flex items-center justify-center shadow-xs ${
                   uploadFeedback.mode === 'overwrite'
                     ? 'bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-400'
-                    : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400'
+                    : 'bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400'
                 }`}>
                   {uploadFeedback.mode === 'overwrite' ? (
                     <ShieldCheck className="h-5 w-5" />
                   ) : (
-                    <CheckCircle2 className="h-5 w-5" />
+                    <ListChecks className="h-5 w-5" />
                   )}
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                    {uploadFeedback.title}
-                  </h3>
-                  {uploadFeedback.mode === 'overwrite' && (
-                    <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider">
-                      Master Overwrite Mode
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-black text-slate-900 dark:text-white">
+                      {uploadFeedback.title}
+                    </h3>
+                    {uploadFeedback.mode === 'overwrite' ? (
+                      <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-100 dark:bg-rose-900/60 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                        Master Overwrite
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/60 px-2 py-0.5 rounded-full">
+                        Live Field Summary
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+                    {uploadFeedback.message}
+                  </p>
                 </div>
               </div>
-              <button 
-                onClick={() => setUploadFeedback(null)}
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
+
+              <div className="flex items-center gap-2">
+                {uploadFeedback.changesList && uploadFeedback.changesList.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleCopyChangeSummary}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                    title="Copy changes to clipboard"
+                  >
+                    {copiedSummary ? (
+                      <>
+                        <Check className="h-3.5 w-3.5 text-emerald-600" />
+                        <span className="text-emerald-600">Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3.5 w-3.5 text-slate-500" />
+                        <span>Copy Summary</span>
+                      </>
+                    )}
+                  </button>
+                )}
+                <button 
+                  onClick={() => setUploadFeedback(null)}
+                  className="rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
-            <div className="p-6 space-y-4">
-              <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 leading-relaxed">
-                {uploadFeedback.message}
-              </p>
-
-              {uploadFeedback.stats && (
-                <div className="grid grid-cols-2 gap-3 pt-2">
-                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Rows Processed</span>
-                    <p className="text-lg font-black text-slate-900 dark:text-white mt-0.5">
+            {/* Quick Metrics Bar */}
+            {uploadFeedback.stats && (
+              <div className="px-5 py-3 bg-slate-50/50 dark:bg-slate-800/20 border-b border-slate-100 dark:border-slate-800">
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5">
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-800/80 border border-slate-200/60 dark:border-slate-700/60 shadow-2xs">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Rows Processed</span>
+                    <p className="text-base font-black text-slate-900 dark:text-white mt-0.5">
                       {uploadFeedback.stats.totalRowsProcessed.toLocaleString()}
                     </p>
                   </div>
 
-                  {uploadFeedback.mode === 'overwrite' ? (
-                    <>
-                      <div className="p-3 rounded-xl bg-rose-50/60 dark:bg-rose-950/30 border border-rose-200/60 dark:border-rose-900/40">
-                        <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider">Previous Records Purged</span>
-                        <p className="text-lg font-black text-rose-700 dark:text-rose-300 mt-0.5">
-                          {(uploadFeedback.stats.purgedCount ?? 0).toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-900/40 col-span-2">
-                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Active Replacement Orders in Database</span>
-                        <p className="text-lg font-black text-emerald-700 dark:text-emerald-300 mt-0.5">
-                          {uploadFeedback.stats.newOrdersCount.toLocaleString()}
-                        </p>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="p-3 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-900/40">
-                        <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Matched Orders</span>
-                        <p className="text-lg font-black text-blue-700 dark:text-blue-300 mt-0.5">
-                          {uploadFeedback.stats.matchedOrdersCount.toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="p-3 rounded-xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200/60 dark:border-indigo-900/40">
-                        <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Updated with New Data</span>
-                        <p className="text-lg font-black text-indigo-700 dark:text-indigo-300 mt-0.5">
-                          {uploadFeedback.stats.updatedOrdersCount.toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-900/40">
-                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Blank Cells Filled</span>
-                        <p className="text-lg font-black text-emerald-700 dark:text-emerald-300 mt-0.5">
-                          {uploadFeedback.stats.filledBlanksCount.toLocaleString()}
-                        </p>
-                      </div>
-                      {uploadFeedback.stats.newOrdersCount > 0 && (
-                        <div className="p-3 rounded-xl bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-900/40">
-                          <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider">New Orders Added</span>
-                          <p className="text-lg font-black text-purple-700 dark:text-purple-300 mt-0.5">
-                            {uploadFeedback.stats.newOrdersCount.toLocaleString()}
-                          </p>
+                  <div className="p-2.5 rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-900/40 shadow-2xs">
+                    <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider block">Orders Updated</span>
+                    <p className="text-base font-black text-blue-700 dark:text-blue-300 mt-0.5">
+                      {uploadFeedback.stats.updatedOrdersCount.toLocaleString()}
+                    </p>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/60 dark:border-indigo-900/40 shadow-2xs">
+                    <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-1">
+                      <Sparkles className="h-2.5 w-2.5" />
+                      <span>Fields Changed</span>
+                    </span>
+                    <p className="text-base font-black text-indigo-700 dark:text-indigo-300 mt-0.5">
+                      {(uploadFeedback.stats.totalFieldsChanged || 0).toLocaleString()}
+                    </p>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-900/40 shadow-2xs">
+                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">Blanks Filled</span>
+                    <p className="text-base font-black text-emerald-700 dark:text-emerald-300 mt-0.5">
+                      {uploadFeedback.stats.filledBlanksCount.toLocaleString()}
+                    </p>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-purple-50/70 dark:bg-purple-950/40 border border-purple-200/60 dark:border-purple-900/40 shadow-2xs">
+                    <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider block">New Orders</span>
+                    <p className="text-base font-black text-purple-700 dark:text-purple-300 mt-0.5">
+                      {uploadFeedback.stats.newOrdersCount.toLocaleString()}
+                    </p>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-100/70 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700/60 shadow-2xs">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">Preserved Intact</span>
+                    <p className="text-base font-black text-slate-700 dark:text-slate-300 mt-0.5">
+                      {uploadFeedback.stats.unalteredCount.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Filter and Search Controls (if changes exist) */}
+            {uploadFeedback.changesList && uploadFeedback.changesList.length > 0 && (
+              <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="relative">
+                    <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={changeSearchQuery}
+                      onChange={(e) => setChangeSearchQuery(e.target.value)}
+                      placeholder="Filter EWO, buyer, color, or field..."
+                      className="pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 w-56 sm:w-64"
+                    />
+                    {changeSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setChangeSearchQuery('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Filter chips */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto">
+                    <button
+                      type="button"
+                      onClick={() => setChangeCategoryFilter('all')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        changeCategoryFilter === 'all'
+                          ? 'bg-blue-600 text-white shadow-2xs'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                      }`}
+                    >
+                      All ({uploadFeedback.changesList.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChangeCategoryFilter('dates')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                        changeCategoryFilter === 'dates'
+                          ? 'bg-blue-600 text-white shadow-2xs'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                      }`}
+                    >
+                      <Calendar className="h-3 w-3" />
+                      <span>Dates & Milestones</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChangeCategoryFilter('progress')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                        changeCategoryFilter === 'progress'
+                          ? 'bg-blue-600 text-white shadow-2xs'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                      }`}
+                    >
+                      <TrendingUp className="h-3 w-3" />
+                      <span>Production & Balances</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChangeCategoryFilter('remarks')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                        changeCategoryFilter === 'remarks'
+                          ? 'bg-blue-600 text-white shadow-2xs'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                      }`}
+                    >
+                      <ClipboardList className="h-3 w-3" />
+                      <span>Remarks & Leaders</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={toggleExpandAll}
+                    className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-bold px-2 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    {expandedOrderIds.size === uploadFeedback.changesList.length ? 'Collapse All' : 'Expand All'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Scrollable Changes List Area */}
+            <div className="p-5 flex-1 overflow-y-auto space-y-3">
+              {uploadFeedback.changesList && uploadFeedback.changesList.length > 0 ? (
+                filteredUploadChanges.length > 0 ? (
+                  filteredUploadChanges.map((rec, recIdx) => {
+                    const isExpanded = expandedOrderIds.has(rec.orderId);
+                    return (
+                      <div 
+                        key={`${rec.orderId || 'rec'}-${recIdx}`}
+                        className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-850 shadow-2xs overflow-hidden transition-all"
+                      >
+                        {/* Order Accordion Header */}
+                        <div 
+                          onClick={() => toggleExpandOrder(rec.orderId)}
+                          className="flex items-center justify-between px-4 py-3 bg-slate-50/70 dark:bg-slate-800/40 hover:bg-slate-100/70 dark:hover:bg-slate-800/70 cursor-pointer transition-colors"
+                        >
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-black text-slate-900 dark:text-white">
+                                EWO: #{rec.ewo}
+                              </span>
+                              {rec.isNew ? (
+                                <span className="text-[10px] font-bold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950 px-2 py-0.5 rounded-full">
+                                  New Order Added
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-950 px-2 py-0.5 rounded-full">
+                                  {rec.changes.length} {rec.changes.length === 1 ? 'Field Changed' : 'Fields Changed'}
+                                </span>
+                              )}
+                            </div>
+
+                            <span className="text-xs text-slate-600 dark:text-slate-300 font-semibold">
+                              Buyer: <strong className="text-slate-900 dark:text-white">{rec.buyer || '-'}</strong>
+                            </span>
+
+                            <span className="text-xs text-slate-600 dark:text-slate-300 font-semibold flex items-center gap-1">
+                              <span>Color:</span>
+                              <span className="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-700 text-slate-800 dark:text-slate-200 text-[11px] font-bold">
+                                {rec.color || 'Unspecified'}
+                              </span>
+                            </span>
+
+                            {rec.planMonth && (
+                              <span className="text-[11px] font-semibold text-slate-400">
+                                ({rec.planMonth})
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                            >
+                              {isExpanded ? (
+                                <ChevronUp className="h-4 w-4" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4" />
+                              )}
+                            </button>
+                          </div>
                         </div>
-                      )}
-                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Preserved Intact</span>
-                        <p className="text-lg font-black text-slate-700 dark:text-slate-300 mt-0.5">
-                          {uploadFeedback.stats.unalteredCount.toLocaleString()}
-                        </p>
+
+                        {/* Order Changes Table (When Expanded) */}
+                        {isExpanded && (
+                          <div className="p-3.5 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800/80">
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left text-xs">
+                                <thead>
+                                  <tr className="border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                    <th className="pb-2 pl-1">Field Name</th>
+                                    <th className="pb-2">Previous Value</th>
+                                    <th className="pb-2 w-8 text-center"></th>
+                                    <th className="pb-2">New Uploaded Value</th>
+                                    <th className="pb-2 text-right pr-1">Change Type</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
+                                  {rec.changes.map((ch, chIdx) => {
+                                    const isDate = ch.fieldKey.toLowerCase().includes('date') || ch.fieldKey.toLowerCase().includes('start') || ch.fieldKey.toLowerCase().includes('end');
+                                    return (
+                                      <tr key={`${ch.fieldKey}-${chIdx}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                                        <td className="py-2.5 pl-1 font-bold text-slate-800 dark:text-slate-200">
+                                          {ch.fieldLabel}
+                                        </td>
+                                        <td className="py-2.5">
+                                          {ch.oldValue === '(Blank)' || ch.oldValue === '(New)' ? (
+                                            <span className="text-slate-400 italic">
+                                              {ch.oldValue}
+                                            </span>
+                                          ) : (
+                                            <span className="line-through text-slate-400 dark:text-slate-500 font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800">
+                                              {ch.oldValue}
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td className="py-2.5 text-center text-blue-500">
+                                          <ArrowRight className="h-3.5 w-3.5 mx-auto" />
+                                        </td>
+                                        <td className="py-2.5">
+                                          <span className="font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-200/60 dark:border-emerald-800/60 font-mono text-xs shadow-2xs">
+                                            {ch.newValue}
+                                          </span>
+                                        </td>
+                                        <td className="py-2.5 text-right pr-1">
+                                          {ch.isFilledBlank ? (
+                                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-100/70 dark:bg-emerald-950 px-2 py-0.5 rounded-full">
+                                              Filled Blank
+                                            </span>
+                                          ) : (
+                                            <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-100/70 dark:bg-blue-950 px-2 py-0.5 rounded-full">
+                                              Updated
+                                            </span>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </>
-                  )}
+                    );
+                  })
+                ) : (
+                  <div className="p-8 text-center rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-200/60 dark:border-slate-800">
+                    <Search className="h-8 w-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
+                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                      No matching changes found
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Try clearing your search query or switching the category filter.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setChangeSearchQuery('');
+                        setChangeCategoryFilter('all');
+                      }}
+                      className="mt-3 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold cursor-pointer"
+                    >
+                      Reset Filter
+                    </button>
+                  </div>
+                )
+              ) : (
+                <div className="p-8 text-center rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-200/60 dark:border-slate-800">
+                  <CheckCircle2 className="h-8 w-8 text-emerald-500 mx-auto mb-2" />
+                  <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                    All Existing Data is 100% Up to Date
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                    The uploaded spreadsheet was verified against existing orders. Every value matched your existing database records, and no new differing values were found.
+                  </p>
                 </div>
               )}
+            </div>
 
-              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+            {/* Modal Footer */}
+            <div className="px-5 py-3.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                <span>Changes are safely synced to the database and reflected in the table.</span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {uploadFeedback.changesList && uploadFeedback.changesList.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleCopyChangeSummary}
+                    className="rounded-xl px-4 py-2 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-all cursor-pointer"
+                  >
+                    {copiedSummary ? 'Copied to Clipboard' : 'Copy Change Log'}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setUploadFeedback(null)}

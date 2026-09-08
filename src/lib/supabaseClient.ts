@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { UserRecord, LedgerRecord, YarnAllocationRecord, OrderPlan, KnittingStatusOrder } from '../types';
+import { getOrderPlanCanonicalId, deduplicateOrderPlans } from './knittingStatusStore';
 
 /**
  * Supabase Client & Sync Manager for Epyllion Knitex ERP
@@ -1516,13 +1517,16 @@ export class SupabaseSync {
    */
   static mapRowToOrderPlan(row: any): OrderPlan {
     const raw = row.raw_data || {};
+    const ewoVal = row.ewo || raw.ewo || '';
+    const colVal = row.color || raw.color || '';
+    const idVal = getOrderPlanCanonicalId({ ewo: ewoVal, color: colVal, id: row.id || raw.id });
     return {
-      id: String(row.id || raw.id || row.ewo || raw.ewo || ''),
+      id: idVal,
       planMonth: row.plan_month || raw.planMonth || '',
       planType: row.plan_type || raw.planType || '',
-      ewo: row.ewo || raw.ewo || '',
+      ewo: ewoVal,
       buyer: row.buyer || raw.buyer || '',
-      color: row.color || raw.color || '',
+      color: colVal,
       knitStart: row.knit_start || raw.knitStart || '',
       knitEnd: row.knit_end || raw.knitEnd || '',
       target: parseFloat(String(row.target ?? raw.target ?? 0)) || 0,
@@ -1553,7 +1557,7 @@ export class SupabaseSync {
    * Converts an app OrderPlan into a Supabase PostgreSQL row
    */
   static mapOrderPlanToRow(item: OrderPlan): Record<string, any> {
-    const rawId = String(item.id || item.ewo || `ord-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`);
+    const rawId = getOrderPlanCanonicalId(item);
     return {
       id: rawId,
       plan_month: String(item.planMonth || ''),
@@ -1657,7 +1661,7 @@ export class SupabaseSync {
         onProgress(allRows.length, allRows.length, 100);
       }
 
-      return allRows.map(row => this.mapRowToOrderPlan(row));
+      return deduplicateOrderPlans(allRows.map(row => this.mapRowToOrderPlan(row)));
     } catch (err) {
       console.warn('Supabase fetchOrderPlans exception:', err);
       return [];
@@ -1767,7 +1771,8 @@ export class SupabaseSync {
         return { success: true, count: 0 };
       }
 
-      const rows = items.map(o => this.mapOrderPlanToRow(o));
+      const cleanItems = deduplicateOrderPlans(items);
+      const rows = cleanItems.map(o => this.mapOrderPlanToRow(o));
       const chunkSize = 200;
       let insertedCount = 0;
 

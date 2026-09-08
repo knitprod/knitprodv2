@@ -223,7 +223,7 @@ export function formatDisplayDate(val: any): string {
     }
   }
 
-  // 2) Match DD-MMM-YY or DD-Month-YYYY (e.g. 28-Jun-25, 4-July-2026, 04-Jul-2026)
+  // 2) Match DD-MMM-YY or DD-Month-YYYY (e.g. 28-Jun-25, 4-July-2026, 04-Jul-2026, 6 Sept 2026)
   const dmyMatch = str.match(/^(\d{1,2})[-/\s]([A-Za-z]+)[-/\s](\d{2,4})$/);
   if (dmyMatch) {
     const dy = dmyMatch[1].padStart(2, '0');
@@ -238,12 +238,26 @@ export function formatDisplayDate(val: any): string {
     }
   }
 
+  // 2b) Match DD/MM/YYYY or DD-MM-YYYY (e.g. 06/09/2026 or 06-09-2026)
+  const dmyNumMatch = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
+  if (dmyNumMatch) {
+    const dy = dmyNumMatch[1].padStart(2, '0');
+    const mIdx = parseInt(dmyNumMatch[2], 10) - 1;
+    let yr = dmyNumMatch[3];
+    if (yr.length === 2) yr = `20${yr}`;
+    if (mIdx >= 0 && mIdx < 12) {
+      return `${dy}-${fullMonths[mIdx]}-${yr}`;
+    }
+  }
+
   // 3) Try JS Date parsing
   const dObj = new Date(str);
   if (!isNaN(dObj.getTime())) {
-    const dy = String(dObj.getDate()).padStart(2, '0');
-    const mName = fullMonths[dObj.getMonth()];
-    const yr = dObj.getFullYear();
+    const isUtc = (dObj.getUTCHours() === 0 && dObj.getUTCMinutes() === 0 && dObj.getUTCSeconds() === 0) ||
+                  (dObj.getHours() === 0 && dObj.getMinutes() === 0 && dObj.getSeconds() === 0);
+    const dy = String(isUtc ? dObj.getUTCDate() : dObj.getDate()).padStart(2, '0');
+    const mName = fullMonths[isUtc ? dObj.getUTCMonth() : dObj.getMonth()];
+    const yr = isUtc ? dObj.getUTCFullYear() : dObj.getFullYear();
     return `${dy}-${mName}-${yr}`;
   }
 
