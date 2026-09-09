@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { GasClient } from '../lib/gasClient';
 import { SupabaseSync } from '../lib/supabaseClient';
+import { TextileClosePMCStorage } from '../lib/textileClosePMCStore';
 import { SyncConflictLog } from '../types';
 import { useGlobalData } from '../context/GlobalDataContext';
 import gasScriptContent from '../../google-apps-script/Code.gs?raw';
@@ -76,6 +77,12 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
   const [migrateOrdersStatus, setMigrateOrdersStatus] = useState<string | null>(null);
   const [copiedOrdersSql, setCopiedOrdersSql] = useState(false);
   const [showOrdersSql, setShowOrdersSql] = useState(false);
+
+  // Textile Close By PMC to Supabase Migration State
+  const [isMigratingTextileClose, setIsMigratingTextileClose] = useState(false);
+  const [migrateTextileCloseStatus, setMigrateTextileCloseStatus] = useState<string | null>(null);
+  const [copiedTextileCloseSql, setCopiedTextileCloseSql] = useState(false);
+  const [showTextileCloseSql, setShowTextileCloseSql] = useState(false);
 
   // Two-Way Synchronization states
   const [isSyncing, setIsSyncing] = useState(false);
@@ -187,6 +194,44 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
       setTimeout(() => setCopiedOrdersSql(false), 2500);
     } catch (err) {
       console.error('Failed to copy Order Plans SQL:', err);
+    }
+  };
+
+  const handleMigrateTextileCloseToSupabase = async () => {
+    if (!SupabaseSync.isConfigured()) {
+      if (onSuccessNotice) onSuccessNotice("Please enter and save your Supabase credentials first.");
+      return;
+    }
+    setIsMigratingTextileClose(true);
+    setMigrateTextileCloseStatus("Migrating Textile Close By PMC records to Supabase...");
+    try {
+      const records = TextileClosePMCStorage.getRecords();
+      const res = await SupabaseSync.bulkSaveTextileCloseRecords(records, false);
+      if (res.success) {
+        setMigrateTextileCloseStatus(`Successfully migrated ${res.count} records to Supabase! Live WebSockets active.`);
+        if (onSuccessNotice) onSuccessNotice(`Transferred ${res.count} Textile Close By PMC records to Supabase!`);
+      } else {
+        if (res.error?.includes('textile_close_pmc') || res.error?.includes('schema cache') || res.error?.includes('PGRST205')) {
+          setShowTextileCloseSql(true);
+          setMigrateTextileCloseStatus("Table 'public.textile_close_pmc' does not exist in Supabase yet. Please copy the SQL script below, run it in your Supabase SQL Editor, and then click Migration.");
+        } else {
+          setMigrateTextileCloseStatus(`Error transferring records: ${res.error || 'Check Supabase SQL Editor and table structure.'}`);
+        }
+      }
+    } catch (err: any) {
+      setMigrateTextileCloseStatus(`Migration notice: ${err.message || String(err)}`);
+    } finally {
+      setIsMigratingTextileClose(false);
+    }
+  };
+
+  const handleCopyTextileCloseSql = async () => {
+    try {
+      await navigator.clipboard.writeText(SupabaseSync.getTextileCloseSetupSQL());
+      setCopiedTextileCloseSql(true);
+      setTimeout(() => setCopiedTextileCloseSql(false), 2500);
+    } catch (err) {
+      console.error('Failed to copy Textile Close SQL:', err);
     }
   };
 
@@ -748,6 +793,108 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
                 : 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800'
             }`}>
               {migrateOrdersStatus}
+            </div>
+          )}
+        </div>
+
+        {/* Textile Close By PMC Supabase Transfer & Real-time Status Card */}
+        <div className="rounded-xl border border-teal-200 dark:border-teal-900 bg-white/80 dark:bg-slate-900/80 p-4 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-teal-600 dark:text-teal-400" />
+                <span className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">
+                  Textile Close By PMC Real-Time Cloud Engine (Supabase WebSockets)
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-300">
+                  Sub-50ms Live Sync
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Textile Close By PMC fabric specifications use Supabase as the primary cloud database with real-time multi-device WebSocket updates, replace-on-upload protection, and fast query indexing.
+              </p>
+              <p className="text-[11px] font-medium text-teal-700 dark:text-teal-300">
+                ⚡ <strong>Setup Requirement:</strong> Ensure table <code className="px-1 py-0.5 rounded bg-teal-100 dark:bg-teal-900/80 font-mono text-[10px]">public.textile_close_pmc</code> exists in your Supabase project before migrating.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleCopyTextileCloseSql}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-teal-300 dark:border-teal-700 bg-teal-50 hover:bg-teal-100 dark:bg-teal-950 dark:hover:bg-teal-900 text-teal-800 dark:text-teal-200 text-xs font-bold transition-all cursor-pointer shadow-2xs whitespace-nowrap"
+                title="Copy the SQL script to create the textile_close_pmc table in Supabase"
+              >
+                {copiedTextileCloseSql ? (
+                  <>
+                    <Check className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
+                    <span>Copied Textile Close SQL!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
+                    <span>Copy Textile Close SQL</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowTextileCloseSql(!showTextileCloseSql)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-all cursor-pointer shadow-2xs whitespace-nowrap"
+              >
+                <Code className="h-3.5 w-3.5 text-slate-500" />
+                <span>{showTextileCloseSql ? 'Hide SQL' : 'View SQL'}</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isMigratingTextileClose || !isSupabaseActive}
+                onClick={handleMigrateTextileCloseToSupabase}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-xs whitespace-nowrap"
+                title="Seed your existing Textile Close By PMC records into Supabase"
+              >
+                {isMigratingTextileClose ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Transferring Records...</span>
+                  </>
+                ) : (
+                  <>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                    <span>One-Time Initial Migration ({TextileClosePMCStorage.getRecords().length} records)</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {showTextileCloseSql && (
+            <div className="rounded-xl border border-teal-200 dark:border-teal-800 bg-slate-950 p-3.5 space-y-2 text-slate-200 animate-fade-in font-mono text-[11px]">
+              <div className="flex items-center justify-between text-xs pb-1 border-b border-slate-800">
+                <span className="text-teal-400 font-bold">SQL Editor Script (Textile Close PMC Table & Realtime)</span>
+                <button
+                  type="button"
+                  onClick={handleCopyTextileCloseSql}
+                  className="inline-flex items-center gap-1 text-[11px] text-teal-400 hover:text-teal-300 font-semibold cursor-pointer"
+                >
+                  {copiedTextileCloseSql ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                  {copiedTextileCloseSql ? 'Copied' : 'Copy Query'}
+                </button>
+              </div>
+              <pre className="overflow-x-auto max-h-48 text-[11px] leading-relaxed text-slate-300 selection:bg-teal-800">
+                {SupabaseSync.getTextileCloseSetupSQL()}
+              </pre>
+            </div>
+          )}
+
+          {migrateTextileCloseStatus && (
+            <div className={`text-xs font-semibold px-3 py-2 rounded-lg border animate-fade-in ${
+              migrateTextileCloseStatus.includes('Successfully')
+                ? 'bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300 border-teal-200 dark:border-teal-800'
+                : 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+            }`}>
+              {migrateTextileCloseStatus}
             </div>
           )}
         </div>

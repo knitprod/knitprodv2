@@ -180,6 +180,7 @@ export const PAGE_TO_HASH: Record<string, string> = {
   'Yarn Allocation': 'yarn-allocation',
   'Delivery Schedule': 'delivery-schedule',
   'Knitting Status': 'knitting-status',
+  'Textile Close By PMC': 'textile-close-pmc',
   'Admin Panel': 'admin-panel',
   'User Management': 'user-management',
   'Database Connection': 'database-connection',
@@ -205,8 +206,8 @@ export const isPageAllowedForUser = (user: UserRecord | null, tabName: string) =
   if (user.allowedTabs && user.allowedTabs.length > 0) {
     if (user.allowedTabs.includes(tabName)) return true;
     if (
-      ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Buyer Plan vs Actual', 'Delivery Schedule', 'Knitting Status', 'Order Plan & Status', 'Plan Order Followup'].includes(tabName) &&
-      (user.allowedTabs.includes('Plan Order Followup') || user.allowedTabs.includes('Order Plan & Status') || user.allowedTabs.includes('Knitting Status'))
+      ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Buyer Plan vs Actual', 'Delivery Schedule', 'Knitting Status', 'Textile Close By PMC', 'Order Plan & Status', 'Plan Order Followup'].includes(tabName) &&
+      (user.allowedTabs.includes('Plan Order Followup') || user.allowedTabs.includes('Order Plan & Status') || user.allowedTabs.includes('Knitting Status') || user.allowedTabs.includes('Textile Close By PMC'))
     ) {
       return true;
     }
@@ -1360,10 +1361,11 @@ export default function App() {
 
                             {/* Other Items */}
                             {[
+                              { name: 'Knitting Status', icon: Layers, label: 'Knitting Status' },
+                              { name: 'Textile Close By PMC', icon: Layers, label: 'Textile Close By PMC' },
                               { name: 'Buyer Plan vs Actual', icon: Target, label: 'Buyer Plan vs Actual' },
                               { name: 'Yarn Allocation', icon: Layers, label: 'Yarn Allocation' },
                               { name: 'Delivery Schedule', icon: CalendarCheck, label: 'Delivery Schedule' },
-                              { name: 'Knitting Status', icon: Layers, label: 'Knitting Status' },
                             ].map((sub) => {
                               if (!isTabAllowed(sub.name)) return null;
                               const Icon = sub.icon;
@@ -1590,9 +1592,12 @@ export default function App() {
               </div>
             )}
 
-            {currentPage === 'Knitting Status' && (
+            {(currentPage === 'Knitting Status' || currentPage === 'Textile Close By PMC') && (
               <div className="animate-fade-in">
-                <KnittingStatusView currentUser={currentUser} />
+                <KnittingStatusView 
+                  currentUser={currentUser} 
+                  initialTab={currentPage === 'Textile Close By PMC' ? 'textile_close_pmc' : 'knitting_status'}
+                />
               </div>
             )}
 

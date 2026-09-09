@@ -58,8 +58,8 @@ export default function TopNavMenu({ currentPage, onNavigate, currentUser }: Top
     if (currentUser?.allowedTabs && currentUser.allowedTabs.length > 0) {
       if (currentUser.allowedTabs.includes(tabName)) return true;
       if (
-        ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order Plan & Status', 'Plan Order Followup', 'Knitting Status'].includes(tabName) &&
-        (currentUser.allowedTabs.includes('Plan Order Followup') || currentUser.allowedTabs.includes('Order Plan & Status') || currentUser.allowedTabs.includes('Knitting Status'))
+        ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order Plan & Status', 'Plan Order Followup', 'Knitting Status', 'Textile Close By PMC'].includes(tabName) &&
+        (currentUser.allowedTabs.includes('Plan Order Followup') || currentUser.allowedTabs.includes('Order Plan & Status') || currentUser.allowedTabs.includes('Knitting Status') || currentUser.allowedTabs.includes('Textile Close By PMC'))
       ) {
         return true;
       }
@@ -84,6 +84,7 @@ export default function TopNavMenu({ currentPage, onNavigate, currentUser }: Top
     { name: 'Buyerwise OTD Status', icon: Building2, label: 'Buyerwise OTD Status' },
     { name: 'Orderwise OTD Status', icon: FileSpreadsheet, label: 'Orderwise OTD Status' },
     { name: 'Knitting Status', icon: Activity, label: 'Knitting Status' },
+    { name: 'Textile Close By PMC', icon: ShieldCheck, label: 'Textile Close By PMC' },
     { name: 'Buyer Plan vs Actual', icon: Target, label: 'Buyer Plan vs Actual' },
     { name: 'Yarn Allocation', icon: Layers, label: 'Yarn Allocation' },
     { name: 'Delivery Schedule', icon: CalendarCheck, label: 'Delivery Schedule' },
@@ -255,6 +256,7 @@ export default function TopNavMenu({ currentPage, onNavigate, currentUser }: Top
               {/* Other Plan Order Followup Items */}
               {[
                 { name: 'Knitting Status', icon: Activity, label: 'Knitting Status' },
+                { name: 'Textile Close By PMC', icon: ShieldCheck, label: 'Textile Close By PMC' },
                 { name: 'Buyer Plan vs Actual', icon: Target, label: 'Buyer Plan vs Actual' },
                 { name: 'Yarn Allocation', icon: Layers, label: 'Yarn Allocation' },
                 { name: 'Delivery Schedule', icon: CalendarCheck, label: 'Delivery Schedule' },

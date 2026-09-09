@@ -34,6 +34,7 @@ import {
   ChevronsDown,
   ChevronsUp,
   ShieldAlert,
+  ShieldCheck,
   Database,
   Lock
 } from 'lucide-react';
@@ -49,12 +50,26 @@ import {
 } from '../lib/knittingStatusStore';
 import { KnittingOrderDetailsModal } from './KnittingOrderDetailsModal';
 import { SupabaseSync } from '../lib/supabaseClient';
+import TextileClosePMCView from './TextileClosePMCView';
+import { SyncProgressBar, SyncProgressState } from './SyncProgressBar';
 
 interface KnittingStatusViewProps {
   currentUser?: UserRecord | null;
+  initialTab?: 'knitting_status' | 'textile_close_pmc';
 }
 
-export default function KnittingStatusView({ currentUser }: KnittingStatusViewProps) {
+export default function KnittingStatusView({ currentUser, initialTab }: KnittingStatusViewProps) {
+  // Active Sub-Tab: Knitting Status vs Textile Close By PMC
+  const [activeSubTab, setActiveSubTab] = useState<'knitting_status' | 'textile_close_pmc'>(
+    initialTab || 'knitting_status'
+  );
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveSubTab(initialTab);
+    }
+  }, [initialTab]);
+
   // Orders State
   const [orders, setOrders] = useState<KnittingStatusOrder[]>(() => KnittingStatusStorage.getOrders());
   
@@ -67,6 +82,23 @@ export default function KnittingStatusView({ currentUser }: KnittingStatusViewPr
     return initial;
   });
 
+  // Sync & Progress States
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('epyllion_knitting_status_last_sync') || null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [syncProgress, setSyncProgress] = useState<SyncProgressState>({
+    isActive: false,
+    type: 'sync',
+    percent: 0,
+    stage: ''
+  });
+
   // Supabase Real-time Cloud Synchronization
   useEffect(() => {
     if (!SupabaseSync.isConfigured()) return;
@@ -77,6 +109,11 @@ export default function KnittingStatusView({ currentUser }: KnittingStatusViewPr
         const sanitized = remoteOrders.map(aggregateOrderValues);
         setOrders(sanitized);
         KnittingStatusStorage.saveOrders(sanitized);
+        const nowStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        setLastSyncedAt(nowStr);
+        try {
+          localStorage.setItem('epyllion_knitting_status_last_sync', nowStr);
+        } catch {}
       } else {
         // Auto-seed to Supabase if empty
         const current = KnittingStatusStorage.getOrders();
@@ -116,10 +153,8 @@ export default function KnittingStatusView({ currentUser }: KnittingStatusViewPr
   const [buyerFilter, setBuyerFilter] = useState<string>('All');
   const [teamLeaderFilter, setTeamLeaderFilter] = useState<string>('All');
 
-  // Admin and Overwrite States
+  // Admin status
   const isAdmin = currentUser?.userType === 'Admin';
-  const [isOverwriteMode, setIsOverwriteMode] = useState(false);
-  const [adminOverwriteConfirmed, setAdminOverwriteConfirmed] = useState(false);
 
   // Modal States
   const [viewingOrder, setViewingOrder] = useState<KnittingStatusOrder | null>(null);
@@ -320,73 +355,182 @@ export default function KnittingStatusView({ currentUser }: KnittingStatusViewPr
     setSearchTerm('');
   };
 
-  // Export to Excel
-  const handleExportExcel = () => {
-    try {
-      // 1. Order Summary Sheet
-      const orderData = filteredOrders.map(o => {
-        const cond = calculateKnittingCondition(o.greyQty, o.knitBalance);
-        return {
-          'Order No.': o.orderNo,
-          'Condition': cond,
-          'Buyer Name': o.buyerName,
-          'Team Leader': o.teamLeader,
-          'Knit Start Date': o.knitStartDate,
-          'Knit End Date': o.knitEndDate,
-          'Req. Qty (Kg)': o.reqQty,
-          'Grey Qty (Kg)': o.greyQty,
-          'Production (Kg)': o.production,
-          'Knit Balance (Kg)': o.knitBalance,
-          'Items Count': o.items?.length || 0
-        };
-      });
+  // Manual Cloud Sync Handler with Progress Tracking
+  const handleSyncData = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    setSyncProgress({
+      isActive: true,
+      type: 'sync',
+      title: 'Synchronizing Knitting Status with Supabase Cloud',
+      percent: 20,
+      stage: 'Connecting to Supabase cloud...'
+    });
 
-      // 2. Detailed Item Sheet
-      const itemData: any[] = [];
-      filteredOrders.forEach(o => {
-        const orderCond = calculateKnittingCondition(o.greyQty, o.knitBalance);
-        (o.items || []).forEach(itm => {
-          itemData.push({
-            'Order No.': o.orderNo,
-            'Order Condition': orderCond,
-            'Buyer Name': o.buyerName,
-            'Team Leader': o.teamLeader,
-            'Color': itm.color,
-            'M/C Type': itm.mcType,
-            'Fab. Type': itm.fabType,
-            'FGSM': itm.fgsm,
-            'F. Width': itm.fWidth,
-            'Yarn Count': itm.yarnCount,
-            'Gauge & Dia': itm.gaugeDia,
-            'Knit Start Date': itm.knitStartDate,
-            'Knit End Date': itm.knitEndDate,
-            'Req. Qty': itm.reqQty,
-            'Grey Qty': itm.greyQty,
-            'Production': itm.production,
-            'Hold': itm.hold,
-            'Reject': itm.reject,
-            'ITM QTY': itm.itmQty,
-            'Knit Balance': itm.knitBalance,
-            'Production Unit': itm.productionUnit,
-            'Avg. Prod/Day': itm.avgProdPerDay
-          });
+    try {
+      const remote = await SupabaseSync.fetchKnittingOrders((loaded, total, percent) => {
+        setSyncProgress({
+          isActive: true,
+          type: 'sync',
+          title: 'Synchronizing Knitting Status with Supabase Cloud',
+          percent: Math.max(20, percent),
+          stage: `Downloading orders (${loaded.toLocaleString()} / ${total.toLocaleString()})...`,
+          current: loaded,
+          total
         });
       });
 
-      const wb = XLSX.utils.book_new();
-      const wsOrders = XLSX.utils.json_to_sheet(orderData);
-      const wsItems = XLSX.utils.json_to_sheet(itemData);
+      if (Array.isArray(remote) && remote.length > 0) {
+        const sanitized = remote.map(aggregateOrderValues);
+        setOrders(sanitized);
+        KnittingStatusStorage.saveOrders(sanitized);
+        const nowStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        setLastSyncedAt(nowStr);
+        try {
+          localStorage.setItem('epyllion_knitting_status_last_sync', nowStr);
+        } catch {}
 
-      XLSX.utils.book_append_sheet(wb, wsOrders, 'Order Summary');
-      XLSX.utils.book_append_sheet(wb, wsItems, 'Fabric Details (Layer 2)');
+        setSyncProgress({
+          isActive: true,
+          type: 'sync',
+          title: 'Sync Complete',
+          percent: 100,
+          stage: `Successfully synchronized ${sanitized.length.toLocaleString()} orders from Supabase.`
+        });
+        showToast(`Synchronized ${sanitized.length} orders from Supabase Cloud.`);
+      } else {
+        setSyncProgress({
+          isActive: true,
+          type: 'sync',
+          title: 'Sync Complete',
+          percent: 100,
+          stage: 'Cloud database is currently empty.'
+        });
+        showToast('Cloud database synchronized (0 remote orders).');
+      }
 
-      const filename = `Epyllion_Knitting_Status_${new Date().toISOString().slice(0, 10)}.xlsx`;
-      XLSX.writeFile(wb, filename);
-      showToast('Knitting Status Excel report exported successfully!');
-    } catch (e: any) {
-      console.error('Export error:', e);
-      showToast('Failed to export Excel file: ' + e.message);
+      setTimeout(() => {
+        setSyncProgress(prev => ({ ...prev, isActive: false }));
+      }, 2500);
+    } catch (err: any) {
+      console.error('Knitting status sync error:', err);
+      setSyncProgress({
+        isActive: true,
+        type: 'sync',
+        title: 'Sync Failed',
+        percent: 100,
+        stage: 'Failed to sync with Supabase',
+        error: err.message || 'Network error'
+      });
+      showToast('Sync failed: ' + (err.message || 'Error'));
+    } finally {
+      setIsSyncing(false);
     }
+  };
+
+  // Export to Excel with Download Progress Bar
+  const handleExportExcel = () => {
+    setSyncProgress({
+      isActive: true,
+      type: 'download',
+      title: 'Generating Knitting Status Excel Report',
+      percent: 25,
+      stage: 'Compiling Order Summary and Fabric Item details...'
+    });
+
+    setTimeout(() => {
+      try {
+        setSyncProgress(prev => ({
+          ...prev,
+          percent: 65,
+          stage: 'Formatting worksheets and table columns...'
+        }));
+
+        // 1. Order Summary Sheet
+        const orderData = filteredOrders.map(o => {
+          const cond = calculateKnittingCondition(o.greyQty, o.knitBalance);
+          return {
+            'Order No.': o.orderNo,
+            'Condition': cond,
+            'Buyer Name': o.buyerName,
+            'Team Leader': o.teamLeader,
+            'Knit Start Date': o.knitStartDate,
+            'Knit End Date': o.knitEndDate,
+            'Req. Qty (Kg)': o.reqQty,
+            'Grey Qty (Kg)': o.greyQty,
+            'Production (Kg)': o.production,
+            'Knit Balance (Kg)': o.knitBalance,
+            'Items Count': o.items?.length || 0
+          };
+        });
+
+        // 2. Detailed Item Sheet
+        const itemData: any[] = [];
+        filteredOrders.forEach(o => {
+          const orderCond = calculateKnittingCondition(o.greyQty, o.knitBalance);
+          (o.items || []).forEach(itm => {
+            itemData.push({
+              'Order No.': o.orderNo,
+              'Order Condition': orderCond,
+              'Buyer Name': o.buyerName,
+              'Team Leader': o.teamLeader,
+              'Color': itm.color,
+              'M/C Type': itm.mcType,
+              'Fab. Type': itm.fabType,
+              'FGSM': itm.fgsm,
+              'F. Width': itm.fWidth,
+              'Yarn Count': itm.yarnCount,
+              'Gauge & Dia': itm.gaugeDia,
+              'Knit Start Date': itm.knitStartDate,
+              'Knit End Date': itm.knitEndDate,
+              'Req. Qty': itm.reqQty,
+              'Grey Qty': itm.greyQty,
+              'Production': itm.production,
+              'Hold': itm.hold,
+              'Reject': itm.reject,
+              'ITM QTY': itm.itmQty,
+              'Knit Balance': itm.knitBalance,
+              'Production Unit': itm.productionUnit,
+              'Avg. Prod/Day': itm.avgProdPerDay
+            });
+          });
+        });
+
+        const wb = XLSX.utils.book_new();
+        const wsOrders = XLSX.utils.json_to_sheet(orderData);
+        const wsItems = XLSX.utils.json_to_sheet(itemData);
+
+        XLSX.utils.book_append_sheet(wb, wsOrders, 'Order Summary');
+        XLSX.utils.book_append_sheet(wb, wsItems, 'Fabric Details (Layer 2)');
+
+        const filename = `Epyllion_Knitting_Status_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        XLSX.writeFile(wb, filename);
+
+        setSyncProgress({
+          isActive: true,
+          type: 'download',
+          title: 'Export Complete',
+          percent: 100,
+          stage: `Successfully exported ${filteredOrders.length.toLocaleString()} orders.`
+        });
+        showToast('Knitting Status Excel report exported successfully!');
+
+        setTimeout(() => {
+          setSyncProgress(prev => ({ ...prev, isActive: false }));
+        }, 2500);
+      } catch (e: any) {
+        console.error('Export error:', e);
+        setSyncProgress({
+          isActive: true,
+          type: 'download',
+          title: 'Export Failed',
+          percent: 100,
+          stage: 'Failed to generate Excel file',
+          error: e.message
+        });
+        showToast('Failed to export Excel file: ' + e.message);
+      }
+    }, 150);
   };
 
   // Helper for flexible Excel column header resolution (handles newlines, extra spaces, case differences)
@@ -440,16 +584,32 @@ export default function KnittingStatusView({ currentUser }: KnittingStatusViewPr
     return defaultValue;
   };
 
-  // Upload Excel Handler
+  // Upload Excel Handler (Upon upload remove previous data)
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setIsUploadModalOpen(false);
+
+    setSyncProgress({
+      isActive: true,
+      type: 'upload',
+      title: 'Uploading & Replacing Knitting Status Orders',
+      percent: 15,
+      stage: 'Reading Excel workbook...'
+    });
+
     const reader = new FileReader();
-    reader.onload = evt => {
+    reader.onload = async evt => {
       try {
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
+
+        setSyncProgress(prev => ({
+          ...prev,
+          percent: 35,
+          stage: 'Parsing order rows and fabric specifications...'
+        }));
 
         // Check all sheets in the workbook
         const sheetNames = wb.SheetNames;
@@ -463,6 +623,13 @@ export default function KnittingStatusView({ currentUser }: KnittingStatusViewPr
         });
 
         if (allRows.length === 0) {
+          setSyncProgress({
+            isActive: false,
+            type: 'upload',
+            percent: 0,
+            stage: '',
+            error: 'The uploaded file contains no rows.'
+          });
           showToast('The selected file contains no rows.');
           return;
         }
@@ -649,152 +816,93 @@ export default function KnittingStatusView({ currentUser }: KnittingStatusViewPr
           }
         });
 
-        // ADMIN OVERWRITE: If admin confirmed full database overwrite, replace all records
-        if (isOverwriteMode && isAdmin) {
-          const freshOrders = Array.from(orderMap.values()).map(aggregateOrderValues);
-          updateOrdersState(freshOrders);
-          showToast(`Admin Overwrite Complete: Database fully replaced with ${freshOrders.length} orders from uploaded file.`);
-          setIsUploadModalOpen(false);
-          setIsOverwriteMode(false);
-          setAdminOverwriteConfirmed(false);
+        const freshOrders = Array.from(orderMap.values()).map(aggregateOrderValues);
+
+        if (freshOrders.length === 0) {
+          setSyncProgress({
+            isActive: false,
+            type: 'upload',
+            percent: 0,
+            stage: '',
+            error: 'No valid orders found in the uploaded file.'
+          });
+          showToast('No valid orders found in the uploaded file.');
           return;
         }
 
-        // SMART MERGE: Only take update data, fill blanks, update only new values, match by Order Number & Color
-        const currentOrders = [...orders];
-        const currentOrdersMap = new Map<string, KnittingStatusOrder>();
-        currentOrders.forEach(o => {
-          const ordKey = String(o.orderNo || o.id).trim().replace(/^#+/, '').toUpperCase();
-          currentOrdersMap.set(ordKey, o);
-        });
+        // UPON UPLOAD REMOVE PREVIOUS DATA:
+        // Replace existing orders in local state and storage
+        setOrders(freshOrders);
+        KnittingStatusStorage.saveOrders(freshOrders);
+        setCurrentPage(1);
 
-        let updatedOrdersCount = 0;
-        let filledBlanksCount = 0;
-        let newOrdersCount = 0;
+        setSyncProgress(prev => ({
+          ...prev,
+          percent: 55,
+          stage: `Replacing database with ${freshOrders.length.toLocaleString()} fresh orders...`
+        }));
 
-        orderMap.forEach((uploadedOrder, ordNo) => {
-          const ordKey = String(ordNo).trim().replace(/^#+/, '').toUpperCase();
-          const existingOrd = currentOrdersMap.get(ordKey);
-
-          if (existingOrd) {
-            let ordChanged = false;
-            // Fill blank buyer / teamLeader if uploaded has it
-            if (uploadedOrder.buyerName && !existingOrd.buyerName) {
-              existingOrd.buyerName = uploadedOrder.buyerName;
-              filledBlanksCount++;
-              ordChanged = true;
-            } else if (uploadedOrder.buyerName && existingOrd.buyerName !== uploadedOrder.buyerName) {
-              existingOrd.buyerName = uploadedOrder.buyerName;
-              ordChanged = true;
+        // Bulk save to Supabase Cloud with replace=true (purging old orders)
+        if (SupabaseSync.isConfigured()) {
+          const res = await SupabaseSync.bulkSaveKnittingOrders(
+            freshOrders,
+            true, // replace previous data
+            (processed, total, pct, stage) => {
+              setSyncProgress({
+                isActive: true,
+                type: 'upload',
+                title: 'Uploading & Replacing Knitting Status Orders',
+                percent: Math.min(95, 55 + Math.round(pct * 0.4)),
+                stage: stage || `Saving to Supabase (${processed}/${total})...`,
+                current: processed,
+                total
+              });
             }
+          );
 
-            if (uploadedOrder.teamLeader && !existingOrd.teamLeader) {
-              existingOrd.teamLeader = uploadedOrder.teamLeader;
-              filledBlanksCount++;
-              ordChanged = true;
-            } else if (uploadedOrder.teamLeader && existingOrd.teamLeader !== uploadedOrder.teamLeader) {
-              existingOrd.teamLeader = uploadedOrder.teamLeader;
-              ordChanged = true;
-            }
-
-            // Match items by Color
-            const existingItemsMap = new Map<string, KnittingStatusItem>();
-            existingOrd.items.forEach(itm => {
-              const colKey = String(itm.color || '').trim().toUpperCase();
-              existingItemsMap.set(colKey, itm);
-            });
-
-            uploadedOrder.items.forEach(upItm => {
-              const colKey = String(upItm.color || '').trim().toUpperCase();
-              const existingItm = existingItemsMap.get(colKey);
-
-              if (existingItm) {
-                // Match found: fill blank cells and update only new data
-                let itmChanged = false;
-                const fillOrUpdateStr = (k: keyof KnittingStatusItem) => {
-                  const upVal = String(upItm[k] || '').trim();
-                  if (!upVal) return;
-                  const curVal = String(existingItm[k] || '').trim();
-                  if (!curVal) {
-                    (existingItm as any)[k] = upVal;
-                    filledBlanksCount++;
-                    itmChanged = true;
-                  } else if (curVal !== upVal) {
-                    (existingItm as any)[k] = upVal;
-                    itmChanged = true;
-                  }
-                };
-                const fillOrUpdateNum = (k: keyof KnittingStatusItem) => {
-                  const upVal = Number(upItm[k]) || 0;
-                  const curVal = Number(existingItm[k]) || 0;
-                  if (curVal === 0 && upVal > 0) {
-                    (existingItm as any)[k] = upVal;
-                    filledBlanksCount++;
-                    itmChanged = true;
-                  } else if (upVal > 0 && curVal !== upVal) {
-                    (existingItm as any)[k] = upVal;
-                    itmChanged = true;
-                  }
-                };
-
-                fillOrUpdateStr('mcType');
-                fillOrUpdateStr('fabType');
-                fillOrUpdateStr('yarnCount');
-                fillOrUpdateStr('fWidth');
-                fillOrUpdateStr('gaugeDia');
-                fillOrUpdateStr('productionUnit');
-                fillOrUpdateStr('knitStartDate');
-                fillOrUpdateStr('knitEndDate');
-                if (upItm.fgsm && !existingItm.fgsm) {
-                  existingItm.fgsm = upItm.fgsm;
-                  filledBlanksCount++;
-                  itmChanged = true;
-                } else if (upItm.fgsm && existingItm.fgsm !== upItm.fgsm) {
-                  existingItm.fgsm = upItm.fgsm;
-                  itmChanged = true;
-                }
-
-                fillOrUpdateNum('reqQty');
-                fillOrUpdateNum('greyQty');
-                fillOrUpdateNum('production');
-                fillOrUpdateNum('hold');
-                fillOrUpdateNum('reject');
-                fillOrUpdateNum('itmQty');
-                fillOrUpdateNum('knitBalance');
-                fillOrUpdateNum('avgProdPerDay');
-
-                if (itmChanged) ordChanged = true;
-              } else {
-                // New color variant for this order
-                existingOrd.items.push(upItm);
-                ordChanged = true;
-              }
-            });
-
-            if (ordChanged) {
-              const reAggregated = aggregateOrderValues(existingOrd);
-              Object.assign(existingOrd, reAggregated);
-              updatedOrdersCount++;
-            }
-          } else {
-            // New order entirely
-            const aggregated = aggregateOrderValues(uploadedOrder);
-            currentOrders.unshift(aggregated);
-            currentOrdersMap.set(ordKey, aggregated);
-            newOrdersCount++;
+          if (!res.success) {
+            console.warn('Supabase save notice:', res.error);
           }
+        }
+
+        const nowStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        setLastSyncedAt(nowStr);
+        try {
+          localStorage.setItem('epyllion_knitting_status_last_sync', nowStr);
+        } catch {}
+
+        setSyncProgress({
+          isActive: true,
+          type: 'upload',
+          title: 'Upload & Database Replacement Complete',
+          percent: 100,
+          stage: `Successfully uploaded ${freshOrders.length.toLocaleString()} orders and replaced previous data.`,
+          current: freshOrders.length,
+          total: freshOrders.length
         });
 
-        updateOrdersState(currentOrders);
-        showToast(`Smart Update: ${updatedOrdersCount} orders updated, ${filledBlanksCount} blank cells filled${newOrdersCount > 0 ? `, ${newOrdersCount} new orders added` : ''}. Existing data preserved!`);
+        showToast(`Uploaded ${freshOrders.length} orders. Previous data replaced successfully!`);
         setIsUploadModalOpen(false);
+
+        setTimeout(() => {
+          setSyncProgress(prev => ({ ...prev, isActive: false }));
+        }, 3000);
       } catch (err: any) {
         console.error('File parse error:', err);
+        setSyncProgress({
+          isActive: true,
+          type: 'upload',
+          title: 'Upload Failed',
+          percent: 100,
+          stage: 'Failed to process Excel file',
+          error: err.message || 'Unknown error'
+        });
         showToast('Error reading Excel file: ' + err.message);
+      } finally {
+        if (e.target) e.target.value = '';
       }
     };
     reader.readAsBinaryString(file);
-    if (e.target) e.target.value = '';
   };
 
   // Render Condition Badge
@@ -844,6 +952,39 @@ export default function KnittingStatusView({ currentUser }: KnittingStatusViewPr
         </div>
       )}
 
+      {/* Sub-View Switcher: Knitting Status vs Textile Close By PMC */}
+      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('knitting_status')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+            activeSubTab === 'knitting_status'
+              ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-500/20'
+              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <Activity className="w-4 h-4" />
+          <span>Knitting Status</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('textile_close_pmc')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+            activeSubTab === 'textile_close_pmc'
+              ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-500/20'
+              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4" />
+          <span>Textile Close By PMC</span>
+        </button>
+      </div>
+
+      {activeSubTab === 'textile_close_pmc' ? (
+        <TextileClosePMCView currentUser={currentUser} />
+      ) : (
+        <>
       {/* Header Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
         <div>
@@ -857,35 +998,67 @@ export default function KnittingStatusView({ currentUser }: KnittingStatusViewPr
                 <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                   Plan Order Followup
                 </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                  Supabase Cloud
+                </span>
               </h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Two-layer hierarchical tracking: Order Summary (Layer 1) with expandable Fabric & Item breakdown (Layer 2)
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-2">
+                <span>Two-layer hierarchical tracking: Order Summary (Layer 1) with expandable Fabric & Item breakdown (Layer 2)</span>
+                {lastSyncedAt && (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-indigo-600 dark:text-indigo-400 font-medium">
+                    <Clock className="w-3 h-3" /> Last synced: {lastSyncedAt}
+                  </span>
+                )}
               </p>
             </div>
           </div>
         </div>
 
-        {/* Action Buttons */}
+        {/* Action Buttons: Sync Cloud, Upload Excel, Export Excel */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Sync Button */}
           <button
-            onClick={() => setIsUploadModalOpen(true)}
-            className="flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors shadow-xs cursor-pointer"
-            title="Import Excel"
+            id="sync-knitting-status-btn"
+            type="button"
+            onClick={handleSyncData}
+            disabled={isSyncing}
+            className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/80 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors shadow-xs cursor-pointer disabled:opacity-50"
+            title="Fetch Latest Orders from Supabase Cloud"
           >
-            <UploadCloud className="w-4 h-4 text-slate-500" />
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{isSyncing ? 'Syncing...' : 'Sync Cloud'}</span>
+          </button>
+
+          <button
+            id="upload-knitting-status-btn"
+            type="button"
+            onClick={() => setIsUploadModalOpen(true)}
+            className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors shadow-xs cursor-pointer"
+            title="Import Excel and Replace Previous Data"
+          >
+            <UploadCloud className="w-3.5 h-3.5 text-slate-500" />
             <span>Upload Excel</span>
           </button>
 
           <button
+            id="export-knitting-status-btn"
+            type="button"
             onClick={handleExportExcel}
-            className="flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors shadow-xs cursor-pointer"
-            title="Export Excel"
+            className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors shadow-xs cursor-pointer"
+            title="Export Excel Report"
           >
-            <Download className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <Download className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             <span>Export Excel</span>
           </button>
         </div>
       </div>
+
+      {/* Sync & Upload/Download Progress Bar Banner */}
+      <SyncProgressBar
+        progress={syncProgress}
+        onDismiss={() => setSyncProgress(prev => ({ ...prev, isActive: false, error: null }))}
+        accentColor="indigo"
+      />
 
       {/* KPI Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
@@ -1619,6 +1792,8 @@ export default function KnittingStatusView({ currentUser }: KnittingStatusViewPr
           )}
         </div>
       </div>
+      </>
+      )}
 
       {/* Modal: View Order Details (Shows all data on that order) */}
       {viewingOrder && (
@@ -1654,83 +1829,24 @@ export default function KnittingStatusView({ currentUser }: KnittingStatusViewPr
               Column headers like <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-indigo-600">Order No.</code>, <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-indigo-600">Buyer Name</code>, <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-indigo-600">Grey Qty</code>, <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-indigo-600">Production</code>, <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-indigo-600">Color</code>, <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-indigo-600">Fab. Type</code> are automatically detected.
             </p>
 
-            {/* Admin Overwrite Option */}
-            {isAdmin ? (
-              <div className="p-3.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/30 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <ShieldAlert className="w-4 h-4 text-rose-600 dark:text-rose-400" />
-                    <span className="text-xs font-bold text-rose-950 dark:text-rose-200">
-                      Admin Privilege: Overwrite Full Database
-                    </span>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={isOverwriteMode}
-                      onChange={(e) => {
-                        setIsOverwriteMode(e.target.checked);
-                        if (!e.target.checked) setAdminOverwriteConfirmed(false);
-                      }}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:bg-rose-600"></div>
-                  </label>
-                </div>
-
-                {isOverwriteMode && (
-                  <div className="pt-2 border-t border-rose-200/60 dark:border-rose-900/60 space-y-2">
-                    <p className="text-[11px] text-rose-700 dark:text-rose-300 leading-normal font-medium">
-                      All {orders.length} current orders will be purged and completely replaced by this spreadsheet.
-                    </p>
-                    <label className="flex items-start gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={adminOverwriteConfirmed}
-                        onChange={(e) => setAdminOverwriteConfirmed(e.target.checked)}
-                        className="mt-0.5 h-3.5 w-3.5 rounded border-rose-300 text-rose-600 focus:ring-rose-500 cursor-pointer"
-                      />
-                      <span className="text-[11px] font-bold text-rose-800 dark:text-rose-200 select-none">
-                        I confirm master database purge & replace
-                      </span>
-                    </label>
-                  </div>
-                )}
+            {/* Replace-on-Upload Notice */}
+            <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 p-3 rounded-xl flex items-start gap-2.5 text-xs text-amber-800 dark:text-amber-300">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+              <div>
+                <span className="font-bold">Replace-on-Upload Rule:</span> Uploading this file will completely remove and replace all existing Knitting Status records in Supabase Cloud with the newly uploaded dataset.
               </div>
-            ) : (
-              <div className="flex items-center gap-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800 text-[11px] text-slate-400">
-                <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <span>Smart Merge active (Updates new data & fills blanks). Admin login required for full database overwrite.</span>
-              </div>
-            )}
+            </div>
 
             <div
-              onClick={() => {
-                if (isOverwriteMode && !adminOverwriteConfirmed) return;
-                fileInputRef.current?.click();
-              }}
-              className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
-                isOverwriteMode
-                  ? adminOverwriteConfirmed
-                    ? 'border-rose-300 dark:border-rose-800 bg-rose-50/40 dark:bg-rose-950/20 hover:border-rose-500 cursor-pointer'
-                    : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 opacity-60 cursor-not-allowed'
-                  : 'border-indigo-200 dark:border-indigo-900/60 hover:border-indigo-400 dark:hover:border-indigo-700 bg-indigo-50/40 dark:bg-indigo-950/20 cursor-pointer'
-              }`}
+              onClick={() => fileInputRef.current?.click()}
+              className="border-2 border-dashed border-indigo-200 dark:border-indigo-900/60 hover:border-indigo-400 dark:hover:border-indigo-700 bg-indigo-50/40 dark:bg-indigo-950/20 rounded-2xl p-8 text-center transition-all cursor-pointer"
             >
-              {isOverwriteMode ? (
-                <Database className={`w-10 h-10 mx-auto mb-2 ${adminOverwriteConfirmed ? 'text-rose-500' : 'text-slate-400'}`} />
-              ) : (
-                <FileSpreadsheet className="w-10 h-10 text-indigo-500 mx-auto mb-2" />
-              )}
+              <UploadCloud className="w-10 h-10 text-indigo-600 dark:text-indigo-400 mx-auto mb-2" />
               <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                {isOverwriteMode
-                  ? adminOverwriteConfirmed
-                    ? 'Click to browse Excel and Overwrite Database'
-                    : 'Check confirmation box above to proceed'
-                  : 'Click to browse or drag and drop spreadsheet'}
+                Click to choose file or drag and drop spreadsheet
               </div>
               <div className="text-[11px] text-slate-400 mt-1">
-                Supports .xlsx, .xls, .csv format
+                Supports .xlsx, .xls, .csv format up to 10MB
               </div>
               <input
                 ref={fileInputRef}
@@ -1744,12 +1860,8 @@ export default function KnittingStatusView({ currentUser }: KnittingStatusViewPr
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => {
-                  setIsUploadModalOpen(false);
-                  setIsOverwriteMode(false);
-                  setAdminOverwriteConfirmed(false);
-                }}
-                className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                onClick={() => setIsUploadModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
               >
                 Cancel
               </button>

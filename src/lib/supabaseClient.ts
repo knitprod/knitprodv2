@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { UserRecord, LedgerRecord, YarnAllocationRecord, OrderPlan, KnittingStatusOrder } from '../types';
+import { UserRecord, LedgerRecord, YarnAllocationRecord, OrderPlan, KnittingStatusOrder, TextileCloseRecord } from '../types';
 import { getOrderPlanCanonicalId, deduplicateOrderPlans } from './knittingStatusStore';
 
 /**
@@ -2106,6 +2106,220 @@ export class SupabaseSync {
     }
   }
 
+  // =========================================================================
+  // TEXTILE CLOSE BY PMC CLOUD SYNCHRONIZATION
+  // =========================================================================
+
+  static mapRowToTextileCloseRecord(row: Record<string, any>): TextileCloseRecord {
+    const raw = row.raw_data || {};
+    return {
+      id: String(row.id || raw.id || `tc-pmc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`),
+      status: String(row.status || raw.status || 'Textile Close By PMC'),
+      orderNo: String(row.order_no || raw.orderNo || ''),
+      buyerName: String(row.buyer_name || raw.buyerName || ''),
+      teamLeader: String(row.team_leader || raw.teamLeader || ''),
+      fgsm: row.fgsm !== undefined && row.fgsm !== null && row.fgsm !== '' ? row.fgsm : (raw.fgsm ?? ''),
+      fWidth: String(row.f_width || raw.fWidth || ''),
+      color: String(row.color || raw.color || ''),
+      fabType: String(row.fab_type || raw.fabType || ''),
+      reqQty: parseFloat(String(row.req_qty ?? raw.reqQty ?? 0)) || 0,
+      greyQty: parseFloat(String(row.grey_qty ?? raw.greyQty ?? 0)) || 0,
+      production: parseFloat(String(row.production ?? raw.production ?? 0)) || 0,
+      knitBal: parseFloat(String(row.knit_bal ?? raw.knitBal ?? 0)) || 0,
+      closedDate: String(row.closed_date || raw.closedDate || ''),
+      remarks: String(row.remarks || raw.remarks || ''),
+      updatedAt: row.updated_at || raw.updatedAt || new Date().toISOString()
+    };
+  }
+
+  static mapTextileCloseRecordToRow(item: TextileCloseRecord): Record<string, any> {
+    const rawId = String(item.id || `tc-pmc-${item.orderNo}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`);
+    return {
+      id: rawId,
+      status: String(item.status || 'Textile Close By PMC'),
+      order_no: String(item.orderNo || ''),
+      buyer_name: String(item.buyerName || ''),
+      team_leader: String(item.teamLeader || ''),
+      fgsm: String(item.fgsm ?? ''),
+      f_width: String(item.fWidth || ''),
+      color: String(item.color || ''),
+      fab_type: String(item.fabType || ''),
+      req_qty: parseFloat(String(item.reqQty || 0)) || 0,
+      grey_qty: parseFloat(String(item.greyQty || 0)) || 0,
+      production: parseFloat(String(item.production || 0)) || 0,
+      knit_bal: parseFloat(String(item.knitBal || 0)) || 0,
+      closed_date: String(item.closedDate || ''),
+      remarks: String(item.remarks || ''),
+      raw_data: item,
+      updated_at: new Date().toISOString()
+    };
+  }
+
+  static async fetchTextileCloseRecords(
+    onProgress?: (loaded: number, total: number, percent: number) => void
+  ): Promise<TextileCloseRecord[]> {
+    const client = this.getClient();
+    if (!client) return [];
+
+    try {
+      let totalCount = 0;
+      try {
+        const { count, error: countErr } = await client
+          .from('textile_close_pmc')
+          .select('*', { count: 'exact', head: true });
+        if (!countErr && typeof count === 'number') {
+          totalCount = count;
+        }
+      } catch (cntErr) {
+        console.warn('Supabase textile_close_pmc count error:', cntErr);
+      }
+
+      const allRows: any[] = [];
+      const BATCH_SIZE = 1000;
+      let from = 0;
+
+      while (true) {
+        const to = from + BATCH_SIZE - 1;
+        const { data, error } = await client
+          .from('textile_close_pmc')
+          .select('*')
+          .order('order_no', { ascending: true })
+          .range(from, to);
+
+        if (error) {
+          console.warn('Supabase fetchTextileCloseRecords range error:', error.message);
+          break;
+        }
+
+        if (!data || !Array.isArray(data) || data.length === 0) {
+          break;
+        }
+
+        allRows.push(...data);
+        const percent = totalCount > 0 ? Math.min(100, Math.round((allRows.length / totalCount) * 100)) : 100;
+        if (onProgress) {
+          onProgress(allRows.length, totalCount || allRows.length, percent);
+        }
+
+        if (data.length < BATCH_SIZE || (totalCount > 0 && allRows.length >= totalCount)) {
+          break;
+        }
+
+        from += BATCH_SIZE;
+      }
+
+      return allRows.map(row => this.mapRowToTextileCloseRecord(row));
+    } catch {
+      return [];
+    }
+  }
+
+  static async saveTextileCloseRecord(item: TextileCloseRecord): Promise<{ success: boolean; error?: string }> {
+    const client = this.getClient();
+    if (!client) return { success: false, error: 'Supabase client is not initialized.' };
+
+    try {
+      const row = this.sanitizeRowForSupabase(this.mapTextileCloseRecordToRow(item));
+      const { error } = await client.from('textile_close_pmc').upsert(row, { onConflict: 'id' });
+      if (error) return { success: false, error: error.message };
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || String(err) };
+    }
+  }
+
+  static async bulkSaveTextileCloseRecords(
+    items: TextileCloseRecord[],
+    replace: boolean = false,
+    onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void
+  ): Promise<{ success: boolean; count: number; error?: string }> {
+    const client = this.getClient();
+    if (!client) return { success: false, count: 0, error: 'Supabase not initialized.' };
+
+    try {
+      if (replace) {
+        if (onProgress) {
+          onProgress(0, items.length, 5, 'Purging previous records from Supabase cloud...');
+        }
+        await client.from('textile_close_pmc').delete().neq('id', '___PURGE___');
+      }
+
+      if (!items || items.length === 0) return { success: true, count: 0 };
+
+      const rows = items.map(r => this.sanitizeRowForSupabase(this.mapTextileCloseRecordToRow(r)));
+      const CHUNK_SIZE = 200;
+      let insertedCount = 0;
+
+      for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        const chunk = rows.slice(i, i + CHUNK_SIZE);
+        const { error } = await client.from('textile_close_pmc').upsert(chunk, { onConflict: 'id' });
+        if (error) {
+          console.warn('Supabase bulkSaveTextileCloseRecords chunk error:', error.message);
+          return { success: false, count: insertedCount, error: error.message };
+        }
+        insertedCount += chunk.length;
+        if (onProgress) {
+          const pct = Math.round((insertedCount / rows.length) * 100);
+          onProgress(insertedCount, rows.length, pct, `Syncing Textile Close By PMC (${insertedCount}/${rows.length})...`);
+        }
+      }
+
+      return { success: true, count: insertedCount };
+    } catch (err: any) {
+      return { success: false, count: 0, error: err.message || String(err) };
+    }
+  }
+
+  static async deleteTextileCloseRecord(id: string): Promise<{ success: boolean; error?: string }> {
+    const client = this.getClient();
+    if (!client) return { success: false, error: 'Supabase client not initialized.' };
+    try {
+      const { error } = await client.from('textile_close_pmc').delete().eq('id', id);
+      if (error) return { success: false, error: error.message };
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || String(err) };
+    }
+  }
+
+  static subscribeToTextileCloseRecords(
+    onRecordChange: (change: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: TextileCloseRecord; id: string }) => void
+  ): () => void {
+    const client = this.getClient();
+    if (!client) return () => {};
+
+    try {
+      const channel = client
+        .channel('realtime:textile_close_pmc')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'textile_close_pmc' },
+          (payload: any) => {
+            const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE';
+            const row = payload.new || payload.old;
+            if (row) {
+              const record = SupabaseSync.mapRowToTextileCloseRecord(row);
+              onRecordChange({
+                eventType,
+                record,
+                id: String(row.id || (payload.old && payload.old.id) || '')
+              });
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        try {
+          client.removeChannel(channel);
+        } catch {}
+      };
+    } catch (err) {
+      console.warn('Supabase subscribeToTextileCloseRecords error:', err);
+      return () => {};
+    }
+  }
+
   /**
    * Dedicated SQL script for Plan Order Followup & Status table only (safe, idempotent, fast)
    */
@@ -2168,25 +2382,52 @@ CREATE TABLE IF NOT EXISTS public.knitting_orders (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. Fast Query Indexes
+-- 3. Create Textile Close By PMC Table
+CREATE TABLE IF NOT EXISTS public.textile_close_pmc (
+  id TEXT PRIMARY KEY,
+  status TEXT DEFAULT 'Textile Close By PMC',
+  order_no TEXT NOT NULL,
+  buyer_name TEXT,
+  team_leader TEXT,
+  fgsm TEXT,
+  f_width TEXT,
+  color TEXT,
+  fab_type TEXT,
+  req_qty NUMERIC DEFAULT 0,
+  grey_qty NUMERIC DEFAULT 0,
+  production NUMERIC DEFAULT 0,
+  knit_bal NUMERIC DEFAULT 0,
+  closed_date TEXT,
+  remarks TEXT,
+  raw_data JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. Fast Query Indexes
 CREATE INDEX IF NOT EXISTS idx_order_plans_ewo ON public.order_plans(ewo);
 CREATE INDEX IF NOT EXISTS idx_order_plans_buyer ON public.order_plans(buyer);
 CREATE INDEX IF NOT EXISTS idx_order_plans_plan_month ON public.order_plans(plan_month);
 CREATE INDEX IF NOT EXISTS idx_order_plans_team_leaders ON public.order_plans(knit_team_leaders);
 CREATE INDEX IF NOT EXISTS idx_knitting_orders_order_no ON public.knitting_orders(order_no);
 CREATE INDEX IF NOT EXISTS idx_knitting_orders_buyer_name ON public.knitting_orders(buyer_name);
+CREATE INDEX IF NOT EXISTS idx_textile_close_order_no ON public.textile_close_pmc(order_no);
+CREATE INDEX IF NOT EXISTS idx_textile_close_buyer_name ON public.textile_close_pmc(buyer_name);
 
--- 4. Row Level Security & Access Policies
+-- 5. Row Level Security & Access Policies
 ALTER TABLE public.order_plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.knitting_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.textile_close_pmc ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Allow public full access to order_plans" ON public.order_plans;
 DROP POLICY IF EXISTS "Allow public full access to knitting_orders" ON public.knitting_orders;
+DROP POLICY IF EXISTS "Allow public full access to textile_close_pmc" ON public.textile_close_pmc;
 
 CREATE POLICY "Allow public full access to order_plans" ON public.order_plans FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public full access to knitting_orders" ON public.knitting_orders FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public full access to textile_close_pmc" ON public.textile_close_pmc FOR ALL USING (true) WITH CHECK (true);
 
--- 5. Enable Instant Sub-50ms Real-Time WebSocket Replication
+-- 6. Enable Instant Sub-50ms Real-Time WebSocket Replication
 DO $$ 
 BEGIN 
   IF NOT EXISTS (
@@ -2205,6 +2446,15 @@ BEGIN
     AND tablename = 'knitting_orders'
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.knitting_orders;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+    AND schemaname = 'public' 
+    AND tablename = 'textile_close_pmc'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.textile_close_pmc;
   END IF;
 EXCEPTION WHEN OTHERS THEN 
   NULL;
@@ -2491,6 +2741,31 @@ CREATE TABLE IF NOT EXISTS public.knitting_orders (
 CREATE INDEX IF NOT EXISTS idx_knitting_orders_order_no ON public.knitting_orders(order_no);
 CREATE INDEX IF NOT EXISTS idx_knitting_orders_buyer_name ON public.knitting_orders(buyer_name);
 
+-- 9. TEXTILE CLOSE BY PMC
+CREATE TABLE IF NOT EXISTS public.textile_close_pmc (
+  id TEXT PRIMARY KEY,
+  status TEXT DEFAULT 'Textile Close By PMC',
+  order_no TEXT NOT NULL,
+  buyer_name TEXT,
+  team_leader TEXT,
+  fgsm TEXT,
+  f_width TEXT,
+  color TEXT,
+  fab_type TEXT,
+  req_qty NUMERIC DEFAULT 0,
+  grey_qty NUMERIC DEFAULT 0,
+  production NUMERIC DEFAULT 0,
+  knit_bal NUMERIC DEFAULT 0,
+  closed_date TEXT,
+  remarks TEXT,
+  raw_data JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_textile_close_order_no ON public.textile_close_pmc(order_no);
+CREATE INDEX IF NOT EXISTS idx_textile_close_buyer_name ON public.textile_close_pmc(buyer_name);
+
 -- Enable Row Level Security (RLS)
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.factory_units ENABLE ROW LEVEL SECURITY;
@@ -2501,6 +2776,7 @@ ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.yarn_allocations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.order_plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.knitting_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.textile_close_pmc ENABLE ROW LEVEL SECURITY;
 
 -- Drop existing policies first so it never throws error 42710
 DROP POLICY IF EXISTS "Allow public full access to users" ON public.users;
@@ -2512,6 +2788,7 @@ DROP POLICY IF EXISTS "Allow public full access to activity_logs" ON public.acti
 DROP POLICY IF EXISTS "Allow public full access to yarn_allocations" ON public.yarn_allocations;
 DROP POLICY IF EXISTS "Allow public full access to order_plans" ON public.order_plans;
 DROP POLICY IF EXISTS "Allow public full access to knitting_orders" ON public.knitting_orders;
+DROP POLICY IF EXISTS "Allow public full access to textile_close_pmc" ON public.textile_close_pmc;
 
 -- Recreate policies cleanly
 CREATE POLICY "Allow public full access to users" ON public.users FOR ALL USING (true) WITH CHECK (true);
@@ -2523,6 +2800,7 @@ CREATE POLICY "Allow public full access to activity_logs" ON public.activity_log
 CREATE POLICY "Allow public full access to yarn_allocations" ON public.yarn_allocations FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public full access to order_plans" ON public.order_plans FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public full access to knitting_orders" ON public.knitting_orders FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public full access to textile_close_pmc" ON public.textile_close_pmc FOR ALL USING (true) WITH CHECK (true);
 
 -- Enable Real-Time Broadcast for Tables
 DO $$ 
@@ -2558,6 +2836,14 @@ BEGIN
     AND tablename = 'knitting_orders'
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.knitting_orders;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+    AND schemaname = 'public' 
+    AND tablename = 'textile_close_pmc'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.textile_close_pmc;
   END IF;
 EXCEPTION WHEN OTHERS THEN 
   NULL;
@@ -2671,6 +2957,65 @@ BEGIN
     AND tablename = 'yarn_allocations'
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.yarn_allocations;
+  END IF;
+EXCEPTION WHEN OTHERS THEN 
+  NULL;
+END $$;
+`;
+  }
+
+  /**
+   * Dedicated SQL script for Textile Close By PMC table only (safe, idempotent, fast)
+   */
+  static getTextileCloseSetupSQL(): string {
+    return `-- =========================================================
+-- EPYLLION KNITEX ERP: TEXTILE CLOSE BY PMC CLOUD TABLE
+-- Paste and Run in Supabase Dashboard > SQL Editor (Free Forever)
+-- =========================================================
+
+-- 1. Create Textile Close By PMC Table
+CREATE TABLE IF NOT EXISTS public.textile_close_pmc (
+  id TEXT PRIMARY KEY,
+  status TEXT DEFAULT 'Textile Close By PMC',
+  order_no TEXT NOT NULL,
+  buyer_name TEXT,
+  team_leader TEXT,
+  fgsm TEXT,
+  f_width TEXT,
+  color TEXT,
+  fab_type TEXT,
+  req_qty NUMERIC DEFAULT 0,
+  grey_qty NUMERIC DEFAULT 0,
+  production NUMERIC DEFAULT 0,
+  knit_bal NUMERIC DEFAULT 0,
+  closed_date TEXT,
+  remarks TEXT,
+  raw_data JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. Fast Query Indexes
+CREATE INDEX IF NOT EXISTS idx_textile_close_order_no ON public.textile_close_pmc(order_no);
+CREATE INDEX IF NOT EXISTS idx_textile_close_buyer_name ON public.textile_close_pmc(buyer_name);
+CREATE INDEX IF NOT EXISTS idx_textile_close_team_leader ON public.textile_close_pmc(team_leader);
+CREATE INDEX IF NOT EXISTS idx_textile_close_status ON public.textile_close_pmc(status);
+
+-- 3. Row Level Security & Access Policies
+ALTER TABLE public.textile_close_pmc ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public full access to textile_close_pmc" ON public.textile_close_pmc;
+CREATE POLICY "Allow public full access to textile_close_pmc" ON public.textile_close_pmc FOR ALL USING (true) WITH CHECK (true);
+
+-- 4. Enable Instant Sub-50ms Real-Time WebSocket Replication
+DO $$ 
+BEGIN 
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+    AND schemaname = 'public' 
+    AND tablename = 'textile_close_pmc'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.textile_close_pmc;
   END IF;
 EXCEPTION WHEN OTHERS THEN 
   NULL;

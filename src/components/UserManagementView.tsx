@@ -77,6 +77,7 @@ export const ALL_TABS = [
   'Buyerwise OTD Status',
   'Orderwise OTD Status',
   'Knitting Status',
+  'Textile Close By PMC',
   'Buyer Plan vs Actual',
   'Yarn Allocation',
   'Delivery Schedule',
@@ -97,6 +98,7 @@ export const getTabEmoji = (tabName: string): string => {
     case 'Buyerwise OTD Status': return '🏢';
     case 'Orderwise OTD Status': return '📄';
     case 'Knitting Status': return '🧵';
+    case 'Textile Close By PMC': return '🛡️';
     case 'Buyer Plan vs Actual': return '🛍️';
     case 'Yarn Allocation': return '🧶';
     case 'Delivery Schedule': return '🚚';
@@ -1969,6 +1971,7 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
                             case 'Reports': return '📈';
                             case 'Plan Order Followup': return '📋';
                             case 'Knitting Status': return '🧵';
+                            case 'Textile Close By PMC': return '🛡️';
                             case 'Buyer Plan vs Actual': return '🛍️';
                             case 'Yarn Allocation': return '🧶';
                             case 'Delivery Schedule': return '🚚';

@@ -261,5 +261,24 @@ export interface KnittingStatusOrder extends SyncMetadata {
   remarks?: string;
 }
 
+export interface TextileCloseRecord {
+  id: string;
+  status: string;         // Status (e.g. "Textile Close By PMC")
+  orderNo: string;        // Order No.
+  buyerName: string;      // Buyer Name
+  teamLeader: string;     // Team Leader
+  fgsm: number | string;  // FGSM
+  fWidth: string;         // F. Width
+  color: string;          // Color
+  fabType: string;        // Fab. Type
+  reqQty: number;         // Req QTY
+  greyQty: number;        // Grey QTY
+  production: number;     // Production
+  knitBal: number;        // Knit Bal
+  remarks?: string;
+  closedDate?: string;
+  updatedAt?: string;
+}
+
 
 
