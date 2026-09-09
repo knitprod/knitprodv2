@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { GasClient } from '../lib/gasClient';
 import { SupabaseSync } from '../lib/supabaseClient';
@@ -435,6 +435,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     orderPlans: globalOrders,
     yarnAllocations: globalYarn,
     refreshAll,
+    setOrderPlansInMemory,
     saveOrderPlan: globalSaveOrderPlan,
     deleteOrderPlan: globalDeleteOrderPlan,
     clearAllOrderPlans,
@@ -479,8 +480,6 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
 
       const deduplicated = deduplicateOrderPlans(cleaned);
       setOrders(deduplicated);
-    } else {
-      setOrders([]);
     }
   }, [globalOrders]);
   const [activeSubTab, setActiveSubTab] = useState<'team_leader' | 'buyer' | 'summary' | 'delivery'>(
@@ -658,27 +657,36 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     }
   };
 
-  const loadOrders = async (forceRefresh: boolean = false) => {
-    setIsSyncing(true);
-    setDownloadProgress({
-      isDownloading: true,
-      loaded: 0,
-      total: orders.length || 0,
-      percent: 0,
-      stage: 'Connecting to Supabase cloud database...'
-    });
+  const isSyncingRef = useRef(false);
+
+  const loadOrders = async (forceRefresh: boolean = false, silent: boolean = false) => {
+    if (isSyncingRef.current) return;
+    isSyncingRef.current = true;
+    if (!silent) setIsSyncing(true);
+
+    if (!silent) {
+      setDownloadProgress({
+        isDownloading: true,
+        loaded: 0,
+        total: orders.length || 0,
+        percent: 0,
+        stage: 'Connecting to Supabase cloud database...'
+      });
+    }
 
     try {
       const data = await SupabaseSync.fetchOrderPlans((loaded, total, percent) => {
-        setDownloadProgress({
-          isDownloading: true,
-          loaded,
-          total,
-          percent,
-          stage: total > 0
-            ? `Downloading ${loaded.toLocaleString()} of ${total.toLocaleString()} order plans from Supabase...`
-            : `Downloading ${loaded.toLocaleString()} records...`
-        });
+        if (!silent) {
+          setDownloadProgress({
+            isDownloading: true,
+            loaded,
+            total,
+            percent,
+            stage: total > 0
+              ? `Downloading ${loaded.toLocaleString()} of ${total.toLocaleString()} order plans from Supabase...`
+              : `Downloading ${loaded.toLocaleString()} records...`
+          });
+        }
       });
 
       if (data && Array.isArray(data) && data.length > 0) {
@@ -687,11 +695,13 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         try {
           localStorage.setItem('cached_order_plans', JSON.stringify(cleaned));
         } catch (e) {}
-      } else if (Array.isArray(data) && SupabaseSync.isConfigured()) {
+        setOrderPlansInMemory(cleaned);
+      } else if (Array.isArray(data) && SupabaseSync.isConfigured() && forceRefresh) {
         // Supabase database has 0 records (e.g. user purged/deleted all codes)
         setOrders([]);
         try { localStorage.removeItem('cached_order_plans'); } catch (e) {}
-      } else {
+        setOrderPlansInMemory([]);
+      } else if (forceRefresh) {
         await refreshAll(forceRefresh);
       }
 
@@ -709,27 +719,104 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       });
     } catch (err) {
       console.warn("Could not load order plans from Supabase:", err);
-      try {
-        await refreshAll(forceRefresh);
-      } catch (e) {}
+      if (forceRefresh) {
+        try {
+          await refreshAll(forceRefresh);
+        } catch (e) {}
+      }
     } finally {
-      setIsSyncing(false);
-      setDownloadProgress(prev => ({ ...prev, percent: 100, stage: 'Download complete!' }));
-      setTimeout(() => {
-        setDownloadProgress(prev => ({ ...prev, isDownloading: false }));
-      }, 800);
+      isSyncingRef.current = false;
+      if (!silent) {
+        setIsSyncing(false);
+        setDownloadProgress(prev => ({ ...prev, percent: 100, stage: 'Download complete!' }));
+        setTimeout(() => {
+          setDownloadProgress(prev => ({ ...prev, isDownloading: false }));
+        }, 800);
+      }
     }
   };
 
-  // Sync with global store; listener for real-time Firestore sync & manual events
+  // Both Automated Background Sync AND On-Demand Sync Data Button:
+  // Automatically loads on mount, polls every 25 seconds while active, syncs on tab visibility / focus,
+  // and listens to live Supabase postgres changes.
   useEffect(() => {
-    if (globalOrders && globalOrders.length > 0) {
-      setOrders(globalOrders);
+    let isMounted = true;
+
+    // 1. Initial automatic load from database on mount without requiring button click
+    loadOrders(false, true);
+
+    // 2. Periodic background check every 25 seconds while tab is active
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && !document.hidden && !isSyncingRef.current) {
+        loadOrders(false, true);
+      }
+    }, 25000);
+
+    // 3. Tab visibility / Window focus handler: sync when user returns to this tab
+    const handleFocus = () => {
+      if (typeof document !== 'undefined' && !document.hidden && !isSyncingRef.current) {
+        loadOrders(false, true);
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+
+    // 4. Live Postgres Realtime subscription for instant multi-user order plan updates
+    const client = SupabaseSync.getClient();
+    let channel: any = null;
+    if (client) {
+      try {
+        channel = client
+          .channel('realtime:order_plans_followup_auto')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'order_plans' },
+            (payload: any) => {
+              if (!isMounted) return;
+              const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE';
+              const row = payload.new || payload.old || {};
+              const record = SupabaseSync.mapRowToOrderPlan(row);
+              const id = payload.old?.id || payload.new?.id || row.id || row.order_number || '';
+
+              if (eventType === 'DELETE') {
+                setOrders(prev => {
+                  const next = prev.filter(o => o.id !== id && o.ewo !== id);
+                  try { localStorage.setItem('cached_order_plans', JSON.stringify(next)); } catch (e) {}
+                  return next;
+                });
+              } else if (eventType === 'INSERT' || eventType === 'UPDATE') {
+                if (!record || (!record.id && !record.ewo)) return;
+                setOrders(prev => {
+                  const next = deduplicateOrderPlans([record, ...prev]);
+                  try { localStorage.setItem('cached_order_plans', JSON.stringify(next)); } catch (e) {}
+                  return next;
+                });
+              }
+            }
+          )
+          .subscribe();
+      } catch (err) {
+        console.warn('Realtime subscription notice in PlanOrderFollowupView:', err);
+      }
     }
+
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
+      if (channel && client) {
+        try { client.removeChannel(channel); } catch (e) {}
+      }
+    };
+  }, []);
+
+  // Sync with global store for yarn allocations
+  useEffect(() => {
     if (globalYarn && globalYarn.length > 0) {
       setYarnAllocations(globalYarn);
     }
-  }, [globalOrders, globalYarn]);
+  }, [globalYarn]);
 
   // Pagination state (default 100 per page for fast performance)
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -1143,7 +1230,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
 
   // Upload Summary Modal Controls
   const [changeSearchQuery, setChangeSearchQuery] = useState<string>('');
-  const [changeCategoryFilter, setChangeCategoryFilter] = useState<'all' | 'dates' | 'progress' | 'remarks' | 'new'>('all');
+  const [changeCategoryFilter, setChangeCategoryFilter] = useState<'all' | 'dates' | 'progress' | 'remarks' | 'new' | 'startRemarks' | 'endRemarks' | 'blanks'>('all');
   const [changeTab, setChangeTab] = useState<'changes' | 'overview'>('changes');
   const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set());
   const [copiedSummary, setCopiedSummary] = useState<boolean>(false);
@@ -1603,256 +1690,84 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
             }
           }
 
-          // Extract values from uploaded row with comprehensive candidate synonyms
-          const upBuyer = String(getExcelRowValue(row, ['Buyer', 'Buyer Name', 'Buyer\nName', 'Brand', 'Customer', 'BuyerName']) || '').trim();
-          const upPlanMonth = String(getExcelRowValue(row, ['Plan Month', 'PlanMonth', 'Month', 'Month Name']) || '').trim();
-          const upPlanType = String(getExcelRowValue(row, ['Plan Type', 'PlanType', 'Type', 'Order Type']) || '').trim();
-          
-          const rawKnitStart = getExcelRowValue(row, ['Knit Start', 'Knit Start Date', 'Planned Knit Start', 'Plan Knit Start', 'KnitStart', 'Start Date', 'Knit_Start'], '', { forbiddenWords: ['actual', 'a.', 'last', 'prod'] });
-          const upKnitStart = rawKnitStart ? formatExcelDate(rawKnitStart) : '';
-
-          const rawKnitEnd = getExcelRowValue(row, ['Knit End', 'Knit End Date', 'Planned Knit End', 'Plan Knit End', 'KnitEnd', 'End Date', 'Knit_End'], '', { forbiddenWords: ['actual', 'a.', 'last', 'prod'] });
-          const upKnitEnd = rawKnitEnd ? formatExcelDate(rawKnitEnd) : '';
-
-          const rawTarget = getExcelRowValue(row, ['Target', 'Target (Kg)', 'Target(Kg)', 'Target Qty', 'Order Target', 'Plan Target', 'Target_Kg']);
-          const upTarget = parseExcelRoundUpNumber(rawTarget);
-
-          const rawTargetNext = getExcelRowValue(row, ['Target  Next Month', 'Target Next Month', 'Target Next', 'Next Month Target', 'Next Target', 'Next Target (Kg)', 'NextMonthTarget']);
-          const upTargetNextMonth = parseExcelRoundUpNumber(rawTargetNext);
-
-          const rawAllocStart = getExcelRowValue(row, ['Allocation Start', 'Allocation Start Date', 'Alloc Start', 'Alloc. Start', 'AllocationStartDate']);
-          const upAllocStart = rawAllocStart ? formatExcelDate(rawAllocStart) : '';
-
-          const rawAllocEnd = getExcelRowValue(row, ['Allocation End', 'Allocation End Date', 'Alloc End', 'Alloc. End', 'AllocationEndDate']);
-          const upAllocEnd = rawAllocEnd ? formatExcelDate(rawAllocEnd) : '';
-
-          const rawAllocQty = getExcelRowValue(row, ['Allocated QTY', 'Allocated Qty', 'Allocated', 'Alloc Qty', 'Alloc. Qty', 'Allocated Quantity', 'AllocatedQty']);
-          const upAllocQty = parseExcelNumber(rawAllocQty);
-
-          const rawAllocBal = getExcelRowValue(row, ['Allocated Bal.', 'Allocated Bal', 'Alloc Bal', 'Alloc. Bal', 'Allocated Balance', 'AllocatedBal']);
-          const upAllocBal = parseExcelNumber(rawAllocBal);
-
-          const rawGreyReq = getExcelRowValue(row, ['GREY REQ.', 'GREY REQ', 'Grey Req.', 'Grey Req', 'Grey Requirement', 'Grey Qty', 'GreyQty', 'Grey Required', 'Grey Demand', 'GREY_REQ', 'GreyReq']);
-          const upGreyReq = parseExcelNumber(rawGreyReq);
-
-          const rawKnitPro = getExcelRowValue(row, ['KNIT PRO.', 'KNIT PRO', 'Knit Pro.', 'Knit Pro', 'Knitting Production', 'Knit Prod.', 'Knit Prod', 'Production', 'Total Prod', 'Total Production', 'Actual Knit Pro', 'KNIT_PRO', 'KnitPro']);
-          const upKnitPro = parseExcelNumber(rawKnitPro);
-
-          const rawKnitBal = getExcelRowValue(row, ['KNIT BAL.', 'KNIT BAL', 'Knit Bal.', 'Knit Bal', 'Knitting Balance', 'Knit Balance', 'Balance', 'Total Balance', 'Remaining Knit', 'KNIT_BAL', 'KnitBal']);
-          const upKnitBal = parseExcelNumber(rawKnitBal);
-
-          const rawAKnitStart = getExcelRowValue(row, ['A.Knit Start', 'A. Knit Start', 'A.Knit Start Date', 'A. Knit Start Date', 'Actual Knit Start', 'Actual Start', 'A. Knit Star', 'Actual Knit Start Date', 'A Knit Start', 'A_Knit_Start', 'AKnit Start', 'AKnitStart'], '', { forbiddenWords: ['planned', 'plan'], mustContain: ['actual', 'a.', 'aknit'] });
-          const upAKnitStart = rawAKnitStart ? formatExcelDate(rawAKnitStart) : '';
-
-          const rawLastProd = getExcelRowValue(row, [
-            'Last Production Date',
-            'Last Prod Date',
-            'Last Prod. Date',
-            'Last Prod',
-            'Last Prod.',
-            'A. Knit End/Last Production Date',
-            'A. Knit End / Last Production Date',
-            'A. Knit End/Last Prod Date',
-            'A. Knit End / Last Prod Date',
-            'A. Knit End/Last Prod',
-            'A. Knit End / Last Prod',
-            'A.Knit End/Last Production Date',
-            'A.Knit End / Last Production Date',
-            'A.Knit End/Last Prod Date',
-            'A.Knit End / Last Prod',
-            'Last Knitted Date',
-            'Last Knit Date',
-            'Latest Production Date',
-            'Latest Prod Date',
-            'A. Knit End',
-            'A.Knit End',
-            'Actual Knit End',
-            'Actual Knit End Date',
-            'A. Knit End Date',
-            'A.Knit End Date',
-            'LastProductionDate'
-          ], '', { forbiddenWords: ['planned', 'plan'], mustContain: ['last', 'prod', 'actual', 'a.', 'aknit'] });
-          const upLastProd = rawLastProd ? formatExcelDate(rawLastProd) : '';
-
-          const rawAvgProd = getExcelRowValue(row, ['Avg Prod/Day', 'Avg. Prod/Day', 'Avg Prod / Day', 'Avg Prod', 'Avg.Prod/Day', 'Daily Avg Prod', 'Avg. Prod', 'Average Production/Day', 'AvgProdDay', 'Avg Prod Day']);
-          const upAvgProd = parseExcelNumber(rawAvgProd);
-
-          const rawExpEnd = getExcelRowValue(row, ['Expected Knit End', 'Exp Knit End', 'Expected End', 'Exp. Knit End', 'Exp Knit End Date', 'Expected Knit End Date', 'ExpectedKnitEnd'], '', { mustContain: ['exp'] });
-          const upExpEnd = rawExpEnd ? formatExcelDate(rawExpEnd) : '';
-
-          const rawKnitStartOtd = getExcelRowValue(row, ['Knit Start OTD', 'Start OTD', 'Knit Start Status', 'KnitStartOTD', 'StartOTD', 'Knit Start Otd']);
-          const upKnitStartOtd = normalizeOtdValue(rawKnitStartOtd);
-
-          const rawKnitEndOtd = getExcelRowValue(row, ['Knit End OTD', 'End OTD', 'Knit End Status', 'KnitEndOTD', 'EndOTD', 'Knit End Otd']);
-          const upKnitEndOtd = normalizeOtdValue(rawKnitEndOtd);
-
-          const upKnitStartRemarks = sanitizeRemarksValue(getExcelRowValue(row, ['Knit Start Remarks', 'Knit Start Delay Reason', 'Start Remarks', 'Start Delay Reason', 'Start Reason', 'Knit Start Remark', 'Start Remark', 'KnitStartRemarks']));
-          const upKnitEndRemarks = sanitizeRemarksValue(getExcelRowValue(row, ['Knit End Remarks', 'Knit End Delay Reason', 'End Remarks', 'End Delay Reason', 'End Reason', 'Knit End Remark', 'End Remark', 'KnitEndRemarks']));
-          const upTeamLeaders = String(getExcelRowValue(row, ['Knit Team Leaders', 'Knit Team Leader', 'Team Leaders', 'Team Leader', 'Team\nLeaders', 'Team\nLeader', 'TeamLeaders', 'TeamLeader', 'Leader', 'Leaders', 'Assigned Leader', 'KnitTeamLeaders']) || '').trim();
+          // In Normal update, collect data from Excel File ONLY for Knit Start Remarks and Knit End Remarks
+          // User directive: "Upon Normal update just collect data from Excel File only for the Knit Start Remarks and Knit End Remarks... Don't change any order data."
+          const upKnitStartRemarks = sanitizeRemarksValue(getExcelRowValue(row, [
+            'Knit Start Remarks', 'Knit Start Delay Reason', 'Start Remarks', 'Start Delay Reason', 
+            'Start Reason', 'Knit Start Remark', 'Start Remark', 'KnitStartRemarks', 'Knit Start Rem', 
+            'Start Rem', 'Knit Start Rem.', 'Knit Start Remarks / Delay Reason', 'Knit Start Delay', 
+            'Start Delay', 'Remarks (Start)', 'Remark (Start)', 'Knit Start Remarks/Delay Reason'
+          ]));
+          const upKnitEndRemarks = sanitizeRemarksValue(getExcelRowValue(row, [
+            'Knit End Remarks', 'Knit End Delay Reason', 'End Remarks', 'End Delay Reason', 
+            'End Reason', 'Knit End Remark', 'End Remark', 'KnitEndRemarks', 'Knit End Rem', 
+            'End Rem', 'Knit End Rem.', 'Knit End Remarks / Delay Reason', 'Knit End Delay', 
+            'End Delay', 'Remarks (End)', 'Remark (End)', 'Knit End Remarks/Delay Reason'
+          ]));
 
           if (targetIndex !== undefined) {
-            // MATCHED EXISTING ORDER: SMART UPDATE & FILL BLANKS WITH DETAILED CHANGE TRACKING
+            // MATCHED EXISTING ORDER: UPDATE ONLY KNIT START REMARKS & KNIT END REMARKS
             matchedOrdersCount++;
             const existing = mergedOrders[targetIndex];
             let rowChanged = false;
             const updated = { ...existing };
             const orderDiffs: OrderFieldDiff[] = [];
 
-            // Helper for Date Fields with normalized display formatting comparison
-            const applyDateField = (fieldName: keyof OrderPlan, uploadVal: string, fieldLabel: string) => {
-              if (!uploadVal) return;
-              const currentRaw = String(existing[fieldName] || '').trim();
-              const currentFormatted = currentRaw ? formatDisplayDate(currentRaw) : '';
-              const uploadFormatted = formatDisplayDate(uploadVal);
-
-              if (!currentFormatted || currentFormatted === '-' || currentFormatted.toLowerCase() === 'pending') {
-                (updated as any)[fieldName] = uploadVal;
-                filledBlanksCount++;
-                rowChanged = true;
-                totalFieldsChangedCount++;
-                orderDiffs.push({
-                  fieldKey: fieldName,
-                  fieldLabel,
-                  oldValue: currentRaw || '(Blank)',
-                  newValue: uploadFormatted,
-                  isFilledBlank: true
-                });
-              } else if (currentFormatted !== uploadFormatted) {
-                (updated as any)[fieldName] = uploadVal;
-                rowChanged = true;
-                totalFieldsChangedCount++;
-                orderDiffs.push({
-                  fieldKey: fieldName,
-                  fieldLabel,
-                  oldValue: currentFormatted,
-                  newValue: uploadFormatted,
-                  isFilledBlank: false
-                });
-              }
-            };
-
-            // Helper to apply string field: fill if blank, update if new in upload, keep if blank in upload
-            const applyStringField = (fieldName: keyof OrderPlan, uploadVal: string, fieldLabel: string) => {
-              if (!uploadVal) return; // Do not overwrite existing data with empty cells
-              const currentVal = String(existing[fieldName] || '').trim();
+            // Apply Knit Start Remarks
+            if (upKnitStartRemarks) {
+              const currentVal = String(existing.knitStartRemarks || '').trim();
               if (!currentVal) {
-                (updated as any)[fieldName] = uploadVal;
+                updated.knitStartRemarks = upKnitStartRemarks;
                 filledBlanksCount++;
                 rowChanged = true;
                 totalFieldsChangedCount++;
                 orderDiffs.push({
-                  fieldKey: fieldName,
-                  fieldLabel,
+                  fieldKey: 'knitStartRemarks',
+                  fieldLabel: 'Knit Start Remarks',
                   oldValue: '(Blank)',
-                  newValue: uploadVal,
+                  newValue: upKnitStartRemarks,
                   isFilledBlank: true
                 });
-              } else if (currentVal !== uploadVal) {
-                (updated as any)[fieldName] = uploadVal;
+              } else if (currentVal !== upKnitStartRemarks) {
+                updated.knitStartRemarks = upKnitStartRemarks;
                 rowChanged = true;
                 totalFieldsChangedCount++;
                 orderDiffs.push({
-                  fieldKey: fieldName,
-                  fieldLabel,
+                  fieldKey: 'knitStartRemarks',
+                  fieldLabel: 'Knit Start Remarks',
                   oldValue: currentVal,
-                  newValue: uploadVal,
+                  newValue: upKnitStartRemarks,
                   isFilledBlank: false
                 });
               }
-            };
+            }
 
-            // Helper to apply numeric field: fill if 0, update if different
-            const applyNumberField = (fieldName: keyof OrderPlan, uploadVal: number | undefined, fieldLabel: string) => {
-              if (uploadVal === undefined || isNaN(uploadVal)) return;
-              const currentVal = Number(existing[fieldName]) || 0;
-              if (currentVal === 0 && uploadVal > 0) {
-                (updated as any)[fieldName] = uploadVal;
+            // Apply Knit End Remarks
+            if (upKnitEndRemarks) {
+              const currentVal = String(existing.knitEndRemarks || '').trim();
+              if (!currentVal) {
+                updated.knitEndRemarks = upKnitEndRemarks;
                 filledBlanksCount++;
                 rowChanged = true;
                 totalFieldsChangedCount++;
                 orderDiffs.push({
-                  fieldKey: fieldName,
-                  fieldLabel,
-                  oldValue: '0',
-                  newValue: uploadVal.toLocaleString(),
+                  fieldKey: 'knitEndRemarks',
+                  fieldLabel: 'Knit End Remarks',
+                  oldValue: '(Blank)',
+                  newValue: upKnitEndRemarks,
                   isFilledBlank: true
                 });
-              } else if (currentVal !== uploadVal) {
-                (updated as any)[fieldName] = uploadVal;
+              } else if (currentVal !== upKnitEndRemarks) {
+                updated.knitEndRemarks = upKnitEndRemarks;
                 rowChanged = true;
                 totalFieldsChangedCount++;
                 orderDiffs.push({
-                  fieldKey: fieldName,
-                  fieldLabel,
-                  oldValue: currentVal.toLocaleString(),
-                  newValue: uploadVal.toLocaleString(),
+                  fieldKey: 'knitEndRemarks',
+                  fieldLabel: 'Knit End Remarks',
+                  oldValue: currentVal,
+                  newValue: upKnitEndRemarks,
                   isFilledBlank: false
                 });
-              }
-            };
-
-            applyStringField('color', color, 'Color');
-            applyStringField('buyer', upBuyer, 'Buyer');
-            applyStringField('planMonth', upPlanMonth, 'Plan Month');
-            applyStringField('planType', upPlanType, 'Plan Type');
-            applyDateField('knitStart', upKnitStart, 'Knit Start (Planned)');
-            applyDateField('knitEnd', upKnitEnd, 'Knit End (Planned)');
-            applyNumberField('target', upTarget, 'Target (Kg)');
-            applyNumberField('targetNextMonth', upTargetNextMonth, 'Target Next Month');
-            applyDateField('allocationStart', upAllocStart, 'Allocation Start');
-            applyDateField('allocationEnd', upAllocEnd, 'Allocation End');
-            applyNumberField('allocatedQty', upAllocQty, 'Allocated QTY');
-            applyNumberField('allocatedBal', upAllocBal, 'Allocated Bal.');
-            applyNumberField('greyReq', upGreyReq, 'GREY REQ. (Kg)');
-            applyNumberField('knitPro', upKnitPro, 'KNIT PRO. (Kg)');
-            applyNumberField('knitBal', upKnitBal, 'KNIT BAL. (Kg)');
-            applyDateField('aKnitStart', upAKnitStart, 'A. Knit Start (Actual)');
-            applyDateField('lastProductionDate', upLastProd, 'A. Knit End/Last Production Date');
-            applyNumberField('avgProdDay', upAvgProd, 'Avg Prod/Day');
-            applyDateField('expectedKnitEnd', upExpEnd, 'Expected Knit End');
-            
-            if (upKnitStartOtd && existing.knitStartOtd !== upKnitStartOtd) {
-              orderDiffs.push({
-                fieldKey: 'knitStartOtd',
-                fieldLabel: 'Knit Start OTD',
-                oldValue: existing.knitStartOtd || 'Pending',
-                newValue: upKnitStartOtd,
-                isFilledBlank: !existing.knitStartOtd || existing.knitStartOtd === 'Pending'
-              });
-              updated.knitStartOtd = upKnitStartOtd;
-              rowChanged = true;
-              totalFieldsChangedCount++;
-            }
-            if (upKnitEndOtd && existing.knitEndOtd !== upKnitEndOtd) {
-              orderDiffs.push({
-                fieldKey: 'knitEndOtd',
-                fieldLabel: 'Knit End OTD',
-                oldValue: existing.knitEndOtd || 'Pending',
-                newValue: upKnitEndOtd,
-                isFilledBlank: !existing.knitEndOtd || existing.knitEndOtd === 'Pending'
-              });
-              updated.knitEndOtd = upKnitEndOtd;
-              rowChanged = true;
-              totalFieldsChangedCount++;
-            }
-            applyStringField('knitStartRemarks', upKnitStartRemarks, 'Knit Start Remarks');
-            applyStringField('knitEndRemarks', upKnitEndRemarks, 'Knit End Remarks');
-            applyStringField('knitTeamLeaders', upTeamLeaders, 'Team Leader');
-
-            // Re-evaluate knit balance if production or greyReq updated and knitBal wasn't explicitly given
-            if (upKnitBal === undefined && (upKnitPro !== undefined || upGreyReq !== undefined)) {
-              const newBal = Math.max(0, (updated.greyReq || 0) - (updated.knitPro || 0));
-              if (updated.knitBal !== newBal) {
-                orderDiffs.push({
-                  fieldKey: 'knitBal',
-                  fieldLabel: 'KNIT BAL. (Auto-calculated)',
-                  oldValue: (existing.knitBal || 0).toLocaleString(),
-                  newValue: newBal.toLocaleString(),
-                  isFilledBlank: false
-                });
-                updated.knitBal = newBal;
-                rowChanged = true;
-                totalFieldsChangedCount++;
               }
             }
 
@@ -1885,67 +1800,9 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
               }
             }
           } else {
-            // NEW ORDER / LINE ITEM: ADD IT WHILE PRESERVING ALL EXISTING DATA
-            const cleanSl = rawSl && String(rawSl).trim() ? String(rawSl).trim().replace(/[^a-zA-Z0-9_-]/g, '') : '';
-            const assignedId = cleanSl
-              ? `${getOrderPlanCanonicalId({ ewo, color })}-SL${cleanSl}`
-              : (occ === 1
-                  ? getOrderPlanCanonicalId({ ewo, color })
-                  : `${getOrderPlanCanonicalId({ ewo, color })}-LINE${occ}`);
-
-            const newOrder: OrderPlan = {
-              id: assignedId,
-              planMonth: upPlanMonth || 'August',
-              planType: upPlanType || 'Confirm',
-              ewo,
-              buyer: upBuyer || '',
-              color: color || '',
-              knitStart: upKnitStart || '',
-              knitEnd: upKnitEnd || '',
-              target: upTarget || 0,
-              targetNextMonth: upTargetNextMonth || 0,
-              allocationStart: upAllocStart || '',
-              allocationEnd: upAllocEnd || '',
-              allocatedQty: upAllocQty || 0,
-              allocatedBal: upAllocBal || 0,
-              greyReq: upGreyReq || 0,
-              knitPro: upKnitPro || 0,
-              knitBal: upKnitBal !== undefined ? upKnitBal : (upGreyReq || 0),
-              aKnitStart: upAKnitStart || '',
-              lastProductionDate: upLastProd || '',
-              avgProdDay: upAvgProd || 0,
-              expectedKnitEnd: upExpEnd || '',
-              knitStartOtd: upKnitStartOtd || 'Pending',
-              knitEndOtd: upKnitEndOtd || 'Pending',
-              knitStartRemarks: upKnitStartRemarks || '',
-              knitEndRemarks: upKnitEndRemarks || '',
-              knitTeamLeaders: upTeamLeaders || ''
-            };
-
-            const newOrderIndex = mergedOrders.length;
-            mergedOrders.push(newOrder);
-            newOrderIndices.add(newOrderIndex);
-            newOrdersCount++;
-
-            const newOrderDiffs: OrderFieldDiff[] = [];
-            if (upPlanMonth) newOrderDiffs.push({ fieldKey: 'planMonth', fieldLabel: 'Plan Month', oldValue: '(New)', newValue: upPlanMonth, isFilledBlank: true });
-            if (upBuyer) newOrderDiffs.push({ fieldKey: 'buyer', fieldLabel: 'Buyer', oldValue: '(New)', newValue: upBuyer, isFilledBlank: true });
-            if (color) newOrderDiffs.push({ fieldKey: 'color', fieldLabel: 'Color', oldValue: '(New)', newValue: color, isFilledBlank: true });
-            if (upTarget) newOrderDiffs.push({ fieldKey: 'target', fieldLabel: 'Target (Kg)', oldValue: '(New)', newValue: upTarget.toLocaleString(), isFilledBlank: true });
-            if (upGreyReq) newOrderDiffs.push({ fieldKey: 'greyReq', fieldLabel: 'GREY REQ. (Kg)', oldValue: '(New)', newValue: upGreyReq.toLocaleString(), isFilledBlank: true });
-            if (upKnitPro) newOrderDiffs.push({ fieldKey: 'knitPro', fieldLabel: 'KNIT PRO. (Kg)', oldValue: '(New)', newValue: upKnitPro.toLocaleString(), isFilledBlank: true });
-            if (upLastProd) newOrderDiffs.push({ fieldKey: 'lastProductionDate', fieldLabel: 'A. Knit End/Last Production Date', oldValue: '(New)', newValue: formatDisplayDate(upLastProd), isFilledBlank: true });
-            if (upAKnitStart) newOrderDiffs.push({ fieldKey: 'aKnitStart', fieldLabel: 'A. Knit Start (Actual)', oldValue: '(New)', newValue: formatDisplayDate(upAKnitStart), isFilledBlank: true });
-
-            changesByOrderId.set(newOrder.id, {
-              orderId: newOrder.id,
-              ewo,
-              color: color || '-',
-              buyer: upBuyer || '-',
-              planMonth: upPlanMonth,
-              isNew: true,
-              changes: newOrderDiffs
-            });
+            // UNMATCHED ROW IN EXCEL:
+            // "Upon Normal update just collect data from Excel File only for the Knit Start Remarks and Knit End Remarks... Don't change any order data."
+            // Do NOT insert new orders to ensure existing order records remain 100% preserved.
           }
         }
 
@@ -2588,6 +2445,15 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       if (changeCategoryFilter === 'new') {
         return item.isNew;
       }
+      if (changeCategoryFilter === 'startRemarks') {
+        return item.changes.some(c => c.fieldKey === 'knitStartRemarks');
+      }
+      if (changeCategoryFilter === 'endRemarks') {
+        return item.changes.some(c => c.fieldKey === 'knitEndRemarks');
+      }
+      if (changeCategoryFilter === 'blanks') {
+        return item.changes.some(c => c.isFilledBlank);
+      }
       if (changeCategoryFilter === 'dates') {
         return item.changes.some(c => 
           c.fieldKey === 'lastProductionDate' ||
@@ -2613,10 +2479,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       if (changeCategoryFilter === 'remarks') {
         return item.changes.some(c => 
           c.fieldKey === 'knitStartRemarks' ||
-          c.fieldKey === 'knitEndRemarks' ||
-          c.fieldKey === 'knitTeamLeaders' ||
-          c.fieldKey === 'knitStartOtd' ||
-          c.fieldKey === 'knitEndOtd'
+          c.fieldKey === 'knitEndRemarks'
         );
       }
       return true;
@@ -4743,31 +4606,33 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                         {stagedUpload.stats.updatedOrdersCount}
                       </span>
                       <span className="text-[10px] font-medium text-blue-600 dark:text-blue-400">
-                        ({stagedUpload.stats.totalFieldsChanged} fields)
+                        ({stagedUpload.stats.totalFieldsChanged} remarks)
                       </span>
                     </div>
                   </div>
 
                   <div className="p-3 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40">
-                    <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 block">Blanks to Fill</span>
+                    <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 block">Blank Remarks Filled</span>
                     <span className="text-xl font-extrabold font-mono text-amber-900 dark:text-amber-100 block mt-0.5">
                       {stagedUpload.stats.filledBlanksCount}
                     </span>
                   </div>
 
                   <div className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40">
-                    <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 block">New Orders Found</span>
-                    <span className="text-xl font-extrabold font-mono text-emerald-900 dark:text-emerald-100 block mt-0.5">
-                      {stagedUpload.stats.newOrdersCount}
-                    </span>
+                    <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 block">Order Data Integrity</span>
+                    <div className="flex items-baseline gap-1.5 mt-0.5">
+                      <span className="text-base font-extrabold text-emerald-900 dark:text-emerald-100">
+                        100% Preserved
+                      </span>
+                    </div>
                   </div>
                 </div>
 
                 {/* Staged Confirmation Warning Banner */}
-                <div className="flex items-start gap-3 p-3.5 rounded-xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-xs text-amber-900 dark:text-amber-200 leading-relaxed font-medium">
-                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div className="flex items-start gap-3 p-3.5 rounded-xl bg-blue-50/90 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 text-xs text-blue-900 dark:text-blue-200 leading-relaxed font-medium">
+                  <AlertTriangle className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
                   <div>
-                    <strong>Action Required:</strong> These changes are currently staged in memory and have <strong>NOT</strong> been saved to your database. Review the changes below, then click <strong>"Save & Apply to Database"</strong> to save them, or click <strong>"Cancel Upload"</strong> to discard them without touching any existing data.
+                    <strong>Normal Update Mode:</strong> Only <strong>Knit Start Remarks</strong> and <strong>Knit End Remarks</strong> were collected from this Excel file. All order figures, targets, dates, and order quantities are <strong>100% preserved and untouched</strong>. Review the staged remarks changes below and click <strong>"Save & Apply to Database"</strong>, or click <strong>"Cancel Upload"</strong> to discard.
                   </div>
                 </div>
 
@@ -4779,7 +4644,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                       type="text"
                       value={changeSearchQuery}
                       onChange={(e) => setChangeSearchQuery(e.target.value)}
-                      placeholder="Search order #, buyer, color, field..."
+                      placeholder="Search order #, buyer, color, remarks..."
                       className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20"
                     />
                   </div>
@@ -4794,40 +4659,40 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                           : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
                       }`}
                     >
-                      All ({activeChangesList.length})
+                      All Remarks ({activeChangesList.length})
                     </button>
                     <button
                       type="button"
-                      onClick={() => setChangeCategoryFilter('dates')}
+                      onClick={() => setChangeCategoryFilter('startRemarks')}
                       className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                        changeCategoryFilter === 'dates'
+                        changeCategoryFilter === 'startRemarks'
                           ? 'bg-blue-600 text-white'
                           : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
                       }`}
                     >
-                      Dates
+                      Start Remarks
                     </button>
                     <button
                       type="button"
-                      onClick={() => setChangeCategoryFilter('progress')}
+                      onClick={() => setChangeCategoryFilter('endRemarks')}
                       className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                        changeCategoryFilter === 'progress'
+                        changeCategoryFilter === 'endRemarks'
                           ? 'bg-blue-600 text-white'
                           : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
                       }`}
                     >
-                      Progress / Balances
+                      End Remarks
                     </button>
                     <button
                       type="button"
-                      onClick={() => setChangeCategoryFilter('new')}
+                      onClick={() => setChangeCategoryFilter('blanks')}
                       className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                        changeCategoryFilter === 'new'
+                        changeCategoryFilter === 'blanks'
                           ? 'bg-blue-600 text-white'
                           : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
                       }`}
                     >
-                      New Orders ({stagedUpload.stats.newOrdersCount})
+                      Blanks ({stagedUpload.stats.filledBlanksCount})
                     </button>
 
                     <button
@@ -5134,11 +4999,11 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                       </div>
                     </div>
 
-                    {/* Smart Auto-Detection Callout */}
+                    {/* Normal Update Callout */}
                     <div className="flex items-start gap-2.5 p-3 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 text-xs text-blue-900 dark:text-blue-200">
                       <Sparkles className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
                       <p className="text-[11px] leading-relaxed">
-                        <strong>Smart Auto-Match:</strong> The app automatically compares spreadsheet rows against existing orders by Order # and Color. It updates differing figures, fills blank dates, and appends new orders safely.
+                        <strong>Normal Update:</strong> Automatically matches rows by Order # (EWO) and Color to update <strong>Knit Start Remarks</strong> and <strong>Knit End Remarks</strong> only. Existing order figures, targets, and dates remain untouched.
                       </p>
                     </div>
 

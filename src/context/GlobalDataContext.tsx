@@ -36,6 +36,7 @@ export interface GlobalDataContextType {
 
   // Actions
   refreshAll: (forceRefresh?: boolean) => Promise<void>;
+  setOrderPlansInMemory: (orders: OrderPlan[]) => void;
   
   // Order Plans
   saveOrderPlan: (order: OrderPlan) => Promise<{ success: boolean; message?: string }>;
@@ -360,11 +361,37 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const supabaseYarnPromise = SupabaseSync.fetchYarnAllocations().catch(() => []);
       const supabaseOrdersPromise = SupabaseSync.fetchOrderPlans().catch(() => []);
 
-      // 2. Fetch Orders from Google Sheets (/api/sheets?action=all)
+      // Fast-path: Update state as soon as each Supabase dataset resolves
+      supabaseOrdersPromise.then(orders => {
+        if (Array.isArray(orders) && orders.length > 0) {
+          const clean = filterDeletedOrders(deduplicateOrderPlans(orders));
+          setOrderPlans(clean);
+          persistCache(clean, undefined, undefined);
+        }
+      }).catch(() => {});
+
+      supabaseLedgerPromise.then(ledgers => {
+        if (Array.isArray(ledgers) && ledgers.length > 0) {
+          const clean = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(ledgers)));
+          setLedger(clean);
+          setFloors(prev => recalculateFloorsFromLedger(prev, clean));
+          persistCache(undefined, undefined, clean);
+        }
+      }).catch(() => {});
+
+      supabaseYarnPromise.then(yarn => {
+        if (Array.isArray(yarn) && yarn.length > 0) {
+          const clean = filterDeletedYarn(deduplicateWithUniqueIds(yarn, 'yarn'));
+          setYarnAllocations(clean);
+          persistCache(undefined, clean, undefined);
+        }
+      }).catch(() => {});
+
+      // 2. Fetch Orders from Google Sheets (/api/sheets?action=all) as backup/cold archive
       const url = forceRefresh ? '/api/sheets?action=all&refresh=true' : '/api/sheets?action=all';
       const sheetsPromise = fetch(url, {
         headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(40000)
+        signal: AbortSignal.timeout(15000)
       }).catch(() => null);
 
       const [supabaseLedger, supabaseYarn, supabaseOrders, sheetsRes] = await Promise.all([
@@ -586,6 +613,25 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       isFetching = true;
       try {
+        // 1. Primary Cloud Database Sync: Supabase
+        if (SupabaseSync.isConfigured()) {
+          const supOrders = await SupabaseSync.fetchOrderPlans().catch(() => []);
+          if (Array.isArray(supOrders) && supOrders.length > 0) {
+            const cleanOrders = filterDeletedOrders(deduplicateOrderPlans(supOrders));
+            setOrderPlans(prev => {
+              if (prev.length !== cleanOrders.length || JSON.stringify(prev) !== JSON.stringify(cleanOrders)) {
+                try {
+                  localStorage.setItem('cached_order_plans', JSON.stringify(cleanOrders));
+                } catch (e) {}
+                return cleanOrders;
+              }
+              return prev;
+            });
+          }
+          setLastSyncedAt(new Date());
+        }
+
+        // 2. Cold Archive / Fallback Sync: Google Sheets
         const res = await fetch('/api/sheets?action=all', {
           headers: { 'Accept': 'application/json' },
           signal: AbortSignal.timeout(20000)
@@ -765,6 +811,14 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     return { success: supabaseRes.success, message: supabaseRes.error };
   };
+
+  const setOrderPlansInMemory = useCallback((orders: OrderPlan[]) => {
+    const clean = filterDeletedOrders(deduplicateOrderPlans(orders));
+    setOrderPlans(clean);
+    try {
+      localStorage.setItem('cached_order_plans', JSON.stringify(clean));
+    } catch (e) {}
+  }, [filterDeletedOrders]);
 
   // --- Yarn Allocations (Primary: Supabase Cloud DB + Live WebSockets | Cold Archive: Google Sheets) ---
   const isMatchingYarn = (a: YarnAllocationRecord, b: YarnAllocationRecord) => {
@@ -1013,6 +1067,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     lastSyncedAt,
     syncError,
     refreshAll,
+    setOrderPlansInMemory,
     saveOrderPlan,
     deleteOrderPlan,
     clearAllOrderPlans,
