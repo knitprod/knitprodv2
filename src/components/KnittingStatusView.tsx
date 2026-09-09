@@ -1400,7 +1400,6 @@ export default function KnittingStatusView({ currentUser }: KnittingStatusViewPr
                                         <th className="py-2.5 px-2.5 text-right">Reject</th>
                                         <th className="py-2.5 px-2.5 text-right">ITM QTY</th>
                                         <th className="py-2.5 px-2.5 text-right">Knit Balance</th>
-                                        <th className="py-2.5 px-2.5">Production Unit</th>
                                         <th className="py-2.5 px-2.5 text-right">Avg. Prod/Day</th>
                                       </tr>
                                     </thead>
@@ -1493,15 +1492,6 @@ export default function KnittingStatusView({ currentUser }: KnittingStatusViewPr
                                             >
                                               {itm.knitBalance !== undefined ? itm.knitBalance.toLocaleString() : ''}
                                             </span>
-                                          </td>
-
-                                          {/* Production Unit */}
-                                          <td className="py-2 px-2.5">
-                                            {itm.productionUnit ? (
-                                              <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                                                {itm.productionUnit}
-                                              </span>
-                                            ) : ''}
                                           </td>
 
                                           {/* Avg. Prod/Day */}

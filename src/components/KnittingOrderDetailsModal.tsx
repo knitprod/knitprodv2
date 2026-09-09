@@ -361,7 +361,6 @@ export function KnittingOrderDetailsModal({ order, onClose }: KnittingOrderDetai
                       <th className="py-2.5 px-2.5 text-right">Reject</th>
                       <th className="py-2.5 px-2.5 text-right">ITM QTY</th>
                       <th className="py-2.5 px-2.5 text-right">Knit Balance</th>
-                      <th className="py-2.5 px-2.5">Production Unit</th>
                       <th className="py-2.5 px-2.5 text-right">Avg. Prod/Day</th>
                     </tr>
                   </thead>
@@ -413,13 +412,6 @@ export function KnittingOrderDetailsModal({ order, onClose }: KnittingOrderDetai
                             {itm.knitBalance !== undefined ? itm.knitBalance.toLocaleString() : ''}
                           </span>
                         </td>
-                        <td className="py-2 px-2.5">
-                          {itm.productionUnit ? (
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                              {itm.productionUnit}
-                            </span>
-                          ) : ''}
-                        </td>
                         <td className="py-2 px-2.5 text-right font-mono text-slate-700 dark:text-slate-300">
                           {itm.avgProdPerDay ? `${itm.avgProdPerDay} Kg` : ''}
                         </td>
@@ -439,7 +431,7 @@ export function KnittingOrderDetailsModal({ order, onClose }: KnittingOrderDetai
                       <td className="py-2.5 px-2.5 text-right font-mono text-red-500">{totals.reject.toLocaleString()}</td>
                       <td className="py-2.5 px-2.5 text-right font-mono">{totals.itmQty.toLocaleString()}</td>
                       <td className="py-2.5 px-2.5 text-right font-mono text-indigo-600 dark:text-indigo-400">{totals.knitBalance.toLocaleString()}</td>
-                      <td colSpan={2} className="py-2.5 px-2.5"></td>
+                      <td className="py-2.5 px-2.5"></td>
                     </tr>
                   </tfoot>
                 </table>
