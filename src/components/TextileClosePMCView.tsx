@@ -27,10 +27,7 @@ import {
   ChevronRight,
   ShieldCheck,
   CheckCircle,
-  Clock,
-  Code,
-  Copy,
-  Check
+  Clock
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
 import { TextileCloseRecord } from '../types';
@@ -43,6 +40,9 @@ interface TextileClosePMCViewProps {
 }
 
 export default function TextileClosePMCView({ currentUser }: TextileClosePMCViewProps) {
+  // Admin permissions
+  const isAdmin = currentUser?.userType === 'Admin';
+
   // Records State
   const [records, setRecords] = useState<TextileCloseRecord[]>(() => TextileClosePMCStorage.getRecords());
 
@@ -59,18 +59,6 @@ export default function TextileClosePMCView({ currentUser }: TextileClosePMCView
   // Modals & Feedback
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [isSqlModalOpen, setIsSqlModalOpen] = useState(false);
-  const [copiedSql, setCopiedSql] = useState(false);
-
-  const handleCopySql = async () => {
-    try {
-      await navigator.clipboard.writeText(SupabaseSync.getTextileCloseSetupSQL());
-      setCopiedSql(true);
-      setTimeout(() => setCopiedSql(false), 2500);
-    } catch (err) {
-      console.error('Failed to copy SQL:', err);
-    }
-  };
 
   // Sync & Progress States
   const [isSyncing, setIsSyncing] = useState(false);
@@ -212,9 +200,9 @@ export default function TextileClosePMCView({ currentUser }: TextileClosePMCView
         title: 'Sync Failed',
         percent: 100,
         stage: isMissingTable ? "Table 'public.textile_close_pmc' not found in Supabase" : 'Failed to sync with Supabase',
-        error: isMissingTable ? "Table 'public.textile_close_pmc' not found. Click 'Table SQL' to copy the creation script." : (err.message || 'Network error')
+        error: isMissingTable ? "Table 'public.textile_close_pmc' not found. Visit Database Connection to setup and migrate." : (err.message || 'Network error')
       });
-      showToast(isMissingTable ? "Table 'public.textile_close_pmc' missing. Click 'Table SQL' above." : ('Sync failed: ' + (err.message || 'Error')));
+      showToast(isMissingTable ? "Table missing. Visit Database Connection to setup." : ('Sync failed: ' + (err.message || 'Error')));
     } finally {
       setIsSyncing(false);
     }
@@ -315,9 +303,6 @@ export default function TextileClosePMCView({ currentUser }: TextileClosePMCView
 
           if (!res.success) {
             console.warn('Supabase save notice:', res.error);
-            if (res.error?.includes('textile_close_pmc') || res.error?.includes('PGRST205') || res.error?.includes('schema cache')) {
-              setIsSqlModalOpen(true);
-            }
           }
         }
 
@@ -569,29 +554,19 @@ export default function TextileClosePMCView({ currentUser }: TextileClosePMCView
             <span>{isSyncing ? 'Syncing...' : 'Sync Cloud'}</span>
           </button>
 
-          {/* Upload Excel Button */}
-          <button
-            id="upload-textile-close-btn"
-            type="button"
-            onClick={() => setIsUploadModalOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors shadow-xs cursor-pointer"
-            title="Import Excel and Replace Previous Data"
-          >
-            <UploadCloud className="w-3.5 h-3.5 text-slate-500" />
-            <span>Upload Excel</span>
-          </button>
-
-          {/* Table SQL Button */}
-          <button
-            id="table-sql-textile-close-btn"
-            type="button"
-            onClick={() => setIsSqlModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors shadow-xs cursor-pointer"
-            title="View or copy Supabase SQL Script to create public.textile_close_pmc"
-          >
-            <Code className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-            <span>Table SQL</span>
-          </button>
+          {/* Upload Excel Button - Admin Only */}
+          {isAdmin && (
+            <button
+              id="upload-textile-close-btn"
+              type="button"
+              onClick={() => setIsUploadModalOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors shadow-xs cursor-pointer"
+              title="Import Excel and Replace Previous Data"
+            >
+              <UploadCloud className="w-3.5 h-3.5 text-slate-500" />
+              <span>Upload Excel</span>
+            </button>
+          )}
 
           {/* Export Excel Button */}
           <button
@@ -1036,82 +1011,6 @@ export default function TextileClosePMCView({ currentUser }: TextileClosePMCView
                   className="px-4 py-2 font-semibold rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 cursor-pointer"
                 >
                   Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Supabase Table SQL Modal */}
-      {isSqlModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-fade-in">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden animate-scale-up">
-            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/30">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-lg bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 border border-teal-200 dark:border-teal-800">
-                  <Code className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                    Textile Close By PMC Cloud Table (Supabase SQL)
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Run this script in Supabase Dashboard &gt; SQL Editor to create table &amp; realtime replication
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsSqlModalOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-5 space-y-4">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-slate-700 dark:text-slate-300">
-                  Table: <code className="text-teal-600 dark:text-teal-400 font-mono">public.textile_close_pmc</code>
-                </span>
-                <button
-                  type="button"
-                  onClick={handleCopySql}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold transition-all cursor-pointer shadow-xs"
-                >
-                  {copiedSql ? (
-                    <>
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Copied to Clipboard!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>Copy SQL Script</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 font-mono text-[11px] text-slate-300 overflow-x-auto max-h-80 leading-relaxed selection:bg-teal-900">
-                <pre>{SupabaseSync.getTextileCloseSetupSQL()}</pre>
-              </div>
-
-              <div className="bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-900 p-3 rounded-xl text-xs text-teal-800 dark:text-teal-300 flex items-start gap-2">
-                <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
-                <p>
-                  This script is safe to run multiple times (idempotent). It creates the table with all 12 operational fields, query indexes, full public RLS access, and enables Supabase Realtime WebSockets for sub-50ms sync.
-                </p>
-              </div>
-
-              <div className="flex justify-end pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsSqlModalOpen(false)}
-                  className="px-4 py-2 text-xs font-bold rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 cursor-pointer"
-                >
-                  Close
                 </button>
               </div>
             </div>

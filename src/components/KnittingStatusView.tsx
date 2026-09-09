@@ -1029,16 +1029,19 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
             <span>{isSyncing ? 'Syncing...' : 'Sync Cloud'}</span>
           </button>
 
-          <button
-            id="upload-knitting-status-btn"
-            type="button"
-            onClick={() => setIsUploadModalOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors shadow-xs cursor-pointer"
-            title="Import Excel and Replace Previous Data"
-          >
-            <UploadCloud className="w-3.5 h-3.5 text-slate-500" />
-            <span>Upload Excel</span>
-          </button>
+          {/* Upload Excel Button - Admin Only */}
+          {isAdmin && (
+            <button
+              id="upload-knitting-status-btn"
+              type="button"
+              onClick={() => setIsUploadModalOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors shadow-xs cursor-pointer"
+              title="Import Excel and Replace Previous Data"
+            >
+              <UploadCloud className="w-3.5 h-3.5 text-slate-500" />
+              <span>Upload Excel</span>
+            </button>
+          )}
 
           <button
             id="export-knitting-status-btn"
