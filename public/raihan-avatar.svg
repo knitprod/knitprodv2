@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500">
+  <defs>
+    <!-- Skin gradient -->
+    <linearGradient id="skinGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#dfa882" />
+      <stop offset="60%" stop-color="#c88b64" />
+      <stop offset="100%" stop-color="#af724a" />
+    </linearGradient>
+    
+    <!-- Hair gradient -->
+    <linearGradient id="hairGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1f242c" />
+      <stop offset="50%" stop-color="#11151a" />
+      <stop offset="100%" stop-color="#0a0c0e" />
+    </linearGradient>
+
+    <!-- Suit gradient -->
+    <linearGradient id="suitGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#232d3f" />
+      <stop offset="50%" stop-color="#1a2232" />
+      <stop offset="100%" stop-color="#121722" />
+    </linearGradient>
+
+    <!-- Headset Cyan Glow -->
+    <filter id="cyanGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <!-- Pinstripe Pattern -->
+    <pattern id="pinstripe" width="16" height="16" patternUnits="userSpaceOnUse">
+      <line x1="8" y1="0" x2="8" y2="16" stroke="#334155" stroke-width="1" stroke-opacity="0.4" />
+    </pattern>
+  </defs>
+
+  <!-- BODY / CLOTHING -->
+  <!-- Shoulders & Suit Jacket -->
+  <path d="M120 420 C 130 360, 180 340, 250 340 C 320 340, 370 360, 380 420 L 410 500 L 90 500 Z" fill="url(#suitGrad)" />
+  <path d="M120 420 C 130 360, 180 340, 250 340 C 320 340, 370 360, 380 420 L 410 500 L 90 500 Z" fill="url(#pinstripe)" />
+
+  <!-- Dress Shirt -->
+  <polygon points="250,340 210,390 290,390" fill="#e2e8f0" />
+  <polygon points="250,345 225,440 275,440" fill="#cbd5e1" />
+
+  <!-- Shirt Collar -->
+  <polygon points="210,335 250,385 220,390" fill="#f8fafc" />
+  <polygon points="290,335 250,385 280,390" fill="#ffffff" />
+  <polygon points="250,340 220,330 250,370" fill="#f1f5f9" />
+  <polygon points="250,340 280,330 250,370" fill="#f1f5f9" />
+
+  <!-- Suit Lapels -->
+  <polygon points="200,340 240,430 180,480 160,400" fill="#1e293b" />
+  <polygon points="300,340 260,430 320,480 340,400" fill="#243247" />
+
+  <!-- NECK -->
+  <path d="M220 300 L 220 345 C 235 355, 265 355, 280 345 L 280 300 Z" fill="#b97c55" />
+  <path d="M225 325 C 240 338, 260 338, 275 325 L 275 342 C 260 350, 240 350, 225 342 Z" fill="#9e6642" opacity="0.4" />
+
+  <!-- HEAD & FACE -->
+  <ellipse cx="250" cy="245" rx="72" ry="92" fill="url(#skinGrad)" />
+
+  <!-- EARS -->
+  <ellipse cx="178" cy="245" rx="14" ry="22" fill="#c88b64" />
+  <ellipse cx="322" cy="245" rx="14" ry="22" fill="#c88b64" />
+
+  <!-- HAIR -->
+  <path d="M178 220 C 175 160, 210 130, 250 128 C 295 128, 325 155, 322 220 C 315 200, 305 180, 275 178 C 245 176, 210 185, 178 220 Z" fill="url(#hairGrad)" />
+  <path d="M190 170 C 230 135, 290 145, 320 185 C 310 150, 280 132, 245 132 C 215 132, 195 145, 190 170 Z" fill="#334155" opacity="0.3" />
+
+  <!-- EYEBROWS -->
+  <path d="M205 212 C 215 206, 230 207, 238 213" stroke="#181c22" stroke-width="4.5" stroke-linecap="round" fill="none" />
+  <path d="M262 213 C 270 207, 285 206, 295 212" stroke="#181c22" stroke-width="4.5" stroke-linecap="round" fill="none" />
+
+  <!-- EYES -->
+  <ellipse cx="222" cy="225" rx="9" ry="6" fill="#ffffff" />
+  <ellipse cx="223" cy="225" rx="5.5" ry="5.5" fill="#3b2219" />
+  <circle cx="225" cy="223" r="2" fill="#ffffff" />
+  <path d="M213 222 C 218 218, 226 218, 231 222" stroke="#1e293b" stroke-width="2" stroke-linecap="round" fill="none" />
+
+  <ellipse cx="278" cy="225" rx="9" ry="6" fill="#ffffff" />
+  <ellipse cx="277" cy="225" rx="5.5" ry="5.5" fill="#3b2219" />
+  <circle cx="279" cy="223" r="2" fill="#ffffff" />
+  <path d="M269 222 C 274 218, 282 218, 287 222" stroke="#1e293b" stroke-width="2" stroke-linecap="round" fill="none" />
+
+  <!-- NOSE -->
+  <path d="M250 220 L 246 252 C 248 255, 252 255, 254 252 Z" fill="#af724a" opacity="0.6" />
+  <path d="M242 255 C 246 258, 254 258, 258 255" stroke="#9e6642" stroke-width="2.5" stroke-linecap="round" fill="none" />
+
+  <!-- MUSTACHE & BEARD -->
+  <!-- Mustache -->
+  <path d="M232 267 C 242 263, 248 266, 250 269 C 252 266, 258 263, 268 267 C 263 273, 253 274, 250 272 C 247 274, 237 273, 232 267 Z" fill="#181c22" />
+
+  <!-- Mouth / Smile -->
+  <path d="M234 274 C 242 284, 258 284, 266 274 Z" fill="#78350f" />
+  <path d="M236 274 C 243 279, 257 279, 264 274 Z" fill="#ffffff" />
+  <path d="M232 273 C 242 286, 258 286, 268 273" stroke="#991b1b" stroke-width="1.5" fill="none" />
+
+  <!-- Full Groomed Beard -->
+  <path d="M196 240 C 196 295, 215 328, 250 328 C 285 328, 304 295, 304 240 C 300 260, 290 280, 280 290 C 270 300, 260 304, 250 304 C 240 304, 230 300, 220 290 C 210 280, 200 260, 196 240 Z" fill="#181c22" />
+  <!-- Beard soul patch -->
+  <polygon points="247,286 253,286 250,294" fill="#181c22" />
+
+  <!-- MODERN HEADSET -->
+  <!-- Headband Arch -->
+  <path d="M172 245 C 160 145, 340 145, 328 245" stroke="#334155" stroke-width="14" stroke-linecap="round" fill="none" />
+  <!-- Headband Top Cushion -->
+  <path d="M190 200 C 180 152, 320 152, 310 200" stroke="#1e293b" stroke-width="18" stroke-linecap="round" fill="none" />
+  <!-- Cyan LED Light Bar on top of Headband -->
+  <path d="M210 150 C 230 144, 270 144, 290 150" stroke="#00e5ff" stroke-width="5" stroke-linecap="round" fill="none" filter="url(#cyanGlow)" />
+
+  <!-- Left Earcup (Viewer left) -->
+  <rect x="160" y="215" width="22" height="46" rx="10" fill="#1e293b" stroke="#475569" stroke-width="2" />
+  <circle cx="171" cy="238" r="6" fill="#00e5ff" filter="url(#cyanGlow)" />
+
+  <!-- Right Earcup (Viewer right) -->
+  <rect x="318" y="215" width="22" height="46" rx="10" fill="#1e293b" stroke="#475569" stroke-width="2" />
+  <circle cx="329" cy="238" r="6" fill="#00e5ff" filter="url(#cyanGlow)" />
+
+  <!-- Microphone Boom Arm (Curving from right ear towards mouth) -->
+  <path d="M329 245 C 335 285, 305 295, 274 286" stroke="#475569" stroke-width="4.5" stroke-linecap="round" fill="none" />
+  <!-- Glowing Cyan Mic Tip -->
+  <rect x="264" y="281" width="12" height="8" rx="4" fill="#00e5ff" filter="url(#cyanGlow)" />
+  <rect x="265" y="282" width="10" height="6" rx="3" fill="#ffffff" />
+</svg>

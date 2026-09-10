@@ -56,6 +56,7 @@ import DashboardUnitwiseCards from './components/DashboardUnitwiseCards';
 import DashboardQualityLossCards from './components/DashboardQualityLossCards';
 import DashboardSecondaryElementCards from './components/DashboardSecondaryElementCards';
 import FloatingKPIAndFilterHUD from './components/FloatingKPIAndFilterHUD';
+import { RaihanChatBot } from './components/RaihanChatBot';
 import { useGlobalData } from './context/GlobalDataContext';
 import { GasClient } from './lib/gasClient';
 import { SupabaseSync } from './lib/supabaseClient';
@@ -1624,6 +1625,10 @@ export default function App() {
           </div>
         </main>
       </div>
+
+      {/* Raihan AI ERP Assistant (In-Website Only, Zero Secret Leaks) */}
+      <RaihanChatBot currentUser={currentUser} activeTab={currentPage} />
+
       {/* Logout Confirmation Modal Overlay */}
       {showLogoutConfirm && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">

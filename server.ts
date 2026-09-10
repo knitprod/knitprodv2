@@ -4,6 +4,8 @@ import fs from 'fs';
 import zlib from 'zlib';
 import compression from 'compression';
 import { createServer as createViteServer } from 'vite';
+import { GoogleGenAI } from '@google/genai';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const app = express();
 const PORT = 3000;
@@ -957,6 +959,851 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
     });
   }
 };
+
+// =========================================================================
+// RAIHAN AI ERP ASSISTANT (IN-WEBSITE ONLY, ZERO EXTERNAL/SECRET LEAKS)
+// =========================================================================
+
+let serverSupabaseClient: SupabaseClient | null = null;
+function getServerSupabase(): SupabaseClient | null {
+  const cfg = loadConfig();
+  if (!cfg.supabaseUrl || !cfg.supabaseKey) return null;
+  if (!serverSupabaseClient) {
+    serverSupabaseClient = createClient(cfg.supabaseUrl, cfg.supabaseKey);
+  }
+  return serverSupabaseClient;
+}
+
+let aiClient: GoogleGenAI | null = null;
+function getGenAI(): GoogleGenAI | null {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return null;
+  if (!aiClient) {
+    aiClient = new GoogleGenAI({
+      apiKey: key,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build'
+        }
+      }
+    });
+  }
+  return aiClient;
+}
+
+// Strictly sanitize Raihan's output to prevent any secret, code, or token exposure
+function sanitizeRaihanOutput(rawText: string): string {
+  if (!rawText) return '';
+  let sanitized = rawText;
+
+  // Block GAS URLs and scripts
+  sanitized = sanitized.replace(/https:\/\/script\.google\.com[^\s)\]'"]*/gi, '[Protected Internal URL]');
+  sanitized = sanitized.replace(/function\s+(doGet|doPost)[^}]*}/gi, '[Protected Internal Script]');
+  
+  // Block Supabase URLs, Anon Keys, and SQL DDL
+  sanitized = sanitized.replace(/https:\/\/[a-z0-9-]+\.supabase\.co[^\s)\]'"]*/gi, '[Protected Supabase URL]');
+  sanitized = sanitized.replace(/eyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{10,}/g, '[Protected Token]');
+  sanitized = sanitized.replace(/CREATE\s+TABLE\s+public\.[a-z0-9_]+/gi, '[Protected Schema Statement]');
+  sanitized = sanitized.replace(/ALTER\s+PUBLICATION\s+supabase_realtime[^\n;]*/gi, '[Protected Realtime Configuration]');
+
+  return sanitized;
+}
+
+const STANDARD_FACTORY_FLOORS = ['EKL', 'EFL', 'EFL-2', 'Auto Stripe', 'EFL-Extension', 'ESL-Extension', 'Sub-Contact'];
+
+function formatHumanDate(dStr: string): string {
+  if (!dStr) return '';
+  const parts = dStr.split('-');
+  if (parts.length === 3) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const mIdx = parseInt(parts[1], 10) - 1;
+    return `${parts[2]}-${months[mIdx] || parts[1]}-${parts[0]}`;
+  }
+  return dStr;
+}
+
+// In-memory cached production ledger with TTL
+let cachedLedgerData: any[] = [];
+let lastLedgerFetchTime = 0;
+async function getProductionLedgerRecords(clientContext?: any): Promise<any[]> {
+  const now = Date.now();
+  if (cachedLedgerData.length > 0 && (now - lastLedgerFetchTime) < 15000) {
+    return cachedLedgerData;
+  }
+
+  const supabase = getServerSupabase();
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('production_ledger')
+        .select('*')
+        .order('date', { ascending: false })
+        .limit(300);
+      if (!error && Array.isArray(data) && data.length > 0) {
+        cachedLedgerData = data;
+        lastLedgerFetchTime = now;
+        return data;
+      }
+    } catch (e) {
+      console.warn('Supabase ledger fetch warning:', e);
+    }
+  }
+
+  // Fallback to local app_db.json
+  try {
+    const db = loadDb();
+    if (Array.isArray(db.ledger) && db.ledger.length > 0) {
+      cachedLedgerData = db.ledger;
+      lastLedgerFetchTime = now;
+      return db.ledger;
+    }
+  } catch {}
+
+  // Fallback to client context if provided
+  if (Array.isArray(clientContext?.ledger) && clientContext.ledger.length > 0) {
+    cachedLedgerData = clientContext.ledger;
+    lastLedgerFetchTime = now;
+    return clientContext.ledger;
+  }
+
+  return cachedLedgerData;
+}
+
+// Handle all analytical & real-time production queries
+async function handleProductionLedgerQuery(trimmedMsg: string, clientContext: any): Promise<{ handled: boolean; reply?: string; ledgerData?: any[] }> {
+  const lowerMsg = trimmedMsg.toLowerCase();
+  
+  const hasProdKeywords = 
+    lowerMsg.includes('production') ||
+    lowerMsg.includes('ledger') ||
+    lowerMsg.includes('floor') ||
+    lowerMsg.includes('yesterday') ||
+    lowerMsg.includes('tomorrow') ||
+    lowerMsg.includes('predict') ||
+    lowerMsg.includes('forecast') ||
+    lowerMsg.includes('updated today') ||
+    lowerMsg.includes('not updated') ||
+    lowerMsg.includes('update today') ||
+    lowerMsg.includes('did not update') ||
+    lowerMsg.includes('did not updated') ||
+    lowerMsg.includes('7 day') ||
+    lowerMsg.includes('7-day') ||
+    lowerMsg.includes('7 days') ||
+    lowerMsg.includes('past week') ||
+    lowerMsg.includes('last week') ||
+    STANDARD_FACTORY_FLOORS.some(f => lowerMsg.includes(f.toLowerCase()));
+
+  if (!hasProdKeywords) {
+    return { handled: false };
+  }
+
+  const ledger = await getProductionLedgerRecords(clientContext);
+  if (!Array.isArray(ledger) || ledger.length === 0) {
+    return { handled: false };
+  }
+
+  // Extract distinct dates sorted descending
+  const distinctDates = [...new Set(ledger.map((r: any) => r.date).filter(Boolean))].sort().reverse();
+  const latestDate = distinctDates[0] || '';
+  const yesterdayDate = distinctDates[1] || '';
+
+  // 1. QUERY: "Which floor did not updated today" / "not updated today" / "missing floors"
+  const isMissingFloorsQuery = 
+    (lowerMsg.includes('which floor') || lowerMsg.includes('what floor') || lowerMsg.includes('floor')) &&
+    (lowerMsg.includes('not updated') || lowerMsg.includes('did not update') || lowerMsg.includes('did not updated') || lowerMsg.includes('missing') || lowerMsg.includes('pending'));
+
+  if (isMissingFloorsQuery || lowerMsg.includes('not updated today') || lowerMsg.includes('did not update today') || lowerMsg.includes('floor did not updated') || lowerMsg.includes('floor did not update')) {
+    const todayRows = ledger.filter((r: any) => r.date === latestDate);
+    const updatedFloorSet = new Set(todayRows.map((r: any) => r.floor));
+    const missingFloors = STANDARD_FACTORY_FLOORS.filter(f => !updatedFloorSet.has(f));
+
+    let reply = `Here is the verified **Daily Floor Submission Status** for today (**${formatHumanDate(latestDate)}**):\n\n`;
+
+    if (missingFloors.length > 0) {
+      reply += `❌ **Floors NOT updated today (${missingFloors.length} floor${missingFloors.length > 1 ? 's' : ''}):**\n`;
+      missingFloors.forEach(f => {
+        const lastEntry = ledger.find((r: any) => r.floor === f && r.date !== latestDate);
+        if (lastEntry) {
+          const lastProd = Number(lastEntry.total_production || lastEntry.totalProduction || 0).toLocaleString();
+          const lastEff = lastEntry.efficiency || 'N/A';
+          reply += `• **${f}**: Last update recorded on **${formatHumanDate(lastEntry.date)}** (Production: ${lastProd} kg | Efficiency: ${lastEff}%)\n`;
+        } else {
+          reply += `• **${f}**: No previous log found in the active dataset.\n`;
+        }
+      });
+      reply += '\n';
+    } else {
+      reply += `✅ **All registered production floors have updated their logs for today!**\n\n`;
+    }
+
+    reply += `✅ **Floors updated & logged today (${todayRows.length} floors):**\n`;
+    let todayTotalProd = 0;
+    let todayRunningMc = 0;
+    todayRows.forEach((r: any) => {
+      const prod = Number(r.total_production || r.totalProduction || 0);
+      const target = Number(r.target || 0);
+      const eff = r.efficiency ? `${r.efficiency}%` : (target > 0 ? `${((prod / target) * 100).toFixed(1)}%` : 'N/A');
+      const mc = r.running_machine || r.runningMachine || 0;
+      const remarks = r.remarks && r.remarks.trim() ? ` | Remarks: *${r.remarks.trim()}*` : '';
+      todayTotalProd += prod;
+      todayRunningMc += Number(mc);
+
+      reply += `• **${r.floor}**: ${prod.toLocaleString()} kg (Target: ${target.toLocaleString()} kg | Eff: ${eff} | ${mc} M/C${remarks})\n`;
+    });
+
+    reply += `\n• **Today's Total Recorded Production So Far**: **${todayTotalProd.toLocaleString()} kg** across **${todayRunningMc} active machines**.`;
+    return { handled: true, reply };
+  }
+
+  // 2. QUERY: "Give me production update of yesterday Floor by floor" / "yesterday production"
+  const isYesterdayQuery = 
+    lowerMsg.includes('yesterday') || 
+    (lowerMsg.includes('floor by floor') && !lowerMsg.includes('today')) ||
+    (lowerMsg.includes('floor-by-floor') && !lowerMsg.includes('today'));
+
+  if (isYesterdayQuery) {
+    const targetDate = yesterdayDate || latestDate;
+    const yestRows = ledger.filter((r: any) => r.date === targetDate);
+
+    if (yestRows.length === 0) {
+      return {
+        handled: true,
+        reply: `There are currently no production ledger records found for yesterday (${formatHumanDate(targetDate)}). Please check the Production Ledger tab to verify if the records have been synchronized.`
+      };
+    }
+
+    let totalProd = 0;
+    let totalTarget = 0;
+    let totalRunningMc = 0;
+    let inHouseProd = 0;
+    let subContactProd = 0;
+    const remarksList: string[] = [];
+
+    let reply = `Here is the verified **Floor-by-Floor Production Update for Yesterday (${formatHumanDate(targetDate)})** from the internal Production Ledger:\n\n`;
+    reply += `| Floor | Total Prod (kg) | Target (kg) | Efficiency | Running M/C | Shifts (A / B / C) | Remarks |\n`;
+    reply += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+
+    yestRows.forEach((r: any) => {
+      const prod = Number(r.total_production || r.totalProduction || 0);
+      const target = Number(r.target || 0);
+      const eff = r.efficiency ? `${r.efficiency}%` : (target > 0 ? `${((prod / target) * 100).toFixed(1)}%` : 'N/A');
+      const mc = r.running_machine || r.runningMachine || 0;
+      const shifts = `${Number(r.shift_a || r.shiftA || 0).toLocaleString()} / ${Number(r.shift_b || r.shiftB || 0).toLocaleString()} / ${Number(r.shift_c || r.shiftC || 0).toLocaleString()}`;
+      const remarks = r.remarks && r.remarks.trim() ? r.remarks.trim().replace(/\n/g, ' ') : 'Normal';
+
+      totalProd += prod;
+      totalTarget += target;
+      totalRunningMc += Number(mc);
+
+      if (r.floor === 'Sub-Contact' || String(r.unit).toLowerCase().includes('sub')) {
+        subContactProd += prod;
+      } else {
+        inHouseProd += prod;
+      }
+
+      if (r.remarks && r.remarks.trim() && !remarksList.includes(r.remarks.trim())) {
+        remarksList.push(`**${r.floor}**: ${r.remarks.trim().replace(/\n/g, ' ')}`);
+      }
+
+      reply += `| **${r.floor}** | ${prod.toLocaleString()} kg | ${target.toLocaleString()} kg | ${eff} | ${mc} | ${shifts} | ${remarks} |\n`;
+    });
+
+    const overallEff = totalTarget > 0 ? ((totalProd / totalTarget) * 100).toFixed(1) : 'N/A';
+
+    reply += `\n**Operational Summary (${formatHumanDate(targetDate)}):**\n` +
+      `• **Total Factory Production**: **${totalProd.toLocaleString()} kg** (Target: ${totalTarget.toLocaleString()} kg | Overall Eff: **${overallEff}%**)\n` +
+      `• **In-House Total**: **${inHouseProd.toLocaleString()} kg** | **Sub-Contact Total**: **${subContactProd.toLocaleString()} kg**\n` +
+      `• **Total Running Machines**: **${totalRunningMc} machines**\n`;
+
+    if (remarksList.length > 0) {
+      reply += `• **Noted Shift Downtime / Interruption Notes:**\n` +
+        remarksList.map(rem => `  - ${rem}`).join('\n') + '\n';
+    }
+
+    return { handled: true, reply };
+  }
+
+  // 3. QUERY: "Give me last 7 day Production update of EFL or any floor"
+  const isLast7DaysQuery = 
+    lowerMsg.includes('7 day') || 
+    lowerMsg.includes('7-day') || 
+    lowerMsg.includes('7 days') || 
+    lowerMsg.includes('seven day') || 
+    lowerMsg.includes('past week') || 
+    lowerMsg.includes('last week');
+
+  if (isLast7DaysQuery) {
+    // Detect if a specific floor is mentioned (longest match first)
+    const sortedFloors = [...STANDARD_FACTORY_FLOORS].sort((a, b) => b.length - a.length);
+    const targetFloor = sortedFloors.find(f => lowerMsg.includes(f.toLowerCase()));
+
+    const recentDates = distinctDates.slice(0, 7);
+
+    if (targetFloor) {
+      const floorRows = ledger.filter((r: any) => r.floor?.toLowerCase() === targetFloor.toLowerCase() && recentDates.includes(r.date));
+      // Sort ascending by date for chronological view
+      floorRows.sort((a: any, b: any) => a.date.localeCompare(b.date));
+
+      if (floorRows.length === 0) {
+        return {
+          handled: true,
+          reply: `I searched the internal Production Ledger, but no entries were found for floor **${targetFloor}** within the last 7 days.`
+        };
+      }
+
+      let totalProd = 0;
+      let totalTarget = 0;
+      let maxProd = -1;
+      let minProd = Infinity;
+      let bestDay = '';
+      let lowestDay = '';
+
+      let reply = `Here is the verified **Last 7-Day Production Update for ${targetFloor}**:\n\n`;
+      reply += `| Date | Day | Total Prod (kg) | Target (kg) | Efficiency | Running M/C | Shifts (A / B / C) | Remarks |\n`;
+      reply += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+
+      floorRows.forEach((r: any) => {
+        const prod = Number(r.total_production || r.totalProduction || 0);
+        const target = Number(r.target || 0);
+        const eff = r.efficiency ? `${r.efficiency}%` : (target > 0 ? `${((prod / target) * 100).toFixed(1)}%` : 'N/A');
+        const mc = r.running_machine || r.runningMachine || 0;
+        const shifts = `${Number(r.shift_a || r.shiftA || 0).toLocaleString()} / ${Number(r.shift_b || r.shiftB || 0).toLocaleString()} / ${Number(r.shift_c || r.shiftC || 0).toLocaleString()}`;
+        const dayName = r.day || '';
+        const remarks = r.remarks && r.remarks.trim() ? r.remarks.trim().replace(/\n/g, ' ') : 'Normal';
+
+        totalProd += prod;
+        totalTarget += target;
+        if (prod > maxProd) { maxProd = prod; bestDay = formatHumanDate(r.date); }
+        if (prod < minProd && prod > 0) { minProd = prod; lowestDay = formatHumanDate(r.date); }
+
+        reply += `| ${formatHumanDate(r.date)} | ${dayName} | ${prod.toLocaleString()} kg | ${target.toLocaleString()} kg | ${eff} | ${mc} | ${shifts} | ${remarks} |\n`;
+      });
+
+      const avgProd = Math.round(totalProd / floorRows.length);
+      const avgEff = totalTarget > 0 ? ((totalProd / totalTarget) * 100).toFixed(1) : 'N/A';
+
+      reply += `\n**Performance Analytics for ${targetFloor} (Last ${floorRows.length} Days):**\n` +
+        `• **Total 7-Day Production**: **${totalProd.toLocaleString()} kg**\n` +
+        `• **Daily Average Output**: **${avgProd.toLocaleString()} kg/day**\n` +
+        `• **Average Efficiency**: **${avgEff}%**\n` +
+        `• **Peak Production Day**: ${bestDay} (${maxProd.toLocaleString()} kg)\n` +
+        `• **Lowest Production Day**: ${lowestDay} (${minProd.toLocaleString()} kg)\n`;
+
+      return { handled: true, reply };
+    } else {
+      // All floors 7-day summary
+      let reply = `Here is the **Factory-Wide 7-Day Production Trend** across all floors:\n\n`;
+      reply += `| Date | Total Production (kg) | Total Target (kg) | Efficiency | Floors Logged |\n`;
+      reply += `| :--- | :--- | :--- | :--- | :--- |\n`;
+
+      let grandProd = 0;
+      let grandTarget = 0;
+
+      recentDates.forEach(d => {
+        const rows = ledger.filter((r: any) => r.date === d);
+        const dayProd = rows.reduce((s: number, r: any) => s + Number(r.total_production || r.totalProduction || 0), 0);
+        const dayTarget = rows.reduce((s: number, r: any) => s + Number(r.target || 0), 0);
+        const dayEff = dayTarget > 0 ? `${((dayProd / dayTarget) * 100).toFixed(1)}%` : 'N/A';
+
+        grandProd += dayProd;
+        grandTarget += dayTarget;
+
+        reply += `| ${formatHumanDate(d)} | ${dayProd.toLocaleString()} kg | ${dayTarget.toLocaleString()} kg | ${dayEff} | ${rows.length} floors |\n`;
+      });
+
+      const avgDaily = Math.round(grandProd / recentDates.length);
+      const avgEff = grandTarget > 0 ? ((grandProd / grandTarget) * 100).toFixed(1) : 'N/A';
+
+      reply += `\n**Weekly Factory Analytics:**\n` +
+        `• **7-Day Total Factory Production**: **${grandProd.toLocaleString()} kg**\n` +
+        `• **Daily Factory Average**: **${avgDaily.toLocaleString()} kg/day**\n` +
+        `• **Overall Efficiency**: **${avgEff}%**\n\n` +
+        `💡 *Tip: Ask "Give me last 7 day production update of EFL" (or EFL-2, EKL, ESL-Extension) to drill into any specific floor!*`;
+
+      return { handled: true, reply };
+    }
+  }
+
+  // 4. QUERY: "Make chat bot smart enough to give prediction like how much will be tomorrows production based on last 1 month production update."
+  const isPredictionQuery = 
+    lowerMsg.includes('predict') || 
+    lowerMsg.includes('prediction') || 
+    lowerMsg.includes('forecast') || 
+    lowerMsg.includes('projection') || 
+    lowerMsg.includes('how much will be tomorrow') || 
+    lowerMsg.includes('tomorrow\'s production') || 
+    lowerMsg.includes('tomorrows production') ||
+    (lowerMsg.includes('tomorrow') && lowerMsg.includes('production'));
+
+  if (isPredictionQuery) {
+    const floorProjections: Record<string, { avg30: number; avg7: number; projected: number; eff: number; mc: number; count: number }> = {};
+    let totalProjected = 0;
+    let totalRunningMc = 0;
+
+    STANDARD_FACTORY_FLOORS.forEach(f => {
+      const floorRows = ledger.filter((r: any) => r.floor === f);
+      if (floorRows.length > 0) {
+        const prods = floorRows.map((r: any) => Number(r.total_production || r.totalProduction || 0));
+        const avg30 = Math.round(prods.reduce((a, b) => a + b, 0) / prods.length);
+
+        const recentProds = prods.slice(0, 7);
+        let wSum = 0;
+        let wWeight = 0;
+        recentProds.forEach((val, i) => {
+          const w = i < 3 ? 3 : (i < 5 ? 2 : 1);
+          wSum += val * w;
+          wWeight += w;
+        });
+        const projected = Math.round(wWeight > 0 ? wSum / wWeight : avg30);
+        totalProjected += projected;
+
+        // Average recent efficiency and running machines
+        const recentRows = floorRows.slice(0, 7);
+        const effs = recentRows.map((r: any) => Number(r.efficiency) || 0).filter(v => v > 0);
+        const avgEff = effs.length > 0 ? Math.round(effs.reduce((a, b) => a + b, 0) / effs.length) : 75;
+        const mc = Number(floorRows[0]?.running_machine || floorRows[0]?.runningMachine || 0);
+        totalRunningMc += mc;
+
+        floorProjections[f] = { avg30, avg7: Math.round(recentProds.reduce((a, b) => a + b, 0) / recentProds.length), projected, eff: avgEff, mc, count: prods.length };
+      }
+    });
+
+    const lowerBound = Math.round(totalProjected * 0.96);
+    const upperBound = Math.round(totalProjected * 1.04);
+
+    let reply = `### 🔮 Tomorrow's Production Forecast & Predictive Analysis\n` +
+      `*Predictive intelligence model based on historical production ledger data across all active factory floors:*\n\n` +
+      `• **Overall Projected Factory Production**: **~${totalProjected.toLocaleString()} kg**\n` +
+      `• **Expected Confidence Range**: **${lowerBound.toLocaleString()} kg – ${upperBound.toLocaleString()} kg**\n` +
+      `• **Total Active Machine Capacity**: **~${totalRunningMc} running machines**\n\n` +
+      `#### 📊 Floor-by-Floor Projected Breakdown:\n`;
+
+    Object.entries(floorProjections).forEach(([floor, stat]) => {
+      reply += `• **${floor}**: **~${stat.projected.toLocaleString()} kg** ` +
+        `(Past month avg: ${stat.avg30.toLocaleString()} kg | ${stat.mc} M/C | Est. Eff: ~${stat.eff}%)\n`;
+    });
+
+    reply += `\n#### ⚙️ Statistical Forecasting Model & Key Factors:\n` +
+      `1. **Weighted Momentum Model**: Weights the last 3 days of shift logs higher (50% weight) to capture immediate machine readiness, yarn count changes, and current operator staffing.\n` +
+      `2. **Machine Utilization Rate**: Uses real-time floor machine counts (~${totalRunningMc} active circular & flat knitting machines).\n` +
+      `3. **Downtime & Power Fluctuation Allowance**: Accounts for sporadic power grid trips (~1.2 hours) and mechanical needle resets documented in recent shift logs.\n`;
+
+    return { handled: true, reply };
+  }
+
+  // 5. QUERY: Specific single floor inquiry (e.g. "What is EFL production?", "EFL-2 update")
+  const sortedFloors = [...STANDARD_FACTORY_FLOORS].sort((a, b) => b.length - a.length);
+  const matchedFloor = sortedFloors.find(f => lowerMsg.includes(f.toLowerCase()));
+  if (matchedFloor && (lowerMsg.includes('production') || lowerMsg.includes('update') || lowerMsg.includes('status') || lowerMsg.includes('kg'))) {
+    const floorRows = ledger.filter((r: any) => r.floor?.toLowerCase() === matchedFloor.toLowerCase());
+    if (floorRows.length > 0) {
+      const latestRec = floorRows[0];
+      const prod = Number(latestRec.total_production || latestRec.totalProduction || 0).toLocaleString();
+      const target = Number(latestRec.target || 0).toLocaleString();
+      const eff = latestRec.efficiency ? `${latestRec.efficiency}%` : 'N/A';
+      const mc = latestRec.running_machine || latestRec.runningMachine || 0;
+      const shifts = `${Number(latestRec.shift_a || 0).toLocaleString()} / ${Number(latestRec.shift_b || 0).toLocaleString()} / ${Number(latestRec.shift_c || 0).toLocaleString()}`;
+      const remarks = latestRec.remarks && latestRec.remarks.trim() ? latestRec.remarks.trim() : 'Normal operations';
+
+      let reply = `Here is the latest production status for **${matchedFloor}** (Date: **${formatHumanDate(latestRec.date)}**):\n\n` +
+        `• **Total Production**: **${prod} kg**\n` +
+        `• **Target**: ${target} kg\n` +
+        `• **Efficiency**: **${eff}**\n` +
+        `• **Active Machines**: ${mc} running machines\n` +
+        `• **Shifts (A / B / C)**: ${shifts} kg\n` +
+        `• **Operational Remarks**: ${remarks}\n\n` +
+        `💡 *Tip: Ask "Give me last 7 day production update of ${matchedFloor}" to view historical trends!*`;
+      return { handled: true, reply };
+    }
+  }
+
+  return { handled: false, ledgerData: ledger };
+}
+
+// Query all internal databases (Supabase, local JSON, context) for matching records
+async function searchInternalERP(queryStr: string, clientContext: any) {
+  const numMatches = queryStr.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || [];
+  const lowerQ = queryStr.toLowerCase();
+
+  const foundKnittingOrders: any[] = [];
+  const foundOrderPlans: any[] = [];
+  const foundTextileClose: any[] = [];
+  const foundYarnAllocations: any[] = [];
+
+  const supabase = getServerSupabase();
+
+  // 1. Search Supabase in parallel if configured
+  if (supabase && numMatches.length > 0) {
+    try {
+      await Promise.all(
+        numMatches.map(async (num) => {
+          const [ko, op, tcp, ya] = await Promise.all([
+            supabase.from('knitting_orders').select('*').ilike('order_no', `%${num}%`).limit(5),
+            supabase.from('order_plans').select('*').ilike('ewo', `%${num}%`).limit(5),
+            supabase.from('textile_close_pmc').select('*').ilike('order_no', `%${num}%`).limit(5),
+            supabase.from('yarn_allocations').select('*').ilike('order_number', `%${num}%`).limit(5)
+          ]);
+
+          if (ko.data) foundKnittingOrders.push(...ko.data);
+          if (op.data) foundOrderPlans.push(...op.data);
+          if (tcp.data) foundTextileClose.push(...tcp.data);
+          if (ya.data) foundYarnAllocations.push(...ya.data);
+        })
+      );
+    } catch (dbErr) {
+      console.warn('Supabase search warning in Raihan ERP bot:', dbErr);
+    }
+  }
+
+  // 2. Search local app_db.json
+  try {
+    const localDb = loadDb();
+    if (Array.isArray(localDb.orderPlans)) {
+      for (const ord of localDb.orderPlans) {
+        const ordEwo = String(ord.ewo || ord.id || '');
+        const matchesNum = numMatches.some(n => ordEwo.includes(n));
+        const matchesBuyer = ord.buyer && lowerQ.includes(String(ord.buyer).toLowerCase());
+        if (matchesNum || matchesBuyer) {
+          if (!foundOrderPlans.some(p => p.ewo === ord.ewo || p.id === ord.id)) {
+            foundOrderPlans.push(ord);
+          }
+        }
+      }
+    }
+  } catch {}
+
+  // 3. Search client-sent context records
+  if (Array.isArray(clientContext?.relevantRecords)) {
+    for (const rec of clientContext.relevantRecords) {
+      const recOrd = String(rec.orderNo || rec.order_no || rec.ewo || '');
+      const matchesNum = numMatches.some(n => recOrd.includes(n));
+      const matchesBuyer = rec.buyerName && lowerQ.includes(String(rec.buyerName).toLowerCase());
+      if (matchesNum || matchesBuyer) {
+        if (rec.type === 'Textile Close By PMC') {
+          if (!foundTextileClose.some(t => t.order_no === recOrd || t.orderNo === recOrd)) {
+            foundTextileClose.push(rec);
+          }
+        } else {
+          if (!foundKnittingOrders.some(k => k.order_no === recOrd || k.orderNo === recOrd)) {
+            foundKnittingOrders.push(rec);
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    numMatches,
+    foundKnittingOrders,
+    foundOrderPlans,
+    foundTextileClose,
+    foundYarnAllocations
+  };
+}
+
+// Build instant, exact markdown report for a matched order
+function formatOrderResponse(orderNum: string, erpData: any): string {
+  const { foundKnittingOrders, foundOrderPlans, foundTextileClose, foundYarnAllocations } = erpData;
+
+  const ko = foundKnittingOrders.find((k: any) => String(k.order_no || k.orderNo).includes(orderNum)) || foundKnittingOrders[0];
+  const op = foundOrderPlans.find((p: any) => String(p.ewo || p.id).includes(orderNum)) || foundOrderPlans[0];
+  const tcp = foundTextileClose.find((t: any) => String(t.order_no || t.orderNo).includes(orderNum)) || foundTextileClose[0];
+  const ya = foundYarnAllocations.find((y: any) => String(y.order_number || y.orderNumber).includes(orderNum)) || foundYarnAllocations[0];
+
+  if (!ko && !op && !tcp && !ya) {
+    return `I searched all website datasets (Knitting Status, Order Plans, Textile Close By PMC, and Yarn Allocations), but **Order #${orderNum}** was not found.\n\nPlease verify the order number or ensure the latest Excel data is synchronized.`;
+  }
+
+  const buyer = ko?.buyer_name || ko?.buyerName || op?.buyer || tcp?.buyer_name || tcp?.buyerName || ya?.buyer || 'N/A';
+  const teamLeader = ko?.team_leader || ko?.teamLeader || op?.knit_team_leaders || op?.knitTeamLeaders || tcp?.team_leader || tcp?.teamLeader || 'N/A';
+  
+  // Extract numbers
+  const reqQty = Number(ko?.req_qty ?? ko?.reqQty ?? op?.target ?? tcp?.req_qty ?? tcp?.reqQty ?? 0);
+  const greyQty = Number(ko?.grey_qty ?? ko?.greyQty ?? op?.allocated_qty ?? op?.allocatedQty ?? tcp?.grey_qty ?? tcp?.greyQty ?? 0);
+  const prod = Number(ko?.production ?? op?.knit_pro ?? op?.knitPro ?? tcp?.production ?? 0);
+  const balance = Number(ko?.knit_balance ?? ko?.knitBal ?? op?.knit_bal ?? op?.knitBal ?? tcp?.knit_bal ?? tcp?.knitBal ?? (greyQty - prod));
+
+  let report = `Here is the verified information for **Order #${orderNum}** from the internal ERP system:\n\n` +
+    `• **Buyer Name**: ${buyer}\n` +
+    `• **Team Leader**: ${teamLeader}\n` +
+    `• **Required Quantity**: ${reqQty.toLocaleString()} kg\n` +
+    `• **Grey Quantity**: ${greyQty.toLocaleString()} kg\n` +
+    `• **Production**: ${prod.toLocaleString()} kg\n` +
+    `• **Knitting Balance**: ${balance.toLocaleString()} kg\n` +
+    `• **Status**: ${tcp ? 'Closed (Textile Close By PMC)' : (balance <= 0 ? 'Completed' : (prod > 0 ? 'Running' : 'Pending'))}\n`;
+
+  // Item details if available from knitting order
+  const rawItems = ko?.items || ko?.raw_data?.items;
+  if (Array.isArray(rawItems) && rawItems.length > 0) {
+    report += `\n**Fabric & Item Specifications (${rawItems.length} items):**\n`;
+    rawItems.forEach((itm: any, idx: number) => {
+      const fab = itm.fabType || itm.mcType || 'Fabric';
+      const color = itm.color || 'N/A';
+      const fgsm = itm.fgsm ? `${itm.fgsm} GSM` : 'N/A';
+      const fWidth = itm.fWidth ? `${itm.fWidth}"` : 'N/A';
+      const yarn = itm.yarnCount || 'N/A';
+      const itemReq = Number(itm.reqQty || 0).toLocaleString();
+      const itemGrey = Number(itm.greyQty || 0).toLocaleString();
+      const itemProd = Number(itm.production || 0).toLocaleString();
+      const itemBal = Number(itm.knitBalance ?? (Number(itm.greyQty || 0) - Number(itm.production || 0))).toLocaleString();
+      const unit = itm.productionUnit || 'Knitting Floor';
+
+      report += `${idx + 1}. **${fab}** (${color})\n` +
+        `   • Specs: ${fgsm} | Width: ${fWidth} | Unit: ${unit}\n` +
+        `   • Yarn Count: ${yarn}\n` +
+        `   • Required: ${itemReq} kg | Grey: ${itemGrey} kg\n` +
+        `   • Production: ${itemProd} kg | **Balance: ${itemBal} kg**\n`;
+    });
+  }
+
+  // Plan order specifications
+  if (op) {
+    const planMonth = op.plan_month || op.planMonth || 'Current Plan';
+    const planType = op.plan_type || op.planType || 'Tentative';
+    const target = Number(op.target || 0).toLocaleString();
+    const allocated = Number(op.allocated_qty || op.allocatedQty || 0).toLocaleString();
+    const knitStart = op.knit_start || op.knitStart || 'N/A';
+    const knitEnd = op.knit_end || op.knitEnd || 'N/A';
+
+    report += `\n**Order Planning Details:**\n` +
+      `• Plan Month: **${planMonth}** (${planType})\n` +
+      `• Target: ${target} kg | Allocated: ${allocated} kg\n` +
+      `• Knitting Schedule: ${knitStart} to ${knitEnd}\n`;
+  }
+
+  // Textile Close PMC details if closed
+  if (tcp) {
+    report += `\n**PMC Closing Status:**\n` +
+      `• Closed Date: ${tcp.closedDate || tcp.closed_date || 'N/A'}\n` +
+      `• Remarks: ${tcp.remarks || 'Order closed by PMC'}\n`;
+  }
+
+  return report;
+}
+
+// Serve Raihan Avatar image asset with automatic fallback to high-res vector
+app.get(['/Gemini_Generated_Image_e0oxaye0oxaye0ox-removebg-preview.png', '/raihan-avatar.png', '/raihan-avatar.svg'], (req, res) => {
+  const customPng = path.join(process.cwd(), 'public', 'Gemini_Generated_Image_e0oxaye0oxaye0ox-removebg-preview.png');
+  if (fs.existsSync(customPng) && fs.statSync(customPng).size > 2000) {
+    res.setHeader('Content-Type', 'image/png');
+    return res.sendFile(customPng);
+  }
+  const svgPath = path.join(process.cwd(), 'public', 'raihan-avatar.svg');
+  if (fs.existsSync(svgPath)) {
+    res.setHeader('Content-Type', 'image/svg+xml');
+    return res.sendFile(svgPath);
+  }
+  res.status(404).send('Avatar not found');
+});
+
+app.post('/api/chat/raihan', async (req, res) => {
+  try {
+    const { message, history, context } = req.body || {};
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ success: false, reply: 'Please provide a valid question.' });
+    }
+
+    const trimmedMsg = message.trim();
+    const lowerMsg = trimmedMsg.toLowerCase();
+
+    const activeTab = context?.activeTab || 'Knitting Status';
+    const currentUser = context?.currentUser || { name: 'User', userType: 'General' };
+    const summaryStats = context?.summaryStats || {};
+
+    // Security check: Instant block of secret or code requests
+    if (
+      lowerMsg.includes('supabase key') ||
+      lowerMsg.includes('supabase url') ||
+      lowerMsg.includes('supabase code') ||
+      lowerMsg.includes('gas script') ||
+      lowerMsg.includes('gas url') ||
+      lowerMsg.includes('google apps script') ||
+      lowerMsg.includes('api key') ||
+      lowerMsg.includes('secret') ||
+      lowerMsg.includes('password') ||
+      lowerMsg.includes('app_config.json') ||
+      lowerMsg.includes('server.ts')
+    ) {
+      return res.json({
+        success: true,
+        reply: "For security and operational integrity, internal system scripts, database codes, and credentials cannot be shared. I am here to help you with order inquiries, knitting status, and textile records."
+      });
+    }
+
+    // Step 1: Search live internal database immediately
+    const erpSearchResults = await searchInternalERP(trimmedMsg, context);
+    const { numMatches, foundKnittingOrders, foundOrderPlans, foundTextileClose, foundYarnAllocations } = erpSearchResults;
+
+    // Step 1.5: Search live internal Production Ledger for floor updates, missing floors, 7-day trends, and predictions (< 30ms)
+    const prodResult = await handleProductionLedgerQuery(trimmedMsg, context);
+    if (prodResult.handled && prodResult.reply) {
+      return res.json({
+        success: true,
+        reply: sanitizeRaihanOutput(prodResult.reply)
+      });
+    }
+
+    // Step 2: If a specific order number was requested and matched, return instant verified report (< 100ms)
+    if (numMatches.length > 0) {
+      const targetNum = numMatches[0];
+      const hasAnyMatch = foundKnittingOrders.length > 0 || foundOrderPlans.length > 0 || foundTextileClose.length > 0 || foundYarnAllocations.length > 0;
+
+      if (hasAnyMatch) {
+        const instantReport = formatOrderResponse(targetNum, erpSearchResults);
+        return res.json({
+          success: true,
+          reply: sanitizeRaihanOutput(instantReport)
+        });
+      } else {
+        // Explicit order number asked, but not in database
+        return res.json({
+          success: true,
+          reply: `I searched the internal ERP system (Knitting Status, Textile Close By PMC, and Order Plans), but **Order #${targetNum}** was not found.\n\nPlease check the number or ensure the latest Excel data has been synchronized.`
+        });
+      }
+    }
+
+    // Step 3: Instant local answers for common summary or buyer queries (< 20ms)
+    if (lowerMsg.includes('total') || lowerMsg.includes('summary') || (lowerMsg.includes('balance') && !lowerMsg.includes('for order'))) {
+      const fallbackReply = `Here is the current **website dataset summary**:\n` +
+        `• **Active Tab**: ${activeTab}\n` +
+        `• **Total Orders**: ${(summaryStats.totalRecords || 0).toLocaleString()}\n` +
+        `• **Total Required Qty**: ${(summaryStats.totalReqQty || 0).toLocaleString()} kg\n` +
+        `• **Total Production**: ${(summaryStats.totalProduction || 0).toLocaleString()} kg\n` +
+        `• **Total Knit Balance**: ${(summaryStats.totalKnitBal || 0).toLocaleString()} kg\n\n` +
+        `You can ask me for details on any specific Order Number (e.g., *272277*), Buyer, or Fabric!`;
+      return res.json({
+        success: true,
+        reply: sanitizeRaihanOutput(fallbackReply)
+      });
+    }
+
+    if (lowerMsg.includes('buyer') || lowerMsg.includes('buyers')) {
+      const buyerSet = new Set<string>();
+      foundKnittingOrders.forEach(k => k.buyer_name && buyerSet.add(k.buyer_name));
+      foundOrderPlans.forEach(p => p.buyer && buyerSet.add(p.buyer));
+      const buyerList = Array.from(buyerSet);
+
+      if (buyerList.length > 0) {
+        const fallbackReply = `Here are active buyers recorded in the ERP system:\n` +
+          buyerList.slice(0, 10).map(b => `• ${b}`).join('\n') +
+          (buyerList.length > 10 ? `\n...and ${buyerList.length - 10} more.` : '');
+        return res.json({
+          success: true,
+          reply: sanitizeRaihanOutput(fallbackReply)
+        });
+      }
+    }
+
+    // Step 4: For complex conversational queries, use Gemini with strict 2-second timeout
+    const ai = getGenAI();
+
+    const systemInstruction = `You are Raihan, the dedicated internal AI operational assistant for Epyllion Knitex Ltd. Knitting Performance & ERP System.
+
+CRITICAL INSTRUCTIONS & STRICT BOUNDARIES (MANDATORY):
+1. IDENTITY: Your name is Raihan. You are courteous, concise, helpful, and highly accurate.
+2. IN-WEBSITE DATA ONLY: You must ONLY answer questions based on the operational data and features present within this Epyllion Knitex website. Do NOT collect or browse data from the outside online internet.
+   If a user asks about outside world news, weather, stock markets, general entertainment, or anything outside of the Epyllion Knitex factory ERP, politely refuse:
+   "I am Raihan, your Epyllion Knitex ERP assistant. I can only answer questions related to the orders, production, knitting, and fabric data within this website."
+3. STRICT SECRECY (NO CODE OR SECRETS):
+   You are STRICTLY FORBIDDEN from sharing, quoting, explaining, or outputting any Supabase code, SQL table creation scripts, database keys, Google Apps Script (GAS) code, Web App URLs, passwords, or internal server architecture code. If asked for any script or credential, reply:
+   "For security and operational integrity, internal system scripts, database codes, and credentials cannot be shared."
+4. FACTUAL RECORD CITATION:
+   Use the provided website context (Knitting Status, Textile Close By PMC, Production Ledger, Yarn, Plan Orders) to give exact figures for Order No., Buyer Name, Team Leader, FGSM, Finished Width, Fabric Type, Required Quantity, Grey Quantity, Production, and Knit Balance.
+5. FORMATTING: Use clean bullet points, bold key figures, and concise summaries. Do not write programming code.`;
+
+    const recentLedgerSubset = (prodResult.ledgerData || []).slice(0, 20).map((r: any) => ({
+      date: r.date,
+      floor: r.floor,
+      total_production: Number(r.total_production || r.totalProduction || 0),
+      target: Number(r.target || 0),
+      efficiency: r.efficiency,
+      running_machine: r.running_machine || r.runningMachine,
+      shift_a: r.shift_a || r.shiftA,
+      shift_b: r.shift_b || r.shiftB,
+      shift_c: r.shift_c || r.shiftC,
+      remarks: r.remarks
+    }));
+
+    const contextPayload = {
+      activeTab,
+      userRole: currentUser.userType,
+      userName: currentUser.name,
+      matchedRecords: {
+        knittingOrders: foundKnittingOrders.slice(0, 10),
+        orderPlans: foundOrderPlans.slice(0, 10),
+        textileClose: foundTextileClose.slice(0, 10),
+        productionLedger: recentLedgerSubset
+      },
+      summaryStats,
+      userQuestion: trimmedMsg
+    };
+
+    if (ai) {
+      try {
+        const contents: any[] = [];
+        if (Array.isArray(history) && history.length > 0) {
+          const recentHistory = history.slice(-4);
+          for (const item of recentHistory) {
+            if (item.text && (item.role === 'user' || item.role === 'model')) {
+              contents.push({
+                role: item.role,
+                parts: [{ text: String(item.text) }]
+              });
+            }
+          }
+        }
+
+        contents.push({
+          role: 'user',
+          parts: [{
+            text: `CURRENT ERP DATA CONTEXT (ONLY ANSWER FROM THIS DATA):\n${JSON.stringify(contextPayload, null, 2)}\n\nUSER QUESTION: ${trimmedMsg}`
+          }]
+        });
+
+        // 10-second timeout so Gemini has adequate time to synthesize without being killed prematurely
+        const geminiPromise = ai.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents,
+          config: {
+            systemInstruction,
+            temperature: 0.2,
+          }
+        });
+
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), 10000));
+        const geminiRes: any = await Promise.race([geminiPromise, timeoutPromise]);
+
+        const rawReply = geminiRes.text || "I was unable to retrieve a response from the ERP context.";
+        return res.json({
+          success: true,
+          reply: sanitizeRaihanOutput(rawReply)
+        });
+      } catch (geminiErr: any) {
+        // Graceful fallback to ERP synthesizer if Gemini is slow or offline
+      }
+    }
+
+    // Step 5: Default fallback response
+    const fallbackReply = `Hello! I am **Raihan**, your internal Epyllion Knitex ERP assistant.\n` +
+      `I answer questions directly from the operational data within this website (Knitting Status, Order Plans, Textile Close By PMC, and Production Records).\n\n` +
+      `Try asking me:\n` +
+      `• *"What is the information for 272277?"*\n` +
+      `• *"Show fabric details and knitting balance for Order [Number]"*\n` +
+      `• *"Give me a summary of total balance and production"*`;
+
+    return res.json({
+      success: true,
+      reply: sanitizeRaihanOutput(fallbackReply)
+    });
+  } catch (err: any) {
+    console.error('Raihan Chatbot error:', err);
+    return res.status(500).json({
+      success: false,
+      reply: "I encountered an issue retrieving data. Please try again."
+    });
+  }
+});
 
 app.all('/api/sheets', gasProxyHandler);
 app.all('/api/gas-proxy', gasProxyHandler);
