@@ -17,11 +17,13 @@ import {
   Trash2, 
   Minimize2, 
   Maximize2, 
-  ChevronDown,
-  RefreshCw,
-  Search,
-  CheckCircle2,
-  FileSpreadsheet
+  ChevronDown, 
+  RefreshCw, 
+  Search, 
+  CheckCircle2, 
+  FileSpreadsheet,
+  Scissors,
+  Camera
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
 import { KnittingStatusStorage } from '../lib/knittingStatusStore';
@@ -29,6 +31,7 @@ import { TextileClosePMCStorage } from '../lib/textileClosePMCStore';
 import { useGlobalData } from '../context/GlobalDataContext';
 import { RaihanAvatar } from './RaihanAvatar';
 import { generateInitialLedger } from './ProductionLedgerView';
+import { RaihanSnippingModal } from './RaihanSnippingModal';
 import { 
   handleSmartProductionLedgerQuery, 
   handleSmartOrderQuery, 
@@ -74,6 +77,35 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
+
+  // Snipping Tool State
+  const [snipModalOpen, setSnipModalOpen] = useState(false);
+  const [snipTitle, setSnipTitle] = useState('Raihan ERP Summary');
+  const [snipRawText, setSnipRawText] = useState('');
+
+  const handleSnipMessage = (_msgId: string, text: string) => {
+    let title = 'Raihan ERP Summary';
+    const orderMatch = text.match(/Order #?(\d+)/i) || text.match(/#(\d+)/);
+    if (orderMatch) {
+      title = `Order #${orderMatch[1]} Summary`;
+    } else if (text.toLowerCase().includes('daily production') || text.toLowerCase().includes('knitting status')) {
+      title = 'Knitting Floor Production Report';
+    }
+
+    setSnipTitle(title);
+    setSnipRawText(text);
+    setSnipModalOpen(true);
+  };
+
+  const handleSnipLatestSummary = () => {
+    const lastBotMsg = [...messages].reverse().find(m => m.role === 'model' && !m.id.startsWith('welcome-'));
+    if (lastBotMsg) {
+      handleSnipMessage(lastBotMsg.id, lastBotMsg.text);
+    } else if (messages.length > 0) {
+      const lastMsg = messages[messages.length - 1];
+      handleSnipMessage(lastMsg.id, lastMsg.text);
+    }
+  };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -668,15 +700,29 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
-                  {dataRows.map((row, rIdx) => (
-                    <tr key={rIdx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
-                      {row.map((cell, cIdx) => (
-                        <td key={cIdx} className="px-2.5 py-1.5 whitespace-nowrap text-slate-800 dark:text-slate-200">
-                          {renderInline(cell)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
+                  {dataRows.map((row, rIdx) => {
+                    const isTotalRow = row.some(cell => cell.includes('**Total**') || cell.trim().toLowerCase() === 'total');
+                    return (
+                      <tr
+                        key={rIdx}
+                        className={isTotalRow
+                          ? "bg-emerald-50/70 dark:bg-emerald-950/40 font-bold border-t-2 border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white"
+                          : "hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors"
+                        }
+                      >
+                        {row.map((cell, cIdx) => (
+                          <td
+                            key={cIdx}
+                            className={`px-2.5 py-1.5 whitespace-nowrap ${
+                              isTotalRow ? 'font-bold text-slate-900 dark:text-white' : 'text-slate-800 dark:text-slate-200'
+                            }`}
+                          >
+                            {renderInline(cell)}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -894,6 +940,17 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
             </div>
 
             <div className="flex items-center gap-1">
+              {/* Snipping Tool button in header */}
+              <button
+                type="button"
+                onClick={handleSnipLatestSummary}
+                className="p-1.5 rounded-lg text-teal-100 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title="Snipping Tool · Capture HD Summary Image"
+                aria-label="Snipping Tool"
+              >
+                <Scissors className="w-4 h-4" />
+              </button>
+
               {/* Minimize to dock button */}
               <button
                 type="button"
@@ -979,15 +1036,27 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
                         : 'bg-teal-600 text-white rounded-br-none font-medium'
                     }`}
                   >
-                    <div className="text-[12.5px] leading-relaxed">
+                    <div id={`raihan-msg-content-${msg.id}`} className="text-[12.5px] leading-relaxed">
                       {renderFormattedText(msg.text)}
                     </div>
                     <div
-                      className={`text-[10px] mt-1.5 ${
-                        isBot ? 'text-slate-400 dark:text-slate-500' : 'text-teal-100 text-right'
+                      className={`flex items-center justify-between mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-700/60 no-snip ${
+                        isBot ? 'text-slate-400 dark:text-slate-500' : 'text-teal-100'
                       }`}
                     >
-                      {msg.timestamp}
+                      <span className="text-[10px]">{msg.timestamp}</span>
+
+                      {isBot && !isWelcome && (
+                        <button
+                          type="button"
+                          onClick={() => handleSnipMessage(msg.id, msg.text)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/70 hover:bg-teal-100 dark:hover:bg-teal-900/80 border border-teal-300/80 dark:border-teal-700/80 transition-all cursor-pointer shadow-2xs group"
+                          title="Snipping Tool · Save & share clear summary image"
+                        >
+                          <Scissors className="w-3 h-3 text-teal-600 dark:text-teal-400 group-hover:rotate-12 transition-transform" />
+                          <span>Snipping Tool</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1099,6 +1168,14 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
           </div>
         </div>
       )}
+
+      {/* High-Definition Snipping Tool Modal */}
+      <RaihanSnippingModal
+        isOpen={snipModalOpen}
+        onClose={() => setSnipModalOpen(false)}
+        title={snipTitle}
+        rawText={snipRawText}
+      />
     </>
   );
 };

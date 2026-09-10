@@ -1210,7 +1210,10 @@ async function handleProductionLedgerQuery(trimmedMsg: string, clientContext: an
 
     const overallEff = totalTarget > 0 ? ((totalProd / totalTarget) * 100).toFixed(1) : 'N/A';
 
-    reply += `\n**Operational Summary (${formatHumanDate(targetDate)}):**\n` +
+    // Add Total summary row to table
+    reply += `| **Total** | **${totalProd.toLocaleString()} kg** | **${totalTarget.toLocaleString()} kg** | **${overallEff}%** | **${totalRunningMc}** | - | - |\n\n`;
+
+    reply += `**📊 Total Summary (${formatHumanDate(targetDate)}):**\n` +
       `• **Total Factory Production**: **${totalProd.toLocaleString()} kg** (Target: ${totalTarget.toLocaleString()} kg | Overall Eff: **${overallEff}%**)\n` +
       `• **In-House Total**: **${inHouseProd.toLocaleString()} kg** | **Sub-Contact Total**: **${subContactProd.toLocaleString()} kg**\n` +
       `• **Total Running Machines**: **${totalRunningMc} machines**\n`;
@@ -1653,11 +1656,35 @@ function formatOrderResponse(orderNum: string, erpData: any, userQuery: string =
 
     if (groups.size === 0) return '';
 
+    // Sort data like Color | Fabric Type:
+    // If there is too many color then sort all the same stays together, Then Fabrication
+    const sortedItems = Array.from(groups.values()).sort((a, b) => {
+      const colorA = a.color.trim();
+      const colorB = b.color.trim();
+      const cmpColor = colorA.localeCompare(colorB, undefined, { sensitivity: 'base' });
+      if (cmpColor !== 0) return cmpColor;
+
+      const fabA = a.fabricType.trim();
+      const fabB = b.fabricType.trim();
+      const cmpFab = fabA.localeCompare(fabB, undefined, { sensitivity: 'base' });
+      if (cmpFab !== 0) return cmpFab;
+
+      return a.allocatedYarn.trim().localeCompare(b.allocatedYarn.trim(), undefined, { sensitivity: 'base' });
+    });
+
+    let sumAllocated = 0;
     let table = `| Color | Fabric Type | Allocated Yarn | Lot | Spinner | Sum of Allocated QTY |\n`;
-    table += `| --- | --- | --- | --- | --- | --- |\n`;
-    for (const item of groups.values()) {
+    table += `| :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+    for (const item of sortedItems) {
+      sumAllocated += item.allocatedQty;
       table += `| ${item.color} | ${item.fabricType} | ${item.allocatedYarn} | ${item.lot} | ${item.spinner} | ${item.allocatedQty.toLocaleString()} kg |\n`;
     }
+
+    // Add Total summary row to table
+    table += `| **Total** | - | - | - | - | **${sumAllocated.toLocaleString()} kg** |\n\n`;
+
+    // Add Total Summary after data chart
+    table += `**🧶 Total Summary:** Total Allocated Yarn: **${sumAllocated.toLocaleString()} kg**`;
 
     return table.trim();
   };
@@ -1681,31 +1708,62 @@ function formatOrderResponse(orderNum: string, erpData: any, userQuery: string =
       const fabricType = orderFallback.fabrication || orderFallback.fabType || 'Knitted Fabric';
       const gsm = orderFallback.fgsm ? String(orderFallback.fgsm) : 'N/A';
       const width = orderFallback.fWidth ? String(orderFallback.fWidth) : (orderFallback.finishedDia ? String(orderFallback.finishedDia) : 'N/A');
-      const reqVal = `${Number(orderFallback.reqQty ?? orderFallback.req_qty ?? 0).toLocaleString()} kg`;
-      const greyVal = `${Number(orderFallback.greyQty ?? orderFallback.grey_qty ?? 0).toLocaleString()} kg`;
-      const prodVal = `${Number(orderFallback.production ?? 0).toLocaleString()} kg`;
-      const balVal = `${Number(orderFallback.knitBalance ?? orderFallback.knitBal ?? (Number(orderFallback.greyQty || 0) - Number(orderFallback.production || 0))).toLocaleString()} kg`;
+      const reqVal = Number(orderFallback.reqQty ?? orderFallback.req_qty ?? 0);
+      const greyVal = Number(orderFallback.greyQty ?? orderFallback.grey_qty ?? 0);
+      const prodVal = Number(orderFallback.production ?? 0);
+      const balVal = Number(orderFallback.knitBalance ?? orderFallback.knitBal ?? (greyVal - prodVal));
 
       return `| Color | Fabric Type | GSM | Width | Req. QTY | Grey QTY | Production | Balance |\n` +
-        `| --- | --- | --- | --- | --- | --- | --- | --- |\n` +
-        `| ${color} | ${fabricType} | ${gsm} | ${width} | ${reqVal} | ${greyVal} | ${prodVal} | ${balVal} |`;
+        `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n` +
+        `| ${color} | ${fabricType} | ${gsm} | ${width} | ${reqVal.toLocaleString()} kg | ${greyVal.toLocaleString()} kg | ${prodVal.toLocaleString()} kg | ${balVal.toLocaleString()} kg |\n` +
+        `| **Total** | - | - | - | **${reqVal.toLocaleString()} kg** | **${greyVal.toLocaleString()} kg** | **${prodVal.toLocaleString()} kg** | **${balVal.toLocaleString()} kg** |\n\n` +
+        `**📊 Total Summary:** Req: **${reqVal.toLocaleString()} kg** | Grey: **${greyVal.toLocaleString()} kg** | Production: **${prodVal.toLocaleString()} kg** | Balance: **${balVal.toLocaleString()} kg**`;
     }
 
+    // Sort data like Color | Fabric Type:
+    // If there is too many color then sort all the same stays together, Then Fabrication
+    itemList.sort((a, b) => {
+      const colorA = String(a.color || 'Standard').trim();
+      const colorB = String(b.color || 'Standard').trim();
+      const cmpColor = colorA.localeCompare(colorB, undefined, { sensitivity: 'base' });
+      if (cmpColor !== 0) return cmpColor;
+
+      const fabA = String(a.fabType || a.fabrication || a.mcType || '').trim();
+      const fabB = String(b.fabType || b.fabrication || b.mcType || '').trim();
+      return fabA.localeCompare(fabB, undefined, { sensitivity: 'base' });
+    });
+
+    let sumReq = 0;
+    let sumGrey = 0;
+    let sumProd = 0;
+    let sumBal = 0;
+
     let table = `| Color | Fabric Type | GSM | Width | Req. QTY | Grey QTY | Production | Balance |\n`;
-    table += `| --- | --- | --- | --- | --- | --- | --- | --- |\n`;
+    table += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
 
     for (const it of itemList) {
       const color = String(it.color || 'Standard').trim();
       const fabricType = String(it.fabType || it.fabrication || it.mcType || 'Knitted Fabric').trim();
       const gsm = it.fgsm ? String(it.fgsm) : 'N/A';
       const width = it.fWidth ? String(it.fWidth) : (it.finishedDia ? String(it.finishedDia) : 'N/A');
-      const reqVal = `${Number(it.reqQty ?? it.req_qty ?? 0).toLocaleString()} kg`;
-      const greyVal = `${Number(it.greyQty ?? it.grey_qty ?? 0).toLocaleString()} kg`;
-      const prodVal = `${Number(it.production ?? 0).toLocaleString()} kg`;
-      const balVal = `${Number(it.knitBalance ?? (Number(it.greyQty ?? it.grey_qty ?? 0) - Number(it.production ?? 0))).toLocaleString()} kg`;
+      const reqNum = Number(it.reqQty ?? it.req_qty ?? 0);
+      const greyNum = Number(it.greyQty ?? it.grey_qty ?? 0);
+      const prodNum = Number(it.production ?? 0);
+      const balNum = Number(it.knitBalance ?? (greyNum - prodNum));
 
-      table += `| ${color} | ${fabricType} | ${gsm} | ${width} | ${reqVal} | ${greyVal} | ${prodVal} | ${balVal} |\n`;
+      sumReq += reqNum;
+      sumGrey += greyNum;
+      sumProd += prodNum;
+      sumBal += balNum;
+
+      table += `| ${color} | ${fabricType} | ${gsm} | ${width} | ${reqNum.toLocaleString()} kg | ${greyNum.toLocaleString()} kg | ${prodNum.toLocaleString()} kg | ${balNum.toLocaleString()} kg |\n`;
     }
+
+    // Add Total summary row to table
+    table += `| **Total** | - | - | - | **${sumReq.toLocaleString()} kg** | **${sumGrey.toLocaleString()} kg** | **${sumProd.toLocaleString()} kg** | **${sumBal.toLocaleString()} kg** |\n\n`;
+
+    // Add Total Summary after data chart
+    table += `**📊 Total Summary:** Req: **${sumReq.toLocaleString()} kg** | Grey: **${sumGrey.toLocaleString()} kg** | Production: **${sumProd.toLocaleString()} kg** | Balance: **${sumBal.toLocaleString()} kg**`;
 
     return table.trim();
   };
