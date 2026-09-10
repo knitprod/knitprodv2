@@ -7,6 +7,7 @@
  */
 
 import { GoogleGenAI } from '@google/genai';
+import { handleSmartProductionLedgerQuery, normalizeQueryString } from '../../src/lib/raihanIntelligence';
 
 let cachedGenAI: GoogleGenAI | null = null;
 function getGenAI(): GoogleGenAI | null {
@@ -53,9 +54,21 @@ export default async function handler(req: any, res: any) {
     }
 
     const trimmedMsg = message.trim();
-    const lowerMsg = trimmedMsg.toLowerCase();
+    const normalizedMsg = normalizeQueryString(trimmedMsg);
+    const lowerMsg = normalizedMsg.toLowerCase();
     const activeTab = context?.activeTab || 'Knitting Status';
     const summaryStats = context?.summaryStats || {};
+
+    // 0. Production Ledger Check (Yesterday's floor-by-floor, missing floors, 7-day, forecast)
+    const ledgerRecords = Array.isArray(context?.ledger) ? context.ledger : [];
+    const floorList = Array.isArray(context?.floors) ? context.floors : [];
+    const prodResult = handleSmartProductionLedgerQuery(trimmedMsg, ledgerRecords, floorList);
+    if (prodResult.handled && prodResult.reply) {
+      return res.status(200).json({
+        success: true,
+        reply: sanitizeOutput(prodResult.reply)
+      });
+    }
 
     // 1. Detect order number from current message or multi-turn history
     let numMatches: string[] = trimmedMsg.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || [];
