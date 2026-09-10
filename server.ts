@@ -1503,6 +1503,20 @@ async function searchInternalERP(queryStr: string, clientContext: any, explicitO
     }
   }
 
+  // 4. Search client-sent yarn allocations
+  if (Array.isArray(clientContext?.yarnAllocations)) {
+    for (const ya of clientContext.yarnAllocations) {
+      const yaOrd = String(ya.orderNumber || ya.order_number || '');
+      const matchesNum = numMatches.some(n => yaOrd.includes(n));
+      const matchesExplicit = Boolean(explicitOrderNum && yaOrd.includes(explicitOrderNum));
+      if (matchesNum || matchesExplicit) {
+        if (!foundYarnAllocations.some(y => (y.orderNumber || y.order_number) === yaOrd && y.fabricShade === ya.fabricShade && y.fabricsType === ya.fabricsType)) {
+          foundYarnAllocations.push(ya);
+        }
+      }
+    }
+  }
+
   return {
     numMatches,
     foundKnittingOrders,
@@ -1513,83 +1527,273 @@ async function searchInternalERP(queryStr: string, clientContext: any, explicitO
 }
 
 // Build instant, exact markdown report for a matched order
-function formatOrderResponse(orderNum: string, erpData: any): string {
-  const { foundKnittingOrders, foundOrderPlans, foundTextileClose, foundYarnAllocations } = erpData;
+function formatOrderResponse(orderNum: string, erpData: any, userQuery: string = ''): string {
+  const { foundKnittingOrders = [], foundOrderPlans = [], foundTextileClose = [], foundYarnAllocations = [] } = erpData;
 
-  const ko = foundKnittingOrders.find((k: any) => String(k.order_no || k.orderNo).includes(orderNum)) || foundKnittingOrders[0];
-  const op = foundOrderPlans.find((p: any) => String(p.ewo || p.id).includes(orderNum)) || foundOrderPlans[0];
-  const tcp = foundTextileClose.find((t: any) => String(t.order_no || t.orderNo).includes(orderNum)) || foundTextileClose[0];
-  const ya = foundYarnAllocations.find((y: any) => String(y.order_number || y.orderNumber).includes(orderNum)) || foundYarnAllocations[0];
+  const ko = foundKnittingOrders.find((k: any) => String(k.order_no || k.orderNo || '').toLowerCase().includes(orderNum.toLowerCase())) || foundKnittingOrders[0];
+  const opList = foundOrderPlans.filter((p: any) => String(p.ewo || p.id || '').toLowerCase().includes(orderNum.toLowerCase()));
+  const op = opList[0] || foundOrderPlans[0];
+  const tcp = foundTextileClose.find((t: any) => String(t.order_no || t.orderNo || '').toLowerCase().includes(orderNum.toLowerCase())) || foundTextileClose[0];
+  const yaList = foundYarnAllocations.filter((y: any) => String(y.order_number || y.orderNumber || '').toLowerCase().includes(orderNum.toLowerCase()));
+  const ya = yaList[0] || foundYarnAllocations[0];
 
-  if (!ko && !op && !tcp && !ya) {
+  if (!ko && !op && !tcp && yaList.length === 0) {
     return `I searched all website datasets (Knitting Status, Order Plans, Textile Close By PMC, and Yarn Allocations), but **Order #${orderNum}** was not found.\n\nPlease verify the order number or ensure the latest Excel data is synchronized.`;
   }
 
-  const buyer = ko?.buyer_name || ko?.buyerName || op?.buyer || tcp?.buyer_name || tcp?.buyerName || ya?.buyer || 'N/A';
-  const teamLeader = ko?.team_leader || ko?.teamLeader || op?.knit_team_leaders || op?.knitTeamLeaders || tcp?.team_leader || tcp?.teamLeader || 'N/A';
-  
-  // Extract numbers
+  const buyer = ko?.buyer_name || ko?.buyerName || ya?.buyer || op?.buyer || tcp?.buyer_name || tcp?.buyerName || 'Epyllion Buyer';
+  const teamLeader = ko?.team_leader || ko?.teamLeader || op?.knit_team_leaders || op?.knitTeamLeaders || tcp?.team_leader || tcp?.teamLeader || 'Unassigned';
+
+  // Extract Production Numbers
   const reqQty = Number(ko?.req_qty ?? ko?.reqQty ?? op?.target ?? tcp?.req_qty ?? tcp?.reqQty ?? 0);
   const greyQty = Number(ko?.grey_qty ?? ko?.greyQty ?? op?.allocated_qty ?? op?.allocatedQty ?? tcp?.grey_qty ?? tcp?.greyQty ?? 0);
   const prod = Number(ko?.production ?? op?.knit_pro ?? op?.knitPro ?? tcp?.production ?? 0);
   const balance = Number(ko?.knit_balance ?? ko?.knitBal ?? op?.knit_bal ?? op?.knitBal ?? tcp?.knit_bal ?? tcp?.knitBal ?? (greyQty - prod));
+  const prodStatus = tcp ? 'Closed (PMC)' : (balance <= 0 ? 'Completed' : (prod > 0 ? 'Running' : 'Pending'));
 
-  let report = `Here is the verified information for **Order #${orderNum}** from the internal ERP system:\n\n` +
-    `• **Buyer Name**: ${buyer}\n` +
-    `• **Team Leader**: ${teamLeader}\n` +
-    `• **Required Quantity**: ${reqQty.toLocaleString()} kg\n` +
-    `• **Grey Quantity**: ${greyQty.toLocaleString()} kg\n` +
-    `• **Production**: ${prod.toLocaleString()} kg\n` +
-    `• **Knitting Balance**: ${balance.toLocaleString()} kg\n` +
-    `• **Status**: ${tcp ? 'Closed (Textile Close By PMC)' : (balance <= 0 ? 'Completed' : (prod > 0 ? 'Running' : 'Pending'))}\n`;
+  // Extract Items and Fabrication
+  const rawItems = ko?.items || ko?.raw_data?.items || [];
+  const items: any[] = Array.isArray(rawItems) ? rawItems : [];
 
-  // Item details if available from knitting order
-  const rawItems = ko?.items || ko?.raw_data?.items;
-  if (Array.isArray(rawItems) && rawItems.length > 0) {
-    report += `\n**Fabric & Item Specifications (${rawItems.length} items):**\n`;
-    rawItems.forEach((itm: any, idx: number) => {
-      const fab = itm.fabType || itm.mcType || 'Fabric';
-      const color = itm.color || 'N/A';
-      const fgsm = itm.fgsm ? `${itm.fgsm} GSM` : 'N/A';
-      const fWidth = itm.fWidth ? `${itm.fWidth}"` : 'N/A';
-      const yarn = itm.yarnCount || 'N/A';
-      const itemReq = Number(itm.reqQty || 0).toLocaleString();
-      const itemGrey = Number(itm.greyQty || 0).toLocaleString();
-      const itemProd = Number(itm.production || 0).toLocaleString();
-      const itemBal = Number(itm.knitBalance ?? (Number(itm.greyQty || 0) - Number(itm.production || 0))).toLocaleString();
-      const unit = itm.productionUnit || 'Knitting Floor';
+  const rawFabrics: string[] = [];
+  if (ko?.fabrication) rawFabrics.push(ko.fabrication);
+  items.forEach((it: any) => {
+    if (it.fabrication) rawFabrics.push(it.fabrication);
+    else if (it.fabType) rawFabrics.push(it.fabType);
+  });
+  yaList.forEach((y: any) => {
+    if (y.fabrication) rawFabrics.push(y.fabrication);
+    else if (y.fabricsType) rawFabrics.push(y.fabricsType);
+  });
+  const uniqueFabrics = Array.from(new Set(rawFabrics.map(f => String(f).trim()).filter(Boolean)));
+  const mainFabrication = uniqueFabrics.join(', ') || ko?.fabrication || '100% Cotton Knitted Fabric';
 
-      report += `${idx + 1}. **${fab}** (${color})\n` +
-        `   • Specs: ${fgsm} | Width: ${fWidth} | Unit: ${unit}\n` +
-        `   • Yarn Count: ${yarn}\n` +
-        `   • Required: ${itemReq} kg | Grey: ${itemGrey} kg\n` +
-        `   • Production: ${itemProd} kg | **Balance: ${itemBal} kg**\n`;
+  const rawFabTypes: string[] = [];
+  items.forEach((it: any) => {
+    if (it.fabType) rawFabTypes.push(it.fabType);
+    else if (it.mcType) rawFabTypes.push(it.mcType);
+  });
+  yaList.forEach((y: any) => {
+    if (y.fabricsType) rawFabTypes.push(y.fabricsType);
+  });
+  const uniqueFabTypes = Array.from(new Set(rawFabTypes.map(f => String(f).trim()).filter(Boolean)));
+  const mainFabType = uniqueFabTypes.join(', ') || ko?.fabType || 'Knitted Fabric';
+
+  const firstItem = items[0];
+  const fgsm = firstItem?.fgsm ? `${firstItem.fgsm} GSM` : (yaList[0]?.fabricGsm ? `${yaList[0].fabricGsm} GSM` : 'N/A');
+  const fWidth = firstItem?.fWidth ? `${firstItem.fWidth}"` : (firstItem?.finishedDia || 'N/A');
+
+  // Extract Allocation Data
+  const totalYarnRq = yaList.reduce((acc: number, y: any) => acc + (Number(y.yarnRqQty || y.yarn_rq_qty) || 0), 0) || reqQty;
+  const totalAllocated = yaList.reduce((acc: number, y: any) => acc + (Number(y.allocatedQty || y.allocated_qty) || 0), 0) || Number(op?.allocated_qty || op?.allocatedQty || 0);
+  const totalAllocBalance = yaList.length > 0
+    ? yaList.reduce((acc: number, y: any) => acc + (Number(y.balance) || 0), 0)
+    : Number(op?.allocated_bal || op?.allocatedBal || 0);
+  const overallAllocStatus = totalAllocBalance <= 0 && (totalAllocated > 0 || yaList.length > 0)
+    ? 'Allocated'
+    : (totalAllocated > 0 ? 'Partially Allocated' : 'Pending Allocation');
+
+  // Helper: Build clean Allocated Yarn table
+  // Column format: Color|Fabric Type| Allocated Yarn|Lot|Spinner| Sum of Allocated QTY.
+  // "show only the allocated Yarn nothing else. If No Yarn Allocated show blank."
+  const buildAllocatedYarnTable = (rawList: any[], filterColor?: string): string => {
+    let list = Array.isArray(rawList) ? rawList : [];
+    if (filterColor) {
+      const fc = filterColor.toLowerCase();
+      list = list.filter(y => {
+        const c = String(y.fabricShade || y.fabric_shade || y.color || '').toLowerCase();
+        return c.includes(fc) || fc.includes(c);
+      });
+    }
+
+    // Filter only records that have actual allocated quantity > 0 and allocated yarn
+    const validRecords = list.filter(y => {
+      const qty = Number(y.allocatedQty ?? y.allocated_qty ?? 0);
+      const yarn = String(y.allocatedYarn || y.allocated_yarn || y.yarnRequired || '').trim();
+      return qty > 0 && yarn.length > 0;
     });
+
+    if (validRecords.length === 0) {
+      return ''; // Show blank if no yarn allocated
+    }
+
+    // Group by: Color + Fabric Type + Allocated Yarn + Lot + Spinner
+    const groups = new Map<string, {
+      color: string;
+      fabricType: string;
+      allocatedYarn: string;
+      lot: string;
+      spinner: string;
+      allocatedQty: number;
+    }>();
+
+    for (const y of validRecords) {
+      const color = String(y.fabricShade || y.fabric_shade || y.color || 'Standard Shade').trim();
+      const fabricType = String(y.fabricsType || y.fabrics_type || y.fabrication || 'Knitted Fabric').trim();
+      const allocatedYarn = String(y.allocatedYarn || y.allocated_yarn || y.yarnRequired || '').trim();
+      const lot = String(y.lotNo || y.lot_no || 'N/A').trim();
+      const spinner = String(y.spinnersName || y.spinners_name || 'N/A').trim();
+      const qty = Number(y.allocatedQty ?? y.allocated_qty ?? 0);
+
+      const key = `${color.toLowerCase()}__${fabricType.toLowerCase()}__${allocatedYarn.toLowerCase()}__${lot.toLowerCase()}__${spinner.toLowerCase()}`;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.allocatedQty += qty;
+      } else {
+        groups.set(key, {
+          color,
+          fabricType,
+          allocatedYarn,
+          lot,
+          spinner,
+          allocatedQty: qty
+        });
+      }
+    }
+
+    if (groups.size === 0) return '';
+
+    let table = `| Color | Fabric Type | Allocated Yarn | Lot | Spinner | Sum of Allocated QTY |\n`;
+    table += `| --- | --- | --- | --- | --- | --- |\n`;
+    for (const item of groups.values()) {
+      table += `| ${item.color} | ${item.fabricType} | ${item.allocatedYarn} | ${item.lot} | ${item.spinner} | ${item.allocatedQty.toLocaleString()} kg |\n`;
+    }
+
+    return table.trim();
+  };
+
+  // Helper: Build clean Production data table
+  // Column format: Color|Fabric Type| GSM|Width| Req. QTY|Grey QTY|Production|Balance.
+  const buildProductionTable = (rawItemList: any[], orderFallback?: any, filterColor?: string): string => {
+    let itemList = Array.isArray(rawItemList) ? [...rawItemList] : [];
+
+    if (filterColor && itemList.length > 0) {
+      const fc = filterColor.toLowerCase();
+      itemList = itemList.filter(it => {
+        const c = String(it.color || '').toLowerCase();
+        return c.includes(fc) || fc.includes(c);
+      });
+    }
+
+    if (itemList.length === 0) {
+      if (!orderFallback) return '';
+      const color = filterColor || orderFallback.color || 'Standard';
+      const fabricType = orderFallback.fabrication || orderFallback.fabType || 'Knitted Fabric';
+      const gsm = orderFallback.fgsm ? String(orderFallback.fgsm) : 'N/A';
+      const width = orderFallback.fWidth ? String(orderFallback.fWidth) : (orderFallback.finishedDia ? String(orderFallback.finishedDia) : 'N/A');
+      const reqVal = `${Number(orderFallback.reqQty ?? orderFallback.req_qty ?? 0).toLocaleString()} kg`;
+      const greyVal = `${Number(orderFallback.greyQty ?? orderFallback.grey_qty ?? 0).toLocaleString()} kg`;
+      const prodVal = `${Number(orderFallback.production ?? 0).toLocaleString()} kg`;
+      const balVal = `${Number(orderFallback.knitBalance ?? orderFallback.knitBal ?? (Number(orderFallback.greyQty || 0) - Number(orderFallback.production || 0))).toLocaleString()} kg`;
+
+      return `| Color | Fabric Type | GSM | Width | Req. QTY | Grey QTY | Production | Balance |\n` +
+        `| --- | --- | --- | --- | --- | --- | --- | --- |\n` +
+        `| ${color} | ${fabricType} | ${gsm} | ${width} | ${reqVal} | ${greyVal} | ${prodVal} | ${balVal} |`;
+    }
+
+    let table = `| Color | Fabric Type | GSM | Width | Req. QTY | Grey QTY | Production | Balance |\n`;
+    table += `| --- | --- | --- | --- | --- | --- | --- | --- |\n`;
+
+    for (const it of itemList) {
+      const color = String(it.color || 'Standard').trim();
+      const fabricType = String(it.fabType || it.fabrication || it.mcType || 'Knitted Fabric').trim();
+      const gsm = it.fgsm ? String(it.fgsm) : 'N/A';
+      const width = it.fWidth ? String(it.fWidth) : (it.finishedDia ? String(it.finishedDia) : 'N/A');
+      const reqVal = `${Number(it.reqQty ?? it.req_qty ?? 0).toLocaleString()} kg`;
+      const greyVal = `${Number(it.greyQty ?? it.grey_qty ?? 0).toLocaleString()} kg`;
+      const prodVal = `${Number(it.production ?? 0).toLocaleString()} kg`;
+      const balVal = `${Number(it.knitBalance ?? (Number(it.greyQty ?? it.grey_qty ?? 0) - Number(it.production ?? 0))).toLocaleString()} kg`;
+
+      table += `| ${color} | ${fabricType} | ${gsm} | ${width} | ${reqVal} | ${greyVal} | ${prodVal} | ${balVal} |\n`;
+    }
+
+    return table.trim();
+  };
+
+  // Parse Query Intent
+  const lowerQ = userQuery.toLowerCase().trim();
+  const asksAllocOnly = (lowerQ.includes('alloc') || lowerQ.includes('yarn') || lowerQ.includes('lot') || lowerQ.includes('spinner')) &&
+    !lowerQ.includes('prod') && !lowerQ.includes('knit');
+  const asksProdOnly = (lowerQ.includes('prod') || lowerQ.includes('production') || lowerQ.includes('knitting')) &&
+    !lowerQ.includes('alloc') && !lowerQ.includes('yarn');
+
+  // Candidate colors
+  const orderColors: string[] = [];
+  items.forEach((it: any) => {
+    if (it.color && !orderColors.includes(it.color)) orderColors.push(it.color);
+  });
+  yaList.forEach((y: any) => {
+    const s = y.fabricShade || y.fabric_shade;
+    if (s && !orderColors.includes(s)) orderColors.push(s);
+  });
+  if (op?.color && !orderColors.includes(op.color)) orderColors.push(op.color);
+
+  const KNOWN_COLORS = [
+    'slate grey', 'grey mix', 'heather grey', 'charcoal', 'navy blue', 'dark olive', 
+    'olive green', 'bright white', 'pure white', 'pitch black', 'burgundy red',
+    'black', 'white', 'grey', 'gray', 'blue', 'navy', 'red', 'green', 'olive', 
+    'yellow', 'maroon', 'orange', 'pink', 'purple', 'oatmeal', 'melange', 'stripe'
+  ];
+
+  const candidateColors = Array.from(new Set([...orderColors, ...KNOWN_COLORS]))
+    .filter(c => c && c.trim().length >= 3)
+    .sort((a, b) => b.length - a.length);
+
+  let matchedColor: string | null = null;
+  for (const cand of candidateColors) {
+    const cLower = cand.toLowerCase();
+    const reg = new RegExp(`(^|[^a-z0-9])${cLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`, 'i');
+    if (reg.test(lowerQ)) {
+      matchedColor = cand;
+      break;
+    }
   }
 
-  // Plan order specifications
-  if (op) {
-    const planMonth = op.plan_month || op.planMonth || 'Current Plan';
-    const planType = op.plan_type || op.planType || 'Tentative';
-    const target = Number(op.target || 0).toLocaleString();
-    const allocated = Number(op.allocated_qty || op.allocatedQty || 0).toLocaleString();
-    const knitStart = op.knit_start || op.knitStart || 'N/A';
-    const knitEnd = op.knit_end || op.knitEnd || 'N/A';
+  // CASE 1: Handle color-specific request: "eg: 271522 black"
+  if (matchedColor) {
+    const prodTable = buildProductionTable(items, ko || op, matchedColor);
+    const allocTable = buildAllocatedYarnTable(yaList, matchedColor);
 
-    report += `\n**Order Planning Details:**\n` +
-      `• Plan Month: **${planMonth}** (${planType})\n` +
-      `• Target: ${target} kg | Allocated: ${allocated} kg\n` +
-      `• Knitting Schedule: ${knitStart} to ${knitEnd}\n`;
+    let reply = `### 📊 Order #${orderNum} Details for Color: **${matchedColor}** (${buyer})\n\n`;
+    if (prodTable) {
+      reply += `#### 🏭 Production Data:\n${prodTable}\n\n`;
+    }
+    if (allocTable) {
+      reply += `#### 🧶 Allocated Yarn:\n${allocTable}`;
+    }
+
+    return reply.trim();
   }
 
-  // Textile Close PMC details if closed
-  if (tcp) {
-    report += `\n**PMC Closing Status:**\n` +
-      `• Closed Date: ${tcp.closedDate || tcp.closed_date || 'N/A'}\n` +
-      `• Remarks: ${tcp.remarks || 'Order closed by PMC'}\n`;
+  // CASE 2: Handle Allocation-only request: "eg: 271522 Allocation"
+  // "show only the allocated Yarn nothing else. If No Yarn Allocated show blank."
+  if (asksAllocOnly) {
+    const allocTable = buildAllocatedYarnTable(yaList);
+    if (!allocTable) {
+      return `### 🧶 Allocated Yarn for Order #${orderNum} (${buyer}):\n\n*(No Yarn Allocated)*`;
+    }
+    return `### 🧶 Allocated Yarn for Order #${orderNum} (${buyer}):\n\n${allocTable}`;
   }
 
-  return report;
+  // CASE 3: Handle Production-only request: "eg: 271522 Production"
+  if (asksProdOnly) {
+    const prodTable = buildProductionTable(items, ko || op);
+    return `### 🏭 Production Data for Order #${orderNum} (${buyer}):\n\n${prodTable}`;
+  }
+
+  // CASE 4: Default: Show Production and Allocated Yarn data
+  const prodTable = buildProductionTable(items, ko || op);
+  const allocTable = buildAllocatedYarnTable(yaList);
+
+  let combinedReport = `Here is the verified information for **Order #${orderNum}** (${buyer}):\n\n`;
+  if (prodTable) {
+    combinedReport += `#### 🏭 Production Data:\n${prodTable}\n\n`;
+  }
+  if (allocTable) {
+    combinedReport += `#### 🧶 Allocated Yarn:\n${allocTable}`;
+  }
+
+  return combinedReport.trim();
 }
 
 function searchOrdersByColor(colorQuery: string, erpData: any, clientContext: any): Array<{ orderNo: string; buyer: string; color: string; balance: number }> {
@@ -1901,7 +2105,7 @@ app.post('/api/chat/raihan', async (req, res) => {
       const hasAnyMatch = foundKnittingOrders.length > 0 || foundOrderPlans.length > 0 || foundTextileClose.length > 0 || foundYarnAllocations.length > 0;
 
       if (hasAnyMatch) {
-        const instantReport = formatOrderResponse(targetNum, erpSearchResults);
+        const instantReport = formatOrderResponse(targetNum, erpSearchResults, trimmedMsg);
         return res.json({
           success: true,
           reply: sanitizeRaihanOutput(instantReport)
@@ -2057,7 +2261,7 @@ CRITICAL INSTRUCTIONS & STRICT BOUNDARIES (MANDATORY):
     // Step 5: Intelligent local ERP synthesizer fallback (resilient against Gemini rate limits/429)
     if (activeOrderNum) {
       const activeReport = handleConversationalFollowUp(trimmedMsg, activeOrderNum, erpSearchResults, context) ||
-        formatOrderResponse(activeOrderNum, erpSearchResults);
+        formatOrderResponse(activeOrderNum, erpSearchResults, trimmedMsg);
       return res.json({
         success: true,
         reply: sanitizeRaihanOutput(activeReport)
@@ -2070,7 +2274,7 @@ CRITICAL INSTRUCTIONS & STRICT BOUNDARIES (MANDATORY):
       if (topNum) {
         return res.json({
           success: true,
-          reply: sanitizeRaihanOutput(formatOrderResponse(topNum, erpSearchResults))
+          reply: sanitizeRaihanOutput(formatOrderResponse(topNum, erpSearchResults, trimmedMsg))
         });
       }
     }

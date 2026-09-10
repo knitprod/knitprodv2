@@ -762,6 +762,18 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
             ]) || ''
           ).trim();
 
+          const fabrication = String(
+            getExcelValue(row, [
+              'Fabrication',
+              'Fabrication Description',
+              'Fabrication Details',
+              'Fabric Composition',
+              'Composition',
+              'Fab. Type',
+              'Fabric Type'
+            ]) || ''
+          ).trim() || fabType;
+
           const rawFgsm = getExcelValue(row, ['FGSM', 'GSM', 'Finish GSM', 'F.GSM']);
           const fgsm = rawFgsm !== '' && rawFgsm !== undefined
             ? (isNaN(Number(rawFgsm)) ? String(rawFgsm).trim() : Number(rawFgsm))
@@ -796,6 +808,7 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
               color: color || '',
               mcType: mcType || '',
               fabType: fabType || '',
+              fabrication: fabrication || fabType || '',
               fgsm: fgsm,
               fWidth: fWidth,
               yarnCount: actualCount || '',
@@ -812,6 +825,9 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
               productionUnit: productionUnit,
               avgProdPerDay: avgProdPerDay
             };
+            if (!existing.fabrication && fabrication) {
+              existing.fabrication = fabrication;
+            }
             existing.items.push(item);
           }
         });

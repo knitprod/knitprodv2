@@ -1,61 +1,137 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface RaihanAvatarProps {
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   showOnlineIndicator?: boolean;
   className?: string;
   avatarUrl?: string;
+  allowUpload?: boolean;
+  onAvatarChange?: (newUrl: string) => void;
 }
 
 export const RaihanAvatar: React.FC<RaihanAvatarProps> = ({
   size = 'md',
   showOnlineIndicator = false,
   className = '',
-  avatarUrl = '/Gemini_Generated_Image_e0oxaye0oxaye0ox-removebg-preview.png'
+  avatarUrl,
+  allowUpload = false,
+  onAvatarChange
 }) => {
-  const [hasError, setHasError] = useState(false);
-
   // Dimension mapping
   const sizeMap = {
-    xs: { outer: 'w-5 h-5', inner: 'w-5 h-5', dot: 'w-1.5 h-1.5' },
-    sm: { outer: 'w-7 h-7', inner: 'w-7 h-7', dot: 'w-2 h-2' },
-    md: { outer: 'w-9 h-9', inner: 'w-9 h-9', dot: 'w-2.5 h-2.5' },
-    lg: { outer: 'w-11 h-11', inner: 'w-11 h-11', dot: 'w-3 h-3' },
-    xl: { outer: 'w-14 h-14', inner: 'w-14 h-14', dot: 'w-3.5 h-3.5' },
+    xs: { outer: 'w-6 h-6', inner: 'w-6 h-6', dot: 'w-1.5 h-1.5' },
+    sm: { outer: 'w-8 h-8', inner: 'w-8 h-8', dot: 'w-2 h-2' },
+    md: { outer: 'w-10 h-10', inner: 'w-10 h-10', dot: 'w-2.5 h-2.5' },
+    lg: { outer: 'w-12 h-12', inner: 'w-12 h-12', dot: 'w-3 h-3' },
+    xl: { outer: 'w-16 h-16', inner: 'w-16 h-16', dot: 'w-3.5 h-3.5' },
+  };
+
+  const [customAvatar, setCustomAvatar] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('raihan_custom_avatar');
+    } catch {
+      return null;
+    }
+  });
+
+  // Listen for avatar updates across components
+  useEffect(() => {
+    const handleAvatarUpdate = () => {
+      try {
+        const saved = localStorage.getItem('raihan_custom_avatar');
+        setCustomAvatar(saved);
+      } catch {
+        // ignore
+      }
+    };
+    window.addEventListener('raihan_avatar_updated', handleAvatarUpdate);
+    return () => window.removeEventListener('raihan_avatar_updated', handleAvatarUpdate);
+  }, []);
+
+  // Priority list of image sources:
+  // 1. Explicit prop if provided
+  // 2. Custom uploaded photo from localStorage (if user uploaded)
+  // 3. User's uploaded file name
+  // 4. Standalone raihan-avatar.png
+  // 5. Recreated cyber-tech portrait SVG
+  const candidates = React.useMemo(() => {
+    const list: string[] = [];
+    if (avatarUrl) list.push(avatarUrl);
+    if (customAvatar) list.push(customAvatar);
+    list.push('/Gemini_Generated_Image_e0oxaye0oxaye0ox.jfif');
+    list.push('/Gemini_Generated_Image_e0oxaye0oxaye0ox.png');
+    list.push('/raihan-avatar.png');
+    list.push('/raihan-avatar.svg');
+    return Array.from(new Set(list));
+  }, [avatarUrl, customAvatar]);
+
+  const [candidateIndex, setCandidateIndex] = useState(0);
+  const [allFailed, setAllFailed] = useState(false);
+
+  const currentSrc = candidates[candidateIndex];
+
+  const handleImageError = () => {
+    if (candidateIndex < candidates.length - 1) {
+      setCandidateIndex((prev) => prev + 1);
+    } else {
+      setAllFailed(true);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      if (result) {
+        try {
+          localStorage.setItem('raihan_custom_avatar', result);
+        } catch {
+          // ignore
+        }
+        setCustomAvatar(result);
+        setCandidateIndex(0);
+        setAllFailed(false);
+        window.dispatchEvent(new Event('raihan_avatar_updated'));
+        if (onAvatarChange) onAvatarChange(result);
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const currentSize = sizeMap[size] || sizeMap.md;
 
   return (
     <div className={`relative shrink-0 select-none ${currentSize.outer} ${className}`}>
-      <div className={`w-full h-full rounded-xl overflow-hidden bg-slate-800/90 shadow-xs border border-white/20 flex items-center justify-center`}>
-        {!hasError ? (
+      <div className={`w-full h-full rounded-xl overflow-hidden bg-slate-900 shadow-md border border-teal-500/30 flex items-center justify-center ring-1 ring-white/10 relative group`}>
+        {!allFailed && currentSrc ? (
           <img
-            src={avatarUrl}
+            src={currentSrc}
             alt="Raihan - ERP Assistant"
-            className="w-full h-full object-cover object-top"
+            className="w-full h-full object-cover object-center"
             referrerPolicy="no-referrer"
-            onError={() => setHasError(true)}
+            onError={handleImageError}
           />
         ) : (
-          // Vector representation matching the user's uploaded portrait of Raihan (headset with glowing cyan LED mic, dark beard, suit)
+          // Cyber-tech portrait vector fallback
           <svg
-            viewBox="0 0 100 100"
+            viewBox="0 0 500 500"
             className="w-full h-full"
             xmlns="http://www.w3.org/2000/svg"
           >
             <defs>
-              <linearGradient id="avatarSkin" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#e4aa86" />
-                <stop offset="60%" stopColor="#cb8c64" />
-                <stop offset="100%" stopColor="#af7046" />
+              <linearGradient id="miniBg" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#142c52" />
+                <stop offset="100%" stopColor="#0e1d38" />
               </linearGradient>
-              <linearGradient id="avatarSuit" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#243142" />
-                <stop offset="100%" stopColor="#151e2b" />
+              <linearGradient id="miniSkin" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#e2aa84" />
+                <stop offset="100%" stopColor="#ae6e43" />
               </linearGradient>
-              <filter id="cyanGlowMini" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur stdDeviation="1.5" result="blur" />
+              <filter id="miniCyanGlow">
+                <feGaussianBlur stdDeviation="3" result="blur" />
                 <feMerge>
                   <feMergeNode in="blur" />
                   <feMergeNode in="SourceGraphic" />
@@ -63,63 +139,61 @@ export const RaihanAvatar: React.FC<RaihanAvatarProps> = ({
               </filter>
             </defs>
 
+            {/* Background Card */}
+            <rect width="500" height="500" fill="url(#miniBg)" />
+
             {/* Suit & Shoulders */}
-            <path d="M22 84 C 24 72, 34 68, 50 68 C 66 68, 76 72, 78 84 L 84 100 L 16 100 Z" fill="url(#avatarSuit)" />
-            {/* Pinstripes */}
-            <line x1="32" y1="70" x2="28" y2="100" stroke="#3b4d63" strokeWidth="0.8" />
-            <line x1="42" y1="69" x2="40" y2="100" stroke="#3b4d63" strokeWidth="0.8" />
-            <line x1="58" y1="69" x2="60" y2="100" stroke="#3b4d63" strokeWidth="0.8" />
-            <line x1="68" y1="70" x2="72" y2="100" stroke="#3b4d63" strokeWidth="0.8" />
+            <path d="M70 490 C 80 400, 150 360, 250 360 C 350 360, 420 400, 430 490 L 450 500 L 50 500 Z" fill="#1b2331" />
+            <polygon points="250,360 195,430 305,430" fill="#e0f2fe" />
+            <polygon points="175,355 242,418 200,422" fill="#f8fafc" />
+            <polygon points="325,355 258,418 300,422" fill="#ffffff" />
 
-            {/* Shirt & Collar */}
-            <polygon points="50,68 42,78 58,78" fill="#e2e8f0" />
-            <polygon points="42,67 50,77 44,78" fill="#f8fafc" />
-            <polygon points="58,67 50,77 56,78" fill="#ffffff" />
-
-            {/* Neck */}
-            <path d="M44 60 L 44 70 C 47 72, 53 72, 56 70 L 56 60 Z" fill="#b97c55" />
-
-            {/* Head & Face */}
-            <ellipse cx="50" cy="49" rx="14" ry="18" fill="url(#avatarSkin)" />
+            {/* Neck & Head */}
+            <path d="M208 305 L 208 365 C 228 382, 272 382, 292 365 L 292 305 Z" fill="#b07246" />
+            <ellipse cx="250" cy="242" rx="82" ry="102" fill="url(#miniSkin)" />
 
             {/* Hair */}
-            <path d="M35 44 C 35 32, 42 26, 50 25 C 59 25, 65 31, 64 44 C 63 40, 61 36, 55 35 C 49 35, 42 37, 35 44 Z" fill="#14181e" />
+            <path d="M168 215 C 160 135, 205 92, 258 92 C 318 92, 342 135, 332 215 C 322 188, 308 168, 278 165 C 242 162, 198 178, 168 215 Z" fill="#141110" />
 
-            {/* Eyebrows */}
-            <path d="M41 42 C 43 41, 46 41, 47 42" stroke="#14181e" strokeWidth="1" strokeLinecap="round" />
-            <path d="M53 42 C 54 41, 57 41, 59 42" stroke="#14181e" strokeWidth="1" strokeLinecap="round" />
+            {/* Eyes & Brows */}
+            <path d="M198 205 C 210 196, 228 198, 238 206" stroke="#141110" strokeWidth="6" strokeLinecap="round" fill="none" />
+            <path d="M262 206 C 272 198, 290 196, 302 205" stroke="#141110" strokeWidth="6" strokeLinecap="round" fill="none" />
+            <ellipse cx="219" cy="220" rx="6" ry="6" fill="#2d1c15" />
+            <ellipse cx="281" cy="220" rx="6" ry="6" fill="#2d1c15" />
+            <circle cx="221" cy="218" r="2" fill="#ffffff" />
+            <circle cx="283" cy="218" r="2" fill="#ffffff" />
 
-            {/* Eyes */}
-            <ellipse cx="44" cy="45" rx="1.8" ry="1.2" fill="#2b1a13" />
-            <ellipse cx="56" cy="45" rx="1.8" ry="1.2" fill="#2b1a13" />
+            {/* Smile & Beard */}
+            <path d="M231 273 C 241 288, 259 288, 269 273 Z" fill="#ffffff" />
+            <path d="M188 238 C 188 305, 210 342, 250 342 C 290 342, 312 305, 312 238 C 306 265, 295 290, 280 302 C 270 312, 260 316, 250 316 C 240 316, 230 312, 220 302 C 205 290, 194 265, 188 238 Z" fill="#141110" />
 
-            {/* Nose */}
-            <path d="M50 44 L 49 50 C 50 51, 51 51, 51 50 Z" fill="#9e6642" opacity="0.6" />
+            {/* Headset Arch & LED */}
+            <path d="M165 245 C 150 110, 350 110, 335 245" stroke="#475569" strokeWidth="14" strokeLinecap="round" fill="none" />
+            <path d="M200 128 C 228 114, 272 114, 300 128" stroke="#38bdf8" strokeWidth="6" strokeLinecap="round" fill="none" filter="url(#miniCyanGlow)" />
 
-            {/* Mustache & Beard */}
-            <path d="M46 53 C 48 52, 50 53, 50 53.5 C 50 53, 52 52, 54 53 C 53 54.5, 51 54.8, 50 54.2 C 49 54.8, 47 54.5, 46 53 Z" fill="#14181e" />
-            {/* Smile / Teeth */}
-            <path d="M47 54.5 C 48 56.5, 52 56.5, 53 54.5 Z" fill="#ffffff" />
-            {/* Trimmed Beard */}
-            <path d="M39 48 C 39 59, 43 65, 50 65 C 57 65, 61 59, 61 48 C 60 52, 58 56, 56 58 C 54 60, 52 61, 50 61 C 48 61, 46 60, 44 58 C 42 56, 40 52, 39 48 Z" fill="#14181e" />
+            {/* Earcups */}
+            <rect x="150" y="210" width="26" height="56" rx="13" fill="#1e293b" stroke="#64748b" strokeWidth="2" />
+            <circle cx="163" cy="238" r="6" fill="#38bdf8" />
+            <rect x="324" y="210" width="26" height="56" rx="13" fill="#1e293b" stroke="#64748b" strokeWidth="2" />
+            <circle cx="337" cy="238" r="6" fill="#38bdf8" />
 
-            {/* Headset Arch */}
-            <path d="M34 49 C 32 29, 68 29, 66 49" stroke="#334155" strokeWidth="3" strokeLinecap="round" fill="none" />
-            {/* Headband Top Cyan LED Strip */}
-            <path d="M42 30 C 46 29, 54 29, 58 30" stroke="#00e5ff" strokeWidth="1.2" strokeLinecap="round" fill="none" filter="url(#cyanGlowMini)" />
-
-            {/* Left/Right Earcups */}
-            <rect x="31" y="43" width="4.5" height="9" rx="2" fill="#1e293b" stroke="#475569" strokeWidth="0.5" />
-            <circle cx="33.2" cy="47.5" r="1.2" fill="#00e5ff" filter="url(#cyanGlowMini)" />
-
-            <rect x="64.5" y="43" width="4.5" height="9" rx="2" fill="#1e293b" stroke="#475569" strokeWidth="0.5" />
-            <circle cx="66.8" cy="47.5" r="1.2" fill="#00e5ff" filter="url(#cyanGlowMini)" />
-
-            {/* Boom Mic with glowing Cyan LED tip */}
-            <path d="M66.5 49 C 68 57, 62 59, 56 57" stroke="#475569" strokeWidth="1" strokeLinecap="round" fill="none" />
-            <circle cx="54.5" cy="56.5" r="1.5" fill="#00e5ff" filter="url(#cyanGlowMini)" />
-            <circle cx="54.5" cy="56.5" r="0.8" fill="#ffffff" />
+            {/* Mic boom & tip */}
+            <path d="M338 252 C 348 298, 315 310, 278 298" stroke="#94a3b8" strokeWidth="4" strokeLinecap="round" fill="none" />
+            <rect x="264" y="291" width="18" height="12" rx="6" fill="#00e5ff" filter="url(#miniCyanGlow)" />
           </svg>
+        )}
+
+        {/* Upload Overlay if enabled */}
+        {allowUpload && (
+          <label className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center cursor-pointer transition-opacity text-white text-[9px] font-semibold">
+            <span>Change</span>
+            <input
+              type="file"
+              accept="image/*,.jfif"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+          </label>
         )}
       </div>
 

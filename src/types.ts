@@ -205,6 +205,7 @@ export interface YarnAllocationRecord extends SyncMetadata {
   buyer: string;
   orderNumber: string;
   fabricsType: string;
+  fabrication?: string;
   fabricShade: string;
   fabricGsm: number | string;
   yarnRequired: string;
@@ -229,6 +230,7 @@ export interface KnittingStatusItem {
   color: string;
   mcType: string;         // M/C Type
   fabType: string;        // Fab. Type
+  fabrication?: string;   // Fabrication
   fgsm: number | string;  // FGSM
   fWidth: string;         // F. Width
   yarnCount: string;      // Yarn Count
@@ -251,6 +253,7 @@ export interface KnittingStatusOrder extends SyncMetadata {
   orderNo: string;
   buyerName: string;
   teamLeader: string;
+  fabrication?: string;
   knitStartDate: string;
   knitEndDate: string;
   reqQty: number;

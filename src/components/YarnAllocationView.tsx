@@ -48,6 +48,7 @@ export interface YarnAllocationRecord {
   buyer: string;
   orderNumber: string;
   fabricsType: string;
+  fabrication?: string;
   fabricShade: string;
   fabricGsm: number | string;
   yarnRequired: string;
@@ -68,6 +69,106 @@ export interface YarnAllocationRecord {
 }
 
 export const INITIAL_YARN_ALLOCATIONS: YarnAllocationRecord[] = [
+  {
+    id: 'ya-272277-1',
+    actualRequisitionDate: '22-Aug-26',
+    buyer: 'VOGUE SOURCING LIMITED',
+    orderNumber: '272277',
+    fabricsType: 'SPRIB',
+    fabrication: '100% Cotton 1x1 Spandex Rib',
+    fabricShade: 'Slate Grey',
+    fabricGsm: 280,
+    yarnRequired: '30/1 Combed + 20D Spandex',
+    lotRef: 'Ref-272277/1',
+    allocatedYarn: '30s Combed + 20D Lycra',
+    lotNo: 'LOT-9821',
+    spinnersName: 'Square Textiles',
+    allocationStatus: 'Allocated',
+    yarnStockStatus: 'Stock Available',
+    yarnDeliveryStatus: 'Completed',
+    proposedAllocationDate: '22-Aug-2026',
+    allocationDateRange: '22-Aug-2026 To 28-Aug-2026',
+    allocationNo: 'A9101',
+    yarnRqQty: 51,
+    allocatedQty: 51,
+    balance: 0,
+    remarks: 'Full yarn allocated'
+  },
+  {
+    id: 'ya-272277-2',
+    actualRequisitionDate: '22-Aug-26',
+    buyer: 'VOGUE SOURCING LIMITED',
+    orderNumber: '272277',
+    fabricsType: 'SJ',
+    fabrication: '100% Cotton Single Jersey',
+    fabricShade: 'Slate Grey',
+    fabricGsm: 280,
+    yarnRequired: '30/1 Combed Cotton',
+    lotRef: 'Ref-272277/2',
+    allocatedYarn: '30s Combed Cotton',
+    lotNo: 'LOT-9844',
+    spinnersName: 'Badar Spinning',
+    allocationStatus: 'Allocated',
+    yarnStockStatus: 'Stock Available',
+    yarnDeliveryStatus: 'Completed',
+    proposedAllocationDate: '24-Aug-2026',
+    allocationDateRange: '24-Aug-2026 To 02-Sep-2026',
+    allocationNo: 'A9102',
+    yarnRqQty: 340,
+    allocatedQty: 340,
+    balance: 0,
+    remarks: 'Full yarn allocated'
+  },
+  {
+    id: 'ya-271522-1',
+    actualRequisitionDate: '10-Aug-26',
+    buyer: 'H&M',
+    orderNumber: '271522',
+    fabricsType: 'Single Jersey',
+    fabrication: '100% Organic Cotton S/J',
+    fabricShade: 'Black',
+    fabricGsm: 180,
+    yarnRequired: '30s Organic Combed',
+    lotRef: 'Ref-271522/BLK',
+    allocatedYarn: '30s Organic Combed',
+    lotNo: 'LOT-4412',
+    spinnersName: 'Square Textiles',
+    allocationStatus: 'Allocated',
+    yarnStockStatus: 'Stock Available',
+    yarnDeliveryStatus: 'Completed',
+    proposedAllocationDate: '10-Aug-2026',
+    allocationDateRange: '10-Aug-2026 To 18-Aug-2026',
+    allocationNo: 'A8830',
+    yarnRqQty: 2250,
+    allocatedQty: 2250,
+    balance: 0,
+    remarks: 'Allocated for Black S/J'
+  },
+  {
+    id: 'ya-271522-2',
+    actualRequisitionDate: '12-Aug-26',
+    buyer: 'H&M',
+    orderNumber: '271522',
+    fabricsType: 'Single Jersey',
+    fabrication: '100% Organic Cotton S/J',
+    fabricShade: 'White',
+    fabricGsm: 180,
+    yarnRequired: '30s Organic Combed',
+    lotRef: 'Ref-271522/WHT',
+    allocatedYarn: '30s Organic Combed',
+    lotNo: 'LOT-4415',
+    spinnersName: 'Square Textiles',
+    allocationStatus: 'Allocated',
+    yarnStockStatus: 'Stock Available',
+    yarnDeliveryStatus: 'Completed',
+    proposedAllocationDate: '12-Aug-2026',
+    allocationDateRange: '12-Aug-2026 To 20-Aug-2026',
+    allocationNo: 'A8831',
+    yarnRqQty: 1250,
+    allocatedQty: 1250,
+    balance: 0,
+    remarks: 'Allocated for White S/J'
+  },
   {
     id: 'ya-1',
     actualRequisitionDate: '28-Jun-25',
@@ -1012,6 +1113,7 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
           const colMap = {
             orderNumber: findHeaderKey(['fabric booking no', 'fabric booking number', 'fabric booking #', 'order number', 'order no', 'order #', 'booking no', 'booking number', 'booking #', 'booking', 'fbn', 'f.b.n', 'ewo', 'ewo no', 'ewo number', 'job no', 'po no', 'style no', 'style', 'fabric booking']),
             fabricsType: findHeaderKey(['fabrics type', 'fabric type', 'fabrics name', 'fabric name', 'fabric description', 'fabric desc', 'fabric details', 'fabric', 'fabrics', 'item name', 'item desc']),
+            fabrication: findHeaderKey(['fabrication', 'fabrication description', 'fabric composition', 'composition', 'fabric details', 'fabrics type', 'fabric type']),
             fabricShade: findHeaderKey(['fabric shade', 'shade name', 'shade no', 'shade', 'color name', 'color no', 'color', 'colour', 'garment color', 'pantone']),
             fabricGsm: findHeaderKey(['fabric gsm', 'finished gsm', 'fin gsm', 'fin. gsm', 'f.gsm', 'f gsm', 'fgsm', 'fabric_gsm', 'gsm (g/m2)', 'gsm (g/m²)', 'gsm/oz', 'req gsm', 'target gsm', 'gsm/weight', 'fabric gsm (g/m2)', 'gsm']),
             yarnRequired: findHeaderKey(['yarn category', 'yarn required', 'yarn requirement', 'yarn description', 'as per fr', 'as per f.r', 'yarn cat', 'category', 'yarn details', 'required yarn', 'yarn spec', 'yarn count required']),
@@ -1078,6 +1180,7 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
           const groupsMap = new Map<string, {
             orderNumber: string;
             fabricsType: string;
+            fabrication?: string;
             fabricShade: string;
             fabricGsm: string | number;
             yarnRequired: string;
@@ -1132,6 +1235,7 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
 
             const orderNumber = rawOrder;
             const fabricsType = String(colMap.fabricsType ? rowObj[colMap.fabricsType] : '').trim();
+            const fabrication = String(colMap.fabrication ? rowObj[colMap.fabrication] : '').trim() || fabricsType;
             const fabricShade = String(colMap.fabricShade ? rowObj[colMap.fabricShade] : '').trim();
             
             const rawGsm = colMap.fabricGsm ? rowObj[colMap.fabricGsm] : '';
@@ -1167,6 +1271,7 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
               groupsMap.set(groupKey, {
                 orderNumber,
                 fabricsType,
+                fabrication,
                 fabricShade,
                 fabricGsm,
                 yarnRequired,
@@ -1224,6 +1329,7 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
               buyer: grp.buyer,
               orderNumber: grp.orderNumber,
               fabricsType: grp.fabricsType,
+              fabrication: grp.fabrication || grp.fabricsType,
               fabricShade: grp.fabricShade,
               fabricGsm: grp.fabricGsm,
               yarnRequired: grp.yarnRequired,

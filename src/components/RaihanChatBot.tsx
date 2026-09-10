@@ -58,6 +58,8 @@ Ask me about anything on this website, and I’ll help you find the information 
 
 export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activeTab = 'Dashboard' }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [inputQuery, setInputQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -107,6 +109,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
     knittingOrders: any[],
     orderPlans: any[],
     textileRecords: any[],
+    yarnAllocationsList: any[],
     ledgerData: any[],
     floorsList: any[]
   ): string => {
@@ -147,7 +150,8 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
       numMatches,
       knittingOrders,
       orderPlans,
-      textileRecords
+      textileRecords,
+      yarnAllocationsList
     );
     if (orderResult.handled && orderResult.reply) {
       return orderResult.reply;
@@ -286,6 +290,20 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         }
       }
 
+      // 4. Check Yarn Allocations
+      const matchedAllocations: any[] = [];
+      for (const ya of yarnAllocations) {
+        const yaOrd = String(ya.orderNumber || '');
+        const matchesNum = numberMatches.some(n => yaOrd.includes(n));
+        const matchesActive = Boolean(activeOrderNo && yaOrd.includes(activeOrderNo));
+        const matchesBuyer = ya.buyer && lowerQ.includes(String(ya.buyer).toLowerCase());
+        const matchesShade = ya.fabricShade && lowerQ.includes(String(ya.fabricShade).toLowerCase());
+
+        if (matchesNum || matchesActive || matchesBuyer || matchesShade) {
+          matchedAllocations.push(ya);
+        }
+      }
+
       // If no specific match was made, include a representative top sample (up to 12 records)
       const sampleRecords = matchedOrders.length > 0 
         ? matchedOrders.slice(0, 12)
@@ -311,6 +329,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
           unit: currentUser?.assignedUnits?.join(', ') || 'All Units'
         },
         relevantRecords: sampleRecords,
+        yarnAllocations: matchedAllocations.length > 0 ? matchedAllocations : yarnAllocations.slice(0, 30),
         ledger: Array.isArray(ledger) ? ledger.slice(0, 50) : [],
         floors: Array.isArray(floors) ? floors : [],
         summaryStats: {
@@ -406,7 +425,8 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         numMatches,
         knittingOrders,
         orderPlans,
-        textileRecords
+        textileRecords,
+        yarnAllocations
       );
       if (orderResult.handled && orderResult.reply) {
         await new Promise(r => setTimeout(r, 120));
@@ -483,6 +503,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
           knittingOrders,
           orderPlans,
           textileRecords,
+          yarnAllocations,
           effectiveLedger,
           floors
         );
@@ -506,6 +527,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         knittingOrders,
         orderPlans,
         textileRecords,
+        yarnAllocations,
         effectiveLedger,
         floors
       );
@@ -534,38 +556,124 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
     ]);
   };
 
-  // Simple Markdown-like text formatter for bold, bullets, and line breaks
+  // Markdown text formatter supporting tables, bold, headings, bullets, and line breaks
   const renderFormattedText = (text: string) => {
-    return text.split('\n').map((line, idx) => {
-      // Check if line is a bullet item
-      const isBullet = line.trim().startsWith('•') || line.trim().startsWith('-');
-      let cleanLine = isBullet ? line.replace(/^[•\-]\s*/, '') : line;
+    const lines = text.split('\n');
+    const elements: React.ReactNode[] = [];
+    let i = 0;
 
-      // Replace bold **text**
-      const parts = cleanLine.split(/(\*\*[^*]+\*\*)/g);
-
-      const content = parts.map((part, pIdx) => {
+    const renderInline = (str: string) => {
+      const parts = str.split(/(\*\*[^*]+\*\*)/g);
+      return parts.map((part, pIdx) => {
         if (part.startsWith('**') && part.endsWith('**')) {
           return <strong key={pIdx} className="font-bold text-slate-900 dark:text-white">{part.slice(2, -2)}</strong>;
         }
         return part;
       });
+    };
 
+    while (i < lines.length) {
+      const line = lines[i];
+      const trimmed = line.trim();
+
+      // Check if line is start of markdown table: starts with | and contains |
+      if (trimmed.startsWith('|') && trimmed.endsWith('|') && trimmed.length > 2) {
+        const tableLines: string[] = [];
+        while (i < lines.length && lines[i].trim().startsWith('|') && lines[i].trim().endsWith('|')) {
+          tableLines.push(lines[i].trim());
+          i++;
+        }
+
+        if (tableLines.length >= 2) {
+          const rawHeaders = tableLines[0].slice(1, -1).split('|').map(s => s.trim());
+          // Check if second line is divider (| --- | --- |)
+          const isDivider = tableLines[1].replace(/[-:\s|]/g, '').length === 0;
+          const dataStartIdx = isDivider ? 2 : 1;
+          const dataRows = tableLines.slice(dataStartIdx).map(tl => tl.slice(1, -1).split('|').map(s => s.trim()));
+
+          elements.push(
+            <div key={`table-${i}`} className="overflow-x-auto my-2 rounded-lg border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-900/90 shadow-xs max-w-full">
+              <table className="w-full text-[11px] text-left border-collapse">
+                <thead className="bg-slate-100/90 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold">
+                  <tr>
+                    {rawHeaders.map((h, hIdx) => (
+                      <th key={hIdx} className="px-2.5 py-1.5 border-b border-slate-200 dark:border-slate-700 whitespace-nowrap">
+                        {renderInline(h)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
+                  {dataRows.map((row, rIdx) => (
+                    <tr key={rIdx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
+                      {row.map((cell, cIdx) => (
+                        <td key={cIdx} className="px-2.5 py-1.5 whitespace-nowrap text-slate-800 dark:text-slate-200">
+                          {renderInline(cell)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+          continue;
+        }
+      }
+
+      // Heading 4
+      if (trimmed.startsWith('#### ')) {
+        elements.push(
+          <h4 key={`h4-${i}`} className="font-semibold text-xs text-teal-700 dark:text-teal-400 mt-2.5 mb-1 flex items-center gap-1.5">
+            {renderInline(trimmed.replace(/^####\s*/, ''))}
+          </h4>
+        );
+        i++;
+        continue;
+      }
+
+      // Heading 3
+      if (trimmed.startsWith('### ')) {
+        elements.push(
+          <h3 key={`h3-${i}`} className="font-bold text-xs text-slate-900 dark:text-white mt-3 mb-1.5">
+            {renderInline(trimmed.replace(/^###\s*/, ''))}
+          </h3>
+        );
+        i++;
+        continue;
+      }
+
+      // Bullet item
+      const isBullet = trimmed.startsWith('•') || trimmed.startsWith('-');
       if (isBullet) {
-        return (
-          <div key={idx} className="flex items-start gap-1.5 my-0.5 ml-1">
+        const cleanLine = trimmed.replace(/^[•\-]\s*/, '');
+        elements.push(
+          <div key={`bullet-${i}`} className="flex items-start gap-1.5 my-0.5 ml-1">
             <span className="text-teal-600 dark:text-teal-400 font-bold shrink-0 mt-0.5">•</span>
-            <span>{content}</span>
+            <span>{renderInline(cleanLine)}</span>
           </div>
         );
+        i++;
+        continue;
       }
 
-      if (!line.trim()) {
-        return <div key={idx} className="h-1.5" />;
+      // Empty line
+      if (!trimmed) {
+        elements.push(<div key={`space-${i}`} className="h-1.5" />);
+        i++;
+        continue;
       }
 
-      return <p key={idx} className="my-0.5">{content}</p>;
-    });
+      // Normal paragraph
+      elements.push(
+        <p key={`p-${i}`} className="my-0.5">
+          {renderInline(trimmed)}
+        </p>
+      );
+      i++;
+    }
+
+    return elements;
   };
 
   return (
@@ -618,12 +726,13 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
             type="button"
             onClick={() => {
               setIsOpen(true);
+              setIsMinimized(false);
               setShowWelcomeCallout(false);
             }}
-            className="group relative flex items-center gap-3 px-3.5 py-2.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white rounded-2xl shadow-xl hover:shadow-teal-500/25 transition-all duration-200 transform hover:-translate-y-0.5 cursor-pointer border border-teal-400/30"
+            className="group relative flex items-center gap-3 px-3.5 py-2.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white rounded-2xl shadow-xl hover:shadow-teal-500/25 transition-all duration-200 transform hover:-translate-y-0.5 cursor-pointer border border-teal-400/30 ring-2 ring-white/20"
             title="Ask Raihan - Epyllion Knitex ERP Assistant"
           >
-            <RaihanAvatar size="md" showOnlineIndicator={true} />
+            <RaihanAvatar size="lg" showOnlineIndicator={true} />
             
             <div className="text-left pr-1">
               <div className="flex items-center gap-1.5">
@@ -638,16 +747,70 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         </div>
       )}
 
+      {/* Minimized Dock Bar */}
+      {isOpen && isMinimized && (
+        <div
+          id="raihan-minimized-dock"
+          onClick={() => setIsMinimized(false)}
+          className="fixed bottom-5 right-5 z-50 flex items-center justify-between gap-3 px-3.5 py-2.5 bg-gradient-to-r from-teal-700 via-teal-800 to-emerald-900 text-white rounded-2xl shadow-2xl border border-teal-400/40 w-72 sm:w-80 cursor-pointer hover:border-teal-300 hover:shadow-teal-500/20 transition-all duration-200 transform hover:-translate-y-0.5 animate-scale-up"
+          title="Click to expand Raihan chat"
+        >
+          <div className="flex items-center gap-2.5">
+            <RaihanAvatar size="sm" showOnlineIndicator={true} />
+            <div className="text-left">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-black tracking-tight">Raihan</span>
+                <span className="text-[9px] uppercase font-bold bg-emerald-500/30 text-emerald-200 px-1.5 py-0.5 rounded border border-emerald-400/30">
+                  Minimized
+                </span>
+              </div>
+              <p className="text-[10.5px] text-teal-100/90 font-medium">Click to restore conversation</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setIsMinimized(false)}
+              className="p-1.5 rounded-lg text-teal-100 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              title="Restore Chat"
+              aria-label="Restore Chat"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsOpen(false);
+                setIsMinimized(false);
+                setIsMaximized(false);
+              }}
+              className="p-1.5 rounded-lg text-teal-100 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              title="Close Chat"
+              aria-label="Close Chat"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Chat Window */}
-      {isOpen && (
+      {isOpen && !isMinimized && (
         <div 
           id="raihan-chat-window"
-          className="fixed bottom-5 right-5 z-50 w-[380px] sm:w-[440px] max-w-[calc(100vw-1.5rem)] h-[590px] max-h-[calc(100vh-3.5rem)] flex flex-col bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-scale-up"
+          className={`fixed z-50 flex flex-col bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden transition-all duration-200 animate-scale-up ${
+            isMaximized
+              ? 'inset-2 sm:inset-4 md:inset-6 rounded-2xl max-w-none max-h-none border-teal-500/40'
+              : 'bottom-5 right-5 w-[390px] sm:w-[480px] md:w-[520px] max-w-[calc(100vw-1.5rem)] h-[620px] max-h-[calc(100vh-3.5rem)] rounded-2xl'
+          }`}
         >
           {/* Header */}
-          <div className="px-4 py-3 bg-gradient-to-r from-teal-600 to-emerald-700 text-white flex items-center justify-between shadow-xs">
+          <div className="px-4 py-3 bg-gradient-to-r from-teal-600 to-emerald-700 text-white flex items-center justify-between shadow-xs shrink-0">
             <div className="flex items-center gap-2.5">
-              <RaihanAvatar size="md" showOnlineIndicator={true} />
+              <div className="relative group/avatar" title="Raihan Avatar - Hover to replace photo">
+                <RaihanAvatar size="md" showOnlineIndicator={true} allowUpload={true} />
+              </div>
 
               <div>
                 <div className="flex items-center gap-1.5">
@@ -655,6 +818,11 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
                   <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/30 text-emerald-100 border border-emerald-400/30">
                     ERP Assistant
                   </span>
+                  {isMaximized && (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-white/20 text-white border border-white/20">
+                      Full Screen
+                    </span>
+                  )}
                 </div>
                 <p className="text-[10.5px] text-teal-100 font-medium flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
@@ -664,19 +832,54 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
             </div>
 
             <div className="flex items-center gap-1">
+              {/* Minimize to dock button */}
+              <button
+                type="button"
+                onClick={() => setIsMinimized(true)}
+                className="p-1.5 rounded-lg text-teal-100 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title="Minimize chat"
+                aria-label="Minimize chat"
+              >
+                <ChevronDown className="w-4 h-4" />
+              </button>
+
+              {/* Maximize / Full-Screen Toggle button */}
+              <button
+                type="button"
+                onClick={() => setIsMaximized(!isMaximized)}
+                className="p-1.5 rounded-lg text-teal-100 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title={isMaximized ? "Exit Full Screen" : "Maximize to Full Screen"}
+                aria-label={isMaximized ? "Exit Full Screen" : "Maximize to Full Screen"}
+              >
+                {isMaximized ? (
+                  <Minimize2 className="w-4 h-4" />
+                ) : (
+                  <Maximize2 className="w-4 h-4" />
+                )}
+              </button>
+
+              {/* Clear chat button */}
               <button
                 type="button"
                 onClick={clearChat}
                 className="p-1.5 rounded-lg text-teal-100 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
                 title="Clear Conversation"
+                aria-label="Clear Conversation"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
+
+              {/* Close chat button */}
               <button
                 type="button"
-                onClick={() => setIsOpen(false)}
+                onClick={() => {
+                  setIsOpen(false);
+                  setIsMinimized(false);
+                  setIsMaximized(false);
+                }}
                 className="p-1.5 rounded-lg text-teal-100 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
                 title="Close Chat"
+                aria-label="Close Chat"
               >
                 <X className="w-4 h-4" />
               </button>
