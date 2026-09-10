@@ -626,9 +626,9 @@ export function handleSmartProductionLedgerQuery(
       const availableDatesList = distinctDates.map(d => formatHumanDate(d)).join(', ');
       return {
         handled: true,
-        reply: `I searched the internal Production Ledger, but no entries were found for date **${extractedDate.original} (${formatHumanDate(extractedDate.isoDate)})**.\n\n` +
+        reply: `Hmm, I couldn't find that in the system. I checked the internal Production Ledger, but no entries were found for date **${extractedDate.original} (${formatHumanDate(extractedDate.isoDate)})**.\n\n` +
           `• **Available Logged Dates in Dataset**: ${availableDatesList || 'None'}\n\n` +
-          `Would you like me to show the summary for the latest recorded date (**${formatHumanDate(latestDate)}**)?`
+          `Would you like me to check the summary for the latest recorded date (**${formatHumanDate(latestDate)}**)?`
       };
     }
   }
@@ -930,6 +930,11 @@ export function handleSmartOrderQuery(
     return { handled: false };
   }
 
+  // If user is asking about the overall total balance or summary without specifying an order in this prompt, yield to summary handler
+  if (numMatches.length === 0 && (lower.includes('total') || lower.includes('overall') || lower.includes('knitting balance'))) {
+    return { handled: false };
+  }
+
   // 1. Locate matching records across all modules
   const ko = knittingOrders.find(o => String(o.orderNo || '').trim().toLowerCase() === activeOrderNum.toLowerCase() || String(o.orderNo || '').includes(activeOrderNum));
   const opList = orderPlans.filter(p => String(p.ewo || p.id || '').trim().toLowerCase().includes(activeOrderNum.toLowerCase()));
@@ -940,7 +945,7 @@ export function handleSmartOrderQuery(
     if (numMatches.length > 0) {
       return {
         handled: true,
-        reply: `I searched all website datasets (Knitting Status, Yarn Allocations, Order Plans, and Textile Close By PMC), but **Order #${activeOrderNum}** was not found.\n\nPlease verify the order number or ensure the latest Excel data is synchronized.`
+        reply: `Hmm, I couldn't find that order in the system. I checked Knitting Status, Yarn Allocations, Order Plans, and Textile Close By PMC, but couldn't find **Order #${activeOrderNum}**.\n\nPlease verify the order number or ensure the latest records are updated.`
       };
     }
     return { handled: false };
@@ -1154,7 +1159,7 @@ export function handleSmartOrderQuery(
     const prodTable = buildProductionTable(items, ko || opList[0], matchedColor);
     const allocTable = buildAllocatedYarnTable(yaList, matchedColor);
 
-    let reply = `### 📊 Order #${activeOrderNum} Details for Color: **${matchedColor}** (${buyer})\n\n`;
+    let reply = `Sure! Let me check that for you. Here are the details for color **${matchedColor}** on **Order #${activeOrderNum}** (${buyer}):\n\n`;
     if (prodTable) {
       reply += `#### 🏭 Production Data:\n${prodTable}\n\n`;
     }
@@ -1171,10 +1176,10 @@ export function handleSmartOrderQuery(
   if (asksAllocOnly) {
     const allocTable = buildAllocatedYarnTable(yaList);
     if (!allocTable) {
-      // If No Yarn Allocated show blank
-      return { handled: true, reply: `### 🧶 Allocated Yarn for Order #${activeOrderNum} (${buyer}):\n\n*(No Yarn Allocated)*` };
+      // If No Yarn Allocated show friendly empty message
+      return { handled: true, reply: `Looks like there isn't any data for that. No yarn has been allocated yet for **Order #${activeOrderNum}** (${buyer}).` };
     }
-    const reply = `### 🧶 Allocated Yarn for Order #${activeOrderNum} (${buyer}):\n\n${allocTable}`;
+    const reply = `Sure! Here is the allocated yarn for **Order #${activeOrderNum}** (${buyer}):\n\n${allocTable}`;
     return { handled: true, reply: reply.trim() };
   }
 
@@ -1183,7 +1188,7 @@ export function handleSmartOrderQuery(
   // =========================================================================
   if (asksProdOnly) {
     const prodTable = buildProductionTable(items, ko || opList[0]);
-    const reply = `### 🏭 Production Data for Order #${activeOrderNum} (${buyer}):\n\n${prodTable}`;
+    const reply = `Sure! I found it. Here is the production data for **Order #${activeOrderNum}** (${buyer}):\n\n${prodTable}`;
     return { handled: true, reply: reply.trim() };
   }
 
@@ -1193,7 +1198,12 @@ export function handleSmartOrderQuery(
   const prodTable = buildProductionTable(items, ko || opList[0]);
   const allocTable = buildAllocatedYarnTable(yaList);
 
-  let combinedReport = `Here is the verified information for **Order #${activeOrderNum}** (${buyer}):\n\n`;
+  const prodVal = Number(ko?.production ?? opList[0]?.knitPro ?? tcp?.production ?? 0);
+  const greyVal = Number(ko?.greyQty ?? opList[0]?.allocatedQty ?? tcp?.greyQty ?? 0);
+  const balVal = Number(ko?.knitBalance ?? opList[0]?.knitBal ?? tcp?.knitBal ?? (greyVal - prodVal));
+  const statusStr = tcp ? 'closed (PMC)' : (balVal <= 0 ? 'completed' : (prodVal > 0 ? 'currently running' : 'pending'));
+
+  let combinedReport = `Sure! I found it. Order #${activeOrderNum} is ${statusStr} (${buyer}):\n\n`;
   if (prodTable) {
     combinedReport += `#### 🏭 Production Data:\n${prodTable}\n\n`;
   }
@@ -1216,17 +1226,30 @@ export function handleSmartSummaryQuery(
   const query = normalizeQueryString(rawQuery);
   const lower = query.toLowerCase();
 
-  if (lower.includes('total') || lower.includes('summary') || (lower.includes('balance') && !lower.includes('order'))) {
+  const isTotalOrBalance = 
+    lower.includes('total') || 
+    lower.includes('summary') || 
+    (lower.includes('balance') && !lower.includes('order')) ||
+    lower.includes('knitting balance');
+
+  if (isTotalOrBalance) {
     const stats = summaryStats || {};
+    const reqQty = Number(stats.totalReqQty || 0);
+    const greyQty = Number(stats.totalGreyQty || 0);
+    const prod = Number(stats.totalProduction || 0);
+    const balance = Number(stats.totalKnitBal || (greyQty > 0 ? (greyQty - prod) : 0));
+    const ordersCount = Number(stats.totalOrders || knittingOrdersCount || 0);
+
+    const reply = 
+      `Sure! I found it. Here is the **Total Knitting Production** summary:\n\n` +
+      `| Knit Req | Grey | Production | Balance |\n` +
+      `| :--- | :--- | :--- | :--- |\n` +
+      `| **${reqQty.toLocaleString()} kg** | **${greyQty.toLocaleString()} kg** | **${prod.toLocaleString()} kg** | **${balance.toLocaleString()} kg** |\n\n` +
+      `*(Total across all ${ordersCount.toLocaleString()} registered orders)*`;
+
     return {
       handled: true,
-      reply: `Here is the current **ERP dataset summary**:\n\n` +
-        `• **Active Tab**: ${activeTab || 'Knitting Status'}\n` +
-        `• **Total Orders**: ${(stats.totalOrders || knittingOrdersCount || 0).toLocaleString()}\n` +
-        `• **Total Required Quantity**: ${(stats.totalReqQty || 0).toLocaleString()} kg\n` +
-        `• **Total Current Production**: ${(stats.totalProduction || 0).toLocaleString()} kg\n` +
-        `• **Total Knitting Balance**: **${(stats.totalKnitBal || 0).toLocaleString()} kg**\n\n` +
-        `You can ask me for details on any specific Order Number (e.g. *272374*), Buyer, or Factory Floor!`
+      reply
     };
   }
 

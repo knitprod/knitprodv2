@@ -677,22 +677,50 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
             getExcelValue(row, [
               'A. Knit Star',
               'A. Knit\nStar',
+              'A. Knit\r\nStar',
               'A. Knit Start',
               'A. Knit\nStart',
+              'A. Knit\r\nStart',
               'A. Knit Star Date',
               'A. Knit Start Date',
+              'A.Knit Star',
+              'A.Knit Start',
+              'A.Knit Start Date',
+              'Actual Knit Start',
+              'Actual Knit Start Date',
+              'First Knit',
+              'First Knit Date',
               'Knit Start Date',
+              'Knit Start',
               'Start Date'
             ])
           );
 
-          // Knit End Date from "A. Knit End", "A. Knit\nEnd", etc.
+          // Knit End Date from "Last Knit", "Last Knit Date", "A. Knit End", etc.
+          // User directive: "Last Knit Date is The Knit End Date", column header in file is "Last Knit"
           const rowKnitEnd = formatExcelDate(
             getExcelValue(row, [
+              'Last Knit',
+              'Last Knit Date',
+              'Last Knit\nDate',
+              'Last Knit\r\nDate',
+              'LastKnit',
+              'LastKnitDate',
+              'Last Knitted Date',
+              'Last Knitted',
+              'Last Production Date',
+              'Last Prod Date',
               'A. Knit End',
               'A. Knit\nEnd',
+              'A. Knit\r\nEnd',
               'A. Knit End Date',
+              'A.Knit End',
+              'A.Knit End Date',
+              'Actual Knit End',
+              'Actual Knit End Date',
               'Knit End Date',
+              'Knit End',
+              'KnitEnd',
               'End Date'
             ])
           );
@@ -720,6 +748,12 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
             }
             if (rowLeader && !existing.teamLeader) {
               existing.teamLeader = rowLeader;
+            }
+            if (rowKnitStart && !existing.knitStartDate) {
+              existing.knitStartDate = rowKnitStart;
+            }
+            if (rowKnitEnd && !existing.knitEndDate) {
+              existing.knitEndDate = rowKnitEnd;
             }
           }
 

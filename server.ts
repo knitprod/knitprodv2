@@ -1538,7 +1538,7 @@ function formatOrderResponse(orderNum: string, erpData: any, userQuery: string =
   const ya = yaList[0] || foundYarnAllocations[0];
 
   if (!ko && !op && !tcp && yaList.length === 0) {
-    return `I searched all website datasets (Knitting Status, Order Plans, Textile Close By PMC, and Yarn Allocations), but **Order #${orderNum}** was not found.\n\nPlease verify the order number or ensure the latest Excel data is synchronized.`;
+    return `Hmm, I couldn't find that order in the system. I checked Knitting Status, Order Plans, Textile Close By PMC, and Yarn Allocations, but couldn't find **Order #${orderNum}**.\n\nPlease verify the order number or ensure the latest records are updated.`;
   }
 
   const buyer = ko?.buyer_name || ko?.buyerName || ya?.buyer || op?.buyer || tcp?.buyer_name || tcp?.buyerName || 'Epyllion Buyer';
@@ -1754,7 +1754,7 @@ function formatOrderResponse(orderNum: string, erpData: any, userQuery: string =
     const prodTable = buildProductionTable(items, ko || op, matchedColor);
     const allocTable = buildAllocatedYarnTable(yaList, matchedColor);
 
-    let reply = `### 📊 Order #${orderNum} Details for Color: **${matchedColor}** (${buyer})\n\n`;
+    let reply = `Sure! Let me check that for you. Here are the details for color **${matchedColor}** on **Order #${orderNum}** (${buyer}):\n\n`;
     if (prodTable) {
       reply += `#### 🏭 Production Data:\n${prodTable}\n\n`;
     }
@@ -1766,26 +1766,27 @@ function formatOrderResponse(orderNum: string, erpData: any, userQuery: string =
   }
 
   // CASE 2: Handle Allocation-only request: "eg: 271522 Allocation"
-  // "show only the allocated Yarn nothing else. If No Yarn Allocated show blank."
   if (asksAllocOnly) {
     const allocTable = buildAllocatedYarnTable(yaList);
     if (!allocTable) {
-      return `### 🧶 Allocated Yarn for Order #${orderNum} (${buyer}):\n\n*(No Yarn Allocated)*`;
+      return `Looks like there isn't any data for that. No yarn has been allocated yet for **Order #${orderNum}** (${buyer}).`;
     }
-    return `### 🧶 Allocated Yarn for Order #${orderNum} (${buyer}):\n\n${allocTable}`;
+    return `Sure! Here is the allocated yarn for **Order #${orderNum}** (${buyer}):\n\n${allocTable}`;
   }
 
   // CASE 3: Handle Production-only request: "eg: 271522 Production"
   if (asksProdOnly) {
     const prodTable = buildProductionTable(items, ko || op);
-    return `### 🏭 Production Data for Order #${orderNum} (${buyer}):\n\n${prodTable}`;
+    return `Sure! I found it. Here is the production data for **Order #${orderNum}** (${buyer}):\n\n${prodTable}`;
   }
 
   // CASE 4: Default: Show Production and Allocated Yarn data
   const prodTable = buildProductionTable(items, ko || op);
   const allocTable = buildAllocatedYarnTable(yaList);
 
-  let combinedReport = `Here is the verified information for **Order #${orderNum}** (${buyer}):\n\n`;
+  const statusStr = tcp ? 'closed (PMC)' : (balance <= 0 ? 'completed' : (prod > 0 ? 'currently running' : 'pending'));
+
+  let combinedReport = `Sure! I found it. Order #${orderNum} is ${statusStr} (${buyer}):\n\n`;
   if (prodTable) {
     combinedReport += `#### 🏭 Production Data:\n${prodTable}\n\n`;
   }
@@ -1927,7 +1928,7 @@ function handleConversationalFollowUp(
 
       // If plan has this color
       if (op && op.color && op.color.toLowerCase().includes(cleanSearch)) {
-        return `For **Order #${activeOrderNum}** (${buyer}), the plan records color **${op.color}**:\n\n` +
+        return `Sure! I found it. For **Order #${activeOrderNum}** (${buyer}), the plan records color **${op.color}**:\n\n` +
           `• Fabric: **${op.fabric || 'Knitted Fabric'}**\n` +
           `• Target: **${Number(op.target || 0).toLocaleString()} kg**\n` +
           `• Plan Month: **${op.plan_month || op.planMonth || 'Active'}**`;
@@ -1935,13 +1936,12 @@ function handleConversationalFollowUp(
 
       // If NOT matched in this active order, clarify what colors actually exist for this order
       const actualColorsStr = orderColors.length > 0 ? orderColors.map(c => `• **${c}**`).join('\n') : '• *Standard Raw/Grey Fabric*';
-      let res = `For **Order #${activeOrderNum}**, the recorded color(s) in the ERP are:\n${actualColorsStr}\n\n` +
-        `*(Note: "${userQuery}" was not found as an active item color under Order #${activeOrderNum}.)*\n`;
+      let res = `Hmm, I couldn't find "${userQuery}" under **Order #${activeOrderNum}**. The recorded color(s) in the system are:\n${actualColorsStr}\n`;
 
       // Check across other ERP orders to see if other orders have this requested color
       const otherOrders = searchOrdersByColor(cleanSearch, erpData, clientContext);
       if (otherOrders.length > 0) {
-        res += `\nHowever, I found **${otherOrders.length} other order(s)** in the ERP with **${cleanSearch}**:\n` +
+        res += `\nI found a few matching records in **${otherOrders.length} other order(s)** with **${cleanSearch}**:\n` +
           otherOrders.slice(0, 5).map(o => `• **Order #${o.orderNo}** (Buyer: ${o.buyer}, Color: ${o.color}, Balance: ${Number(o.balance).toLocaleString()} kg)`).join('\n');
       }
 
@@ -1950,7 +1950,7 @@ function handleConversationalFollowUp(
 
     // General color question (e.g. "what is the color of this order?")
     if (orderColors.length > 0) {
-      let res = `The recorded color(s) for **Order #${activeOrderNum}** (${buyer}) are:\n\n` +
+      let res = `Sure! The recorded color(s) for **Order #${activeOrderNum}** (${buyer}) are:\n\n` +
         orderColors.map(c => `• **${c}**`).join('\n');
 
       if (Array.isArray(rawItems) && rawItems.length > 1) {
@@ -1966,7 +1966,7 @@ function handleConversationalFollowUp(
     const fgsm = ko?.fgsm || ko?.gsm || 'N/A';
     const finishedWidth = ko?.finished_width || ko?.finishedWidth || ko?.dia || 'N/A';
 
-    let res = `Fabric specifications for **Order #${activeOrderNum}**:\n\n` +
+    let res = `Sure! Here are the fabric specifications for **Order #${activeOrderNum}**:\n\n` +
       `• **Fabric Type**: **${fabType}**\n` +
       `• **Finished GSM**: **${fgsm}**\n` +
       `• **Finished Width**: **${finishedWidth}**\n` +
@@ -1984,8 +1984,9 @@ function handleConversationalFollowUp(
     const greyQty = Number(ko?.grey_qty ?? ko?.greyQty ?? op?.allocated_qty ?? 0);
     const prod = Number(ko?.production ?? op?.knit_pro ?? 0);
     const balance = Number(ko?.knit_balance ?? ko?.knitBal ?? (greyQty - prod));
+    const statusWord = balance <= 0 ? 'completed' : (prod > 0 ? 'currently running' : 'pending');
 
-    return `Here is the quantity and production status for **Order #${activeOrderNum}**:\n\n` +
+    return `Sure! I found it. Order #${activeOrderNum} is ${statusWord}.\n\n` +
       `• **Required Quantity**: ${reqQty.toLocaleString()} kg\n` +
       `• **Grey Quantity**: ${greyQty.toLocaleString()} kg\n` +
       `• **Current Production**: ${prod.toLocaleString()} kg\n` +
@@ -1995,7 +1996,7 @@ function handleConversationalFollowUp(
 
   // Check if asking about team leader or buyer
   if (lowerQ.includes('leader') || lowerQ.includes('buyer') || lowerQ.includes('who')) {
-    return `For **Order #${activeOrderNum}**:\n\n` +
+    return `Sure! For **Order #${activeOrderNum}**:\n\n` +
       `• **Buyer**: **${buyer}**\n` +
       `• **Team Leader**: **${teamLeader}**`;
   }
@@ -2052,13 +2053,63 @@ app.post('/api/chat/raihan', async (req, res) => {
       });
     }
 
+    // Step 0.5: Fast check for queries outside website data
+    const isOutsideQuestion = 
+      /\b(weather|temperature|forecast for|president|prime minister|capital of|tell me a joke|write a poem|sing a song|recipe|how to cook|movie|football score|cricket|stock price|bitcoin|crypto|python|javascript|write code)\b/i.test(lowerMsg) ||
+      (/\b(who is|what is|tell me about)\b/i.test(lowerMsg) && !lowerMsg.includes('order') && !lowerMsg.includes('fabric') && !lowerMsg.includes('knit') && !lowerMsg.includes('floor') && !lowerMsg.includes('production') && !lowerMsg.includes('balance') && !lowerMsg.includes('yarn') && !lowerMsg.includes('buyer') && !lowerMsg.includes('pmc') && !lowerMsg.includes('target') && !lowerMsg.includes('machine') && !lowerMsg.includes('shift') && !trimmedMsg.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g));
+
+    if (isOutsideQuestion) {
+      return res.json({
+        success: true,
+        reply: "Sorry, I don't have that information in my system."
+      });
+    }
+
+    // Step 0.8: Fast response for "what is the Total knitting balance?" or total summary queries without an order
+    const isTotalKnittingQuery = 
+      (lowerMsg.includes('total') && (lowerMsg.includes('balance') || lowerMsg.includes('knit') || lowerMsg.includes('prod') || lowerMsg.includes('summary'))) ||
+      (lowerMsg.includes('knitting balance') && !trimmedMsg.match(/\b\d{5,8}\b/)) ||
+      (lowerMsg.includes('total balance') && !trimmedMsg.match(/\b\d{5,8}\b/));
+
+    const candidateMatches = trimmedMsg.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || [];
+    const hasExplicitOrder = candidateMatches.length > 0 && !candidateMatches.every(c => c === '2024' || c === '2025' || c === '2026');
+
+    if (isTotalKnittingQuery && !hasExplicitOrder) {
+      let reqQty = Number(summaryStats.totalReqQty || 0);
+      let greyQty = Number(summaryStats.totalGreyQty || 0);
+      let prodQty = Number(summaryStats.totalProduction || 0);
+      let balQty = Number(summaryStats.totalKnitBal || (greyQty > 0 ? (greyQty - prodQty) : 0));
+      const totalOrders = Number(summaryStats.totalOrders || summaryStats.totalRecords || 0);
+
+      if (reqQty === 0 && prodQty === 0 && Array.isArray(context?.relevantRecords)) {
+        for (const r of context.relevantRecords) {
+          reqQty += Number(r.reqQty || r.req_qty || 0);
+          greyQty += Number(r.greyQty || r.grey_qty || 0);
+          prodQty += Number(r.production || 0);
+          balQty += Number(r.knitBal || r.knitBalance || (Number(r.greyQty || 0) - Number(r.production || 0)));
+        }
+      }
+
+      const totalSummaryReply = 
+        `Sure! I found it. Here is the **Total Knitting Production** summary:\n\n` +
+        `| Knit Req | Grey | Production | Balance |\n` +
+        `| :--- | :--- | :--- | :--- |\n` +
+        `| **${reqQty.toLocaleString()} kg** | **${greyQty.toLocaleString()} kg** | **${prodQty.toLocaleString()} kg** | **${balQty.toLocaleString()} kg** |\n\n` +
+        `*(Total across all ${totalOrders > 0 ? totalOrders.toLocaleString() : 'registered'} orders)*`;
+
+      return res.json({
+        success: true,
+        reply: sanitizeRaihanOutput(totalSummaryReply)
+      });
+    }
+
     // Step 1: Detect active order number (from current message or multi-turn history/context)
     let numMatches = trimmedMsg.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || [];
     let isFollowUp = false;
     let activeOrderNum: string | null = numMatches[0] || null;
 
     // Multi-turn context memory: If no number in current query, check previous history & context
-    if (!activeOrderNum) {
+    if (!activeOrderNum && !isTotalKnittingQuery) {
       if (context?.activeOrderNo) {
         activeOrderNum = String(context.activeOrderNo);
         isFollowUp = true;
@@ -2067,7 +2118,9 @@ app.post('/api/chat/raihan', async (req, res) => {
           const histText = String(history[i]?.text || '');
           const histMatches = histText.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g);
           if (histMatches && histMatches.length > 0) {
-            activeOrderNum = histMatches[0];
+            const candidate = histMatches[0];
+            if (candidate === '2024' || candidate === '2025' || candidate === '2026') continue;
+            activeOrderNum = candidate;
             isFollowUp = true;
             break;
           }
@@ -2114,7 +2167,7 @@ app.post('/api/chat/raihan', async (req, res) => {
         // Explicit order number asked, but not in database
         return res.json({
           success: true,
-          reply: `I searched the internal ERP system (Knitting Status, Textile Close By PMC, and Order Plans), but **Order #${targetNum}** was not found.\n\nPlease check the number or ensure the latest Excel data has been synchronized.`
+          reply: `Hmm, I couldn't find that order in the system. I checked Knitting Status, Textile Close By PMC, and Order Plans, but couldn't find **Order #${targetNum}**.\n\nPlease check the number or ensure the latest records are updated.`
         });
       }
     }
@@ -2122,13 +2175,13 @@ app.post('/api/chat/raihan', async (req, res) => {
     // Step 2.7: Standalone color search across the ERP (e.g., user asks "Grey mix only", "Navy Blue" without prior order)
     const standaloneColorMatches = searchOrdersByColor(trimmedMsg, erpSearchResults, context);
     if (standaloneColorMatches.length > 0 && !lowerMsg.includes('total') && !lowerMsg.includes('summary')) {
-      let colorReply = `Here are the orders found in the ERP system with **${trimmedMsg}**:\n\n`;
+      let colorReply = `Sure! I found a few matching records in the system with **${trimmedMsg}**:\n\n`;
       standaloneColorMatches.slice(0, 8).forEach((o, i) => {
         colorReply += `${i + 1}. **Order #${o.orderNo}** (Buyer: **${o.buyer}**)\n` +
           `   • Color: **${o.color}**\n` +
           `   • Knitting Balance: **${Number(o.balance).toLocaleString()} kg**\n`;
       });
-      colorReply += `\nYou can ask me for full details on any of these orders (e.g., *"Show details for ${standaloneColorMatches[0].orderNo}"*)!`;
+      colorReply += `\nYou can ask me for full details on any of these orders!`;
       return res.json({
         success: true,
         reply: sanitizeRaihanOutput(colorReply)
@@ -2137,13 +2190,17 @@ app.post('/api/chat/raihan', async (req, res) => {
 
     // Step 3: Instant local answers for common summary or buyer queries (< 20ms)
     if (lowerMsg.includes('total') || lowerMsg.includes('summary') || (lowerMsg.includes('balance') && !lowerMsg.includes('for order'))) {
-      const fallbackReply = `Here is the current **website dataset summary**:\n` +
-        `• **Active Tab**: ${activeTab}\n` +
-        `• **Total Orders**: ${(summaryStats.totalRecords || 0).toLocaleString()}\n` +
-        `• **Total Required Qty**: ${(summaryStats.totalReqQty || 0).toLocaleString()} kg\n` +
-        `• **Total Production**: ${(summaryStats.totalProduction || 0).toLocaleString()} kg\n` +
-        `• **Total Knit Balance**: ${(summaryStats.totalKnitBal || 0).toLocaleString()} kg\n\n` +
-        `You can ask me for details on any specific Order Number (e.g., *272277*), Buyer, or Fabric!`;
+      const reqQty = Number(summaryStats.totalReqQty || 0);
+      const greyQty = Number(summaryStats.totalGreyQty || 0);
+      const prodQty = Number(summaryStats.totalProduction || 0);
+      const balQty = Number(summaryStats.totalKnitBal || (greyQty > 0 ? (greyQty - prodQty) : 0));
+      const totalOrders = Number(summaryStats.totalOrders || summaryStats.totalRecords || 0);
+
+      const fallbackReply = `Sure! I found it. Here is the **Total Knitting Production** summary:\n\n` +
+        `| Knit Req | Grey | Production | Balance |\n` +
+        `| :--- | :--- | :--- | :--- |\n` +
+        `| **${reqQty.toLocaleString()} kg** | **${greyQty.toLocaleString()} kg** | **${prodQty.toLocaleString()} kg** | **${balQty.toLocaleString()} kg** |\n\n` +
+        `*(Total across all ${totalOrders > 0 ? totalOrders.toLocaleString() : 'registered'} orders)*`;
       return res.json({
         success: true,
         reply: sanitizeRaihanOutput(fallbackReply)
@@ -2157,7 +2214,7 @@ app.post('/api/chat/raihan', async (req, res) => {
       const buyerList = Array.from(buyerSet);
 
       if (buyerList.length > 0) {
-        const fallbackReply = `Here are active buyers recorded in the ERP system:\n` +
+        const fallbackReply = `Sure! Here are active buyers recorded in the ERP system:\n` +
           buyerList.slice(0, 10).map(b => `• ${b}`).join('\n') +
           (buyerList.length > 10 ? `\n...and ${buyerList.length - 10} more.` : '');
         return res.json({
@@ -2170,19 +2227,40 @@ app.post('/api/chat/raihan', async (req, res) => {
     // Step 4: For complex conversational queries, use Gemini with strict 10-second timeout
     const ai = getGenAI();
 
-    const systemInstruction = `You are Raihan, the dedicated internal AI operational assistant for Epyllion Knitex Ltd. Knitting Performance & ERP System.
+    const systemInstruction = `You are Raihan, a friendly, helpful colleague and the dedicated internal Production Guide for Epyllion Knitex Ltd. Knitting Performance & ERP System.
 
-CRITICAL INSTRUCTIONS & STRICT BOUNDARIES (MANDATORY):
-1. IDENTITY: Your name is Raihan. You are courteous, concise, helpful, and highly accurate.
-2. IN-WEBSITE DATA ONLY: You must ONLY answer questions based on the operational data and features present within this Epyllion Knitex website. Do NOT collect or browse data from the outside online internet.
-   If a user asks about outside world news, weather, stock markets, general entertainment, or anything outside of the Epyllion Knitex factory ERP, politely refuse:
-   "I am Raihan, your Epyllion Knitex ERP assistant. I can only answer questions related to the orders, production, knitting, and fabric data within this website."
-3. STRICT SECRECY (NO CODE OR SECRETS):
-   You are STRICTLY FORBIDDEN from sharing, quoting, explaining, or outputting any Supabase code, SQL table creation scripts, database keys, Google Apps Script (GAS) code, Web App URLs, passwords, or internal server architecture code. If asked for any script or credential, reply:
-   "For security and operational integrity, internal system scripts, database codes, and credentials cannot be shared."
-4. FACTUAL RECORD CITATION:
-   Use the provided website context (Knitting Status, Textile Close By PMC, Production Ledger, Yarn, Plan Orders) to give exact figures for Order No., Buyer Name, Team Leader, FGSM, Finished Width, Fabric Type, Required Quantity, Grey Quantity, Production, and Knit Balance.
-5. FORMATTING: Use clean bullet points, bold key figures, and concise summaries. Do not write programming code.`;
+PERSONALITY:
+- Behave like a friendly, helpful colleague—not a robotic AI.
+- Use natural, friendly phrases when appropriate, such as:
+  • "Sure! 😊"
+  • "Absolutely!"
+  • "I found it."
+  • "Let me check that for you."
+  • "Hmm, I couldn't find that in the system."
+  • "I found a few matching records."
+  • "Looks like there isn't any data for that."
+  • "You're all set!"
+- Keep responses concise and professional. Do not overuse emojis or casual language.
+
+DATA RULE:
+- Answer ONLY from the information available in the website/ERP records provided in the context (Knitting Status, Textile Close By PMC, Production Ledger, Yarn Allocations, and Order Plans).
+- Never invent, assume, or browse for information outside the website data.
+- If the requested information exists:
+  → Respond naturally and confidently. (Example: "Sure! I found it. Order CSS0001 is currently running.")
+- If the information does not exist:
+  → Be honest and friendly. (Example: "Hmm, I couldn't find that in the system.")
+- If the question is outside the available website data:
+  → Say: "Sorry, I don't have that information in my system."
+
+STRICT SECRECY (NO CODE OR SECRETS):
+- You are STRICTLY FORBIDDEN from sharing, quoting, explaining, or outputting any Supabase code, SQL table creation scripts, database keys, Google Apps Script (GAS) code, Web App URLs, passwords, or internal server architecture code. If asked for any script or credential, reply:
+  "For security and operational integrity, internal system scripts, database codes, and credentials cannot be shared."
+
+FACTUAL RECORD CITATION:
+- Use the provided website context (Knitting Status, Textile Close By PMC, Production Ledger, Yarn, Plan Orders) to give exact figures for Order No., Buyer Name, Team Leader, FGSM, Finished Width, Fabric Type, Required Quantity, Grey Quantity, Production, and Knit Balance.
+
+FORMATTING:
+- Keep answers clear, concise, and professional with bold highlights on key figures. Do not write programming code.`;
 
     const recentLedgerSubset = (prodResult.ledgerData || []).slice(0, 20).map((r: any) => ({
       date: r.date,

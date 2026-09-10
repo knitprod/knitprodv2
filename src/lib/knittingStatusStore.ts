@@ -150,14 +150,39 @@ export function formatExcelDate(value: any): string {
     }
   }
 
-  // 4) Match DD/MM/YYYY or DD-MM-YYYY (e.g. 06/09/2026 or 6/9/2026)
+  // 4) Match numeric dates (e.g. 4/29/2026, 5/9/2026, 29/04/2026, 06-09-2026)
   const dmyNum = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
   if (dmyNum) {
-    const d = parseInt(dmyNum[1], 10);
-    const m = parseInt(dmyNum[2], 10) - 1;
+    const part1 = parseInt(dmyNum[1], 10);
+    const part2 = parseInt(dmyNum[2], 10);
     let y = parseInt(dmyNum[3], 10);
     if (y < 100) y += 2000;
-    if (m >= 0 && m < 12) {
+
+    let d: number | undefined;
+    let m: number | undefined;
+
+    if (part1 > 12 && part2 <= 12) {
+      // Unambiguously Day/Month/Year (e.g. 29/04/2026)
+      d = part1;
+      m = part2 - 1;
+    } else if (part1 <= 12 && part2 > 12) {
+      // Unambiguously Month/Day/Year (e.g. 04/29/2026 or 4/29/2026)
+      m = part1 - 1;
+      d = part2;
+    } else if (part1 <= 12 && part2 <= 12) {
+      // Both numbers <= 12 (e.g. 5/9/2026 or 06-09-2026)
+      // If separated by slash ('/'), it follows standard Excel US date format M/D/YYYY
+      if (s.includes('/')) {
+        m = part1 - 1;
+        d = part2;
+      } else {
+        // Hyphen or dot separated (e.g. 06-09-2026), standard DD-MM-YYYY
+        d = part1;
+        m = part2 - 1;
+      }
+    }
+
+    if (d !== undefined && m !== undefined && m >= 0 && m < 12 && d >= 1 && d <= 31) {
       return `${String(d).padStart(2, '0')}-${MONTH_NAMES[m]}-${y}`;
     }
   }
@@ -256,16 +281,35 @@ export function parseDateToTimestamp(val: any): number | null {
     return isNaN(date.getTime()) ? null : date.getTime();
   }
 
-  // Check DD/MM/YYYY or DD-MM-YYYY
+  // Check DD/MM/YYYY, MM/DD/YYYY or DD-MM-YYYY
   const dmyNum = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
   if (dmyNum) {
     const part1 = parseInt(dmyNum[1], 10);
     const part2 = parseInt(dmyNum[2], 10);
     let year = parseInt(dmyNum[3], 10);
     if (year < 100) year += 2000;
-    // Standard DD/MM/YYYY
-    if (part2 <= 12) {
-      const date = new Date(year, part2 - 1, part1);
+
+    let d: number | undefined;
+    let m: number | undefined;
+
+    if (part1 > 12 && part2 <= 12) {
+      d = part1;
+      m = part2 - 1;
+    } else if (part1 <= 12 && part2 > 12) {
+      m = part1 - 1;
+      d = part2;
+    } else if (part1 <= 12 && part2 <= 12) {
+      if (s.includes('/')) {
+        m = part1 - 1;
+        d = part2;
+      } else {
+        d = part1;
+        m = part2 - 1;
+      }
+    }
+
+    if (d !== undefined && m !== undefined && m >= 0 && m < 12 && d >= 1 && d <= 31) {
+      const date = new Date(year, m, d);
       if (!isNaN(date.getTime())) return date.getTime();
     }
   }

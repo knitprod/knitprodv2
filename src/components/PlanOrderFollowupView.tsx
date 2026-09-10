@@ -2185,11 +2185,17 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
             : (upGreyReq !== undefined ? Math.max(0, (upGreyReq || 0) - (upKnitPro || 0)) : undefined);
 
           const rawAKnitStart = getExcelRowValue(row, [
-            'A.Knit Start', 'A. Knit Start', 'A.Knit Start Date', 'A. Knit Start Date', 'Actual Knit Start', 'Actual Start', 'A. Knit Star', 'Actual Knit Start Date', 'A Knit Start', 'A_Knit_Start', 'AKnit Start', 'AKnitStart'
-          ], '', { forbiddenWords: ['planned', 'plan'], mustContain: ['actual', 'a.', 'aknit'] });
+            'A.Knit Start', 'A. Knit Start', 'A.Knit Start Date', 'A. Knit Start Date', 'Actual Knit Start', 'Actual Start', 'A. Knit Star', 'A. Knit\nStar', 'A. Knit\r\nStar', 'A.Knit Star', 'Actual Knit Start Date', 'A Knit Start', 'A_Knit_Start', 'AKnit Start', 'AKnitStart', 'First Knit', 'First Knit Date'
+          ], '', { forbiddenWords: ['planned', 'plan'], mustContain: ['actual', 'a.', 'aknit', 'star', 'first'] });
           const upAKnitStart = rawAKnitStart ? formatExcelDate(rawAKnitStart) : '';
 
           const rawLastProd = getExcelRowValue(row, [
+            'Last Knit',
+            'Last Knit Date',
+            'Last Knit\nDate',
+            'Last Knit\r\nDate',
+            'LastKnit',
+            'LastKnitDate',
             'Last Production Date',
             'Last Prod Date',
             'Last Prod. Date',
@@ -2206,7 +2212,6 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
             'A.Knit End/Last Prod Date',
             'A.Knit End / Last Prod',
             'Last Knitted Date',
-            'Last Knit Date',
             'Latest Production Date',
             'Latest Prod Date',
             'A. Knit End',
@@ -2216,7 +2221,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
             'A. Knit End Date',
             'A.Knit End Date',
             'LastProductionDate'
-          ], '', { forbiddenWords: ['planned', 'plan'], mustContain: ['last', 'prod', 'actual', 'a.', 'aknit'] });
+          ], '', { forbiddenWords: ['planned', 'plan'], mustContain: ['last', 'prod', 'actual', 'a.', 'aknit', 'knit'] });
           const upLastProd = rawLastProd ? formatExcelDate(rawLastProd) : '';
 
           const rawAvgProd = getExcelRowValue(row, ['Avg Prod/Day', 'Avg. Prod/Day', 'Avg Prod / Day', 'Avg Prod', 'Avg.Prod/Day', 'Daily Avg Prod', 'Avg. Prod', 'Average Production/Day', 'AvgProdDay', 'Avg Prod Day']);

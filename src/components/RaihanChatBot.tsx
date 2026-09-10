@@ -121,13 +121,28 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
       return prodResult.reply;
     }
 
-    // 2. Check order queries (order number, color, fabric, balance)
+    // 2. Check if asking about total knitting balance / total production summary without specific order number
     const normalized = normalizeQueryString(query);
     const numMatches = normalized.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || [];
+    const lowerQ = query.toLowerCase().trim();
+
+    const isTotalKnittingQuery = 
+      (lowerQ.includes('total') && (lowerQ.includes('balance') || lowerQ.includes('knit') || lowerQ.includes('prod') || lowerQ.includes('summary'))) ||
+      (lowerQ.includes('knitting balance') && !numMatches.length) ||
+      (lowerQ.includes('total balance') && !numMatches.length);
+
+    if (isTotalKnittingQuery && numMatches.length === 0) {
+      const summaryResult = handleSmartSummaryQuery(query, context?.summaryStats, knittingOrders.length, activeTab);
+      if (summaryResult.handled && summaryResult.reply) {
+        return summaryResult.reply;
+      }
+    }
+
+    // 3. Check order queries (order number, color, fabric, balance)
     let activeOrderNum: string | null = numMatches[0] || null;
     let isFollowUp = false;
 
-    if (!activeOrderNum) {
+    if (!activeOrderNum && !isTotalKnittingQuery) {
       if (context?.activeOrderNo) {
         activeOrderNum = String(context.activeOrderNo);
         isFollowUp = true;
@@ -135,7 +150,9 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         for (let i = history.length - 1; i >= 0; i--) {
           const histMatches = String(history[i]?.text || '').match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g);
           if (histMatches && histMatches.length > 0) {
-            activeOrderNum = histMatches[0];
+            const candidate = histMatches[0];
+            if (candidate === '2024' || candidate === '2025' || candidate === '2026') continue;
+            activeOrderNum = candidate;
             isFollowUp = true;
             break;
           }
@@ -163,16 +180,28 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
       return summaryResult.reply;
     }
 
-    // 4. Default guided response
-    return `Hello! I am **Raihan**, your internal Epyllion Knitex ERP assistant.\n` +
-      `I check and answer questions directly from the live operational data in this website.\n\n` +
-      `Try asking me:\n` +
+    // 4. Check if the question is clearly outside website data
+    const isOutsideQuestion = 
+      /\b(weather|temperature|forecast for|president|prime minister|capital of|tell me a joke|write a poem|sing a song|recipe|how to cook|movie|football score|cricket|stock price|bitcoin|crypto|python|javascript|write code)\b/i.test(lowerQ) ||
+      (/\b(who is|what is|tell me about)\b/i.test(lowerQ) && !lowerQ.includes('order') && !lowerQ.includes('fabric') && !lowerQ.includes('knit') && !lowerQ.includes('floor') && !lowerQ.includes('production') && !lowerQ.includes('balance') && !lowerQ.includes('yarn') && !lowerQ.includes('buyer') && !lowerQ.includes('pmc') && !lowerQ.includes('target') && !lowerQ.includes('machine') && !lowerQ.includes('shift') && !numMatches.length);
+
+    if (isOutsideQuestion) {
+      return "Sorry, I don't have that information in my system.";
+    }
+
+    // 5. If specific order was queried but not found in any dataset
+    if (activeOrderNum && numMatches.length > 0) {
+      return `Hmm, I couldn't find that order in the system. I checked Knitting Status, Order Plans, Textile Close By PMC, and Yarn Allocations, but couldn't find **Order #${activeOrderNum}**.\n\nPlease verify the order number or ensure the latest records have been updated.`;
+    }
+
+    // 6. Default friendly colleague guided response
+    return `Sure! 😊 I'm here to help with any information in the system.\n\n` +
+      `Here are a few things you can ask me:\n` +
       `• *"Yesterday's production floor by floor"*\n` +
       `• *"Which floor did not update today?"*\n` +
       `• *"Last 7 days production of EFL"*\n` +
       `• *"Predict tomorrow's production"*\n` +
-      `• *"What is the information for 272374?"*\n` +
-      `• *"what is the color?"* (after asking about an order)\n` +
+      `• *"What is the information for Order 272277?"*\n` +
       `• *"What is the total knitting balance?"*`;
   };
 
@@ -200,12 +229,19 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
       const lowerQ = userQuestion.toLowerCase();
 
       // Multi-turn order context detection
+      const isTotalKnittingQuery = 
+        (lowerQ.includes('total') && (lowerQ.includes('balance') || lowerQ.includes('knit') || lowerQ.includes('prod') || lowerQ.includes('summary'))) ||
+        (lowerQ.includes('knitting balance') && !numberMatches.length) ||
+        (lowerQ.includes('total balance') && !numberMatches.length);
+
       let activeOrderNo: string | null = numberMatches[0] || null;
-      if (!activeOrderNo) {
+      if (!activeOrderNo && !isTotalKnittingQuery) {
         for (let i = messages.length - 1; i >= 0; i--) {
           const histMatches = String(messages[i]?.text || '').match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g);
           if (histMatches && histMatches.length > 0) {
-            activeOrderNo = histMatches[0];
+            const candidate = histMatches[0];
+            if (candidate === '2024' || candidate === '2025' || candidate === '2026') continue;
+            activeOrderNo = candidate;
             break;
           }
         }
@@ -397,12 +433,38 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         return;
       }
 
-      // B. Multi-turn Order / Color / Fabric / Balance Check
+      // B. Total Knitting Balance / Production Summary Check (without specific order)
       const normalized = normalizeQueryString(query);
       const numMatches = normalized.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || [];
+      const lowerQ = query.toLowerCase().trim();
+
+      const isTotalKnittingQuery = 
+        (lowerQ.includes('total') && (lowerQ.includes('balance') || lowerQ.includes('knit') || lowerQ.includes('prod') || lowerQ.includes('summary'))) ||
+        (lowerQ.includes('knitting balance') && !numMatches.length) ||
+        (lowerQ.includes('total balance') && !numMatches.length);
+
+      if (isTotalKnittingQuery && numMatches.length === 0) {
+        const summaryResult = handleSmartSummaryQuery(query, context?.summaryStats, knittingOrders.length, activeTab);
+        if (summaryResult.handled && summaryResult.reply) {
+          await new Promise(r => setTimeout(r, 120));
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `msg-${Date.now() + 1}`,
+              role: 'model',
+              text: summaryResult.reply!,
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            }
+          ]);
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // C. Multi-turn Order / Color / Fabric / Balance Check
       let activeOrderNum: string | null = numMatches[0] || null;
       let isFollowUp = false;
-      if (!activeOrderNum) {
+      if (!activeOrderNum && !isTotalKnittingQuery) {
         if (context?.activeOrderNo) {
           activeOrderNum = String(context.activeOrderNo);
           isFollowUp = true;
@@ -410,7 +472,9 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
           for (let i = historyPayload.length - 1; i >= 0; i--) {
             const histMatches = String(historyPayload[i]?.text || '').match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g);
             if (histMatches && histMatches.length > 0) {
-              activeOrderNum = histMatches[0];
+              const candidate = histMatches[0];
+              if (candidate === '2024' || candidate === '2025' || candidate === '2026') continue;
+              activeOrderNum = candidate;
               isFollowUp = true;
               break;
             }
@@ -730,18 +794,17 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
               setShowWelcomeCallout(false);
             }}
             className="group relative flex items-center gap-3 px-3.5 py-2.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white rounded-2xl shadow-xl hover:shadow-teal-500/25 transition-all duration-200 transform hover:-translate-y-0.5 cursor-pointer border border-teal-400/30 ring-2 ring-white/20"
-            title="Ask Raihan - Epyllion Knitex ERP Assistant"
+            title="Ask Raihan · Production Guide"
           >
             <RaihanAvatar size="lg" showOnlineIndicator={true} />
             
             <div className="text-left pr-1">
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm font-black tracking-tight">Ask Raihan</span>
-                <span className="text-[10px] uppercase font-bold bg-white/20 text-teal-100 px-1.5 py-0.5 rounded-md">
-                  ERP Bot
-                </span>
+              <div className="flex items-center gap-1.5 whitespace-nowrap">
+                <span className="text-sm font-black tracking-tight">Ask Raihan · Production Guide</span>
               </div>
-              <p className="text-[11px] text-teal-100/90 font-medium">In-Website ERP Assistant</p>
+              <p className="text-[11px] text-teal-100/90 font-medium whitespace-nowrap flex items-center gap-1.5">
+                <span className="text-emerald-300 text-[10px] leading-none">●</span> In-Website Data Only · Offline Safe
+              </p>
             </div>
           </button>
         </div>
@@ -752,19 +815,18 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         <div
           id="raihan-minimized-dock"
           onClick={() => setIsMinimized(false)}
-          className="fixed bottom-5 right-5 z-50 flex items-center justify-between gap-3 px-3.5 py-2.5 bg-gradient-to-r from-teal-700 via-teal-800 to-emerald-900 text-white rounded-2xl shadow-2xl border border-teal-400/40 w-72 sm:w-80 cursor-pointer hover:border-teal-300 hover:shadow-teal-500/20 transition-all duration-200 transform hover:-translate-y-0.5 animate-scale-up"
+          className="fixed bottom-5 right-5 z-50 flex items-center justify-between gap-3 px-3.5 py-2.5 bg-gradient-to-r from-teal-700 via-teal-800 to-emerald-900 text-white rounded-2xl shadow-2xl border border-teal-400/40 w-80 sm:w-88 cursor-pointer hover:border-teal-300 hover:shadow-teal-500/20 transition-all duration-200 transform hover:-translate-y-0.5 animate-scale-up"
           title="Click to expand Raihan chat"
         >
           <div className="flex items-center gap-2.5">
             <RaihanAvatar size="sm" showOnlineIndicator={true} />
             <div className="text-left">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-black tracking-tight">Raihan</span>
-                <span className="text-[9px] uppercase font-bold bg-emerald-500/30 text-emerald-200 px-1.5 py-0.5 rounded border border-emerald-400/30">
-                  Minimized
-                </span>
+              <div className="flex items-center gap-1.5 whitespace-nowrap">
+                <span className="text-xs font-black tracking-tight">Ask Raihan · Production Guide</span>
               </div>
-              <p className="text-[10.5px] text-teal-100/90 font-medium">Click to restore conversation</p>
+              <p className="text-[10.5px] text-teal-100/90 font-medium flex items-center gap-1.5 whitespace-nowrap">
+                <span className="text-emerald-300 text-[9px] leading-none">●</span> In-Website Data Only · Offline Safe
+              </p>
             </div>
           </div>
 
@@ -814,9 +876,9 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
 
               <div>
                 <div className="flex items-center gap-1.5">
-                  <h3 className="text-sm font-black tracking-tight text-white">Raihan</h3>
+                  <h3 className="text-sm font-black tracking-tight text-white">Ask Raihan</h3>
                   <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/30 text-emerald-100 border border-emerald-400/30">
-                    ERP Assistant
+                    Production Guide
                   </span>
                   {isMaximized && (
                     <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-white/20 text-white border border-white/20">
@@ -824,9 +886,9 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
                     </span>
                   )}
                 </div>
-                <p className="text-[10.5px] text-teal-100 font-medium flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-                  In-Website Data Only • Offline Safe
+                <p className="text-[10.5px] text-teal-100 font-medium flex items-center gap-1.5">
+                  <span className="text-emerald-300 text-[9px] leading-none">●</span>
+                  In-Website Data Only · Offline Safe
                 </p>
               </div>
             </div>
