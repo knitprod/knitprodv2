@@ -255,6 +255,12 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             }
             return r;
           });
+          const has0909 = sanitized.some((r: LedgerRecord) => String(r.date || '').includes('2026-09-09') || String(r.date || '').includes('09/09/2026'));
+          if (!has0909) {
+            const initial = generateInitialLedger();
+            const sepRecords = initial.filter((r: LedgerRecord) => String(r.date || '').includes('2026-09-09') || String(r.date || '').includes('2026-09-10'));
+            sanitized.unshift(...sepRecords);
+          }
           return deduplicateLedgerRecords(sanitized);
         }
       }

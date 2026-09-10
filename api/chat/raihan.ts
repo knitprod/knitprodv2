@@ -7,7 +7,7 @@
  */
 
 import { GoogleGenAI } from '@google/genai';
-import { handleSmartProductionLedgerQuery, normalizeQueryString } from '../../src/lib/raihanIntelligence';
+import { handleSmartProductionLedgerQuery, normalizeQueryString, extractOrderNumbers } from '../../src/lib/raihanIntelligence';
 
 let cachedGenAI: GoogleGenAI | null = null;
 function getGenAI(): GoogleGenAI | null {
@@ -71,7 +71,7 @@ export default async function handler(req: any, res: any) {
     }
 
     // 1. Detect order number from current message or multi-turn history
-    let numMatches: string[] = trimmedMsg.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || [];
+    let numMatches: string[] = extractOrderNumbers(trimmedMsg);
     let isFollowUp = false;
     let activeOrderNum: string | null = numMatches[0] || null;
 
@@ -82,7 +82,7 @@ export default async function handler(req: any, res: any) {
       } else if (Array.isArray(history) && history.length > 0) {
         for (let i = history.length - 1; i >= 0; i--) {
           const histText = String(history[i]?.text || '');
-          const histMatches = histText.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g);
+          const histMatches = extractOrderNumbers(histText);
           if (histMatches && histMatches.length > 0) {
             activeOrderNum = histMatches[0];
             isFollowUp = true;
