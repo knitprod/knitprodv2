@@ -1421,8 +1421,15 @@ async function handleProductionLedgerQuery(trimmedMsg: string, clientContext: an
 }
 
 // Query all internal databases (Supabase, local JSON, context) for matching records
-async function searchInternalERP(queryStr: string, clientContext: any) {
-  const numMatches = queryStr.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || [];
+async function searchInternalERP(queryStr: string, clientContext: any, explicitOrderNum?: string | null) {
+  const numMatches: string[] = queryStr.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || [];
+  if (explicitOrderNum && !numMatches.includes(explicitOrderNum)) {
+    numMatches.push(explicitOrderNum);
+  }
+  if (clientContext?.activeOrderNo && !numMatches.includes(String(clientContext.activeOrderNo))) {
+    numMatches.push(String(clientContext.activeOrderNo));
+  }
+
   const lowerQ = queryStr.toLowerCase();
 
   const foundKnittingOrders: any[] = [];
@@ -1478,7 +1485,11 @@ async function searchInternalERP(queryStr: string, clientContext: any) {
       const recOrd = String(rec.orderNo || rec.order_no || rec.ewo || '');
       const matchesNum = numMatches.some(n => recOrd.includes(n));
       const matchesBuyer = rec.buyerName && lowerQ.includes(String(rec.buyerName).toLowerCase());
-      if (matchesNum || matchesBuyer) {
+      const recColor = String(rec.color || '').toLowerCase();
+      const matchesColor = recColor && lowerQ.split(/\s+/).some(w => w.length > 2 && recColor.includes(w));
+      const matchesExplicit = Boolean(explicitOrderNum && recOrd.includes(explicitOrderNum));
+
+      if (matchesNum || matchesBuyer || matchesColor || matchesExplicit) {
         if (rec.type === 'Textile Close By PMC') {
           if (!foundTextileClose.some(t => t.order_no === recOrd || t.orderNo === recOrd)) {
             foundTextileClose.push(rec);
@@ -1581,6 +1592,213 @@ function formatOrderResponse(orderNum: string, erpData: any): string {
   return report;
 }
 
+function searchOrdersByColor(colorQuery: string, erpData: any, clientContext: any): Array<{ orderNo: string; buyer: string; color: string; balance: number }> {
+  const cleanColor = colorQuery.toLowerCase().replace(/\bonly\b/g, '').replace(/\bcolor\b/g, '').trim();
+  if (!cleanColor || cleanColor.length < 2) return [];
+
+  const results: Array<{ orderNo: string; buyer: string; color: string; balance: number }> = [];
+  const seenOrders = new Set<string>();
+
+  // Check clientContext.relevantRecords
+  if (Array.isArray(clientContext?.relevantRecords)) {
+    for (const rec of clientContext.relevantRecords) {
+      const ordNum = String(rec.orderNo || rec.order_no || rec.ewo || '');
+      if (!ordNum || seenOrders.has(ordNum)) continue;
+
+      let matchedColor = '';
+      if (rec.color && String(rec.color).toLowerCase().includes(cleanColor)) {
+        matchedColor = rec.color;
+      } else if (Array.isArray(rec.items)) {
+        const itemMatch = rec.items.find((it: any) => String(it.color || '').toLowerCase().includes(cleanColor));
+        if (itemMatch) matchedColor = itemMatch.color;
+      }
+
+      if (matchedColor) {
+        seenOrders.add(ordNum);
+        results.push({
+          orderNo: ordNum,
+          buyer: rec.buyerName || rec.buyer || 'Epyllion',
+          color: matchedColor,
+          balance: Number(rec.knitBal || rec.knit_balance || 0)
+        });
+      }
+    }
+  }
+
+  // Check erpData foundKnittingOrders and foundOrderPlans
+  if (Array.isArray(erpData?.foundKnittingOrders)) {
+    for (const ko of erpData.foundKnittingOrders) {
+      const ordNum = String(ko.order_no || ko.orderNo || '');
+      if (!ordNum || seenOrders.has(ordNum)) continue;
+      const col = String(ko.color || '');
+      if (col && col.toLowerCase().includes(cleanColor)) {
+        seenOrders.add(ordNum);
+        results.push({
+          orderNo: ordNum,
+          buyer: ko.buyer_name || ko.buyerName || 'Epyllion',
+          color: col,
+          balance: Number(ko.knit_balance || ko.knitBal || 0)
+        });
+      }
+    }
+  }
+
+  return results;
+}
+
+function handleConversationalFollowUp(
+  userQuery: string,
+  activeOrderNum: string,
+  erpData: any,
+  clientContext: any
+): string | null {
+  const lowerQ = userQuery.toLowerCase().trim();
+  const { foundKnittingOrders, foundOrderPlans, foundTextileClose, foundYarnAllocations } = erpData || {};
+
+  const ko = (foundKnittingOrders || []).find((k: any) => String(k.order_no || k.orderNo).includes(activeOrderNum)) || (foundKnittingOrders || [])[0];
+  const op = (foundOrderPlans || []).find((p: any) => String(p.ewo || p.id).includes(activeOrderNum)) || (foundOrderPlans || [])[0];
+  const tcp = (foundTextileClose || []).find((t: any) => String(t.order_no || t.orderNo).includes(activeOrderNum)) || (foundTextileClose || [])[0];
+  const ya = (foundYarnAllocations || []).find((y: any) => String(y.order_number || y.orderNumber).includes(activeOrderNum)) || (foundYarnAllocations || [])[0];
+
+  if (!ko && !op && !tcp && !ya) {
+    return null;
+  }
+
+  const buyer = ko?.buyer_name || ko?.buyerName || op?.buyer || 'Epyllion Buyer';
+  const teamLeader = ko?.team_leader || ko?.teamLeader || op?.leader || 'Unassigned';
+
+  // Extract items / colors from knitting order
+  const rawItems = ko?.items || ko?.breakdown || [];
+  const orderColors: string[] = [];
+  if (Array.isArray(rawItems)) {
+    rawItems.forEach((it: any) => {
+      if (it.color && !orderColors.includes(it.color)) orderColors.push(it.color);
+    });
+  }
+  if (ko?.color && !orderColors.includes(ko.color)) orderColors.push(ko.color);
+  if (op?.color && !orderColors.includes(op.color)) orderColors.push(op.color);
+
+  // Check if query is about color (e.g. "what is the color?", "Grey mix only", "which color?", "black", "navy")
+  const isColorQuery = lowerQ.includes('color') || 
+    lowerQ.includes('mix') || 
+    lowerQ.includes('grey') || 
+    lowerQ.includes('black') || 
+    lowerQ.includes('white') || 
+    lowerQ.includes('blue') || 
+    lowerQ.includes('red') || 
+    lowerQ.includes('melange') || 
+    lowerQ.includes('heather') ||
+    lowerQ.includes('shade');
+
+  if (isColorQuery) {
+    const cleanSearch = lowerQ.replace(/\bonly\b/g, '').replace(/\bcolor\b/g, '').replace(/\bwhat is\b/g, '').replace(/\bthe\b/g, '').trim();
+
+    // If asking specific color filter like "Grey mix only" or "Grey mix"
+    if (cleanSearch && cleanSearch.length >= 3 && !['what', 'tell', 'show', 'is'].includes(cleanSearch)) {
+      const matchedItems = Array.isArray(rawItems) ? rawItems.filter((it: any) => {
+        const c = String(it.color || '').toLowerCase();
+        return c.includes(cleanSearch) || cleanSearch.includes(c);
+      }) : [];
+
+      if (matchedItems.length > 0) {
+        let res = `For **Order #${activeOrderNum}** (${buyer}), here are the details for **${matchedItems[0].color}**:\n\n`;
+        matchedItems.forEach((it: any, idx: number) => {
+          const fab = it.fabType || it.fabric || 'Single Jersey';
+          const req = Number(it.reqQty || it.req_qty || 0).toLocaleString();
+          const grey = Number(it.greyQty || it.grey_qty || 0).toLocaleString();
+          const prod = Number(it.production || 0).toLocaleString();
+          const bal = Number(it.knitBal || it.knit_balance || 0).toLocaleString();
+          const dia = it.finishedDia || it.dia || 'N/A';
+          const gsm = it.fgsm || it.gsm || 'N/A';
+
+          res += `**Item ${idx + 1}: ${it.color}**\n` +
+            `• Fabric: **${fab}** (GSM: ${gsm} | Dia: ${dia})\n` +
+            `• Required Qty: ${req} kg\n` +
+            `• Grey Qty: ${grey} kg\n` +
+            `• Production: ${prod} kg\n` +
+            `• Knitting Balance: **${bal} kg**\n\n`;
+        });
+        return res.trim();
+      }
+
+      // If plan has this color
+      if (op && op.color && op.color.toLowerCase().includes(cleanSearch)) {
+        return `For **Order #${activeOrderNum}** (${buyer}), the plan records color **${op.color}**:\n\n` +
+          `• Fabric: **${op.fabric || 'Knitted Fabric'}**\n` +
+          `• Target: **${Number(op.target || 0).toLocaleString()} kg**\n` +
+          `• Plan Month: **${op.plan_month || op.planMonth || 'Active'}**`;
+      }
+
+      // If NOT matched in this active order, clarify what colors actually exist for this order
+      const actualColorsStr = orderColors.length > 0 ? orderColors.map(c => `• **${c}**`).join('\n') : '• *Standard Raw/Grey Fabric*';
+      let res = `For **Order #${activeOrderNum}**, the recorded color(s) in the ERP are:\n${actualColorsStr}\n\n` +
+        `*(Note: "${userQuery}" was not found as an active item color under Order #${activeOrderNum}.)*\n`;
+
+      // Check across other ERP orders to see if other orders have this requested color
+      const otherOrders = searchOrdersByColor(cleanSearch, erpData, clientContext);
+      if (otherOrders.length > 0) {
+        res += `\nHowever, I found **${otherOrders.length} other order(s)** in the ERP with **${cleanSearch}**:\n` +
+          otherOrders.slice(0, 5).map(o => `• **Order #${o.orderNo}** (Buyer: ${o.buyer}, Color: ${o.color}, Balance: ${Number(o.balance).toLocaleString()} kg)`).join('\n');
+      }
+
+      return res;
+    }
+
+    // General color question (e.g. "what is the color of this order?")
+    if (orderColors.length > 0) {
+      let res = `The recorded color(s) for **Order #${activeOrderNum}** (${buyer}) are:\n\n` +
+        orderColors.map(c => `• **${c}**`).join('\n');
+
+      if (Array.isArray(rawItems) && rawItems.length > 1) {
+        res += `\n\n*(There are ${rawItems.length} individual color items on this order. You can ask for a specific color like "Grey mix only" or "Black only" to see individual balances.)*`;
+      }
+      return res;
+    }
+  }
+
+  // Check if asking about fabric / gsm / width
+  if (lowerQ.includes('fabric') || lowerQ.includes('gsm') || lowerQ.includes('width') || lowerQ.includes('dia')) {
+    const fabType = ko?.fab_type || ko?.fabType || op?.fabric || 'N/A';
+    const fgsm = ko?.fgsm || ko?.gsm || 'N/A';
+    const finishedWidth = ko?.finished_width || ko?.finishedWidth || ko?.dia || 'N/A';
+
+    let res = `Fabric specifications for **Order #${activeOrderNum}**:\n\n` +
+      `• **Fabric Type**: **${fabType}**\n` +
+      `• **Finished GSM**: **${fgsm}**\n` +
+      `• **Finished Width**: **${finishedWidth}**\n` +
+      `• **Buyer**: **${buyer}**`;
+
+    if (orderColors.length > 0) {
+      res += `\n• **Color(s)**: ${orderColors.join(', ')}`;
+    }
+    return res;
+  }
+
+  // Check if asking about balance / quantity / production
+  if (lowerQ.includes('balance') || lowerQ.includes('prod') || lowerQ.includes('qty') || lowerQ.includes('quantity') || lowerQ.includes('remaining')) {
+    const reqQty = Number(ko?.req_qty ?? ko?.reqQty ?? op?.target ?? 0);
+    const greyQty = Number(ko?.grey_qty ?? ko?.greyQty ?? op?.allocated_qty ?? 0);
+    const prod = Number(ko?.production ?? op?.knit_pro ?? 0);
+    const balance = Number(ko?.knit_balance ?? ko?.knitBal ?? (greyQty - prod));
+
+    return `Here is the quantity and production status for **Order #${activeOrderNum}**:\n\n` +
+      `• **Required Quantity**: ${reqQty.toLocaleString()} kg\n` +
+      `• **Grey Quantity**: ${greyQty.toLocaleString()} kg\n` +
+      `• **Current Production**: ${prod.toLocaleString()} kg\n` +
+      `• **Knitting Balance**: **${balance.toLocaleString()} kg**\n` +
+      `• **Status**: ${balance <= 0 ? 'Completed' : (prod > 0 ? 'Running' : 'Pending')}`;
+  }
+
+  // Check if asking about team leader or buyer
+  if (lowerQ.includes('leader') || lowerQ.includes('buyer') || lowerQ.includes('who')) {
+    return `For **Order #${activeOrderNum}**:\n\n` +
+      `• **Buyer**: **${buyer}**\n` +
+      `• **Team Leader**: **${teamLeader}**`;
+  }
+
+  return null;
+}
+
 // Serve Raihan Avatar image asset with automatic fallback to high-res vector
 app.get(['/Gemini_Generated_Image_e0oxaye0oxaye0ox-removebg-preview.png', '/raihan-avatar.png', '/raihan-avatar.svg'], (req, res) => {
   const customPng = path.join(process.cwd(), 'public', 'Gemini_Generated_Image_e0oxaye0oxaye0ox-removebg-preview.png');
@@ -1630,9 +1848,32 @@ app.post('/api/chat/raihan', async (req, res) => {
       });
     }
 
-    // Step 1: Search live internal database immediately
-    const erpSearchResults = await searchInternalERP(trimmedMsg, context);
-    const { numMatches, foundKnittingOrders, foundOrderPlans, foundTextileClose, foundYarnAllocations } = erpSearchResults;
+    // Step 1: Detect active order number (from current message or multi-turn history/context)
+    let numMatches = trimmedMsg.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || [];
+    let isFollowUp = false;
+    let activeOrderNum: string | null = numMatches[0] || null;
+
+    // Multi-turn context memory: If no number in current query, check previous history & context
+    if (!activeOrderNum) {
+      if (context?.activeOrderNo) {
+        activeOrderNum = String(context.activeOrderNo);
+        isFollowUp = true;
+      } else if (Array.isArray(history) && history.length > 0) {
+        for (let i = history.length - 1; i >= 0; i--) {
+          const histText = String(history[i]?.text || '');
+          const histMatches = histText.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g);
+          if (histMatches && histMatches.length > 0) {
+            activeOrderNum = histMatches[0];
+            isFollowUp = true;
+            break;
+          }
+        }
+      }
+    }
+
+    // Step 1.2: Search live internal database immediately
+    const erpSearchResults = await searchInternalERP(trimmedMsg, context, activeOrderNum);
+    const { foundKnittingOrders, foundOrderPlans, foundTextileClose, foundYarnAllocations } = erpSearchResults;
 
     // Step 1.5: Search live internal Production Ledger for floor updates, missing floors, 7-day trends, and predictions (< 30ms)
     const prodResult = await handleProductionLedgerQuery(trimmedMsg, context);
@@ -1643,8 +1884,19 @@ app.post('/api/chat/raihan', async (req, res) => {
       });
     }
 
-    // Step 2: If a specific order number was requested and matched, return instant verified report (< 100ms)
-    if (numMatches.length > 0) {
+    // Step 2: Multi-turn Follow-up handling (e.g., user asks "Grey mix only", "color", "balance", etc. for active order)
+    if (isFollowUp && activeOrderNum) {
+      const followUpReply = handleConversationalFollowUp(trimmedMsg, activeOrderNum, erpSearchResults, context);
+      if (followUpReply) {
+        return res.json({
+          success: true,
+          reply: sanitizeRaihanOutput(followUpReply)
+        });
+      }
+    }
+
+    // Step 2.5: If an explicit order number was requested in this message, return verified report (< 100ms)
+    if (!isFollowUp && numMatches.length > 0) {
       const targetNum = numMatches[0];
       const hasAnyMatch = foundKnittingOrders.length > 0 || foundOrderPlans.length > 0 || foundTextileClose.length > 0 || foundYarnAllocations.length > 0;
 
@@ -1661,6 +1913,22 @@ app.post('/api/chat/raihan', async (req, res) => {
           reply: `I searched the internal ERP system (Knitting Status, Textile Close By PMC, and Order Plans), but **Order #${targetNum}** was not found.\n\nPlease check the number or ensure the latest Excel data has been synchronized.`
         });
       }
+    }
+
+    // Step 2.7: Standalone color search across the ERP (e.g., user asks "Grey mix only", "Navy Blue" without prior order)
+    const standaloneColorMatches = searchOrdersByColor(trimmedMsg, erpSearchResults, context);
+    if (standaloneColorMatches.length > 0 && !lowerMsg.includes('total') && !lowerMsg.includes('summary')) {
+      let colorReply = `Here are the orders found in the ERP system with **${trimmedMsg}**:\n\n`;
+      standaloneColorMatches.slice(0, 8).forEach((o, i) => {
+        colorReply += `${i + 1}. **Order #${o.orderNo}** (Buyer: **${o.buyer}**)\n` +
+          `   • Color: **${o.color}**\n` +
+          `   • Knitting Balance: **${Number(o.balance).toLocaleString()} kg**\n`;
+      });
+      colorReply += `\nYou can ask me for full details on any of these orders (e.g., *"Show details for ${standaloneColorMatches[0].orderNo}"*)!`;
+      return res.json({
+        success: true,
+        reply: sanitizeRaihanOutput(colorReply)
+      });
     }
 
     // Step 3: Instant local answers for common summary or buyer queries (< 20ms)
@@ -1695,7 +1963,7 @@ app.post('/api/chat/raihan', async (req, res) => {
       }
     }
 
-    // Step 4: For complex conversational queries, use Gemini with strict 2-second timeout
+    // Step 4: For complex conversational queries, use Gemini with strict 10-second timeout
     const ai = getGenAI();
 
     const systemInstruction = `You are Raihan, the dedicated internal AI operational assistant for Epyllion Knitex Ltd. Knitting Performance & ERP System.
@@ -1727,6 +1995,7 @@ CRITICAL INSTRUCTIONS & STRICT BOUNDARIES (MANDATORY):
 
     const contextPayload = {
       activeTab,
+      activeOrderNum,
       userRole: currentUser.userType,
       userName: currentUser.name,
       matchedRecords: {
@@ -1743,7 +2012,7 @@ CRITICAL INSTRUCTIONS & STRICT BOUNDARIES (MANDATORY):
       try {
         const contents: any[] = [];
         if (Array.isArray(history) && history.length > 0) {
-          const recentHistory = history.slice(-4);
+          const recentHistory = history.slice(-6);
           for (const item of recentHistory) {
             if (item.text && (item.role === 'user' || item.role === 'model')) {
               contents.push({
@@ -1780,11 +2049,33 @@ CRITICAL INSTRUCTIONS & STRICT BOUNDARIES (MANDATORY):
           reply: sanitizeRaihanOutput(rawReply)
         });
       } catch (geminiErr: any) {
-        // Graceful fallback to ERP synthesizer if Gemini is slow or offline
+        console.warn('Gemini chat warning in Raihan bot, using local ERP synthesizer fallback:', geminiErr?.message || geminiErr);
+        // Graceful fallback to ERP synthesizer if Gemini is slow, offline, or quota exceeded
       }
     }
 
-    // Step 5: Default fallback response
+    // Step 5: Intelligent local ERP synthesizer fallback (resilient against Gemini rate limits/429)
+    if (activeOrderNum) {
+      const activeReport = handleConversationalFollowUp(trimmedMsg, activeOrderNum, erpSearchResults, context) ||
+        formatOrderResponse(activeOrderNum, erpSearchResults);
+      return res.json({
+        success: true,
+        reply: sanitizeRaihanOutput(activeReport)
+      });
+    }
+
+    if (foundKnittingOrders.length > 0 || foundOrderPlans.length > 0) {
+      const topOrd = foundKnittingOrders[0] || foundOrderPlans[0];
+      const topNum = topOrd.order_no || topOrd.orderNo || topOrd.ewo;
+      if (topNum) {
+        return res.json({
+          success: true,
+          reply: sanitizeRaihanOutput(formatOrderResponse(topNum, erpSearchResults))
+        });
+      }
+    }
+
+    // Default fallback response
     const fallbackReply = `Hello! I am **Raihan**, your internal Epyllion Knitex ERP assistant.\n` +
       `I answer questions directly from the operational data within this website (Knitting Status, Order Plans, Textile Close By PMC, and Production Records).\n\n` +
       `Try asking me:\n` +

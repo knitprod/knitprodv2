@@ -89,6 +89,256 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
     "What is the total knitting balance?"
   ];
 
+  const STANDARD_FLOORS = ['EFL', 'EFL-2', 'KDL', 'Unit-2'];
+
+  // Autonomous Client-Side ERP Engine (works offline, on static Vercel, or during server transitions)
+  const synthesizeClientERPResponse = (
+    query: string,
+    history: { role: string; text: string }[],
+    context: any,
+    knittingOrders: any[],
+    orderPlans: any[],
+    textileRecords: any[],
+    ledger: any[],
+    floorsList: any[]
+  ): string => {
+    const trimmed = query.trim();
+    const lower = trimmed.toLowerCase();
+
+    const normalizedFloorNames: string[] = (floorsList || [])
+      .map((f: any) => typeof f === 'string' ? f : (f?.name || f?.id || f?.floor || ''))
+      .filter(Boolean);
+    const activeFloors = normalizedFloorNames.length > 0 ? normalizedFloorNames : STANDARD_FLOORS;
+
+    // 1. Detect order number from query or history
+    const numMatches = trimmed.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || [];
+    let activeOrderNum: string | null = numMatches[0] || null;
+    let isFollowUp = false;
+
+    if (!activeOrderNum) {
+      if (context?.activeOrderNo) {
+        activeOrderNum = String(context.activeOrderNo);
+        isFollowUp = true;
+      } else {
+        for (let i = history.length - 1; i >= 0; i--) {
+          const histMatches = String(history[i]?.text || '').match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g);
+          if (histMatches && histMatches.length > 0) {
+            activeOrderNum = histMatches[0];
+            isFollowUp = true;
+            break;
+          }
+        }
+      }
+    }
+
+    // 2. Order Plans or Knitting Order lookup for active order
+    if (activeOrderNum) {
+      const ko = knittingOrders.find(o => String(o.orderNo || '').includes(activeOrderNum!));
+      const op = orderPlans.find(p => String(p.ewo || '').includes(activeOrderNum!));
+      const tcp = textileRecords.find(t => String(t.orderNo || '').includes(activeOrderNum!));
+
+      if (ko || op || tcp) {
+        const buyer = ko?.buyerName || op?.buyer || tcp?.buyerName || 'Epyllion Buyer';
+        const teamLeader = ko?.teamLeader || op?.knitTeamLeaders || tcp?.teamLeader || 'Unassigned';
+        const items = Array.isArray(ko?.items) ? ko.items : [];
+        const orderColors: string[] = [];
+        items.forEach((it: any) => {
+          if (it.color && !orderColors.includes(it.color)) orderColors.push(it.color);
+        });
+        if (op?.color && !orderColors.includes(op.color)) orderColors.push(op.color);
+
+        // Follow-up: color inquiry
+        const isColorQuery = lower.includes('color') || lower.includes('mix') || lower.includes('grey') ||
+          lower.includes('black') || lower.includes('white') || lower.includes('blue') || lower.includes('red') ||
+          lower.includes('yellow') || lower.includes('green') || lower.includes('navy');
+
+        if (isColorQuery && (isFollowUp || !numMatches.length || lower.includes('color'))) {
+          const cleanSearch = lower.replace(/\bonly\b/g, '').replace(/\bcolor\b/g, '').replace(/\bwhat is\b/g, '').replace(/\bthe\b/g, '').trim();
+          if (cleanSearch && cleanSearch.length >= 3 && !['what', 'tell', 'show', 'is', 'how', 'which'].includes(cleanSearch)) {
+            const matchedItems = items.filter((it: any) => {
+              const c = String(it.color || '').toLowerCase();
+              return c.includes(cleanSearch) || cleanSearch.includes(c);
+            });
+
+            if (matchedItems.length > 0) {
+              let resTxt = `For **Order #${activeOrderNum}** (${buyer}), here are the details for **${matchedItems[0].color}**:\n\n`;
+              matchedItems.forEach((it: any, idx: number) => {
+                resTxt += `**Item ${idx + 1}: ${it.color}**\n` +
+                  `• Fabric: **${it.fabType || 'Single Jersey'}** (GSM: ${it.fgsm || 'N/A'} | Dia: ${it.fWidth || it.finishedDia || 'N/A'})\n` +
+                  `• Required Qty: ${Number(it.reqQty || 0).toLocaleString()} kg\n` +
+                  `• Grey Qty: ${Number(it.greyQty || 0).toLocaleString()} kg\n` +
+                  `• Production: ${Number(it.production || 0).toLocaleString()} kg\n` +
+                  `• Knitting Balance: **${Number(it.knitBalance ?? it.knitBal ?? 0).toLocaleString()} kg**\n\n`;
+              });
+              return resTxt.trim();
+            }
+
+            const actualColorsStr = orderColors.length > 0 ? orderColors.map(c => `• **${c}**`).join('\n') : '• *Single standard fabric*';
+            return `For **Order #${activeOrderNum}**, the recorded color(s) in the ERP are:\n\n${actualColorsStr}\n\n*(Note: "${trimmed}" was not found as an active item color under Order #${activeOrderNum}.)*`;
+          }
+
+          if (orderColors.length > 0) {
+            let resTxt = `The recorded color(s) for **Order #${activeOrderNum}** (${buyer}) are:\n\n` +
+              orderColors.map(c => `• **${c}**`).join('\n');
+            if (items.length > 1) {
+              resTxt += `\n\n*(There are ${items.length} individual color items on this order. You can ask for a specific color like "Grey mix only" to see individual balances.)*`;
+            }
+            return resTxt;
+          }
+        }
+
+        // Follow-up: balance or quantity
+        if (lower.includes('balance') || lower.includes('prod') || lower.includes('qty') || lower.includes('quantity')) {
+          const req = Number(ko?.reqQty ?? op?.target ?? tcp?.reqQty ?? 0);
+          const grey = Number(ko?.greyQty ?? op?.allocatedQty ?? tcp?.greyQty ?? 0);
+          const prod = Number(ko?.production ?? op?.knitPro ?? tcp?.production ?? 0);
+          const bal = Number(ko?.knitBalance ?? op?.knitBal ?? tcp?.knitBal ?? (grey - prod));
+
+          return `Here is the quantity and production status for **Order #${activeOrderNum}**:\n\n` +
+            `• **Buyer**: **${buyer}**\n` +
+            `• **Required Quantity**: ${req.toLocaleString()} kg\n` +
+            `• **Grey Quantity**: ${grey.toLocaleString()} kg\n` +
+            `• **Current Production**: ${prod.toLocaleString()} kg\n` +
+            `• **Knitting Balance**: **${bal.toLocaleString()} kg**\n` +
+            `• **Status**: ${bal <= 0 ? 'Completed' : (prod > 0 ? 'In Production' : 'Pending')}`;
+        }
+
+        // Follow-up: fabric or specs
+        if (lower.includes('fabric') || lower.includes('gsm') || lower.includes('dia') || lower.includes('width')) {
+          const firstItem = items[0];
+          return `Fabric specifications for **Order #${activeOrderNum}**:\n\n` +
+            `• **Fabric Type**: **${items.map((i: any) => i.fabType).filter(Boolean).join(', ') || ko?.fabType || op?.fabType || 'Knitted Fabric'}**\n` +
+            `• **Finished GSM**: **${firstItem?.fgsm || 'N/A'}**\n` +
+            `• **Finished Dia/Width**: **${firstItem?.fWidth || firstItem?.finishedDia || 'N/A'}**\n` +
+            `• **Buyer**: **${buyer}**\n` +
+            `• **Team Leader**: **${teamLeader}**` +
+            (orderColors.length > 0 ? `\n• **Color(s)**: ${orderColors.join(', ')}` : '');
+        }
+
+        // Full order report if explicitly requested or new query
+        if (!isFollowUp || numMatches.length > 0) {
+          const req = Number(ko?.reqQty ?? op?.target ?? tcp?.reqQty ?? 0);
+          const grey = Number(ko?.greyQty ?? op?.allocatedQty ?? tcp?.greyQty ?? 0);
+          const prod = Number(ko?.production ?? op?.knitPro ?? tcp?.production ?? 0);
+          const bal = Number(ko?.knitBalance ?? op?.knitBal ?? tcp?.knitBal ?? (grey - prod));
+          const firstItem = items[0];
+
+          let report = `Here is the verified information for **Order #${activeOrderNum}**:\n\n` +
+            `• **Buyer**: **${buyer}**\n` +
+            `• **Team Leader**: **${teamLeader}**\n` +
+            `• **Fabric Type**: **${items.map((i: any) => i.fabType).filter(Boolean).join(', ') || ko?.fabType || op?.fabType || 'Knitted Fabric'}**\n` +
+            `• **Finished GSM**: **${firstItem?.fgsm || 'N/A'}** | **Finished Width**: **${firstItem?.fWidth || firstItem?.finishedDia || 'N/A'}**\n` +
+            `• **Required Qty**: ${req.toLocaleString()} kg\n` +
+            `• **Grey Qty**: ${grey.toLocaleString()} kg\n` +
+            `• **Current Production**: ${prod.toLocaleString()} kg\n` +
+            `• **Knitting Balance**: **${bal.toLocaleString()} kg**\n`;
+
+          if (items.length > 0) {
+            report += `\n**Color & Fabric Breakdown (${items.length} items):**\n`;
+            items.forEach((it: any, i: number) => {
+              report += `${i + 1}. **${it.color || 'Color ' + (i + 1)}**: Balance **${Number(it.knitBalance ?? it.knitBal ?? 0).toLocaleString()} kg** (Req: ${Number(it.reqQty || 0).toLocaleString()} kg | Grey: ${Number(it.greyQty || 0).toLocaleString()} kg)\n`;
+            });
+          }
+          return report;
+        }
+      } else if (numMatches.length > 0) {
+        return `I searched all website datasets (Knitting Status, Order Plans, and Textile Close By PMC), but **Order #${activeOrderNum}** was not found.\n\nPlease verify the order number or ensure the latest Excel data is synchronized.`;
+      }
+    }
+
+    // 3. Floor production queries
+    if (Array.isArray(ledger) && ledger.length > 0) {
+      const sortedLedger = [...ledger].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+      const latestDate = sortedLedger[0]?.date;
+      const latestDateRows = sortedLedger.filter(r => r.date === latestDate);
+
+      // 3a. Yesterday's production floor by floor / floor breakdown
+      if (lower.includes('yesterday') || lower.includes('floor by floor') || (lower.includes('production') && lower.includes('floor') && !lower.includes('not'))) {
+        let totalDayProd = 0;
+        let reply = `Here is the **Floor-by-Floor Production Status** (Date: **${latestDate || 'Latest'}**):\n\n`;
+        latestDateRows.forEach(r => {
+          const prod = Number(r.total_production || r.totalProduction || 0);
+          const target = Number(r.target || 0);
+          const mc = r.running_machine || r.runningMachine || 0;
+          const eff = r.efficiency ? `${r.efficiency}%` : (target > 0 ? `${((prod / target) * 100).toFixed(1)}%` : 'N/A');
+          totalDayProd += prod;
+          reply += `• **${r.floor || 'Floor'}**: **${prod.toLocaleString()} kg** (Target: ${target.toLocaleString()} kg | Active MC: ${mc} | Efficiency: ${eff})\n`;
+        });
+        reply += `\n**Total Daily Factory Output**: **${totalDayProd.toLocaleString()} kg**`;
+        return reply;
+      }
+
+      // 3b. Which floor did not update today / missing update
+      if (lower.includes('not update') || lower.includes('did not update') || lower.includes('missing floor')) {
+        const reportedFloors = new Set(latestDateRows.map(r => String(r.floor || '').trim().toLowerCase()));
+        const allFloors = activeFloors;
+        const missingFloors = allFloors.filter(f => !reportedFloors.has(f.toLowerCase()));
+
+        if (missingFloors.length === 0) {
+          return `All standard factory floors (**${allFloors.join(', ')}**) have successfully submitted their production records for **${latestDate}**!`;
+        }
+        return `The following floor(s) have **not submitted updates** for **${latestDate}**:\n\n` +
+          missingFloors.map(f => `• **${f}** *(Pending update)*`).join('\n') +
+          `\n\n*Logged floors for this date: ${latestDateRows.map(r => r.floor).join(', ')}*`;
+      }
+
+      // 3c. Last 7 days production of [Floor]
+      const matchedFloor = activeFloors.find(f => lower.includes(f.toLowerCase()));
+      if (matchedFloor && (lower.includes('7 day') || lower.includes('last 7') || lower.includes('history') || lower.includes('trend'))) {
+        const floorRows = sortedLedger.filter(r => String(r.floor || '').toLowerCase() === matchedFloor.toLowerCase()).slice(0, 7);
+        if (floorRows.length > 0) {
+          let total7 = 0;
+          let reply = `Here is the **7-Day Production History** for **${matchedFloor}**:\n\n`;
+          floorRows.forEach(r => {
+            const prod = Number(r.total_production || r.totalProduction || 0);
+            total7 += prod;
+            reply += `• **${r.date}**: **${prod.toLocaleString()} kg** (Efficiency: ${r.efficiency || 'N/A'}%)\n`;
+          });
+          const avg = Math.round(total7 / floorRows.length);
+          reply += `\n**Total Output**: **${total7.toLocaleString()} kg** | **Daily Average**: **${avg.toLocaleString()} kg/day**`;
+          return reply;
+        }
+      }
+
+      // 3d. Predict tomorrow's production
+      if (lower.includes('predict') || lower.includes('tomorrow')) {
+        const recentDates = Array.from(new Set(sortedLedger.map(r => r.date))).slice(0, 5);
+        const totalsByDate = recentDates.map(d => {
+          const rows = sortedLedger.filter(r => r.date === d);
+          return rows.reduce((acc, r) => acc + Number(r.total_production || r.totalProduction || 0), 0);
+        });
+        const avgDaily = totalsByDate.length > 0 ? Math.round(totalsByDate.reduce((a, b) => a + b, 0) / totalsByDate.length) : 25000;
+        return `**Production Forecast for Tomorrow:**\n\n` +
+          `• **Projected Factory Output**: **~${avgDaily.toLocaleString()} kg**\n` +
+          `• **Historical Baseline**: Calculated from the last ${totalsByDate.length} operating days.\n` +
+          `• **Target Range**: ${(Math.round(avgDaily * 0.95)).toLocaleString()} kg – ${(Math.round(avgDaily * 1.05)).toLocaleString()} kg\n\n` +
+          `*(Ensure machine allocations across EFL, EFL-2, KDL, and Unit-2 remain at full capacity to hit target.)*`;
+      }
+    }
+
+    // 4. Overall summary
+    if (lower.includes('total') || lower.includes('summary') || (lower.includes('balance') && !lower.includes('order'))) {
+      const stats = context?.summaryStats || {};
+      return `Here is the current **ERP dataset summary**:\n\n` +
+        `• **Active Tab**: ${context?.activeTab || 'Knitting Status'}\n` +
+        `• **Total Orders**: ${(stats.totalOrders || knittingOrders.length).toLocaleString()}\n` +
+        `• **Total Required Quantity**: ${(stats.totalReqQty || 0).toLocaleString()} kg\n` +
+        `• **Total Current Production**: ${(stats.totalProduction || 0).toLocaleString()} kg\n` +
+        `• **Total Knitting Balance**: **${(stats.totalKnitBal || 0).toLocaleString()} kg**\n\n` +
+        `You can ask me for details on any specific Order Number (e.g. *272374*), Buyer, or Floor!`;
+    }
+
+    // 5. Default guided response
+    return `Hello! I am **Raihan**, your internal Epyllion Knitex ERP assistant.\n` +
+      `I answer questions directly from the operational data within this website (Knitting Status, Order Plans, Textile Close By PMC, and Production Records).\n\n` +
+      `Try asking me:\n` +
+      `• *"What is the information for 272374?"*\n` +
+      `• *"what is the color?"* (after asking about an order)\n` +
+      `• *"Yesterday's production floor by floor"*\n` +
+      `• *"Which floor did not update today?"*\n` +
+      `• *"What is the total knitting balance?"*`;
+  };
+
   // Helper to package current in-website context for the server
   const getERPContext = (userQuestion: string) => {
     try {
@@ -112,17 +362,30 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
       const numberMatches = userQuestion.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || [];
       const lowerQ = userQuestion.toLowerCase();
 
+      // Multi-turn order context detection
+      let activeOrderNo: string | null = numberMatches[0] || null;
+      if (!activeOrderNo) {
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const histMatches = String(messages[i]?.text || '').match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g);
+          if (histMatches && histMatches.length > 0) {
+            activeOrderNo = histMatches[0];
+            break;
+          }
+        }
+      }
+
       // Filter relevant records if specific numbers or buyers mentioned
       const matchedOrders: any[] = [];
 
       // 1. Check Knitting Status
       for (const ord of knittingOrders) {
         const matchesNum = numberMatches.some(n => ord.orderNo?.includes(n));
+        const matchesActive = Boolean(activeOrderNo && ord.orderNo?.includes(activeOrderNo));
         const matchesBuyer = ord.buyerName && lowerQ.includes(ord.buyerName.toLowerCase());
         const fabricStr = ord.items?.map(it => it.fabType).join(' ').toLowerCase() || '';
         const matchesFabric = fabricStr && lowerQ.split(/\s+/).some(w => w.length > 3 && fabricStr.includes(w));
 
-        if (matchesNum || matchesBuyer || matchesFabric) {
+        if (matchesNum || matchesActive || matchesBuyer || matchesFabric) {
           const firstItem = ord.items?.[0];
           matchedOrders.push({
             type: 'Knitting Status',
@@ -136,7 +399,9 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
             greyQty: ord.greyQty,
             production: ord.production,
             knitBal: ord.knitBalance,
-            itemsCount: ord.items?.length || 0
+            itemsCount: ord.items?.length || 0,
+            items: ord.items,
+            color: ord.items?.map(it => it.color).filter(Boolean).join(', ') || ''
           });
         }
       }
@@ -144,14 +409,16 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
       // 2. Check Order Plans
       for (const plan of orderPlans) {
         const matchesNum = numberMatches.some(n => String(plan.ewo || '').includes(n));
+        const matchesActive = Boolean(activeOrderNo && String(plan.ewo || '').includes(activeOrderNo));
         const matchesBuyer = plan.buyer && lowerQ.includes(String(plan.buyer).toLowerCase());
-        if (matchesNum || matchesBuyer) {
+        if (matchesNum || matchesActive || matchesBuyer) {
           matchedOrders.push({
             type: 'Order Plan',
             orderNo: plan.ewo,
             buyerName: plan.buyer,
             teamLeader: plan.knitTeamLeaders,
             fabType: plan.color ? `Color: ${plan.color}` : 'Fabric Plan',
+            color: plan.color || '',
             reqQty: plan.target,
             greyQty: plan.allocatedQty,
             production: plan.knitPro,
@@ -165,15 +432,17 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
       // 3. Check Textile Close PMC
       for (const rec of textileRecords) {
         const matchesNum = numberMatches.some(n => rec.orderNo?.includes(n));
+        const matchesActive = Boolean(activeOrderNo && rec.orderNo?.includes(activeOrderNo));
         const matchesBuyer = rec.buyerName && lowerQ.includes(rec.buyerName.toLowerCase());
 
-        if (matchesNum || matchesBuyer) {
+        if (matchesNum || matchesActive || matchesBuyer) {
           matchedOrders.push({
             type: 'Textile Close By PMC',
             orderNo: rec.orderNo,
             buyerName: rec.buyerName,
             teamLeader: rec.teamLeader,
             fabType: rec.fabType,
+            color: rec.color || '',
             reqQty: rec.reqQty,
             greyQty: rec.greyQty,
             production: rec.production,
@@ -193,6 +462,8 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
             buyerName: o.buyerName,
             teamLeader: o.teamLeader,
             fabType: o.items?.map(it => it.fabType).filter(Boolean).join(', ') || 'Knitting Fabric',
+            items: o.items,
+            color: o.items?.map(it => it.color).filter(Boolean).join(', ') || '',
             reqQty: o.reqQty,
             production: o.production,
             knitBal: o.knitBalance
@@ -200,6 +471,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
 
       return {
         activeTab,
+        activeOrderNo,
         currentUser: {
           name: currentUser?.userName || 'User',
           userType: currentUser?.userType || 'General',
@@ -244,6 +516,9 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
     setInputQuery('');
     setIsLoading(true);
 
+    const knittingOrders = KnittingStatusStorage.getOrders();
+    const textileRecords = TextileClosePMCStorage.getRecords();
+
     try {
       const context = getERPContext(query);
       const historyPayload = messages.slice(-4).map(m => ({
@@ -251,40 +526,52 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         text: m.text
       }));
 
-      // Resilient fetch with automatic single retry for transient network hiccups
-      const sendRequest = async (retriesLeft = 1): Promise<Response> => {
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 15000);
+      let botReply = '';
 
-          const res = await fetch('/api/chat/raihan', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              message: query,
-              history: historyPayload,
-              context
-            }),
-            signal: controller.signal
-          });
-          clearTimeout(timeoutId);
-          return res;
-        } catch (err) {
-          if (retriesLeft > 0) {
-            await new Promise(res => setTimeout(res, 800));
-            return sendRequest(retriesLeft - 1);
+      // Try server endpoint first with timeout
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+        const res = await fetch('/api/chat/raihan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: query,
+            history: historyPayload,
+            context
+          }),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+          const contentType = res.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const data = await res.json();
+            if (data && data.reply && typeof data.reply === 'string') {
+              botReply = data.reply;
+            }
           }
-          throw err;
         }
-      };
-
-      const res = await sendRequest(1);
-      if (!res.ok) {
-        throw new Error(`Server returned status ${res.status}`);
+      } catch (networkErr) {
+        console.info('Server chat endpoint unreachable, activating client ERP engine:', networkErr);
       }
 
-      const data = await res.json();
-      const botReply = data.reply || "I am unable to retrieve that information right now. Please try asking again.";
+      // If server response was not available (e.g. static Vercel host, network failure, or API 404),
+      // synthesize the response autonomously from the client-side ERP data!
+      if (!botReply) {
+        botReply = synthesizeClientERPResponse(
+          query,
+          historyPayload,
+          context,
+          knittingOrders,
+          orderPlans,
+          textileRecords,
+          ledger,
+          floors
+        );
+      }
 
       const botMsg: ChatMessage = {
         id: `msg-${Date.now() + 1}`,
@@ -295,13 +582,24 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
 
       setMessages(prev => [...prev, botMsg]);
     } catch (err: any) {
-      console.warn('Raihan assistant communication fallback:', err?.message || err);
+      console.warn('Raihan local fallback activation:', err?.message || err);
+      // Even in the most extreme edge case, synthesize directly from stores
+      const emergencyReply = synthesizeClientERPResponse(
+        query,
+        [],
+        {},
+        knittingOrders,
+        orderPlans,
+        textileRecords,
+        ledger,
+        floors
+      );
       setMessages(prev => [
         ...prev,
         {
           id: `msg-${Date.now() + 1}`,
           role: 'model',
-          text: "I am having temporary difficulty connecting to the ERP system. Please verify your connection or try asking again.",
+          text: emergencyReply,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
       ]);
