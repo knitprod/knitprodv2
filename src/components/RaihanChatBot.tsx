@@ -692,11 +692,20 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
               <table className="w-full text-[11px] text-left border-collapse">
                 <thead className="bg-slate-100/90 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold">
                   <tr>
-                    {rawHeaders.map((h, hIdx) => (
-                      <th key={hIdx} className="px-2.5 py-1.5 border-b border-slate-200 dark:border-slate-700 whitespace-nowrap">
-                        {renderInline(h)}
-                      </th>
-                    ))}
+                    {rawHeaders.map((h, hIdx) => {
+                      const isNumeric = /qty|quantity|balance|production|req|gsm|width/i.test(h);
+                      const isAllocatedYarn = /allocated yarn/i.test(h);
+                      return (
+                        <th
+                          key={hIdx}
+                          className={`px-2.5 py-1.5 border-b border-slate-200 dark:border-slate-700 ${
+                            isNumeric ? 'text-right whitespace-nowrap' : isAllocatedYarn ? 'text-left min-w-[130px]' : 'text-left whitespace-nowrap'
+                          }`}
+                        >
+                          {renderInline(h)}
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
@@ -710,16 +719,23 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
                           : "hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors"
                         }
                       >
-                        {row.map((cell, cIdx) => (
-                          <td
-                            key={cIdx}
-                            className={`px-2.5 py-1.5 whitespace-nowrap ${
-                              isTotalRow ? 'font-bold text-slate-900 dark:text-white' : 'text-slate-800 dark:text-slate-200'
-                            }`}
-                          >
-                            {renderInline(cell)}
-                          </td>
-                        ))}
+                        {row.map((cell, cIdx) => {
+                          const headerText = rawHeaders[cIdx] || '';
+                          const isNumeric = /qty|quantity|balance|production|req|gsm|width/i.test(headerText);
+                          const isAllocatedYarn = /allocated yarn/i.test(headerText);
+                          return (
+                            <td
+                              key={cIdx}
+                              className={`px-2.5 py-1.5 ${
+                                isTotalRow ? 'font-bold text-slate-900 dark:text-white' : 'text-slate-800 dark:text-slate-200'
+                              } ${
+                                isNumeric ? 'text-right whitespace-nowrap' : isAllocatedYarn ? 'text-left min-w-[130px] whitespace-normal' : 'text-left whitespace-nowrap'
+                              }`}
+                            >
+                              {renderInline(cell)}
+                            </td>
+                          );
+                        })}
                       </tr>
                     );
                   })}

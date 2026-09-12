@@ -85,15 +85,24 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
           const dataRows = tableLines.slice(dataStartIdx).map(tl => tl.slice(1, -1).split('|').map(s => s.trim()));
 
           elements.push(
-            <div key={`table-${i}`} className="overflow-x-auto my-3 rounded-lg border border-slate-300 bg-white shadow-xs">
-              <table className="w-full text-xs text-left border-collapse">
+            <div key={`table-${i}`} className="my-3 rounded-lg border border-slate-300 bg-white shadow-xs overflow-hidden">
+              <table className="w-full text-xs text-left border-collapse table-auto">
                 <thead className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
                   <tr>
-                    {rawHeaders.map((h, hIdx) => (
-                      <th key={hIdx} className="px-3 py-2 border-r border-slate-200 last:border-r-0 whitespace-nowrap">
-                        {renderInline(h)}
-                      </th>
-                    ))}
+                    {rawHeaders.map((h, hIdx) => {
+                      const isNumeric = /qty|quantity|balance|production|req|gsm|width/i.test(h);
+                      const isAllocatedYarn = /allocated yarn/i.test(h);
+                      return (
+                        <th 
+                          key={hIdx} 
+                          className={`px-3 py-2 border-r border-slate-200 last:border-r-0 ${
+                            isNumeric ? 'text-right whitespace-nowrap' : isAllocatedYarn ? 'text-left min-w-[170px]' : 'text-left whitespace-nowrap'
+                          }`}
+                        >
+                          {renderInline(h)}
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -107,16 +116,23 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
                           : (rIdx % 2 === 1 ? "bg-slate-50/70" : "bg-white")
                         }
                       >
-                        {row.map((cell, cIdx) => (
-                          <td
-                            key={cIdx}
-                            className={`px-3 py-2 whitespace-nowrap border-r border-slate-200 last:border-r-0 ${
-                              isTotalRow ? 'font-bold text-emerald-950' : 'text-slate-800'
-                            }`}
-                          >
-                            {renderInline(cell)}
-                          </td>
-                        ))}
+                        {row.map((cell, cIdx) => {
+                          const headerText = rawHeaders[cIdx] || '';
+                          const isNumeric = /qty|quantity|balance|production|req|gsm|width/i.test(headerText);
+                          const isAllocatedYarn = /allocated yarn/i.test(headerText);
+                          return (
+                            <td
+                              key={cIdx}
+                              className={`px-3 py-2 border-r border-slate-200 last:border-r-0 ${
+                                isTotalRow ? 'font-bold text-emerald-950' : 'text-slate-800'
+                              } ${
+                                isNumeric ? 'text-right whitespace-nowrap' : isAllocatedYarn ? 'text-left min-w-[170px] whitespace-normal' : 'text-left whitespace-nowrap'
+                              }`}
+                            >
+                              {renderInline(cell)}
+                            </td>
+                          );
+                        })}
                       </tr>
                     );
                   })}
@@ -187,11 +203,13 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
   const captureCard = async (): Promise<{ dataUrl: string; blob: Blob } | null> => {
     if (!cardRef.current) return null;
     try {
+      const captureWidth = Math.max(cardRef.current.scrollWidth, 800);
       const dataUrl = await toPng(cardRef.current, {
         pixelRatio: 2.2,
         backgroundColor: '#ffffff',
         skipFonts: true,
-        cacheBust: true
+        cacheBust: true,
+        width: captureWidth
       });
       const blob = dataUrlToBlob(dataUrl);
       return { dataUrl, blob };
@@ -348,7 +366,7 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
       onClick={onClose}
     >
       <div 
-        className="relative w-full max-w-3xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-teal-500/40 flex flex-col max-h-[92vh] overflow-hidden"
+        className="relative w-full max-w-4xl lg:max-w-5xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-teal-500/40 flex flex-col max-h-[92vh] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
@@ -397,13 +415,13 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
         </div>
 
         {/* Modal Content / Preview Area */}
-        <div className="flex-1 p-3 sm:p-5 overflow-y-auto bg-slate-100 dark:bg-slate-950 flex flex-col items-center">
+        <div className="flex-1 p-3 sm:p-6 overflow-y-auto overflow-x-auto bg-slate-100 dark:bg-slate-950 flex flex-col items-center">
           {/* Branded ERP Summary Card that is ALWAYS immediately visible */}
           <div 
             ref={cardRef}
             id="raihan-snip-capture-card"
-            className="w-full max-w-2xl bg-white text-slate-900 rounded-xl p-5 sm:p-6 shadow-md border border-slate-200 selection:bg-teal-100"
-            style={{ color: '#0f172a', backgroundColor: '#ffffff' }}
+            className="w-full max-w-4xl bg-white text-slate-900 rounded-xl p-5 sm:p-7 shadow-md border border-slate-200 selection:bg-teal-100 shrink-0"
+            style={{ minWidth: '820px', color: '#0f172a', backgroundColor: '#ffffff' }}
           >
             {/* Card Branded Header */}
             <div className="flex items-center justify-between pb-3.5 mb-4 border-b-2 border-teal-600">
