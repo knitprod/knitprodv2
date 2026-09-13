@@ -13,13 +13,14 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { OrderPlan, YarnAllocationRecord, LedgerRecord, FactoryFloor } from '../types';
+import { OrderPlan, YarnAllocationRecord, LedgerRecord, FactoryFloor, TextileCloseRecord } from '../types';
 import { INITIAL_FLOORS } from '../data';
 import { GasClient } from '../lib/gasClient';
 import { generateInitialLedger } from '../components/ProductionLedgerView';
 import { normalizeDateKey, normalizeFloorKey } from '../lib/userPermissions';
 import { SupabaseSync } from '../lib/supabaseClient';
 import { sanitizeOrderPlanRemarks, deduplicateOrderPlans, getOrderPlanCanonicalId } from '../lib/knittingStatusStore';
+import { TextileClosePMCStorage } from '../lib/textileClosePMCStore';
 
 export interface GlobalDataContextType {
   // Datasets
@@ -27,6 +28,7 @@ export interface GlobalDataContextType {
   yarnAllocations: YarnAllocationRecord[];
   ledger: LedgerRecord[];
   floors: FactoryFloor[];
+  textileRecords: TextileCloseRecord[];
   
   // Status
   isLoading: boolean;
@@ -269,6 +271,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   });
 
   const [floors, setFloors] = useState<FactoryFloor[]>(INITIAL_FLOORS);
+  const [textileRecords, setTextileRecords] = useState<TextileCloseRecord[]>(() => TextileClosePMCStorage.getRecords());
   
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
@@ -347,6 +350,13 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, [yarnAllocations]);
 
+  useEffect(() => {
+    const unsub = TextileClosePMCStorage.subscribe((records) => {
+      setTextileRecords(records);
+    });
+    return () => unsub();
+  }, []);
+
   // Helper to persist datasets to localStorage for instant startup
   const persistCache = (orders?: OrderPlan[], yarn?: YarnAllocationRecord[], ledgers?: LedgerRecord[]) => {
     try {
@@ -366,6 +376,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const supabaseLedgerPromise = SupabaseSync.fetchProductionLedger().catch(() => []);
       const supabaseYarnPromise = SupabaseSync.fetchYarnAllocations().catch(() => []);
       const supabaseOrdersPromise = SupabaseSync.fetchOrderPlans().catch(() => []);
+      const supabaseTextilePromise = SupabaseSync.isConfigured() ? SupabaseSync.fetchTextileCloseRecords().catch(() => []) : Promise.resolve([]);
 
       // Fast-path: Update state as soon as each Supabase dataset resolves
       supabaseOrdersPromise.then(orders => {
@@ -373,6 +384,13 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           const clean = filterDeletedOrders(deduplicateOrderPlans(orders));
           setOrderPlans(clean);
           persistCache(clean, undefined, undefined);
+        }
+      }).catch(() => {});
+
+      supabaseTextilePromise.then(records => {
+        if (Array.isArray(records) && records.length > 0) {
+          setTextileRecords(records);
+          TextileClosePMCStorage.saveRecords(records);
         }
       }).catch(() => {});
 
@@ -1068,6 +1086,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     yarnAllocations,
     ledger,
     floors,
+    textileRecords,
     isLoading,
     isSyncing,
     lastSyncedAt,

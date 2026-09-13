@@ -67,7 +67,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
   const [isLoading, setIsLoading] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showWelcomeCallout, setShowWelcomeCallout] = useState(true);
-  const { orderPlans = [], yarnAllocations = [], ledger = [], floors = [] } = useGlobalData();
+  const { orderPlans = [], yarnAllocations = [], ledger = [], floors = [], textileRecords = [] } = useGlobalData();
 
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
     {
@@ -238,10 +238,13 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
   };
 
   // Helper to package current in-website context for the server
-  const getERPContext = (userQuestion: string) => {
+  const getERPContext = (userQuestion: string, activeTextileRecords?: any[]) => {
     try {
       const knittingOrders = KnittingStatusStorage.getOrders();
-      const textileRecords = TextileClosePMCStorage.getRecords();
+      const storedTextile = TextileClosePMCStorage.getRecords();
+      const textileRecords = (activeTextileRecords && activeTextileRecords.length >= storedTextile.length)
+        ? activeTextileRecords
+        : storedTextile;
 
       // Extract total stats
       let totalReqQty = 0;
@@ -437,11 +440,13 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
     setIsLoading(true);
 
     const knittingOrders = KnittingStatusStorage.getOrders();
-    const textileRecords = TextileClosePMCStorage.getRecords();
+    const storedTextile = TextileClosePMCStorage.getRecords();
+    let currentTextileRecords = (textileRecords && textileRecords.length >= storedTextile.length)
+      ? textileRecords
+      : storedTextile;
     const effectiveLedger = (Array.isArray(ledger) && ledger.length > 0) ? ledger : generateInitialLedger();
 
     try {
-      const context = getERPContext(query);
       const historyPayload = messages.slice(-4).map(m => ({
         role: m.role,
         text: m.text
@@ -475,6 +480,44 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         (lowerQ.includes('knitting balance') && !numMatches.length) ||
         (lowerQ.includes('total balance') && !numMatches.length);
 
+      // C. Multi-turn Order / Color / Fabric / Balance Check
+      let activeOrderNum: string | null = numMatches[0] || null;
+      let isFollowUp = false;
+      if (!activeOrderNum && !isTotalKnittingQuery) {
+        for (let i = historyPayload.length - 1; i >= 0; i--) {
+          const histMatches = String(historyPayload[i]?.text || '').match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g);
+          if (histMatches && histMatches.length > 0) {
+            const candidate = histMatches[0];
+            if (candidate === '2024' || candidate === '2025' || candidate === '2026') continue;
+            activeOrderNum = candidate;
+            isFollowUp = true;
+            break;
+          }
+        }
+      }
+
+      // Dynamic On-Demand Lookup for Textile Close By PMC or missing orders
+      if (activeOrderNum) {
+        const hasLocalMatch = 
+          knittingOrders.some(o => String(o.orderNo || '').includes(activeOrderNum!)) ||
+          orderPlans.some(p => String(p.ewo || p.id || '').includes(activeOrderNum!)) ||
+          yarnAllocations.some(y => String(y.orderNumber || (y as any).order_number || '').includes(activeOrderNum!)) ||
+          currentTextileRecords.some(t => String(t.orderNo || '').includes(activeOrderNum!));
+
+        if (!hasLocalMatch) {
+          try {
+            const remoteRecords = await TextileClosePMCStorage.findOrFetchRecordsByOrder(activeOrderNum);
+            if (remoteRecords && remoteRecords.length > 0) {
+              currentTextileRecords = [...remoteRecords, ...currentTextileRecords];
+            }
+          } catch (fetchErr) {
+            console.warn('Textile close on-demand fetch notice:', fetchErr);
+          }
+        }
+      }
+
+      const context = getERPContext(query, currentTextileRecords);
+
       if (isTotalKnittingQuery && numMatches.length === 0) {
         const summaryResult = handleSmartSummaryQuery(query, context?.summaryStats, knittingOrders.length, activeTab);
         if (summaryResult.handled && summaryResult.reply) {
@@ -493,27 +536,6 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         }
       }
 
-      // C. Multi-turn Order / Color / Fabric / Balance Check
-      let activeOrderNum: string | null = numMatches[0] || null;
-      let isFollowUp = false;
-      if (!activeOrderNum && !isTotalKnittingQuery) {
-        if (context?.activeOrderNo) {
-          activeOrderNum = String(context.activeOrderNo);
-          isFollowUp = true;
-        } else {
-          for (let i = historyPayload.length - 1; i >= 0; i--) {
-            const histMatches = String(historyPayload[i]?.text || '').match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g);
-            if (histMatches && histMatches.length > 0) {
-              const candidate = histMatches[0];
-              if (candidate === '2024' || candidate === '2025' || candidate === '2026') continue;
-              activeOrderNum = candidate;
-              isFollowUp = true;
-              break;
-            }
-          }
-        }
-      }
-
       const orderResult = handleSmartOrderQuery(
         query,
         activeOrderNum,
@@ -521,7 +543,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         numMatches,
         knittingOrders,
         orderPlans,
-        textileRecords,
+        currentTextileRecords,
         yarnAllocations
       );
       if (orderResult.handled && orderResult.reply) {
@@ -598,7 +620,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
           context,
           knittingOrders,
           orderPlans,
-          textileRecords,
+          currentTextileRecords,
           yarnAllocations,
           effectiveLedger,
           floors
@@ -622,7 +644,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         {},
         knittingOrders,
         orderPlans,
-        textileRecords,
+        currentTextileRecords,
         yarnAllocations,
         effectiveLedger,
         floors

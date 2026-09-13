@@ -942,23 +942,36 @@ export function handleSmartOrderQuery(
   // 1. Locate matching records across all modules
   const ko = knittingOrders.find(o => String(o.orderNo || '').trim().toLowerCase() === activeOrderNum.toLowerCase() || String(o.orderNo || '').includes(activeOrderNum));
   const opList = orderPlans.filter(p => String(p.ewo || p.id || '').trim().toLowerCase().includes(activeOrderNum.toLowerCase()));
-  const tcp = textileRecords.find(t => String(t.orderNo || '').trim().toLowerCase().includes(activeOrderNum.toLowerCase()));
+  const tcpList = textileRecords.filter(t => String(t.orderNo || '').trim().toLowerCase().includes(activeOrderNum.toLowerCase()));
+  const tcp = tcpList[0];
   const yaList = yarnAllocations.filter(y => String(y.orderNumber || y.order_number || '').trim().toLowerCase().includes(activeOrderNum.toLowerCase()));
 
-  if (!ko && opList.length === 0 && !tcp && yaList.length === 0) {
-    if (numMatches.length > 0) {
-      return {
-        handled: true,
-        reply: `Hmm, I couldn't find that order in the system. I checked Knitting Status, Yarn Allocations, Order Plans, and Textile Close By PMC, but couldn't find **Order #${activeOrderNum}**.\n\nPlease verify the order number or ensure the latest records are updated.`
-      };
-    }
+  if (!ko && opList.length === 0 && tcpList.length === 0 && yaList.length === 0) {
+    // If not found in current local arrays, do not block fallback search!
     return { handled: false };
   }
 
   // 2. Extract shared order metadata
   const buyer = ko?.buyerName || yaList[0]?.buyer || opList[0]?.buyer || tcp?.buyerName || 'Epyllion Buyer';
   const teamLeader = ko?.teamLeader || opList[0]?.knitTeamLeaders || tcp?.teamLeader || 'Unassigned';
-  const items: any[] = Array.isArray(ko?.items) ? ko.items : [];
+  let items: any[] = Array.isArray(ko?.items) ? [...ko.items] : [];
+
+  // If order is from Textile Close By PMC and items array is empty, populate items from all matching tcp records!
+  if (items.length === 0 && tcpList.length > 0) {
+    items = tcpList.map(t => ({
+      color: t.color || 'Standard',
+      fabType: t.fabType || 'Knitted Fabric',
+      fabrication: t.fabType,
+      fgsm: t.fgsm || 'N/A',
+      fWidth: t.fWidth || 'N/A',
+      reqQty: Number(t.reqQty || 0),
+      greyQty: Number(t.greyQty || 0),
+      production: Number(t.production || 0),
+      knitBalance: Number(t.knitBal ?? (Number(t.greyQty || 0) - Number(t.production || 0))),
+      status: t.status || 'Textile Close By PMC',
+      remarks: t.remarks || ''
+    }));
+  }
 
   // Extract Fabrication & Fabric Types across all datasets
   const rawFabrics: string[] = [];
@@ -966,6 +979,9 @@ export function handleSmartOrderQuery(
   items.forEach((it: any) => {
     if (it.fabrication) rawFabrics.push(it.fabrication);
     else if (it.fabType) rawFabrics.push(it.fabType);
+  });
+  tcpList.forEach((t: any) => {
+    if (t.fabType) rawFabrics.push(t.fabType);
   });
   yaList.forEach((y: any) => {
     if (y.fabrication) rawFabrics.push(y.fabrication);
@@ -983,6 +999,9 @@ export function handleSmartOrderQuery(
     if (it.fabType) rawFabTypes.push(it.fabType);
     else if (it.mcType) rawFabTypes.push(it.mcType);
   });
+  tcpList.forEach((t: any) => {
+    if (t.fabType) rawFabTypes.push(t.fabType);
+  });
   yaList.forEach((y: any) => {
     if (y.fabricsType) rawFabTypes.push(y.fabricsType);
   });
@@ -994,11 +1013,11 @@ export function handleSmartOrderQuery(
   const mainFWidth = firstItem?.fWidth || firstItem?.finishedDia || tcp?.fWidth || 'N/A';
 
   // Production values
-  const req = Number(ko?.reqQty ?? opList.reduce((acc, p) => acc + (Number(p.target) || 0), 0) ?? tcp?.reqQty ?? 0);
-  const grey = Number(ko?.greyQty ?? opList.reduce((acc, p) => acc + (Number(p.allocatedQty) || 0), 0) ?? tcp?.greyQty ?? 0);
-  const prod = Number(ko?.production ?? opList.reduce((acc, p) => acc + (Number(p.knitPro) || 0), 0) ?? tcp?.production ?? 0);
-  const bal = Number(ko?.knitBalance ?? opList.reduce((acc, p) => acc + (Number(p.knitBal) || 0), 0) ?? tcp?.knitBal ?? Math.max(0, grey - prod));
-  const prodStatus = bal <= 0 ? 'Completed' : (prod > 0 ? 'Running' : 'Pending');
+  const req = Number(ko?.reqQty ?? (opList.length > 0 ? opList.reduce((acc, p) => acc + (Number(p.target) || 0), 0) : tcpList.reduce((acc, t) => acc + (Number(t.reqQty) || 0), 0)));
+  const grey = Number(ko?.greyQty ?? (opList.length > 0 ? opList.reduce((acc, p) => acc + (Number(p.allocatedQty) || 0), 0) : tcpList.reduce((acc, t) => acc + (Number(t.greyQty) || 0), 0)));
+  const prod = Number(ko?.production ?? (opList.length > 0 ? opList.reduce((acc, p) => acc + (Number(p.knitPro) || 0), 0) : tcpList.reduce((acc, t) => acc + (Number(t.production) || 0), 0)));
+  const bal = Number(ko?.knitBalance ?? (opList.length > 0 ? opList.reduce((acc, p) => acc + (Number(p.knitBal) || 0), 0) : tcpList.reduce((acc, t) => acc + (Number(t.knitBal) || 0), 0)));
+  const prodStatus = tcpList.length > 0 ? `${tcpList[0]?.status || 'Closed'} (Textile Close By PMC)` : (bal <= 0 ? 'Completed' : (prod > 0 ? 'Running' : 'Pending'));
 
   // Helper: Build clean Allocated Yarn table
   // Column format: Color|Fabric Type| Allocated Yarn|Lot|Spinner| Sum of Allocated QTY.
@@ -1215,7 +1234,7 @@ export function handleSmartOrderQuery(
   // CASE 1: Specific color query (e.g., "271522 black" or "271522 slate grey")
   // =========================================================================
   if (matchedColor) {
-    const prodTable = buildProductionTable(items, ko || opList[0], matchedColor);
+    const prodTable = buildProductionTable(items, ko || opList[0] || tcp, matchedColor);
     const allocTable = buildAllocatedYarnTable(yaList, matchedColor);
 
     let reply = `Sure! Let me check that for you. Here are the details for color **${matchedColor}** on **Order #${activeOrderNum}** (${buyer}):\n\n`;
@@ -1246,7 +1265,7 @@ export function handleSmartOrderQuery(
   // CASE 3: "eg: 271522 Production" - show only production data in requested table format
   // =========================================================================
   if (asksProdOnly) {
-    const prodTable = buildProductionTable(items, ko || opList[0]);
+    const prodTable = buildProductionTable(items, ko || opList[0] || tcp);
     const reply = `Sure! I found it. Here is the production data for **Order #${activeOrderNum}** (${buyer}):\n\n${prodTable}`;
     return { handled: true, reply: reply.trim() };
   }
@@ -1254,13 +1273,14 @@ export function handleSmartOrderQuery(
   // =========================================================================
   // CASE 4: Order Number only - Show Production data and Allocated Yarn data
   // =========================================================================
-  const prodTable = buildProductionTable(items, ko || opList[0]);
+  const prodTable = buildProductionTable(items, ko || opList[0] || tcp);
   const allocTable = buildAllocatedYarnTable(yaList);
 
-  const prodVal = Number(ko?.production ?? opList[0]?.knitPro ?? tcp?.production ?? 0);
-  const greyVal = Number(ko?.greyQty ?? opList[0]?.allocatedQty ?? tcp?.greyQty ?? 0);
-  const balVal = Number(ko?.knitBalance ?? opList[0]?.knitBal ?? tcp?.knitBal ?? (greyVal - prodVal));
-  const statusStr = tcp ? 'closed (PMC)' : (balVal <= 0 ? 'completed' : (prodVal > 0 ? 'currently running' : 'pending'));
+  const prodVal = Number(ko?.production ?? (opList.length > 0 ? opList.reduce((acc, p) => acc + (Number(p.knitPro) || 0), 0) : tcpList.reduce((acc, t) => acc + (Number(t.production) || 0), 0)));
+  const greyVal = Number(ko?.greyQty ?? (opList.length > 0 ? opList.reduce((acc, p) => acc + (Number(p.allocatedQty) || 0), 0) : tcpList.reduce((acc, t) => acc + (Number(t.greyQty) || 0), 0)));
+  const balVal = Number(ko?.knitBalance ?? (opList.length > 0 ? opList.reduce((acc, p) => acc + (Number(p.knitBal) || 0), 0) : tcpList.reduce((acc, t) => acc + (Number(t.knitBal) || 0), 0)));
+  const tcpStatus = tcpList[0]?.status || 'Closed (PMC)';
+  const statusStr = tcpList.length > 0 ? `${tcpStatus} (Textile Close By PMC)` : (balVal <= 0 ? 'completed' : (prodVal > 0 ? 'currently running' : 'pending'));
 
   let combinedReport = `Sure! I found it. Order #${activeOrderNum} is ${statusStr} (${buyer}):\n\n`;
   if (prodTable) {

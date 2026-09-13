@@ -2214,6 +2214,32 @@ export class SupabaseSync {
     }
   }
 
+  static async fetchTextileCloseRecordsByOrder(orderNo: string): Promise<TextileCloseRecord[]> {
+    const client = this.getClient();
+    if (!client || !orderNo) return [];
+
+    try {
+      const cleanNum = orderNo.trim();
+      const { data, error } = await client
+        .from('textile_close_pmc')
+        .select('*')
+        .ilike('order_no', `%${cleanNum}%`);
+
+      if (error) {
+        console.warn('Supabase fetchTextileCloseRecordsByOrder error:', error.message);
+        return [];
+      }
+
+      if (Array.isArray(data) && data.length > 0) {
+        return data.map(row => this.mapRowToTextileCloseRecord(row));
+      }
+      return [];
+    } catch (err) {
+      console.warn('Supabase fetchTextileCloseRecordsByOrder error:', err);
+      return [];
+    }
+  }
+
   static async saveTextileCloseRecord(item: TextileCloseRecord): Promise<{ success: boolean; error?: string }> {
     const client = this.getClient();
     if (!client) return { success: false, error: 'Supabase client is not initialized.' };

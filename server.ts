@@ -1448,10 +1448,10 @@ async function searchInternalERP(queryStr: string, clientContext: any, explicitO
       await Promise.all(
         numMatches.map(async (num) => {
           const [ko, op, tcp, ya] = await Promise.all([
-            supabase.from('knitting_orders').select('*').ilike('order_no', `%${num}%`).limit(5),
-            supabase.from('order_plans').select('*').ilike('ewo', `%${num}%`).limit(5),
-            supabase.from('textile_close_pmc').select('*').ilike('order_no', `%${num}%`).limit(5),
-            supabase.from('yarn_allocations').select('*').ilike('order_number', `%${num}%`).limit(5)
+            supabase.from('knitting_orders').select('*').ilike('order_no', `%${num}%`).limit(50),
+            supabase.from('order_plans').select('*').ilike('ewo', `%${num}%`).limit(50),
+            supabase.from('textile_close_pmc').select('*').ilike('order_no', `%${num}%`).limit(50),
+            supabase.from('yarn_allocations').select('*').ilike('order_number', `%${num}%`).limit(50)
           ]);
 
           if (ko.data) foundKnittingOrders.push(...ko.data);
@@ -1556,7 +1556,23 @@ function formatOrderResponse(orderNum: string, erpData: any, userQuery: string =
 
   // Extract Items and Fabrication
   const rawItems = ko?.items || ko?.raw_data?.items || [];
-  const items: any[] = Array.isArray(rawItems) ? rawItems : [];
+  let items: any[] = Array.isArray(rawItems) ? [...rawItems] : [];
+
+  if (items.length === 0 && foundTextileClose.length > 0) {
+    items = foundTextileClose.map((t: any) => ({
+      color: t.color || 'Standard',
+      fabType: t.fab_type || t.fabType || 'Knitted Fabric',
+      fabrication: t.fab_type || t.fabType,
+      fgsm: t.fgsm || 'N/A',
+      fWidth: t.f_width || t.fWidth || 'N/A',
+      reqQty: Number(t.req_qty ?? t.reqQty ?? 0),
+      greyQty: Number(t.grey_qty ?? t.greyQty ?? 0),
+      production: Number(t.production ?? 0),
+      knitBalance: Number(t.knit_bal ?? t.knitBal ?? 0),
+      status: t.status || 'Textile Close By PMC',
+      remarks: t.remarks || ''
+    }));
+  }
 
   const rawFabrics: string[] = [];
   if (ko?.fabrication) rawFabrics.push(ko.fabrication);
@@ -1834,15 +1850,16 @@ function formatOrderResponse(orderNum: string, erpData: any, userQuery: string =
 
   // CASE 3: Handle Production-only request: "eg: 271522 Production"
   if (asksProdOnly) {
-    const prodTable = buildProductionTable(items, ko || op);
+    const prodTable = buildProductionTable(items, ko || op || tcp);
     return `Sure! I found it. Here is the production data for **Order #${orderNum}** (${buyer}):\n\n${prodTable}`;
   }
 
   // CASE 4: Default: Show Production and Allocated Yarn data
-  const prodTable = buildProductionTable(items, ko || op);
+  const prodTable = buildProductionTable(items, ko || op || tcp);
   const allocTable = buildAllocatedYarnTable(yaList);
 
-  const statusStr = tcp ? 'closed (PMC)' : (balance <= 0 ? 'completed' : (prod > 0 ? 'currently running' : 'pending'));
+  const tcpStatus = tcp?.status || 'Closed (PMC)';
+  const statusStr = tcp ? `${tcpStatus} (Textile Close By PMC)` : (balance <= 0 ? 'completed' : (prod > 0 ? 'currently running' : 'pending'));
 
   let combinedReport = `Sure! I found it. Order #${orderNum} is ${statusStr} (${buyer}):\n\n`;
   if (prodTable) {

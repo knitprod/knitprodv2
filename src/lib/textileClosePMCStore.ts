@@ -8,6 +8,7 @@
 
 import { TextileCloseRecord, KnittingStatusOrder } from '../types';
 import * as XLSX from 'xlsx';
+import { SupabaseSync } from './supabaseClient';
 
 const STORAGE_KEY = 'epyllion_textile_close_pmc_v1';
 
@@ -151,33 +152,103 @@ export const INITIAL_TEXTILE_CLOSE_RECORDS: TextileCloseRecord[] = [
 ];
 
 export class TextileClosePMCStorage {
+  private static _memoryCache: TextileCloseRecord[] | null = null;
+  private static _listeners: Array<(records: TextileCloseRecord[]) => void> = [];
+
+  static subscribe(listener: (records: TextileCloseRecord[]) => void): () => void {
+    this._listeners.push(listener);
+    return () => {
+      this._listeners = this._listeners.filter(l => l !== listener);
+    };
+  }
+
+  private static notifyListeners(records: TextileCloseRecord[]) {
+    this._listeners.forEach(fn => {
+      try { fn(records); } catch (e) { console.error(e); }
+    });
+    try {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('epyllion_tc_pmc_updated', { detail: { count: records.length } }));
+      }
+    } catch {}
+  }
+
   static getRecords(): TextileCloseRecord[] {
+    if (this._memoryCache && this._memoryCache.length > 0) {
+      return this._memoryCache;
+    }
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
+          this._memoryCache = parsed;
           return parsed;
         }
       }
     } catch (e) {
       console.warn('Could not read Textile Close By PMC from localStorage', e);
     }
-    this.saveRecords(INITIAL_TEXTILE_CLOSE_RECORDS);
+    this._memoryCache = INITIAL_TEXTILE_CLOSE_RECORDS;
     return INITIAL_TEXTILE_CLOSE_RECORDS;
   }
 
   static saveRecords(records: TextileCloseRecord[]): void {
+    this._memoryCache = records;
+    this.notifyListeners(records);
+
+    // Save to localStorage safely (safeguarding against 5MB QuotaExceededError)
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
     } catch (e) {
-      console.warn('Could not save Textile Close By PMC to localStorage', e);
+      console.warn('Could not save full Textile Close By PMC to localStorage, saving capped cache:', e);
+      try {
+        const subset = records.slice(0, 300);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(subset));
+      } catch {}
     }
   }
 
   static resetToDefault(): TextileCloseRecord[] {
     this.saveRecords(INITIAL_TEXTILE_CLOSE_RECORDS);
     return INITIAL_TEXTILE_CLOSE_RECORDS;
+  }
+
+  /**
+   * Targeted fast lookup for a specific order number.
+   * If not found in current memory cache, searches Supabase directly.
+   */
+  static async findOrFetchRecordsByOrder(orderNo: string): Promise<TextileCloseRecord[]> {
+    const cleanNum = String(orderNo || '').trim().toLowerCase();
+    if (!cleanNum) return [];
+
+    // 1. Check in-memory records
+    const inMemMatches = this.getRecords().filter(r => 
+      String(r.orderNo || '').trim().toLowerCase().includes(cleanNum)
+    );
+    if (inMemMatches.length > 0) {
+      return inMemMatches;
+    }
+
+    // 2. Query Supabase directly
+    try {
+      const remote = await SupabaseSync.fetchTextileCloseRecordsByOrder(cleanNum);
+      if (Array.isArray(remote) && remote.length > 0) {
+        // Merge into in-memory cache so subsequent lookups are instant
+        const current = this._memoryCache || [];
+        const existingIds = new Set(current.map(r => r.id));
+        const newToAdd = remote.filter(r => !existingIds.has(r.id));
+        if (newToAdd.length > 0) {
+          this._memoryCache = [...newToAdd, ...current];
+          this.notifyListeners(this._memoryCache);
+        }
+        return remote;
+      }
+    } catch (err) {
+      console.warn('Direct order lookup error in TextileClosePMCStorage:', err);
+    }
+
+    return [];
   }
 
   /**
