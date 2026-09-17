@@ -39,7 +39,8 @@ import {
   RefreshCw,
   Upload,
   FileSpreadsheet,
-  Zap
+  Zap,
+  ExternalLink
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { LedgerRecord } from '../types';
@@ -3720,6 +3721,18 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
               >
                 <Download className="h-3 w-3 text-slate-700 dark:text-slate-300" />
                 <span>Download Excel File</span>
+              </button>
+
+              {/* Open in New Tab Button */}
+              <button
+                type="button"
+                onClick={() => window.open('#production-ledger', '_blank')}
+                className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-blue-700 dark:text-blue-300 bg-blue-50/80 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800 rounded-lg transition-all shadow-2xs cursor-pointer"
+                title="Open Production Ledger in a separate browser tab or window"
+                id="open-ledger-new-tab-header-btn"
+              >
+                <ExternalLink className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                <span>Open in New Tab</span>
               </button>
             </div>
           </div>

@@ -153,17 +153,22 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
       return prodResult.reply;
     }
 
-    // 2. Check if asking about total knitting balance / total production summary without specific order number
+    // 2. Check if asking about total allocation or total knitting balance / production summary without specific order number
     const normalized = normalizeQueryString(query);
     const numMatches = normalized.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || [];
     const lowerQ = query.toLowerCase().trim();
 
-    const isTotalKnittingQuery = 
-      (lowerQ.includes('total') && (lowerQ.includes('balance') || lowerQ.includes('knit') || lowerQ.includes('prod') || lowerQ.includes('summary'))) ||
-      (lowerQ.includes('knitting balance') && !numMatches.length) ||
-      (lowerQ.includes('total balance') && !numMatches.length);
+    const isTotalAllocationQuery = 
+      (lowerQ.includes('alloc') || lowerQ.includes('yarn req') || lowerQ.includes('allocated yarn')) &&
+      !numMatches.length;
 
-    if (isTotalKnittingQuery && numMatches.length === 0) {
+    const isTotalKnittingQuery = 
+      !isTotalAllocationQuery &&
+      ((lowerQ.includes('total') && (lowerQ.includes('balance') || lowerQ.includes('knit') || lowerQ.includes('prod') || lowerQ.includes('summary'))) ||
+      (lowerQ.includes('knitting balance') && !numMatches.length) ||
+      (lowerQ.includes('total balance') && !numMatches.length));
+
+    if ((isTotalAllocationQuery || isTotalKnittingQuery) && numMatches.length === 0) {
       const summaryResult = handleSmartSummaryQuery(query, context?.summaryStats, knittingOrders.length, activeTab);
       if (summaryResult.handled && summaryResult.reply) {
         return summaryResult.reply;
@@ -259,15 +264,34 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         totalKnitBal += Number(ord.knitBalance || 0);
       }
 
+      // Extract Yarn Allocation total stats
+      let totalYarnRqQty = 0;
+      let totalAllocatedQty = 0;
+      let totalAllocBalance = 0;
+      const allocOrderSet = new Set<string>();
+
+      for (const ya of yarnAllocations) {
+        totalYarnRqQty += Number(ya.yarnRqQty ?? (ya as any).yarn_rq_qty ?? 0);
+        totalAllocatedQty += Number(ya.allocatedQty ?? (ya as any).allocated_qty ?? 0);
+        totalAllocBalance += Number(ya.balance ?? 0);
+        const ord = ya.orderNumber || (ya as any).order_number;
+        if (ord) allocOrderSet.add(String(ord).trim());
+      }
+
       // Find any order numbers mentioned in user's query
       const numberMatches = userQuestion.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || [];
       const lowerQ = userQuestion.toLowerCase();
 
       // Multi-turn order context detection
+      const isTotalAllocationQuery = 
+        (lowerQ.includes('alloc') || lowerQ.includes('yarn req') || lowerQ.includes('allocated yarn')) &&
+        !numberMatches.length;
+
       const isTotalKnittingQuery = 
-        (lowerQ.includes('total') && (lowerQ.includes('balance') || lowerQ.includes('knit') || lowerQ.includes('prod') || lowerQ.includes('summary'))) ||
+        !isTotalAllocationQuery &&
+        ((lowerQ.includes('total') && (lowerQ.includes('balance') || lowerQ.includes('knit') || lowerQ.includes('prod') || lowerQ.includes('summary'))) ||
         (lowerQ.includes('knitting balance') && !numberMatches.length) ||
-        (lowerQ.includes('total balance') && !numberMatches.length);
+        (lowerQ.includes('total balance') && !numberMatches.length));
 
       let activeOrderNo: string | null = numberMatches[0] || null;
       if (!activeOrderNo && !isTotalKnittingQuery) {
@@ -410,6 +434,11 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
           totalGreyQty: Math.round(totalGreyQty),
           totalProduction: Math.round(totalProduction),
           totalKnitBal: Math.round(totalKnitBal),
+          totalYarnRqQty: Math.round(totalYarnRqQty),
+          totalAllocatedQty: Math.round(totalAllocatedQty),
+          totalAllocBalance: Math.round(totalAllocBalance),
+          totalAllocationsCount: yarnAllocations.length,
+          uniqueAllocOrdersCount: allocOrderSet.size,
           buyers: Array.from(new Set(knittingOrders.map(o => o.buyerName).filter(Boolean))).slice(0, 10)
         }
       };
@@ -470,15 +499,20 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         return;
       }
 
-      // B. Total Knitting Balance / Production Summary Check (without specific order)
+      // B. Total Yarn Allocation / Total Knitting Balance / Production Summary Check (without specific order)
       const normalized = normalizeQueryString(query);
       const numMatches = normalized.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || [];
       const lowerQ = query.toLowerCase().trim();
 
+      const isTotalAllocationQuery = 
+        (lowerQ.includes('alloc') || lowerQ.includes('yarn req') || lowerQ.includes('allocated yarn')) &&
+        !numMatches.length;
+
       const isTotalKnittingQuery = 
-        (lowerQ.includes('total') && (lowerQ.includes('balance') || lowerQ.includes('knit') || lowerQ.includes('prod') || lowerQ.includes('summary'))) ||
+        !isTotalAllocationQuery &&
+        ((lowerQ.includes('total') && (lowerQ.includes('balance') || lowerQ.includes('knit') || lowerQ.includes('prod') || lowerQ.includes('summary'))) ||
         (lowerQ.includes('knitting balance') && !numMatches.length) ||
-        (lowerQ.includes('total balance') && !numMatches.length);
+        (lowerQ.includes('total balance') && !numMatches.length));
 
       // C. Multi-turn Order / Color / Fabric / Balance Check
       let activeOrderNum: string | null = numMatches[0] || null;
@@ -518,7 +552,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
 
       const context = getERPContext(query, currentTextileRecords);
 
-      if (isTotalKnittingQuery && numMatches.length === 0) {
+      if ((isTotalAllocationQuery || isTotalKnittingQuery) && numMatches.length === 0) {
         const summaryResult = handleSmartSummaryQuery(query, context?.summaryStats, knittingOrders.length, activeTab);
         if (summaryResult.handled && summaryResult.reply) {
           await new Promise(r => setTimeout(r, 120));

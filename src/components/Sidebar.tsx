@@ -27,9 +27,35 @@ import {
   FileSpreadsheet,
   ShieldCheck,
   Database,
-  Activity
+  Activity,
+  ExternalLink
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
+
+const PAGE_TO_HASH: Record<string, string> = {
+  'Dashboard': 'dashboard',
+  'Production Ledger': 'production-ledger',
+  'Floor Dashboard': 'floor-dashboard',
+  'Management Dashboard': 'management-dashboard',
+  'Reports': 'reports',
+  'Plan Order Followup': 'plan-order-followup',
+  'Team Leader OTD Status': 'team-leader-otd',
+  'Buyerwise OTD Status': 'buyerwise-otd',
+  'Orderwise OTD Status': 'orderwise-otd',
+  'Buyer Plan vs Actual': 'buyer-plan-actual',
+  'Yarn Allocation': 'yarn-allocation',
+  'Delivery Schedule': 'delivery-schedule',
+  'Knitting Status': 'knitting-status',
+  'Textile Close By PMC': 'textile-close-pmc',
+  'Admin Panel': 'admin-panel',
+  'User Management': 'user-management',
+  'Database Connection': 'database-connection',
+  'Settings': 'settings'
+};
+
+const getPageHash = (name: string): string => {
+  return PAGE_TO_HASH[name] || name.toLowerCase().replace(/\s+/g, '-');
+};
 
 interface SidebarProps {
   currentPage: string;
@@ -69,6 +95,21 @@ export default function Sidebar({
     'Delivery Schedule'
   ];
   const adminPanelItems = ['Admin Panel', 'User Management', 'Database Connection', 'Settings'];
+
+  const handleNavClick = (e: React.MouseEvent, pageName: string) => {
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) {
+      return; // Allow native browser new tab / new window action
+    }
+    e.preventDefault();
+    onNavigate(pageName);
+  };
+
+  const openInNewTab = (e: React.MouseEvent, pageName: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const hash = getPageHash(pageName);
+    window.open(`#${hash}`, '_blank');
+  };
 
   useEffect(() => {
     if (productionItems.includes(currentPage)) {
@@ -135,22 +176,37 @@ export default function Sidebar({
         <nav className="space-y-2 px-3">
           {/* 1. Dashboard */}
           {isTabAllowed('Dashboard') && (
-            <button
-              onClick={() => onNavigate('Dashboard')}
-              className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition-all duration-150 cursor-pointer ${
+            <a
+              href={`#${getPageHash('Dashboard')}`}
+              onClick={(e) => handleNavClick(e, 'Dashboard')}
+              className={`group flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition-all duration-150 cursor-pointer ${
                 currentPage === 'Dashboard' 
                   ? 'bg-blue-50/70 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 shadow-xs shadow-blue-500/5' 
                   : 'text-gray-600 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-800/60 hover:text-gray-900 dark:hover:text-white'
               }`}
-              title={collapsed ? "Dashboard" : undefined}
+              title={collapsed ? "Dashboard (Right-click to open in new tab)" : "Right-click or Ctrl+Click to open in new tab"}
               id="sidebar-nav-dashboard"
             >
-              <Home className={`h-5 w-5 shrink-0 ${currentPage === 'Dashboard' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-slate-500'}`} />
-              {!collapsed && <span className="truncate tracking-wide">Dashboard</span>}
-              {!collapsed && currentPage === 'Dashboard' && (
-                <div className="ml-auto h-1.5 w-1.5 rounded-full bg-blue-600 dark:bg-blue-400" />
+              <div className="flex items-center gap-3 min-w-0">
+                <Home className={`h-5 w-5 shrink-0 ${currentPage === 'Dashboard' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-slate-500'}`} />
+                {!collapsed && <span className="truncate tracking-wide">Dashboard</span>}
+              </div>
+              {!collapsed && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={(e) => openInNewTab(e, 'Dashboard')}
+                    className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-slate-200/60 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-opacity"
+                    title="Open Dashboard in a new tab"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </button>
+                  {currentPage === 'Dashboard' && (
+                    <div className="h-1.5 w-1.5 rounded-full bg-blue-600 dark:bg-blue-400" />
+                  )}
+                </div>
               )}
-            </button>
+            </a>
           )}
 
           {/* 2. "Production Update" Expand & Collapse Group */}
@@ -197,18 +253,30 @@ export default function Sidebar({
                     const Icon = sub.icon;
                     const isActive = currentPage === sub.name;
                     return (
-                      <button
+                      <a
                         key={sub.name}
-                        onClick={() => onNavigate(sub.name)}
-                        className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs font-semibold transition-all cursor-pointer ${
+                        href={`#${getPageHash(sub.name)}`}
+                        onClick={(e) => handleNavClick(e, sub.name)}
+                        className={`group flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-xs font-semibold transition-all cursor-pointer ${
                           isActive 
                             ? 'bg-blue-50/80 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 font-bold' 
                             : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'
                         }`}
+                        title={`Click to view ${sub.label}. Right-click or Ctrl+Click to open in a new tab.`}
                       >
-                        <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`} />
-                        <span className="truncate">{sub.label}</span>
-                      </button>
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`} />
+                          <span className="truncate">{sub.label}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => openInNewTab(e, sub.name)}
+                          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-slate-200/60 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-opacity"
+                          title={`Open ${sub.label} in a new tab`}
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                        </button>
+                      </a>
                     );
                   })}
                 </div>
@@ -282,18 +350,30 @@ export default function Sidebar({
                             const Icon = sub.icon;
                             const isActive = currentPage === sub.name || (currentPage === 'Plan Order Followup' && sub.name === 'Team Leader OTD Status');
                             return (
-                              <button
+                              <a
                                 key={sub.name}
-                                onClick={() => onNavigate(sub.name)}
-                                className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] font-semibold transition-all cursor-pointer ${
+                                href={`#${getPageHash(sub.name)}`}
+                                onClick={(e) => handleNavClick(e, sub.name)}
+                                className={`group flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[11px] font-semibold transition-all cursor-pointer ${
                                   isActive
                                     ? 'bg-indigo-50/90 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-bold'
                                     : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'
                                 }`}
+                                title={`Click to view ${sub.label}. Right-click or Ctrl+Click to open in a new tab.`}
                               >
-                                <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
-                                <span className="truncate">{sub.label}</span>
-                              </button>
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
+                                  <span className="truncate">{sub.label}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={(e) => openInNewTab(e, sub.name)}
+                                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-indigo-200/60 dark:hover:bg-indigo-900 text-slate-400 hover:text-indigo-700 dark:hover:text-indigo-200 transition-opacity"
+                                  title={`Open ${sub.label} in a new tab`}
+                                >
+                                  <ExternalLink className="h-2.5 w-2.5" />
+                                </button>
+                              </a>
                             );
                           })}
                         </div>
@@ -313,18 +393,30 @@ export default function Sidebar({
                     const Icon = sub.icon;
                     const isActive = currentPage === sub.name;
                     return (
-                      <button
+                      <a
                         key={sub.name}
-                        onClick={() => onNavigate(sub.name)}
-                        className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs font-semibold transition-all cursor-pointer ${
+                        href={`#${getPageHash(sub.name)}`}
+                        onClick={(e) => handleNavClick(e, sub.name)}
+                        className={`group flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-xs font-semibold transition-all cursor-pointer ${
                           isActive 
                             ? 'bg-blue-50/80 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 font-bold' 
                             : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'
                         }`}
+                        title={`Click to view ${sub.label}. Right-click or Ctrl+Click to open in a new tab.`}
                       >
-                        <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`} />
-                        <span className="truncate">{sub.label}</span>
-                      </button>
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`} />
+                          <span className="truncate">{sub.label}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => openInNewTab(e, sub.name)}
+                          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-slate-200/60 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-opacity"
+                          title={`Open ${sub.label} in a new tab`}
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                        </button>
+                      </a>
                     );
                   })}
                 </div>
@@ -375,18 +467,30 @@ export default function Sidebar({
                     const Icon = sub.icon;
                     const isActive = currentPage === sub.name;
                     return (
-                      <button
+                      <a
                         key={sub.name}
-                        onClick={() => onNavigate(sub.name)}
-                        className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs font-semibold transition-all cursor-pointer ${
+                        href={`#${getPageHash(sub.name)}`}
+                        onClick={(e) => handleNavClick(e, sub.name)}
+                        className={`group flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-xs font-semibold transition-all cursor-pointer ${
                           isActive 
                             ? 'bg-blue-50/80 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 font-bold' 
                             : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'
                         }`}
+                        title={`Click to view ${sub.label}. Right-click or Ctrl+Click to open in a new tab.`}
                       >
-                        <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`} />
-                        <span className="truncate">{sub.label}</span>
-                      </button>
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`} />
+                          <span className="truncate">{sub.label}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => openInNewTab(e, sub.name)}
+                          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-slate-200/60 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-opacity"
+                          title={`Open ${sub.label} in a new tab`}
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                        </button>
+                      </a>
                     );
                   })}
                 </div>

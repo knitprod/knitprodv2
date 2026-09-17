@@ -1305,11 +1305,41 @@ export function handleSmartSummaryQuery(
   const query = normalizeQueryString(rawQuery);
   const lower = query.toLowerCase();
 
+  // 1. Check for Total Yarn Allocation query
+  const isAllocationQuery = 
+    lower.includes('alloc') || 
+    lower.includes('yarn req') || 
+    lower.includes('allocated yarn');
+
+  if (isAllocationQuery) {
+    const stats = summaryStats || {};
+    const yarnRq = Number(stats.totalYarnRqQty || 0);
+    const allocated = Number(stats.totalAllocatedQty || 0);
+    const balance = Number(stats.totalAllocBalance || 0);
+    const uniqueOrders = Number(stats.uniqueAllocOrdersCount || 0);
+    const totalRecords = Number(stats.totalAllocationsCount || 0);
+
+    const reply = 
+      `Sure! I found it. Here is the **Total Yarn Allocation** summary:\n\n` +
+      `| Total Yarn Req | Total Allocated Qty | Net Balance | Unique Orders |\n` +
+      `| :--- | :--- | :--- | :--- |\n` +
+      `| **${yarnRq.toLocaleString()} kg** | **${allocated.toLocaleString()} kg** | **${balance.toLocaleString()} kg** | **${uniqueOrders > 0 ? uniqueOrders.toLocaleString() : 'All'} Orders** |\n\n` +
+      `**🧶 Total Summary:** Total Required: **${yarnRq.toLocaleString()} kg** | Allocated: **${allocated.toLocaleString()} kg** | Balance: **${balance.toLocaleString()} kg**\n` +
+      `*(Total across all ${totalRecords > 0 ? totalRecords.toLocaleString() : 'registered'} allocation records)*`;
+
+    return {
+      handled: true,
+      reply
+    };
+  }
+
+  // 2. Check for Total Knitting Production query
   const isTotalOrBalance = 
-    lower.includes('total') || 
+    (lower.includes('total') || 
     lower.includes('summary') || 
     (lower.includes('balance') && !lower.includes('order')) ||
-    lower.includes('knitting balance');
+    lower.includes('knitting balance')) &&
+    !isAllocationQuery;
 
   if (isTotalOrBalance) {
     const stats = summaryStats || {};

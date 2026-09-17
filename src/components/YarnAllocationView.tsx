@@ -21,7 +21,8 @@ import {
   Shield,
   ChevronLeft,
   ChevronRight,
-  RefreshCw
+  RefreshCw,
+  ExternalLink
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
 import { useTableColumns, ColumnCustomizerDropdown, ResizableTh, ColumnDef } from './TableColumnCustomizer';
@@ -1559,6 +1560,17 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
           >
             <Download className={`h-4 w-4 text-emerald-600 dark:text-emerald-400 ${exportProgress.isExporting ? 'animate-bounce' : ''}`} />
             <span>{exportProgress.isExporting ? 'Exporting...' : 'Export Excel'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => window.open('#yarn-allocation', '_blank')}
+            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800 px-3.5 py-2 text-xs font-bold text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-slate-700 hover:text-blue-600 transition-all cursor-pointer shadow-xs"
+            title="Open Yarn Allocation in a separate browser tab or window"
+            id="open-yarn-new-tab-header-btn"
+          >
+            <ExternalLink className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            <span className="hidden sm:inline">Open in New Tab</span>
           </button>
 
           <button

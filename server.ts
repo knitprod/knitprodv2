@@ -488,15 +488,28 @@ function parseCookies(cookieHeader?: string): Record<string, string> {
   return list;
 }
 
-// GET auth session state via active tab x-session-uid header
+// GET auth session state via active tab x-session-uid header or browser session cookie
 app.get('/api/auth/session', (req, res) => {
   const headerUid = req.headers['x-session-uid'];
-  
-  // A valid session requires an active tab session identifier (from sessionStorage).
-  // When the browser is closed and re-opened, sessionStorage is cleared, ensuring
-  // the user is prompted for credentials.
-  if (typeof headerUid === 'string' && headerUid.trim()) {
-    res.json({ authenticated: true, uid: headerUid.trim().toUpperCase() });
+  let cookieUid: string | null = null;
+  const cookieHeader = req.headers.cookie;
+  if (cookieHeader) {
+    const match = cookieHeader.match(/ekl_auth_session=([^;]+)/);
+    if (match) {
+      try {
+        cookieUid = decodeURIComponent(match[1]);
+      } catch (e) {
+        cookieUid = match[1];
+      }
+    }
+  }
+
+  const effectiveUid = (typeof headerUid === 'string' && headerUid.trim())
+    ? headerUid.trim().toUpperCase()
+    : (cookieUid && cookieUid.trim() ? cookieUid.trim().toUpperCase() : null);
+
+  if (effectiveUid) {
+    res.json({ authenticated: true, uid: effectiveUid });
   } else {
     res.json({ authenticated: false, uid: null });
   }
@@ -2140,14 +2153,77 @@ app.post('/api/chat/raihan', async (req, res) => {
       });
     }
 
-    // Step 0.8: Fast response for "what is the Total knitting balance?" or total summary queries without an order
-    const isTotalKnittingQuery = 
-      (lowerMsg.includes('total') && (lowerMsg.includes('balance') || lowerMsg.includes('knit') || lowerMsg.includes('prod') || lowerMsg.includes('summary'))) ||
-      (lowerMsg.includes('knitting balance') && !trimmedMsg.match(/\b\d{5,8}\b/)) ||
-      (lowerMsg.includes('total balance') && !trimmedMsg.match(/\b\d{5,8}\b/));
-
     const candidateMatches = trimmedMsg.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || [];
     const hasExplicitOrder = candidateMatches.length > 0 && !candidateMatches.every(c => c === '2024' || c === '2025' || c === '2026');
+
+    // Step 0.7: Fast response for "Total Allocation" or "Total Yarn Allocation" summary without specific order
+    const isTotalAllocationQuery = 
+      (lowerMsg.includes('alloc') || lowerMsg.includes('yarn req') || lowerMsg.includes('allocated yarn')) &&
+      !hasExplicitOrder;
+
+    if (isTotalAllocationQuery) {
+      let totalYarnRq = Number(summaryStats.totalYarnRqQty || 0);
+      let totalAllocated = Number(summaryStats.totalAllocatedQty || 0);
+      let totalBalance = Number(summaryStats.totalAllocBalance || 0);
+      let uniqueOrders = Number(summaryStats.uniqueAllocOrdersCount || 0);
+      let totalRecords = Number(summaryStats.totalAllocationsCount || 0);
+
+      // If summaryStats not present or 0, compute from client context yarnAllocations
+      if (totalAllocated === 0 && Array.isArray(context?.yarnAllocations) && context.yarnAllocations.length > 0) {
+        const orderSet = new Set<string>();
+        for (const y of context.yarnAllocations) {
+          totalYarnRq += Number(y.yarnRqQty ?? y.yarn_rq_qty ?? 0);
+          totalAllocated += Number(y.allocatedQty ?? y.allocated_qty ?? 0);
+          totalBalance += Number(y.balance ?? 0);
+          const ord = y.orderNumber || y.order_number;
+          if (ord) orderSet.add(String(ord).trim());
+        }
+        uniqueOrders = orderSet.size;
+        totalRecords = context.yarnAllocations.length;
+      }
+
+      if (totalAllocated === 0) {
+        const supabase = getServerSupabase();
+        if (supabase) {
+          try {
+            const { data: dbAllocations } = await supabase.from('yarn_allocations').select('yarn_rq_qty, allocated_qty, balance, order_number').limit(5000);
+            if (dbAllocations && dbAllocations.length > 0) {
+              const orderSet = new Set<string>();
+              for (const y of dbAllocations) {
+                totalYarnRq += Number(y.yarn_rq_qty || 0);
+                totalAllocated += Number(y.allocated_qty || 0);
+                totalBalance += Number(y.balance || 0);
+                if (y.order_number) orderSet.add(String(y.order_number).trim());
+              }
+              uniqueOrders = orderSet.size;
+              totalRecords = dbAllocations.length;
+            }
+          } catch (dbErr) {
+            console.warn('Error querying yarn allocations total in server:', dbErr);
+          }
+        }
+      }
+
+      const totalAllocReply = 
+        `Sure! I found it. Here is the **Total Yarn Allocation** summary:\n\n` +
+        `| Total Yarn Req | Total Allocated Qty | Net Balance | Unique Orders |\n` +
+        `| :--- | :--- | :--- | :--- |\n` +
+        `| **${totalYarnRq.toLocaleString()} kg** | **${totalAllocated.toLocaleString()} kg** | **${totalBalance.toLocaleString()} kg** | **${uniqueOrders > 0 ? uniqueOrders.toLocaleString() : 'All'} Orders** |\n\n` +
+        `**🧶 Total Summary:** Total Required: **${totalYarnRq.toLocaleString()} kg** | Allocated: **${totalAllocated.toLocaleString()} kg** | Balance: **${totalBalance.toLocaleString()} kg**\n` +
+        `*(Total across all ${totalRecords > 0 ? totalRecords.toLocaleString() : 'registered'} allocation records)*`;
+
+      return res.json({
+        success: true,
+        reply: sanitizeRaihanOutput(totalAllocReply)
+      });
+    }
+
+    // Step 0.8: Fast response for "what is the Total knitting balance?" or total summary queries without an order
+    const isTotalKnittingQuery = 
+      !isTotalAllocationQuery &&
+      ((lowerMsg.includes('total') && (lowerMsg.includes('balance') || lowerMsg.includes('knit') || lowerMsg.includes('prod') || lowerMsg.includes('summary'))) ||
+      (lowerMsg.includes('knitting balance') && !trimmedMsg.match(/\b\d{5,8}\b/)) ||
+      (lowerMsg.includes('total balance') && !trimmedMsg.match(/\b\d{5,8}\b/)));
 
     if (isTotalKnittingQuery && !hasExplicitOrder) {
       let reqQty = Number(summaryStats.totalReqQty || 0);
@@ -2265,6 +2341,38 @@ app.post('/api/chat/raihan', async (req, res) => {
 
     // Step 3: Instant local answers for common summary or buyer queries (< 20ms)
     if (lowerMsg.includes('total') || lowerMsg.includes('summary') || (lowerMsg.includes('balance') && !lowerMsg.includes('for order'))) {
+      if (lowerMsg.includes('alloc') || lowerMsg.includes('yarn req') || lowerMsg.includes('allocated yarn')) {
+        let totalYarnRq = Number(summaryStats.totalYarnRqQty || 0);
+        let totalAllocated = Number(summaryStats.totalAllocatedQty || 0);
+        let totalBalance = Number(summaryStats.totalAllocBalance || 0);
+        let uniqueOrders = Number(summaryStats.uniqueAllocOrdersCount || 0);
+        let totalRecords = Number(summaryStats.totalAllocationsCount || 0);
+
+        if (totalAllocated === 0 && Array.isArray(context?.yarnAllocations) && context.yarnAllocations.length > 0) {
+          const orderSet = new Set<string>();
+          for (const y of context.yarnAllocations) {
+            totalYarnRq += Number(y.yarnRqQty ?? y.yarn_rq_qty ?? 0);
+            totalAllocated += Number(y.allocatedQty ?? y.allocated_qty ?? 0);
+            totalBalance += Number(y.balance ?? 0);
+            const ord = y.orderNumber || y.order_number;
+            if (ord) orderSet.add(String(ord).trim());
+          }
+          uniqueOrders = orderSet.size;
+          totalRecords = context.yarnAllocations.length;
+        }
+
+        const allocReply = `Sure! I found it. Here is the **Total Yarn Allocation** summary:\n\n` +
+          `| Total Yarn Req | Total Allocated Qty | Net Balance | Unique Orders |\n` +
+          `| :--- | :--- | :--- | :--- |\n` +
+          `| **${totalYarnRq.toLocaleString()} kg** | **${totalAllocated.toLocaleString()} kg** | **${totalBalance.toLocaleString()} kg** | **${uniqueOrders > 0 ? uniqueOrders.toLocaleString() : 'All'} Orders** |\n\n` +
+          `**🧶 Total Summary:** Total Required: **${totalYarnRq.toLocaleString()} kg** | Allocated: **${totalAllocated.toLocaleString()} kg** | Balance: **${totalBalance.toLocaleString()} kg**\n` +
+          `*(Total across all ${totalRecords > 0 ? totalRecords.toLocaleString() : 'registered'} allocation records)*`;
+        return res.json({
+          success: true,
+          reply: sanitizeRaihanOutput(allocReply)
+        });
+      }
+
       const reqQty = Number(summaryStats.totalReqQty || 0);
       const greyQty = Number(summaryStats.totalGreyQty || 0);
       const prodQty = Number(summaryStats.totalProduction || 0);

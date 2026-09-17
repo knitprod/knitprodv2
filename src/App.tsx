@@ -237,37 +237,7 @@ export default function App() {
 
         // Check whether this window startup is an in-tab page reload (refresh)
         // or a new navigation / browser reopen.
-        // On browser reopen or new window navigation, prompt for User ID and Password immediately.
-        const isPageReload = (() => {
-          try {
-            const navEntries = performance.getEntriesByType('navigation');
-            if (navEntries && navEntries.length > 0) {
-              return (navEntries[0] as PerformanceNavigationTiming).type === 'reload';
-            }
-            return (performance as any)?.navigation?.type === 1;
-          } catch (e) {
-            return false;
-          }
-        })();
-
-        // If browser was closed and reopened (not an in-tab reload), purge session and prompt for credentials immediately
-        if (!isPageReload) {
-          try {
-            sessionStorage.removeItem('ekl_session_uid');
-            sessionStorage.removeItem('active_current_page');
-            localStorage.removeItem('ekl_session_uid');
-            localStorage.removeItem('active_current_page');
-          } catch (e) {}
-          fetch('/api/auth/session', { method: 'DELETE' }).catch(() => {});
-          if (isMounted) {
-            setCurrentUser(null);
-            GasClient.setActiveUser(null);
-            setAuthLoading(false);
-          }
-          return;
-        }
-
-        // 1. Check active session UID strictly from sessionStorage (tab session lifecycle)
+        // 1. Check active session UID from sessionStorage (tab session)
         let clientSessionUid: string | null = null;
         try {
           localStorage.removeItem('ekl_session_uid');
@@ -275,27 +245,23 @@ export default function App() {
           clientSessionUid = sessionStorage.getItem('ekl_session_uid');
         } catch (e) {}
 
-        // If clientSessionUid is missing (e.g. browser was closed and re-opened),
-        // do not restore session — prompt for User ID / Password immediately.
-        if (!clientSessionUid || !clientSessionUid.trim()) {
-          if (isMounted) {
-            setCurrentUser(null);
-            GasClient.setActiveUser(null);
-            setAuthLoading(false);
-          }
-          return;
-        }
-
-        // 2. Check secure server session (passing active tab's x-session-uid)
+        // 2. Check secure server session (passing active tab's x-session-uid if present, or checking browser session cookie)
         try {
+          const reqHeaders: Record<string, string> = {};
+          if (clientSessionUid && clientSessionUid.trim()) {
+            reqHeaders['x-session-uid'] = clientSessionUid.trim().toUpperCase();
+          }
           const res = await fetch('/api/auth/session', { 
             credentials: 'same-origin',
-            headers: { 'x-session-uid': clientSessionUid.trim().toUpperCase() }
+            headers: reqHeaders
           });
           if (res.ok) {
             const data = await res.json();
             if (data.authenticated && data.uid) {
               targetUid = data.uid;
+              try {
+                sessionStorage.setItem('ekl_session_uid', targetUid);
+              } catch (e) {}
             }
           }
         } catch (e) {
@@ -305,6 +271,16 @@ export default function App() {
         // 3. Fallback to client session identifier (essential for sandboxed iframe environments)
         if (!targetUid && clientSessionUid && clientSessionUid.trim()) {
           targetUid = clientSessionUid.trim().toUpperCase();
+        }
+
+        // If no active session found, prompt for User ID / Password
+        if (!targetUid || !targetUid.trim()) {
+          if (isMounted) {
+            setCurrentUser(null);
+            GasClient.setActiveUser(null);
+            setAuthLoading(false);
+          }
+          return;
         }
 
         if (targetUid) {
