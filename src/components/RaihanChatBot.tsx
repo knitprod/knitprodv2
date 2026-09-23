@@ -530,15 +530,24 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         }
       }
 
-      // Dynamic On-Demand Lookup for Textile Close By PMC or missing orders
+      // Dynamic On-Demand Lookup for Knitting Orders & Textile Close By PMC
       if (activeOrderNum) {
-        const hasLocalMatch = 
-          knittingOrders.some(o => String(o.orderNo || '').includes(activeOrderNum!)) ||
-          orderPlans.some(p => String(p.ewo || p.id || '').includes(activeOrderNum!)) ||
-          yarnAllocations.some(y => String(y.orderNumber || (y as any).order_number || '').includes(activeOrderNum!)) ||
-          currentTextileRecords.some(t => String(t.orderNo || '').includes(activeOrderNum!));
+        const hasKnitting = knittingOrders.some(o => String(o.orderNo || '').includes(activeOrderNum!));
+        if (!hasKnitting) {
+          try {
+            const remoteKnitting = await KnittingStatusStorage.findOrFetchRecordsByOrder(activeOrderNum);
+            if (remoteKnitting && remoteKnitting.length > 0) {
+              const currentIds = new Set(knittingOrders.map(o => o.id));
+              const newK = remoteKnitting.filter(o => !currentIds.has(o.id));
+              knittingOrders.push(...newK);
+            }
+          } catch (kErr) {
+            console.warn('Knitting order on-demand fetch notice:', kErr);
+          }
+        }
 
-        if (!hasLocalMatch) {
+        const hasTextile = currentTextileRecords.some(t => String(t.orderNo || '').includes(activeOrderNum!));
+        if (!hasTextile) {
           try {
             const remoteRecords = await TextileClosePMCStorage.findOrFetchRecordsByOrder(activeOrderNum);
             if (remoteRecords && remoteRecords.length > 0) {
@@ -749,7 +758,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
                 <thead className="bg-slate-100/90 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold">
                   <tr>
                     {rawHeaders.map((h, hIdx) => {
-                      const isNumeric = /qty|quantity|balance|production|req|gsm|width/i.test(h);
+                      const isNumeric = /qty|quantity|balance|production|req|gsm|width|hold|reject/i.test(h);
                       const isAllocatedYarn = /allocated yarn/i.test(h);
                       return (
                         <th
@@ -777,7 +786,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
                       >
                         {row.map((cell, cIdx) => {
                           const headerText = rawHeaders[cIdx] || '';
-                          const isNumeric = /qty|quantity|balance|production|req|gsm|width/i.test(headerText);
+                          const isNumeric = /qty|quantity|balance|production|req|gsm|width|hold|reject/i.test(headerText);
                           const isAllocatedYarn = /allocated yarn/i.test(headerText);
                           return (
                             <td

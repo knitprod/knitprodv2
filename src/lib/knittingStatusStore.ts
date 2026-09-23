@@ -7,6 +7,7 @@
 
 import { KnittingStatusOrder, KnittingStatusItem, OrderPlan } from '../types';
 import * as XLSX from 'xlsx';
+import { SupabaseSync } from './supabaseClient';
 
 export type KnittingCondition = 'Pending' | 'Running' | 'Complete';
 
@@ -907,6 +908,39 @@ export class KnittingStatusStorage {
     const fresh = INITIAL_KNITTING_STATUS_ORDERS.map(aggregateOrderValues);
     this.saveOrders(fresh);
     return fresh;
+  }
+
+  static async findOrFetchRecordsByOrder(orderNo: string): Promise<KnittingStatusOrder[]> {
+    const cleanNum = String(orderNo || '').trim().toLowerCase();
+    if (!cleanNum) return [];
+
+    // 1. Check in-memory / local storage records
+    const inMemMatches = this.getOrders().filter(o =>
+      String(o.orderNo || '').trim().toLowerCase().includes(cleanNum)
+    );
+    if (inMemMatches.length > 0) {
+      return inMemMatches;
+    }
+
+    // 2. Query Supabase directly
+    try {
+      const remote = await SupabaseSync.fetchKnittingOrdersByOrder(cleanNum);
+      if (Array.isArray(remote) && remote.length > 0) {
+        const sanitized = remote.map(aggregateOrderValues);
+        const current = this.getOrders();
+        const existingIds = new Set(current.map(o => o.id));
+        const newToAdd = sanitized.filter(o => !existingIds.has(o.id));
+        if (newToAdd.length > 0) {
+          const merged = [...newToAdd, ...current];
+          this.saveOrders(merged);
+        }
+        return sanitized;
+      }
+    } catch (err) {
+      console.warn('Direct order lookup error in KnittingStatusStorage:', err);
+    }
+
+    return [];
   }
 }
 

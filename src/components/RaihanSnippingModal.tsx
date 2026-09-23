@@ -11,6 +11,7 @@ import {
   Printer
 } from 'lucide-react';
 import { toPng } from 'html-to-image';
+import { getCompanyLogo, initBrandingSync } from '../lib/logoStore';
 
 interface RaihanSnippingModalProps {
   isOpen: boolean;
@@ -47,6 +48,18 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
   const [copiedImage, setCopiedImage] = useState(false);
   const [copiedText, setCopiedText] = useState(false);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
+
+  const [customLogo, setCustomLogo] = useState<string | null>(() => getCompanyLogo());
+
+  useEffect(() => {
+    initBrandingSync().catch(() => {});
+    const handleUpdate = (e: Event) => {
+      const customEvent = e as CustomEvent<string | null>;
+      setCustomLogo(customEvent.detail ?? getCompanyLogo());
+    };
+    window.addEventListener('company_logo_updated', handleUpdate);
+    return () => window.removeEventListener('company_logo_updated', handleUpdate);
+  }, []);
 
   const fileName = `Raihan_Summary_${title.replace(/[^a-zA-Z0-9_-]/g, '_')}_${new Date().toISOString().slice(0, 10)}.png`;
 
@@ -357,20 +370,170 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
   };
 
   const handlePrint = () => {
-    window.print();
+    if (!cardRef.current) {
+      window.print();
+      return;
+    }
+
+    try {
+      // Remove any existing print frame
+      const oldFrame = document.getElementById('raihan-print-frame');
+      if (oldFrame) {
+        oldFrame.remove();
+      }
+
+      const printFrame = document.createElement('iframe');
+      printFrame.id = 'raihan-print-frame';
+      printFrame.setAttribute('style', 'position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;visibility:hidden;');
+      document.body.appendChild(printFrame);
+
+      const frameDoc = printFrame.contentWindow?.document;
+      if (!frameDoc) {
+        window.print();
+        return;
+      }
+
+      // Clone card and sanitize styles for 1-page portrait print
+      const cardClone = cardRef.current.cloneNode(true) as HTMLElement;
+      cardClone.style.minWidth = '0';
+      cardClone.style.width = '100%';
+      cardClone.style.maxWidth = '100%';
+      cardClone.style.margin = '0';
+      cardClone.style.padding = '8px 12px';
+      cardClone.style.boxShadow = 'none';
+      cardClone.style.border = 'none';
+      cardClone.style.backgroundColor = '#ffffff';
+      cardClone.style.color = '#0f172a';
+
+      // Collect parent stylesheets and fonts
+      const styleTags = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
+        .map(el => el.outerHTML)
+        .join('\n');
+
+      frameDoc.open();
+      frameDoc.write(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>EPYLLION KNITEX LIMITED - ${title || 'Production Summary'}</title>
+  ${styleTags}
+  <style>
+    @page {
+      size: portrait;
+      margin: 8mm 10mm;
+    }
+    *, *::before, *::after {
+      box-sizing: border-box !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    html, body {
+      margin: 0 !important;
+      padding: 0 !important;
+      background: #ffffff !important;
+      color: #0f172a !important;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+      font-size: 11.5px !important;
+      line-height: 1.35 !important;
+      width: 100% !important;
+      height: auto !important;
+      min-height: 0 !important;
+      overflow: visible !important;
+    }
+    .print-sheet {
+      width: 100% !important;
+      max-width: 100% !important;
+      margin: 0 auto !important;
+      padding: 0 !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+      page-break-after: avoid !important;
+      break-after: avoid !important;
+    }
+    #raihan-snip-capture-card {
+      min-width: 0 !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      box-shadow: none !important;
+      border: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+      page-break-after: avoid !important;
+      break-after: avoid !important;
+    }
+    table {
+      width: 100% !important;
+      border-collapse: collapse !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+      margin: 6px 0 !important;
+    }
+    tr, th, td {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+    th {
+      background-color: #f1f5f9 !important;
+      color: #0f172a !important;
+      padding: 4px 6px !important;
+      font-size: 10.5px !important;
+    }
+    td {
+      padding: 4px 6px !important;
+      font-size: 10.5px !important;
+    }
+    .border-b-2 {
+      padding-bottom: 6px !important;
+      margin-bottom: 8px !important;
+    }
+    .mt-5 {
+      margin-top: 10px !important;
+      padding-top: 6px !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="print-sheet">
+    ${cardClone.outerHTML}
+  </div>
+</body>
+</html>`);
+      frameDoc.close();
+
+      setTimeout(() => {
+        try {
+          printFrame.contentWindow?.focus();
+          printFrame.contentWindow?.print();
+        } catch (e) {
+          console.error('Print iframe error, using fallback:', e);
+          window.print();
+        } finally {
+          setTimeout(() => {
+            if (document.body.contains(printFrame)) {
+              document.body.removeChild(printFrame);
+            }
+          }, 4000);
+        }
+      }, 350);
+    } catch (err) {
+      console.error('Error during print:', err);
+      window.print();
+    }
   };
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/75 backdrop-blur-xs animate-fade-in"
+      className="raihan-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/75 backdrop-blur-xs animate-fade-in"
       onClick={onClose}
     >
       <div 
-        className="relative w-full max-w-4xl lg:max-w-5xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-teal-500/40 flex flex-col max-h-[92vh] overflow-hidden"
+        className="raihan-modal-box relative w-full max-w-4xl lg:max-w-5xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-teal-500/40 flex flex-col max-h-[92vh] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
-        <div className="px-4 py-3 bg-gradient-to-r from-teal-700 via-teal-800 to-emerald-800 text-white flex items-center justify-between shrink-0">
+        <div className="raihan-modal-header px-4 py-3 bg-gradient-to-r from-teal-700 via-teal-800 to-emerald-800 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="p-1.5 rounded-lg bg-white/15 text-teal-200 shadow-xs">
               <Scissors className="w-4 h-4" />
@@ -399,7 +562,7 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
               type="button"
               onClick={handlePrint}
               className="p-1.5 rounded-lg text-teal-100 hover:text-white hover:bg-white/10 transition-colors cursor-pointer hidden sm:flex"
-              title="Print / Save PDF"
+              title="Print document or Save as PDF (Portrait 1-Sheet)"
             >
               <Printer className="w-4 h-4" />
             </button>
@@ -415,20 +578,67 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
         </div>
 
         {/* Modal Content / Preview Area */}
-        <div className="flex-1 p-3 sm:p-6 overflow-y-auto overflow-x-auto bg-slate-100 dark:bg-slate-950 flex flex-col items-center">
+        <div className="raihan-modal-content flex-1 p-3 sm:p-6 overflow-y-auto overflow-x-auto bg-slate-100 dark:bg-slate-950 flex flex-col items-center">
           {/* Branded ERP Summary Card that is ALWAYS immediately visible */}
           <div 
             ref={cardRef}
             id="raihan-snip-capture-card"
-            className="w-full max-w-4xl bg-white text-slate-900 rounded-xl p-5 sm:p-7 shadow-md border border-slate-200 selection:bg-teal-100 shrink-0"
-            style={{ minWidth: '820px', color: '#0f172a', backgroundColor: '#ffffff' }}
+            className="printable-snip-card w-full max-w-4xl bg-white text-slate-900 rounded-xl p-5 sm:p-7 shadow-md border border-slate-200 selection:bg-teal-100 shrink-0"
+            style={{ minWidth: 'min(100%, 820px)', color: '#0f172a', backgroundColor: '#ffffff' }}
           >
             {/* Card Branded Header */}
             <div className="flex items-center justify-between pb-3.5 mb-4 border-b-2 border-teal-600">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-600 to-emerald-600 text-white flex items-center justify-center font-extrabold text-base shadow-sm">
-                  R
-                </div>
+                {customLogo ? (
+                  <div className="flex items-center justify-center shrink-0 max-h-11">
+                    <img
+                      src={customLogo}
+                      alt="Epyllion Knitex Ltd."
+                      className="h-9 w-auto max-w-[120px] max-h-10 object-contain"
+                    />
+                  </div>
+                ) : (
+                  <div
+                    className="flex items-center justify-center shrink-0 shadow-xs"
+                    title="Epyllion Knitex Logo"
+                  >
+                    <svg
+                      width="42"
+                      height="42"
+                      viewBox="0 0 44 44"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="rounded-xl overflow-hidden shadow-xs"
+                    >
+                      {/* Brand green background badge */}
+                      <rect width="44" height="44" rx="10" fill="#15803D" />
+                      
+                      {/* Epyllion Sunburst Rays */}
+                      <path d="M 25 13 C 27 10 31 8 35 7" stroke="#FBBF24" strokeWidth="2" strokeLinecap="round" fill="none" />
+                      <path d="M 27 16 C 32 13 36 11 40 10" stroke="#F59E0B" strokeWidth="2.4" strokeLinecap="round" fill="none" />
+                      <path d="M 28 20 C 33 17 38 14 42 13" stroke="#FBBF24" strokeWidth="2" strokeLinecap="round" fill="none" />
+                      
+                      {/* Green leaf shape */}
+                      <path d="M 9 27 C 7 19 16 11 24 17 C 26 19 28 22 26 27 C 20.5 29 15 29 9 27 Z" fill="#22C55E" />
+                      <path d="M 11 26 C 15 22 20 22 24 26" stroke="#FFFFFF" strokeWidth="1.3" strokeLinecap="round" fill="none" />
+                      
+                      {/* Dynamic Golden Arc */}
+                      <path d="M 7 32 C 15 26 26 20 37 23" stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round" fill="none" />
+                      
+                      {/* Official E Monogram */}
+                      <text
+                        x="13"
+                        y="29"
+                        fontFamily="system-ui, -apple-system, sans-serif"
+                        fontSize="18"
+                        fontWeight="900"
+                        fill="#FFFFFF"
+                      >
+                        E
+                      </text>
+                    </svg>
+                  </div>
+                )}
                 <div>
                   <div className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight">
                     EPYLLION KNITEX LIMITED
@@ -464,12 +674,12 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
                 <span>Verified ERP Summary generated by Ask Raihan</span>
               </span>
               <span className="font-semibold text-slate-600">
-                Epyllion Knitex · Confidential Internal Record
+                Epylliong Knittex Limited-Knitting Department.
               </span>
             </div>
           </div>
 
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-3 flex items-center gap-1.5">
+          <p className="raihan-modal-hint text-[11px] text-slate-500 dark:text-slate-400 mt-3 flex items-center gap-1.5">
             <Sparkles className="w-3 h-3 text-teal-500" />
             <span>High-definition snapshot with complete tables and total summaries. Ready to save or share.</span>
           </p>
@@ -483,7 +693,7 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
         </div>
 
         {/* Action Buttons Bar */}
-        <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <div className="raihan-modal-actions p-3 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -508,6 +718,17 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handlePrint}
+              disabled={isGenerating}
+              className="px-3 py-2 text-xs font-bold rounded-xl border border-teal-600/40 hover:bg-teal-50 dark:hover:bg-teal-950/40 text-teal-800 dark:text-teal-200 flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+              title="Print 1-Sheet Portrait or Save as PDF"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Print Sheet</span>
+            </button>
+
             <button
               type="button"
               onClick={handleShare}

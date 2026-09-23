@@ -188,7 +188,146 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
   };
 
   const handlePrint = () => {
-    window.print();
+    if (!cardRef.current) {
+      window.print();
+      return;
+    }
+
+    try {
+      const oldFrame = document.getElementById('knitting-print-frame');
+      if (oldFrame) {
+        oldFrame.remove();
+      }
+
+      const printFrame = document.createElement('iframe');
+      printFrame.id = 'knitting-print-frame';
+      printFrame.setAttribute('style', 'position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;visibility:hidden;');
+      document.body.appendChild(printFrame);
+
+      const frameDoc = printFrame.contentWindow?.document;
+      if (!frameDoc) {
+        window.print();
+        return;
+      }
+
+      const cardClone = cardRef.current.cloneNode(true) as HTMLElement;
+      cardClone.style.minWidth = '0';
+      cardClone.style.width = '100%';
+      cardClone.style.maxWidth = '100%';
+      cardClone.style.margin = '0';
+      cardClone.style.padding = '8px 12px';
+      cardClone.style.boxShadow = 'none';
+      cardClone.style.border = 'none';
+      cardClone.style.backgroundColor = '#ffffff';
+      cardClone.style.color = '#0f172a';
+
+      const styleTags = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
+        .map(el => el.outerHTML)
+        .join('\n');
+
+      frameDoc.open();
+      frameDoc.write(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>EPYLLION KNITEX LIMITED - Order ${order.orderNo}</title>
+  ${styleTags}
+  <style>
+    @page {
+      size: portrait;
+      margin: 8mm 10mm;
+    }
+    *, *::before, *::after {
+      box-sizing: border-box !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    html, body {
+      margin: 0 !important;
+      padding: 0 !important;
+      background: #ffffff !important;
+      color: #0f172a !important;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+      font-size: 11px !important;
+      line-height: 1.35 !important;
+      width: 100% !important;
+      height: auto !important;
+      min-height: 0 !important;
+      overflow: visible !important;
+    }
+    .print-sheet {
+      width: 100% !important;
+      max-width: 100% !important;
+      margin: 0 auto !important;
+      padding: 0 !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+      page-break-after: avoid !important;
+      break-after: avoid !important;
+    }
+    [id^="knitting-snip-card"] {
+      min-width: 0 !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      box-shadow: none !important;
+      border: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+      page-break-after: avoid !important;
+      break-after: avoid !important;
+    }
+    table {
+      width: 100% !important;
+      border-collapse: collapse !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+      margin: 6px 0 !important;
+    }
+    tr, th, td {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+    th {
+      background-color: #f1f5f9 !important;
+      color: #0f172a !important;
+      padding: 4px 6px !important;
+      font-size: 10px !important;
+    }
+    td {
+      padding: 4px 6px !important;
+      font-size: 10px !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="print-sheet">
+    ${cardClone.outerHTML}
+  </div>
+</body>
+</html>`);
+      frameDoc.close();
+
+      setTimeout(() => {
+        try {
+          printFrame.contentWindow?.focus();
+          printFrame.contentWindow?.print();
+        } catch (e) {
+          console.error('Print iframe error, using fallback:', e);
+          window.print();
+        } finally {
+          setTimeout(() => {
+            if (document.body.contains(printFrame)) {
+              document.body.removeChild(printFrame);
+            }
+          }, 4000);
+        }
+      }, 350);
+    } catch (err) {
+      console.error('Error during print:', err);
+      window.print();
+    }
   };
 
   return (
@@ -198,11 +337,11 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
       id="knitting-order-snipping-modal"
     >
       <div
-        className="relative w-full max-w-[1300px] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-indigo-500/40 flex flex-col max-h-[94vh] overflow-hidden"
+        className="knitting-modal-box relative w-full max-w-[1300px] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-indigo-500/40 flex flex-col max-h-[94vh] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Top Header */}
-        <div className="px-4 py-3 bg-gradient-to-r from-indigo-700 via-indigo-800 to-blue-800 text-white flex items-center justify-between shrink-0">
+        <div className="knitting-modal-header px-4 py-3 bg-gradient-to-r from-indigo-700 via-indigo-800 to-blue-800 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="p-1.5 rounded-lg bg-white/15 text-indigo-200 shadow-xs">
               <Scissors className="w-4 h-4" />
@@ -289,13 +428,13 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
         )}
 
         {/* Snipping Preview & Capture Canvas Area */}
-        <div className="flex-1 p-3 sm:p-5 overflow-y-auto overflow-x-auto bg-slate-100 dark:bg-slate-950 flex flex-col items-center">
+        <div className="knitting-modal-content flex-1 p-3 sm:p-5 overflow-y-auto overflow-x-auto bg-slate-100 dark:bg-slate-950 flex flex-col items-center">
           {/* Capture Card Container: spacious width 1220px so Balance & Avg Prod/Day columns are 100% visible and never clipped */}
           <div
             ref={cardRef}
             id={`knitting-snip-card-${order.orderNo}`}
-            className="bg-white text-slate-900 rounded-xl p-5 sm:p-6 shadow-md border border-slate-200 shrink-0"
-            style={{ width: '1220px', minWidth: '1220px', color: '#0f172a', backgroundColor: '#ffffff' }}
+            className="printable-snip-card bg-white text-slate-900 rounded-xl p-5 sm:p-6 shadow-md border border-slate-200 shrink-0"
+            style={{ width: '1220px', minWidth: 'min(100%, 1220px)', color: '#0f172a', backgroundColor: '#ffffff' }}
           >
             {/* Header: Company Logo In E letter + Brand Info + Order Condition */}
             <div
@@ -652,12 +791,22 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
         </div>
 
         {/* Modal Bottom Footer Actions */}
-        <div className="p-3 sm:p-4 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
+        <div className="knitting-modal-actions p-3 sm:p-4 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
           <div className="text-xs text-slate-500 dark:text-slate-400">
             Click <strong>Copy Image</strong> to paste directly into WhatsApp or emails.
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-indigo-600/40 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-xs font-bold text-indigo-700 dark:text-indigo-300 transition-all shadow-xs cursor-pointer"
+              title="Print 1-Sheet Portrait or Save as PDF"
+            >
+              <Printer className="w-4 h-4" />
+              <span>Print Sheet</span>
+            </button>
+
             <button
               type="button"
               onClick={handleCopyImage}

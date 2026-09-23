@@ -2011,6 +2011,32 @@ export class SupabaseSync {
     }
   }
 
+  static async fetchKnittingOrdersByOrder(orderNo: string): Promise<KnittingStatusOrder[]> {
+    const client = this.getClient();
+    if (!client || !orderNo) return [];
+
+    try {
+      const cleanNum = orderNo.trim();
+      const { data, error } = await client
+        .from('knitting_orders')
+        .select('*')
+        .ilike('order_no', `%${cleanNum}%`);
+
+      if (error) {
+        console.warn('Supabase fetchKnittingOrdersByOrder error:', error.message);
+        return [];
+      }
+
+      if (Array.isArray(data) && data.length > 0) {
+        return data.map(row => this.mapRowToKnittingOrder(row));
+      }
+      return [];
+    } catch (err) {
+      console.warn('Supabase fetchKnittingOrdersByOrder error:', err);
+      return [];
+    }
+  }
+
   static async saveKnittingOrder(item: KnittingStatusOrder): Promise<{ success: boolean; error?: string }> {
     const client = this.getClient();
     if (!client) return { success: false, error: 'Supabase client is not initialized.' };

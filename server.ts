@@ -1581,6 +1581,8 @@ function formatOrderResponse(orderNum: string, erpData: any, userQuery: string =
       reqQty: Number(t.req_qty ?? t.reqQty ?? 0),
       greyQty: Number(t.grey_qty ?? t.greyQty ?? 0),
       production: Number(t.production ?? 0),
+      hold: Number(t.hold ?? 0),
+      reject: Number(t.reject ?? 0),
       knitBalance: Number(t.knit_bal ?? t.knitBal ?? 0),
       status: t.status || 'Textile Close By PMC',
       remarks: t.remarks || ''
@@ -1740,13 +1742,15 @@ function formatOrderResponse(orderNum: string, erpData: any, userQuery: string =
       const reqVal = Number(orderFallback.reqQty ?? orderFallback.req_qty ?? 0);
       const greyVal = Number(orderFallback.greyQty ?? orderFallback.grey_qty ?? 0);
       const prodVal = Number(orderFallback.production ?? 0);
+      const holdVal = Number(orderFallback.hold ?? orderFallback.holdQty ?? orderFallback.hold_qty ?? 0);
+      const rejectVal = Number(orderFallback.reject ?? orderFallback.rejectQty ?? orderFallback.reject_qty ?? 0);
       const balVal = Number(orderFallback.knitBalance ?? orderFallback.knitBal ?? (greyVal - prodVal));
 
-      return `| Color | Fabric Type | GSM | Width | Req. QTY | Grey QTY | Production | Balance |\n` +
-        `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n` +
-        `| ${color} | ${fabricType} | ${gsm} | ${width} | ${reqVal.toLocaleString()} kg | ${greyVal.toLocaleString()} kg | ${prodVal.toLocaleString()} kg | ${balVal.toLocaleString()} kg |\n` +
-        `| **Total** | - | - | - | **${reqVal.toLocaleString()} kg** | **${greyVal.toLocaleString()} kg** | **${prodVal.toLocaleString()} kg** | **${balVal.toLocaleString()} kg** |\n\n` +
-        `**📊 Total Summary:** Req: **${reqVal.toLocaleString()} kg** | Grey: **${greyVal.toLocaleString()} kg** | Production: **${prodVal.toLocaleString()} kg** | Balance: **${balVal.toLocaleString()} kg**`;
+      return `| Color | Fabric Type | GSM | Width | Req. QTY | Grey QTY | Production | Hold | Reject | Balance |\n` +
+        `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n` +
+        `| ${color} | ${fabricType} | ${gsm} | ${width} | ${reqVal.toLocaleString()} kg | ${greyVal.toLocaleString()} kg | ${prodVal.toLocaleString()} kg | ${holdVal > 0 ? `${holdVal.toLocaleString()} kg` : '-'} | ${rejectVal > 0 ? `${rejectVal.toLocaleString()} kg` : '-'} | ${balVal.toLocaleString()} kg |\n` +
+        `| **Total** | - | - | - | **${reqVal.toLocaleString()} kg** | **${greyVal.toLocaleString()} kg** | **${prodVal.toLocaleString()} kg** | **${holdVal > 0 ? `${holdVal.toLocaleString()} kg` : '-'}** | **${rejectVal > 0 ? `${rejectVal.toLocaleString()} kg` : '-'}** | **${balVal.toLocaleString()} kg** |\n\n` +
+        `**📊 Total Summary:** Req: **${reqVal.toLocaleString()} kg** | Grey: **${greyVal.toLocaleString()} kg** | Production: **${prodVal.toLocaleString()} kg** | Hold: **${holdVal.toLocaleString()} kg** | Reject: **${rejectVal.toLocaleString()} kg** | Balance: **${balVal.toLocaleString()} kg**`;
     }
 
     // Sort data like Color | Fabric Type:
@@ -1765,10 +1769,12 @@ function formatOrderResponse(orderNum: string, erpData: any, userQuery: string =
     let sumReq = 0;
     let sumGrey = 0;
     let sumProd = 0;
+    let sumHold = 0;
+    let sumReject = 0;
     let sumBal = 0;
 
-    let table = `| Color | Fabric Type | GSM | Width | Req. QTY | Grey QTY | Production | Balance |\n`;
-    table += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+    let table = `| Color | Fabric Type | GSM | Width | Req. QTY | Grey QTY | Production | Hold | Reject | Balance |\n`;
+    table += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
 
     for (const it of itemList) {
       const color = String(it.color || 'Standard').trim();
@@ -1778,21 +1784,25 @@ function formatOrderResponse(orderNum: string, erpData: any, userQuery: string =
       const reqNum = Number(it.reqQty ?? it.req_qty ?? 0);
       const greyNum = Number(it.greyQty ?? it.grey_qty ?? 0);
       const prodNum = Number(it.production ?? 0);
+      const holdNum = Number(it.hold ?? it.holdQty ?? it.hold_qty ?? 0);
+      const rejectNum = Number(it.reject ?? it.rejectQty ?? it.reject_qty ?? 0);
       const balNum = Number(it.knitBalance ?? (greyNum - prodNum));
 
       sumReq += reqNum;
       sumGrey += greyNum;
       sumProd += prodNum;
+      sumHold += holdNum;
+      sumReject += rejectNum;
       sumBal += balNum;
 
-      table += `| ${color} | ${fabricType} | ${gsm} | ${width} | ${reqNum.toLocaleString()} kg | ${greyNum.toLocaleString()} kg | ${prodNum.toLocaleString()} kg | ${balNum.toLocaleString()} kg |\n`;
+      table += `| ${color} | ${fabricType} | ${gsm} | ${width} | ${reqNum.toLocaleString()} kg | ${greyNum.toLocaleString()} kg | ${prodNum.toLocaleString()} kg | ${holdNum > 0 ? `${holdNum.toLocaleString()} kg` : '-'} | ${rejectNum > 0 ? `${rejectNum.toLocaleString()} kg` : '-'} | ${balNum.toLocaleString()} kg |\n`;
     }
 
     // Add Total summary row to table
-    table += `| **Total** | - | - | - | **${sumReq.toLocaleString()} kg** | **${sumGrey.toLocaleString()} kg** | **${sumProd.toLocaleString()} kg** | **${sumBal.toLocaleString()} kg** |\n\n`;
+    table += `| **Total** | - | - | - | **${sumReq.toLocaleString()} kg** | **${sumGrey.toLocaleString()} kg** | **${sumProd.toLocaleString()} kg** | **${sumHold > 0 ? `${sumHold.toLocaleString()} kg` : '-'}** | **${sumReject > 0 ? `${sumReject.toLocaleString()} kg` : '-'}** | **${sumBal.toLocaleString()} kg** |\n\n`;
 
     // Add Total Summary after data chart
-    table += `**📊 Total Summary:** Req: **${sumReq.toLocaleString()} kg** | Grey: **${sumGrey.toLocaleString()} kg** | Production: **${sumProd.toLocaleString()} kg** | Balance: **${sumBal.toLocaleString()} kg**`;
+    table += `**📊 Total Summary:** Req: **${sumReq.toLocaleString()} kg** | Grey: **${sumGrey.toLocaleString()} kg** | Production: **${sumProd.toLocaleString()} kg** | Hold: **${sumHold.toLocaleString()} kg** | Reject: **${sumReject.toLocaleString()} kg** | Balance: **${sumBal.toLocaleString()} kg**`;
 
     return table.trim();
   };
@@ -2066,11 +2076,13 @@ function handleConversationalFollowUp(
     return res;
   }
 
-  // Check if asking about balance / quantity / production
-  if (lowerQ.includes('balance') || lowerQ.includes('prod') || lowerQ.includes('qty') || lowerQ.includes('quantity') || lowerQ.includes('remaining')) {
+  // Check if asking about balance / quantity / production / hold / reject
+  if (lowerQ.includes('balance') || lowerQ.includes('prod') || lowerQ.includes('qty') || lowerQ.includes('quantity') || lowerQ.includes('remaining') || lowerQ.includes('hold') || lowerQ.includes('reject')) {
     const reqQty = Number(ko?.req_qty ?? ko?.reqQty ?? op?.target ?? 0);
     const greyQty = Number(ko?.grey_qty ?? ko?.greyQty ?? op?.allocated_qty ?? 0);
     const prod = Number(ko?.production ?? op?.knit_pro ?? 0);
+    const hold = Number(ko?.hold ?? ko?.hold_qty ?? 0);
+    const reject = Number(ko?.reject ?? ko?.reject_qty ?? 0);
     const balance = Number(ko?.knit_balance ?? ko?.knitBal ?? (greyQty - prod));
     const statusWord = balance <= 0 ? 'completed' : (prod > 0 ? 'currently running' : 'pending');
 
@@ -2078,6 +2090,8 @@ function handleConversationalFollowUp(
       `• **Required Quantity**: ${reqQty.toLocaleString()} kg\n` +
       `• **Grey Quantity**: ${greyQty.toLocaleString()} kg\n` +
       `• **Current Production**: ${prod.toLocaleString()} kg\n` +
+      `• **Hold**: ${hold.toLocaleString()} kg\n` +
+      `• **Reject**: ${reject.toLocaleString()} kg\n` +
       `• **Knitting Balance**: **${balance.toLocaleString()} kg**\n` +
       `• **Status**: ${balance <= 0 ? 'Completed' : (prod > 0 ? 'Running' : 'Pending')}`;
   }

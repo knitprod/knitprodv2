@@ -141,3 +141,118 @@
 .animate-slide-down {
   animation: slideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* ========================================================
+   ENTERPRISE PRINT STYLES - STRICT 1-PAGE PORTRAIT OUTPUT
+   ======================================================== */
+@page {
+  size: portrait;
+  margin: 8mm 10mm;
+}
+
+@media print {
+  /* Set light print canvas */
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* When printing: Hide app navigation, header, chatbot widget, dialog chrome, buttons and backdrops */
+  nav,
+  aside,
+  header,
+  footer,
+  #raihan-chat-window,
+  #raihan-minimized-dock,
+  #raihan-launcher-bubble,
+  .no-print,
+  .raihan-modal-header,
+  .raihan-modal-actions,
+  .raihan-modal-hint,
+  .knitting-modal-header,
+  .knitting-modal-actions {
+    display: none !important;
+  }
+
+  /* Transparent full-width unconstrained modal backdrop */
+  .raihan-modal-backdrop,
+  #knitting-order-snipping-modal {
+    position: static !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    display: block !important;
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+  }
+
+  .raihan-modal-box,
+  .knitting-modal-box {
+    border: none !important;
+    box-shadow: none !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+  }
+
+  .raihan-modal-content,
+  .knitting-modal-content {
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  /* Make the document card take clean full width and prevent pagination overflow */
+  #raihan-snip-capture-card,
+  .printable-snip-card,
+  [id^="knitting-snip-card"] {
+    min-width: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 4px !important;
+    margin: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  /* Compact tables for portrait fit */
+  #raihan-snip-capture-card table,
+  .printable-snip-card table,
+  [id^="knitting-snip-card"] table {
+    width: 100% !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  #raihan-snip-capture-card tr,
+  .printable-snip-card tr,
+  [id^="knitting-snip-card"] tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+}
+

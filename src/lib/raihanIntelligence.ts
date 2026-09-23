@@ -967,9 +967,49 @@ export function handleSmartOrderQuery(
       reqQty: Number(t.reqQty || 0),
       greyQty: Number(t.greyQty || 0),
       production: Number(t.production || 0),
+      hold: Number(t.hold || 0),
+      reject: Number(t.reject || 0),
       knitBalance: Number(t.knitBal ?? (Number(t.greyQty || 0) - Number(t.production || 0))),
       status: t.status || 'Textile Close By PMC',
       remarks: t.remarks || ''
+    }));
+  }
+
+  // If items array is still empty and orderPlans exist, populate from orderPlans!
+  if (items.length === 0 && opList.length > 0) {
+    items = opList.map(p => ({
+      color: p.color || 'Standard',
+      fabType: p.fabrication || p.fabType || 'Knitted Fabric',
+      fabrication: p.fabrication,
+      fgsm: p.fgsm || 'N/A',
+      fWidth: p.finishedDia || p.fWidth || 'N/A',
+      reqQty: Number(p.target || p.reqQty || 0),
+      greyQty: Number(p.allocatedQty || p.greyQty || 0),
+      production: Number(p.knitPro || p.production || 0),
+      hold: 0,
+      reject: 0,
+      knitBalance: Number(p.knitBal ?? (Number(p.allocatedQty || 0) - Number(p.knitPro || 0))),
+      status: p.status || (Number(p.knitPro || 0) > 0 ? 'Running' : 'Pending'),
+      remarks: p.remarks || ''
+    }));
+  }
+
+  // If items array is still empty and yarnAllocations exist, populate from yarnAllocations!
+  if (items.length === 0 && yaList.length > 0) {
+    items = yaList.map(y => ({
+      color: y.color || 'Standard',
+      fabType: y.fabricsType || y.fabrication || 'Knitted Fabric',
+      fabrication: y.fabrication || y.fabricsType,
+      fgsm: y.fabricGsm || 'N/A',
+      fWidth: 'N/A',
+      reqQty: Number(y.yarnRqQty || 0),
+      greyQty: Number(y.allocatedQty || 0),
+      production: 0,
+      hold: 0,
+      reject: 0,
+      knitBalance: Number(y.allocatedQty || y.yarnRqQty || 0),
+      status: 'Pending Knitting',
+      remarks: 'Yarn Allocated'
     }));
   }
 
@@ -1128,19 +1168,21 @@ export function handleSmartOrderQuery(
     if (itemList.length === 0) {
       if (!orderFallback) return '';
       const color = filterColor || orderFallback.color || 'Standard';
-      const fabricType = orderFallback.fabrication || orderFallback.fabType || 'Knitted Fabric';
-      const gsm = orderFallback.fgsm ? String(orderFallback.fgsm) : 'N/A';
+      const fabricType = orderFallback.fabrication || orderFallback.fabType || orderFallback.fabricsType || 'Knitted Fabric';
+      const gsm = orderFallback.fgsm ? String(orderFallback.fgsm) : (orderFallback.fabricGsm ? String(orderFallback.fabricGsm) : 'N/A');
       const width = orderFallback.fWidth ? String(orderFallback.fWidth) : (orderFallback.finishedDia ? String(orderFallback.finishedDia) : 'N/A');
-      const reqVal = Number(orderFallback.reqQty ?? orderFallback.req_qty ?? 0);
-      const greyVal = Number(orderFallback.greyQty ?? orderFallback.grey_qty ?? 0);
-      const prodVal = Number(orderFallback.production ?? 0);
+      const reqVal = Number(orderFallback.reqQty ?? orderFallback.req_qty ?? orderFallback.target ?? orderFallback.yarnRqQty ?? 0);
+      const greyVal = Number(orderFallback.greyQty ?? orderFallback.grey_qty ?? orderFallback.allocatedQty ?? 0);
+      const prodVal = Number(orderFallback.production ?? orderFallback.knitPro ?? 0);
+      const holdVal = Number(orderFallback.hold ?? orderFallback.holdQty ?? orderFallback.hold_qty ?? 0);
+      const rejectVal = Number(orderFallback.reject ?? orderFallback.rejectQty ?? orderFallback.reject_qty ?? 0);
       const balVal = Number(orderFallback.knitBalance ?? orderFallback.knitBal ?? (greyVal - prodVal));
 
-      return `| Color | Fabric Type | GSM | Width | Req. QTY | Grey QTY | Production | Balance |\n` +
-        `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n` +
-        `| ${color} | ${fabricType} | ${gsm} | ${width} | ${reqVal.toLocaleString()} kg | ${greyVal.toLocaleString()} kg | ${prodVal.toLocaleString()} kg | ${balVal.toLocaleString()} kg |\n` +
-        `| **Total** | - | - | - | **${reqVal.toLocaleString()} kg** | **${greyVal.toLocaleString()} kg** | **${prodVal.toLocaleString()} kg** | **${balVal.toLocaleString()} kg** |\n\n` +
-        `**📊 Total Summary:** Req: **${reqVal.toLocaleString()} kg** | Grey: **${greyVal.toLocaleString()} kg** | Production: **${prodVal.toLocaleString()} kg** | Balance: **${balVal.toLocaleString()} kg**`;
+      return `| Color | Fabric Type | GSM | Width | Req. QTY | Grey QTY | Production | Hold | Reject | Balance |\n` +
+        `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n` +
+        `| ${color} | ${fabricType} | ${gsm} | ${width} | ${reqVal.toLocaleString()} kg | ${greyVal.toLocaleString()} kg | ${prodVal.toLocaleString()} kg | ${holdVal > 0 ? `${holdVal.toLocaleString()} kg` : '-'} | ${rejectVal > 0 ? `${rejectVal.toLocaleString()} kg` : '-'} | ${balVal.toLocaleString()} kg |\n` +
+        `| **Total** | - | - | - | **${reqVal.toLocaleString()} kg** | **${greyVal.toLocaleString()} kg** | **${prodVal.toLocaleString()} kg** | **${holdVal > 0 ? `${holdVal.toLocaleString()} kg` : '-'}** | **${rejectVal > 0 ? `${rejectVal.toLocaleString()} kg` : '-'}** | **${balVal.toLocaleString()} kg** |\n\n` +
+        `**📊 Total Summary:** Req: **${reqVal.toLocaleString()} kg** | Grey: **${greyVal.toLocaleString()} kg** | Production: **${prodVal.toLocaleString()} kg** | Hold: **${holdVal.toLocaleString()} kg** | Reject: **${rejectVal.toLocaleString()} kg** | Balance: **${balVal.toLocaleString()} kg**`;
     }
 
     // Sort data like Color | Fabric Type:
@@ -1159,10 +1201,12 @@ export function handleSmartOrderQuery(
     let sumReq = 0;
     let sumGrey = 0;
     let sumProd = 0;
+    let sumHold = 0;
+    let sumReject = 0;
     let sumBal = 0;
 
-    let table = `| Color | Fabric Type | GSM | Width | Req. QTY | Grey QTY | Production | Balance |\n`;
-    table += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+    let table = `| Color | Fabric Type | GSM | Width | Req. QTY | Grey QTY | Production | Hold | Reject | Balance |\n`;
+    table += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
 
     for (const it of itemList) {
       const color = String(it.color || 'Standard').trim();
@@ -1172,21 +1216,25 @@ export function handleSmartOrderQuery(
       const reqNum = Number(it.reqQty ?? it.req_qty ?? 0);
       const greyNum = Number(it.greyQty ?? it.grey_qty ?? 0);
       const prodNum = Number(it.production ?? 0);
+      const holdNum = Number(it.hold ?? it.holdQty ?? it.hold_qty ?? 0);
+      const rejectNum = Number(it.reject ?? it.rejectQty ?? it.reject_qty ?? 0);
       const balNum = Number(it.knitBalance ?? (greyNum - prodNum));
 
       sumReq += reqNum;
       sumGrey += greyNum;
       sumProd += prodNum;
+      sumHold += holdNum;
+      sumReject += rejectNum;
       sumBal += balNum;
 
-      table += `| ${color} | ${fabricType} | ${gsm} | ${width} | ${reqNum.toLocaleString()} kg | ${greyNum.toLocaleString()} kg | ${prodNum.toLocaleString()} kg | ${balNum.toLocaleString()} kg |\n`;
+      table += `| ${color} | ${fabricType} | ${gsm} | ${width} | ${reqNum.toLocaleString()} kg | ${greyNum.toLocaleString()} kg | ${prodNum.toLocaleString()} kg | ${holdNum > 0 ? `${holdNum.toLocaleString()} kg` : '-'} | ${rejectNum > 0 ? `${rejectNum.toLocaleString()} kg` : '-'} | ${balNum.toLocaleString()} kg |\n`;
     }
 
     // Add Total summary row to table
-    table += `| **Total** | - | - | - | **${sumReq.toLocaleString()} kg** | **${sumGrey.toLocaleString()} kg** | **${sumProd.toLocaleString()} kg** | **${sumBal.toLocaleString()} kg** |\n\n`;
+    table += `| **Total** | - | - | - | **${sumReq.toLocaleString()} kg** | **${sumGrey.toLocaleString()} kg** | **${sumProd.toLocaleString()} kg** | **${sumHold > 0 ? `${sumHold.toLocaleString()} kg` : '-'}** | **${sumReject > 0 ? `${sumReject.toLocaleString()} kg` : '-'}** | **${sumBal.toLocaleString()} kg** |\n\n`;
 
     // Add Total Summary after data chart
-    table += `**📊 Total Summary:** Req: **${sumReq.toLocaleString()} kg** | Grey: **${sumGrey.toLocaleString()} kg** | Production: **${sumProd.toLocaleString()} kg** | Balance: **${sumBal.toLocaleString()} kg**`;
+    table += `**📊 Total Summary:** Req: **${sumReq.toLocaleString()} kg** | Grey: **${sumGrey.toLocaleString()} kg** | Production: **${sumProd.toLocaleString()} kg** | Hold: **${sumHold.toLocaleString()} kg** | Reject: **${sumReject.toLocaleString()} kg** | Balance: **${sumBal.toLocaleString()} kg**`;
 
     return table.trim();
   };
@@ -1230,11 +1278,13 @@ export function handleSmartOrderQuery(
   const asksProdOnly = (lower.includes('prod') || lower.includes('production') || lower.includes('knitting')) &&
     !lower.includes('alloc') && !lower.includes('yarn');
 
+  const fallbackSource = ko || opList[0] || tcp || yaList[0];
+
   // =========================================================================
   // CASE 1: Specific color query (e.g., "271522 black" or "271522 slate grey")
   // =========================================================================
   if (matchedColor) {
-    const prodTable = buildProductionTable(items, ko || opList[0] || tcp, matchedColor);
+    const prodTable = buildProductionTable(items, fallbackSource, matchedColor);
     const allocTable = buildAllocatedYarnTable(yaList, matchedColor);
 
     let reply = `Sure! Let me check that for you. Here are the details for color **${matchedColor}** on **Order #${activeOrderNum}** (${buyer}):\n\n`;
@@ -1265,7 +1315,16 @@ export function handleSmartOrderQuery(
   // CASE 3: "eg: 271522 Production" - show only production data in requested table format
   // =========================================================================
   if (asksProdOnly) {
-    const prodTable = buildProductionTable(items, ko || opList[0] || tcp);
+    const prodTable = buildProductionTable(items, fallbackSource);
+    if (!prodTable) {
+      return {
+        handled: true,
+        reply: `Looks like there isn't any knitting production floor data recorded yet for **Order #${activeOrderNum}** (${buyer}).\n\n` +
+          (yaList.length > 0
+            ? `However, yarn has been allocated (${yaList.length} items in Yarn Allocation). Knitting floor production has not started or has not been uploaded to the Knitting Status ledger yet.`
+            : `No knitting production records or plans were found for this order.`)
+      };
+    }
     const reply = `Sure! I found it. Here is the production data for **Order #${activeOrderNum}** (${buyer}):\n\n${prodTable}`;
     return { handled: true, reply: reply.trim() };
   }
@@ -1273,14 +1332,14 @@ export function handleSmartOrderQuery(
   // =========================================================================
   // CASE 4: Order Number only - Show Production data and Allocated Yarn data
   // =========================================================================
-  const prodTable = buildProductionTable(items, ko || opList[0] || tcp);
+  const prodTable = buildProductionTable(items, fallbackSource);
   const allocTable = buildAllocatedYarnTable(yaList);
 
   const prodVal = Number(ko?.production ?? (opList.length > 0 ? opList.reduce((acc, p) => acc + (Number(p.knitPro) || 0), 0) : tcpList.reduce((acc, t) => acc + (Number(t.production) || 0), 0)));
-  const greyVal = Number(ko?.greyQty ?? (opList.length > 0 ? opList.reduce((acc, p) => acc + (Number(p.allocatedQty) || 0), 0) : tcpList.reduce((acc, t) => acc + (Number(t.greyQty) || 0), 0)));
-  const balVal = Number(ko?.knitBalance ?? (opList.length > 0 ? opList.reduce((acc, p) => acc + (Number(p.knitBal) || 0), 0) : tcpList.reduce((acc, t) => acc + (Number(t.knitBal) || 0), 0)));
+  const greyVal = Number(ko?.greyQty ?? (opList.length > 0 ? opList.reduce((acc, p) => acc + (Number(p.allocatedQty) || 0), 0) : (tcpList.length > 0 ? tcpList.reduce((acc, t) => acc + (Number(t.greyQty) || 0), 0) : yaList.reduce((acc, y) => acc + (Number(y.allocatedQty) || 0), 0))));
+  const balVal = Number(ko?.knitBalance ?? (opList.length > 0 ? opList.reduce((acc, p) => acc + (Number(p.knitBal) || 0), 0) : (tcpList.length > 0 ? tcpList.reduce((acc, t) => acc + (Number(t.knitBal) || 0), 0) : (greyVal - prodVal))));
   const tcpStatus = tcpList[0]?.status || 'Closed (PMC)';
-  const statusStr = tcpList.length > 0 ? `${tcpStatus} (Textile Close By PMC)` : (balVal <= 0 ? 'completed' : (prodVal > 0 ? 'currently running' : 'pending'));
+  const statusStr = tcpList.length > 0 ? `${tcpStatus} (Textile Close By PMC)` : (balVal <= 0 && prodVal > 0 ? 'completed' : (prodVal > 0 ? 'currently running' : 'pending'));
 
   let combinedReport = `Sure! I found it. Order #${activeOrderNum} is ${statusStr} (${buyer}):\n\n`;
   if (prodTable) {
