@@ -783,7 +783,7 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
               style={{ borderTopColor: '#e2e8f0', color: '#64748b' }}
             >
               <span className="font-semibold text-slate-700" style={{ color: '#334155' }}>
-                Epylliong Knittex Limited-Knitting Department.
+                Epyllion Knitex Limited-Knitting Department.
               </span>
               <span>Confidential &amp; Verified Floor Data</span>
             </div>
