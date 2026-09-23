@@ -1904,6 +1904,16 @@ export class SupabaseSync {
 
   static mapRowToKnittingOrder(row: any): KnittingStatusOrder {
     const raw = row.raw_data || {};
+    const rawItems: any[] = Array.isArray(row.items) ? row.items : (raw.items || []);
+    const items = rawItems.map(itm => {
+      const hasAct = (Number(itm.production || 0) > 0) || (Number(itm.hold || 0) > 0);
+      return {
+        ...itm,
+        knitStartDate: hasAct ? (itm.knitStartDate || '') : '',
+        knitEndDate: hasAct ? (itm.knitEndDate || '') : ''
+      };
+    });
+
     return {
       id: String(row.id || raw.id || row.order_no || raw.orderNo || ''),
       orderNo: row.order_no || raw.orderNo || '',
@@ -1915,7 +1925,7 @@ export class SupabaseSync {
       greyQty: parseFloat(String(row.grey_qty ?? raw.greyQty ?? 0)) || 0,
       production: parseFloat(String(row.production ?? raw.production ?? 0)) || 0,
       knitBalance: parseFloat(String(row.knit_balance ?? raw.knitBalance ?? 0)) || 0,
-      items: Array.isArray(row.items) ? row.items : (raw.items || []),
+      items: items,
       remarks: row.remarks || raw.remarks || '',
       createdAt: row.created_at || raw.createdAt,
       updatedAt: row.updated_at || raw.updatedAt

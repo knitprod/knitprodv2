@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
   Eye,
@@ -10,9 +10,11 @@ import {
   Clock,
   Download,
   X,
+  Scissors
 } from 'lucide-react';
 import { KnittingStatusOrder } from '../types';
 import { calculateKnittingCondition, sortKnittingItems } from '../lib/knittingStatusStore';
+import { KnittingOrderSnippingModal } from './KnittingOrderSnippingModal';
 
 interface KnittingOrderDetailsModalProps {
   order: KnittingStatusOrder;
@@ -20,6 +22,7 @@ interface KnittingOrderDetailsModalProps {
 }
 
 export function KnittingOrderDetailsModal({ order, onClose }: KnittingOrderDetailsModalProps) {
+  const [showSnippingModal, setShowSnippingModal] = useState(false);
   const condition = calculateKnittingCondition(order.greyQty, order.knitBalance);
   const items = useMemo(() => sortKnittingItems(order.items || []), [order.items]);
   const percentDone = order.greyQty > 0 ? Math.min(100, Math.round((order.production / order.greyQty) * 100)) : 0;
@@ -65,8 +68,8 @@ export function KnittingOrderDetailsModal({ order, onClose }: KnittingOrderDetai
       'F. Width': itm.fWidth,
       'Yarn Count': itm.yarnCount,
       'Gauge & Dia': itm.gaugeDia,
-      'Knit Start Date': itm.knitStartDate || order.knitStartDate || '',
-      'Knit End Date': itm.knitEndDate || order.knitEndDate || '',
+      'Knit Start Date': (Number(itm.production || 0) > 0 || Number(itm.hold || 0) > 0) ? (itm.knitStartDate || '') : '',
+      'Knit End Date': (Number(itm.production || 0) > 0 || Number(itm.hold || 0) > 0) ? (itm.knitEndDate || '') : '',
       'Req. Qty': itm.reqQty,
       'Grey Qty': itm.greyQty,
       'Production': itm.production,
@@ -174,6 +177,16 @@ export function KnittingOrderDetailsModal({ order, onClose }: KnittingOrderDetai
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowSnippingModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/80 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 transition-colors shadow-2xs cursor-pointer"
+              title="Open Snipping Tool to snapshot or copy this order details"
+              id="order-details-snip-header-btn"
+            >
+              <Scissors className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>Snipping Tool</span>
+            </button>
             <button
               type="button"
               onClick={handleExportOrder}
@@ -286,7 +299,7 @@ export function KnittingOrderDetailsModal({ order, onClose }: KnittingOrderDetai
               <div className="bg-indigo-50/60 dark:bg-indigo-950/30 p-3 rounded-xl border border-indigo-200/80 dark:border-indigo-800/60">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300">Avg. Prod/Day</span>
                 <div className="text-base font-black text-indigo-800 dark:text-indigo-200 font-mono mt-0.5">
-                  {totals.avgProdPerDay.toLocaleString()} <span className="text-[10px] font-normal text-indigo-500/70">Kg</span>
+                  {totals.avgProdPerDay ? Math.ceil(totals.avgProdPerDay).toLocaleString() : '0'} <span className="text-[10px] font-normal text-indigo-500/70">Kg</span>
                 </div>
               </div>
             </div>
@@ -381,8 +394,14 @@ export function KnittingOrderDetailsModal({ order, onClose }: KnittingOrderDetai
                         <td className="py-2 px-2.5 font-mono text-slate-600 dark:text-slate-400">{itm.fWidth || ''}</td>
                         <td className="py-2 px-2.5 text-slate-600 dark:text-slate-400">{itm.yarnCount || ''}</td>
                         <td className="py-2 px-2.5 text-slate-600 dark:text-slate-400">{itm.gaugeDia || ''}</td>
-                        <td className="py-2 px-2.5 text-slate-600 dark:text-slate-400">{itm.knitStartDate || ''}</td>
-                        <td className="py-2 px-2.5 text-slate-600 dark:text-slate-400">{itm.knitEndDate || ''}</td>
+                        {/* Knit Start Date: strictly empty if no production and no hold */}
+                        <td className="py-2 px-2.5 text-slate-600 dark:text-slate-400 font-mono">
+                          {(Number(itm.production || 0) > 0 || Number(itm.hold || 0) > 0) ? (itm.knitStartDate || '') : ''}
+                        </td>
+                        {/* Knit End Date: strictly empty if no production and no hold */}
+                        <td className="py-2 px-2.5 text-slate-600 dark:text-slate-400 font-mono">
+                          {(Number(itm.production || 0) > 0 || Number(itm.hold || 0) > 0) ? (itm.knitEndDate || '') : ''}
+                        </td>
                         <td className="py-2 px-2.5 text-right font-mono text-slate-700 dark:text-slate-300">
                           {itm.reqQty ? itm.reqQty.toLocaleString() : ''}
                         </td>
@@ -413,7 +432,7 @@ export function KnittingOrderDetailsModal({ order, onClose }: KnittingOrderDetai
                           </span>
                         </td>
                         <td className="py-2 px-2.5 text-right font-mono text-slate-700 dark:text-slate-300">
-                          {itm.avgProdPerDay ? `${itm.avgProdPerDay} Kg` : ''}
+                          {itm.avgProdPerDay ? `${Math.ceil(Number(itm.avgProdPerDay)).toLocaleString()} Kg` : ''}
                         </td>
                       </tr>
                     ))}
@@ -431,7 +450,9 @@ export function KnittingOrderDetailsModal({ order, onClose }: KnittingOrderDetai
                       <td className="py-2.5 px-2.5 text-right font-mono text-red-500">{totals.reject.toLocaleString()}</td>
                       <td className="py-2.5 px-2.5 text-right font-mono">{totals.itmQty.toLocaleString()}</td>
                       <td className="py-2.5 px-2.5 text-right font-mono text-indigo-600 dark:text-indigo-400">{totals.knitBalance.toLocaleString()}</td>
-                      <td className="py-2.5 px-2.5"></td>
+                      <td className="py-2.5 px-2.5 text-right font-mono text-indigo-700 dark:text-indigo-300 font-bold">
+                        {totals.avgProdPerDay ? `${Math.ceil(totals.avgProdPerDay).toLocaleString()} Kg` : ''}
+                      </td>
                     </tr>
                   </tfoot>
                 </table>
@@ -446,6 +467,15 @@ export function KnittingOrderDetailsModal({ order, onClose }: KnittingOrderDetai
             Order <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{order.orderNo}</span> • {items.length} fabric specifications
           </div>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowSnippingModal(true)}
+              className="px-3.5 py-2 text-xs font-bold rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/80 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 transition-colors shadow-2xs cursor-pointer inline-flex items-center gap-1.5"
+              id="order-details-snip-footer-btn"
+            >
+              <Scissors className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>Snipping Tool</span>
+            </button>
             <button
               type="button"
               onClick={handleExportOrder}
@@ -464,6 +494,14 @@ export function KnittingOrderDetailsModal({ order, onClose }: KnittingOrderDetai
           </div>
         </div>
       </div>
+
+      {showSnippingModal && (
+        <KnittingOrderSnippingModal
+          order={order}
+          isOpen={showSnippingModal}
+          onClose={() => setShowSnippingModal(false)}
+        />
+      )}
     </div>
   );
 }

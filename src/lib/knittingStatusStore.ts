@@ -319,7 +319,14 @@ export function parseDateToTimestamp(val: any): number | null {
 }
 
 /**
- * Takes the Minimum Knit Start Date from the expanded ledger items
+ * Helper to check if an individual fabric item has actual knitting activity (production or hold)
+ */
+export function isKnittingItemActive(itm: KnittingStatusItem): boolean {
+  return (Number(itm.production || 0) > 0) || (Number(itm.hold || 0) > 0);
+}
+
+/**
+ * Takes the Minimum Knit Start Date from the expanded ledger items that have actual knitting activity
  */
 export function getMinKnitStartDate(items: KnittingStatusItem[], fallback: string = ''): string {
   if (!items || items.length === 0) return fallback;
@@ -327,18 +334,19 @@ export function getMinKnitStartDate(items: KnittingStatusItem[], fallback: strin
   let minDateStr = '';
 
   for (const itm of items) {
-    if (!itm.knitStartDate) continue;
+    const hasActivity = (Number(itm.production || 0) > 0) || (Number(itm.hold || 0) > 0);
+    if (!hasActivity || !itm.knitStartDate) continue;
     const time = parseDateToTimestamp(itm.knitStartDate);
     if (time !== null && time < minTime) {
       minTime = time;
       minDateStr = itm.knitStartDate;
     }
   }
-  return minDateStr || fallback;
+  return minDateStr || (items.some(i => (Number(i.production || 0) > 0) || (Number(i.hold || 0) > 0)) ? fallback : '');
 }
 
 /**
- * Takes the Maximum Knit End Date from the expanded ledger items
+ * Takes the Maximum Knit End Date from the expanded ledger items that have actual knitting activity
  */
 export function getMaxKnitEndDate(items: KnittingStatusItem[], fallback: string = ''): string {
   if (!items || items.length === 0) return fallback;
@@ -346,14 +354,15 @@ export function getMaxKnitEndDate(items: KnittingStatusItem[], fallback: string 
   let maxDateStr = '';
 
   for (const itm of items) {
-    if (!itm.knitEndDate) continue;
+    const hasActivity = (Number(itm.production || 0) > 0) || (Number(itm.hold || 0) > 0);
+    if (!hasActivity || !itm.knitEndDate) continue;
     const time = parseDateToTimestamp(itm.knitEndDate);
     if (time !== null && time > maxTime) {
       maxTime = time;
       maxDateStr = itm.knitEndDate;
     }
   }
-  return maxDateStr || fallback;
+  return maxDateStr || (items.some(i => (Number(i.production || 0) > 0) || (Number(i.hold || 0) > 0)) ? fallback : '');
 }
 
 /**
@@ -409,24 +418,40 @@ export function calculateKnittingCondition(greyQty: number, knitBalance: number)
 export function aggregateOrderValues(order: KnittingStatusOrder): KnittingStatusOrder {
   if (!order.items || order.items.length === 0) {
     const knitBalance = order.knitBalance !== undefined ? order.knitBalance : Math.max(0, (order.greyQty || 0) - (order.production || 0));
+    const hasOrderActivity = (Number(order.production || 0) > 0);
     return {
       ...order,
-      knitBalance
+      knitBalance,
+      knitStartDate: hasOrderActivity ? (order.knitStartDate || '') : '',
+      knitEndDate: hasOrderActivity ? (order.knitEndDate || '') : ''
     };
   }
 
+  // Crucial rule: If an item has NO production and NO hold, it has NOT started knitting yet.
+  // Its knitStartDate and knitEndDate must be empty.
+  const cleanedItems = order.items.map(itm => {
+    const hasActivity = (Number(itm.production || 0) > 0) || (Number(itm.hold || 0) > 0);
+    return {
+      ...itm,
+      knitStartDate: hasActivity ? (itm.knitStartDate || '') : '',
+      knitEndDate: hasActivity ? (itm.knitEndDate || '') : ''
+    };
+  });
+
   // Sort items according to rule: Color -> Machine Type -> Fabric Type
-  const sortedItems = sortKnittingItems(order.items);
+  const sortedItems = sortKnittingItems(cleanedItems);
 
   const reqQty = sortedItems.reduce((sum, itm) => sum + (Number(itm.reqQty) || 0), 0);
   const greyQty = sortedItems.reduce((sum, itm) => sum + (Number(itm.greyQty) || 0), 0);
   const production = sortedItems.reduce((sum, itm) => sum + (Number(itm.production) || 0), 0);
   const knitBalance = sortedItems.reduce((sum, itm) => sum + (Number(itm.knitBalance) || 0), 0);
 
-  // Take the Minimum Date from the expanded ledger for Knit Start Date
-  const minStartDate = getMinKnitStartDate(sortedItems, order.knitStartDate || '');
-  // Take the Maximum Date from the expanded ledger for Knit End Date
-  const maxEndDate = getMaxKnitEndDate(sortedItems, order.knitEndDate || '');
+  const hasAnyActivity = production > 0 || sortedItems.some(i => (Number(i.hold || 0) > 0));
+
+  // Take the Minimum Date from the active expanded ledger items for Knit Start Date
+  const minStartDate = hasAnyActivity ? getMinKnitStartDate(sortedItems, order.knitStartDate || '') : '';
+  // Take the Maximum Date from the active expanded ledger items for Knit End Date
+  const maxEndDate = hasAnyActivity ? getMaxKnitEndDate(sortedItems, order.knitEndDate || '') : '';
 
   return {
     ...order,

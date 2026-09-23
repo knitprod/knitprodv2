@@ -36,7 +36,8 @@ import {
   ShieldAlert,
   ShieldCheck,
   Database,
-  Lock
+  Lock,
+  Scissors
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
 import { KnittingStatusOrder, KnittingStatusItem } from '../types';
@@ -49,6 +50,7 @@ import {
   KnittingCondition
 } from '../lib/knittingStatusStore';
 import { KnittingOrderDetailsModal } from './KnittingOrderDetailsModal';
+import { KnittingOrderSnippingModal } from './KnittingOrderSnippingModal';
 import { SupabaseSync } from '../lib/supabaseClient';
 import TextileClosePMCView from './TextileClosePMCView';
 import { SyncProgressBar, SyncProgressState } from './SyncProgressBar';
@@ -158,6 +160,7 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
 
   // Modal States
   const [viewingOrder, setViewingOrder] = useState<KnittingStatusOrder | null>(null);
+  const [snipOrder, setSnipOrder] = useState<KnittingStatusOrder | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -469,6 +472,7 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
         filteredOrders.forEach(o => {
           const orderCond = calculateKnittingCondition(o.greyQty, o.knitBalance);
           (o.items || []).forEach(itm => {
+            const itemHasAct = (Number(itm.production || 0) > 0) || (Number(itm.hold || 0) > 0);
             itemData.push({
               'Order No.': o.orderNo,
               'Order Condition': orderCond,
@@ -481,8 +485,8 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
               'F. Width': itm.fWidth,
               'Yarn Count': itm.yarnCount,
               'Gauge & Dia': itm.gaugeDia,
-              'Knit Start Date': itm.knitStartDate,
-              'Knit End Date': itm.knitEndDate,
+              'Knit Start Date': itemHasAct ? (itm.knitStartDate || '') : '',
+              'Knit End Date': itemHasAct ? (itm.knitEndDate || '') : '',
               'Req. Qty': itm.reqQty,
               'Grey Qty': itm.greyQty,
               'Production': itm.production,
@@ -837,6 +841,14 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
             const rawReject = getExcelValue(row, ['Reject', 'Reject Qty']);
             const rawItm = getExcelValue(row, ['ITM QTY', 'ITM Qty', 'ITM', 'Itm Qty']);
 
+            const numProd = Number(prod) || 0;
+            const numHold = rawHold !== '' && rawHold !== undefined && !isNaN(Number(rawHold)) ? Number(rawHold) : 0;
+            // Crucial fix: Item only has knit dates if knitting has actually begun (production > 0 or hold > 0).
+            // It MUST NOT inherit the parent order's knit dates when it has zero production and zero hold.
+            const hasActivity = numProd > 0 || numHold > 0;
+            const itemKnitStart = hasActivity ? (rowKnitStart || '') : '';
+            const itemKnitEnd = hasActivity ? (rowKnitEnd || '') : '';
+
             const item: KnittingStatusItem = {
               id: `itm-${orderNo}-${existing.items.length + 1}`,
               color: color || '',
@@ -847,12 +859,12 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
               fWidth: fWidth,
               yarnCount: actualCount || '',
               gaugeDia: gaugeDia,
-              knitStartDate: rowKnitStart || existing.knitStartDate || '',
-              knitEndDate: rowKnitEnd || existing.knitEndDate || '',
+              knitStartDate: itemKnitStart,
+              knitEndDate: itemKnitEnd,
               reqQty: reqQ,
               greyQty: greyQ,
               production: prod,
-              hold: rawHold !== '' && rawHold !== undefined && !isNaN(Number(rawHold)) ? Number(rawHold) : 0,
+              hold: numHold,
               reject: rawReject !== '' && rawReject !== undefined && !isNaN(Number(rawReject)) ? Number(rawReject) : 0,
               itmQty: rawItm !== '' && rawItm !== undefined && !isNaN(Number(rawItm)) ? Number(rawItm) : 0,
               knitBalance: knitBal,
@@ -1589,15 +1601,28 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
                                   </span>
                                 </div>
 
-                                <button
-                                  type="button"
-                                  onClick={() => setViewingOrder(order)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-600 hover:text-white transition-colors cursor-pointer"
-                                  title="View full order details modal"
-                                >
-                                  <Eye className="w-3 h-3" />
-                                  <span>Full Details View</span>
-                                </button>
+                                 <div className="flex items-center gap-1.5">
+                                   <button
+                                     type="button"
+                                     onClick={() => setSnipOrder(order)}
+                                     className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-600 hover:text-white transition-colors cursor-pointer"
+                                     title="Open Snipping Tool for this order"
+                                     id={`snip-order-subtable-btn-${order.orderNo}`}
+                                   >
+                                     <Scissors className="w-3 h-3" />
+                                     <span>Snipping Tool</span>
+                                   </button>
+
+                                   <button
+                                     type="button"
+                                     onClick={() => setViewingOrder(order)}
+                                     className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-600 hover:text-white transition-colors cursor-pointer"
+                                     title="View full order details modal"
+                                   >
+                                     <Eye className="w-3 h-3" />
+                                     <span>Full Details View</span>
+                                   </button>
+                                 </div>
                               </div>
 
                               {/* 2nd Layer Table */}
@@ -1667,14 +1692,14 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
                                             {itm.gaugeDia}
                                           </td>
 
-                                          {/* Knit Start Date */}
+                                          {/* Knit Start Date: strictly empty if no production and no hold */}
                                           <td className="py-2 px-2.5 font-mono text-slate-600 dark:text-slate-400">
-                                            {itm.knitStartDate || ''}
+                                            {(Number(itm.production || 0) > 0 || Number(itm.hold || 0) > 0) ? (itm.knitStartDate || '') : ''}
                                           </td>
 
-                                          {/* Knit End Date */}
+                                          {/* Knit End Date: strictly empty if no production and no hold */}
                                           <td className="py-2 px-2.5 font-mono text-slate-600 dark:text-slate-400">
-                                            {itm.knitEndDate || ''}
+                                            {(Number(itm.production || 0) > 0 || Number(itm.hold || 0) > 0) ? (itm.knitEndDate || '') : ''}
                                           </td>
 
                                           {/* Req. Qty */}
@@ -1722,7 +1747,7 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
 
                                           {/* Avg. Prod/Day */}
                                           <td className="py-2 px-2.5 text-right font-mono text-slate-700 dark:text-slate-300">
-                                            {itm.avgProdPerDay ? `${itm.avgProdPerDay} Kg` : ''}
+                                            {itm.avgProdPerDay ? `${Math.ceil(Number(itm.avgProdPerDay)).toLocaleString()} Kg` : ''}
                                           </td>
                                         </tr>
                                       ))}
@@ -1853,6 +1878,15 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
         <KnittingOrderDetailsModal
           order={viewingOrder}
           onClose={() => setViewingOrder(null)}
+        />
+      )}
+
+      {/* Modal: Snipping Tool for Order Details */}
+      {snipOrder && (
+        <KnittingOrderSnippingModal
+          order={snipOrder}
+          isOpen={Boolean(snipOrder)}
+          onClose={() => setSnipOrder(null)}
         />
       )}
 
