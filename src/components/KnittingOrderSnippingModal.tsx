@@ -201,7 +201,7 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
 
       const printFrame = document.createElement('iframe');
       printFrame.id = 'knitting-print-frame';
-      printFrame.setAttribute('style', 'position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;visibility:hidden;');
+      printFrame.setAttribute('style', 'position:fixed;right:0;bottom:0;width:0;height:0;border:none;opacity:0;pointer-events:none;');
       document.body.appendChild(printFrame);
 
       const frameDoc = printFrame.contentWindow?.document;
@@ -215,11 +215,30 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
       cardClone.style.width = '100%';
       cardClone.style.maxWidth = '100%';
       cardClone.style.margin = '0';
-      cardClone.style.padding = '8px 12px';
+      cardClone.style.padding = '4px 6px';
       cardClone.style.boxShadow = 'none';
       cardClone.style.border = 'none';
       cardClone.style.backgroundColor = '#ffffff';
       cardClone.style.color = '#0f172a';
+
+      // Remove overflow-hidden from any element to prevent Chrome print fragmentation bug
+      cardClone.querySelectorAll('*').forEach((el) => {
+        const htmlEl = el as HTMLElement;
+        if (htmlEl.classList.contains('overflow-hidden')) {
+          htmlEl.classList.remove('overflow-hidden');
+        }
+        if (htmlEl.style.overflow === 'hidden') {
+          htmlEl.style.overflow = 'visible';
+        }
+      });
+
+      // Remove fixed inline pixel widths on th and td so table fits 100% within portrait A4
+      cardClone.querySelectorAll('th, td').forEach((el) => {
+        const cell = el as HTMLElement;
+        cell.style.width = '';
+        cell.style.minWidth = '0';
+        cell.style.maxWidth = 'none';
+      });
 
       const styleTags = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
         .map(el => el.outerHTML)
@@ -235,12 +254,13 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
   <style>
     @page {
       size: portrait;
-      margin: 8mm 10mm;
+      margin: 5mm 6mm;
     }
     *, *::before, *::after {
       box-sizing: border-box !important;
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
+      overflow: visible !important;
     }
     html, body {
       margin: 0 !important;
@@ -248,17 +268,17 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
       background: #ffffff !important;
       color: #0f172a !important;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-      font-size: 11px !important;
-      line-height: 1.35 !important;
+      font-size: 9.5px !important;
+      line-height: 1.25 !important;
       width: 100% !important;
-      height: auto !important;
-      min-height: 0 !important;
-      overflow: visible !important;
+      height: 100% !important;
+      max-height: 100% !important;
+      overflow: hidden !important;
     }
     .print-sheet {
       width: 100% !important;
       max-width: 100% !important;
-      margin: 0 auto !important;
+      margin: 0 !important;
       padding: 0 !important;
       page-break-inside: avoid !important;
       break-inside: avoid !important;
@@ -278,27 +298,80 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
       page-break-after: avoid !important;
       break-after: avoid !important;
     }
+    .grid-cols-7 {
+      display: grid !important;
+      grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+      gap: 3px !important;
+    }
+    .grid-cols-7 > div {
+      padding: 3px 2px !important;
+      border-radius: 4px !important;
+    }
+    .grid-cols-7 .text-sm {
+      font-size: 11px !important;
+      margin-top: 1px !important;
+    }
+    .grid-cols-7 .text-\\[10px\\] {
+      font-size: 7.5px !important;
+    }
     table {
       width: 100% !important;
+      max-width: 100% !important;
+      table-layout: fixed !important;
       border-collapse: collapse !important;
-      page-break-inside: avoid !important;
-      break-inside: avoid !important;
-      margin: 6px 0 !important;
-    }
-    tr, th, td {
+      margin: 3px 0 !important;
+      font-size: 8px !important;
       page-break-inside: avoid !important;
       break-inside: avoid !important;
     }
-    th {
+    thead th {
       background-color: #f1f5f9 !important;
       color: #0f172a !important;
-      padding: 4px 6px !important;
-      font-size: 10px !important;
+      font-weight: 800 !important;
+      padding: 3px 1.5px !important;
+      font-size: 7.5px !important;
+      line-height: 1.15 !important;
+      border-bottom: 1.5px solid #cbd5e1 !important;
+      border-top: 1px solid #cbd5e1 !important;
+      vertical-align: middle !important;
+      white-space: normal !important;
+      word-break: break-word !important;
     }
-    td {
-      padding: 4px 6px !important;
-      font-size: 10px !important;
+    tbody td {
+      padding: 2.5px 1.5px !important;
+      font-size: 8px !important;
+      line-height: 1.15 !important;
+      border-bottom: 1px solid #e2e8f0 !important;
+      vertical-align: middle !important;
+      white-space: normal !important;
+      word-break: break-word !important;
     }
+    tfoot td {
+      background-color: #f1f5f9 !important;
+      border-top: 1.5px solid #cbd5e1 !important;
+      font-weight: 800 !important;
+      padding: 3px 1.5px !important;
+      font-size: 8px !important;
+      line-height: 1.15 !important;
+    }
+    /* Fixed 100% proportional column distribution across all 17 columns */
+    table th:nth-child(1), table td:nth-child(1) { width: 3% !important; text-align: center; }
+    table th:nth-child(2), table td:nth-child(2) { width: 10% !important; }
+    table th:nth-child(3), table td:nth-child(3) { width: 5.5% !important; }
+    table th:nth-child(4), table td:nth-child(4) { width: 6.5% !important; }
+    table th:nth-child(5), table td:nth-child(5) { width: 4.5% !important; text-align: center; }
+    table th:nth-child(6), table td:nth-child(6) { width: 4.5% !important; text-align: center; }
+    table th:nth-child(7), table td:nth-child(7) { width: 13% !important; }
+    table th:nth-child(8), table td:nth-child(8) { width: 6% !important; text-align: center; }
+    table th:nth-child(9), table td:nth-child(9) { width: 6.5% !important; text-align: center; }
+    table th:nth-child(10), table td:nth-child(10) { width: 6.5% !important; text-align: center; }
+    table th:nth-child(11), table td:nth-child(11) { width: 6.5% !important; text-align: right; }
+    table th:nth-child(12), table td:nth-child(12) { width: 6.5% !important; text-align: right; }
+    table th:nth-child(13), table td:nth-child(13) { width: 6.5% !important; text-align: right; }
+    table th:nth-child(14), table td:nth-child(14) { width: 4% !important; text-align: right; }
+    table th:nth-child(15), table td:nth-child(15) { width: 4% !important; text-align: right; }
+    table th:nth-child(16), table td:nth-child(16) { width: 7% !important; text-align: right; }
+    table th:nth-child(17), table td:nth-child(17) { width: 7% !important; text-align: right; }
   </style>
 </head>
 <body>

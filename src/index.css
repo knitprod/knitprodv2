@@ -239,18 +239,35 @@
     break-after: avoid !important;
   }
 
+  /* Unclip any overflow containers so Chrome LayoutNG does not break across pages */
+  #raihan-snip-capture-card *,
+  .printable-snip-card *,
+  [id^="knitting-snip-card"] * {
+    overflow: visible !important;
+  }
+
   /* Compact tables for portrait fit */
   #raihan-snip-capture-card table,
   .printable-snip-card table,
   [id^="knitting-snip-card"] table {
     width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }
 
-  #raihan-snip-capture-card tr,
-  .printable-snip-card tr,
-  [id^="knitting-snip-card"] tr {
+  #raihan-snip-capture-card th,
+  #raihan-snip-capture-card td,
+  .printable-snip-card th,
+  .printable-snip-card td,
+  [id^="knitting-snip-card"] th,
+  [id^="knitting-snip-card"] td {
+    width: auto !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    white-space: normal !important;
+    word-break: break-word !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }
