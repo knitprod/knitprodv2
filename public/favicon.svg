@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stopColor="#064e3b" />
+      <stop offset="100%" stopColor="#022c22" />
+    </linearGradient>
+
+    <!-- Golden Arc Gradient -->
+    <linearGradient id="gold-grad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stopColor="#d97706" />
+      <stop offset="50%" stopColor="#fbbf24" />
+      <stop offset="100%" stopColor="#f59e0b" />
+    </linearGradient>
+
+    <!-- Emerald Border Glow -->
+    <linearGradient id="border-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stopColor="#34d399" />
+      <stop offset="100%" stopColor="#059669" />
+    </linearGradient>
+
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#000000" flood-opacity="0.6"/>
+    </filter>
+  </defs>
+
+  <!-- Container Badge (Rounded Squircle) -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bg-grad)" stroke="url(#border-glow)" stroke-width="2.5"/>
+
+  <!-- Epyllion Sunburst Rays (Top Right) -->
+  <g id="rays" transform="translate(1, 0)">
+    <path d="M 44 14 C 43 9 43 6 45 4 C 47 6 48 9 47 14 Z" fill="#fbbf24" />
+    <path d="M 49 16 C 50 11 52 8 55 7 C 54 11 53 14 50 17 Z" fill="#f59e0b" />
+    <path d="M 53 19 C 56 15 59 13 62 14 C 60 17 57 19 54 21 Z" fill="#fbbf24" />
+  </g>
+
+  <!-- Dynamic Sweeping Golden Arc -->
+  <path d="M 8 50 C 18 36 34 22 56 22 C 58 22 59 24 57 25 C 38 27 22 41 12 54 C 9 55 7 53 8 50 Z" fill="url(#gold-grad)" filter="url(#shadow)"/>
+
+  <!-- Iconic Epyllion "E" Monogram (Bold, Crisp & Legible at small icon sizes) -->
+  <text x="28" y="47" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="34" font-weight="900" fill="#ffffff" text-anchor="middle" filter="url(#shadow)">E</text>
+  
+  <!-- Subtle Dot Accent in Brand Gold -->
+  <circle cx="49" cy="46" r="3.5" fill="#fbbf24" stroke="#064e3b" stroke-width="1" />
+</svg>

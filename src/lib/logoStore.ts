@@ -103,6 +103,23 @@ export function getCompanyLogo(): string | null {
   }
 }
 
+/**
+ * Dynamically synchronizes the browser tab favicon with the active company logo or official Epyllion brand emblem
+ */
+export function updateDocumentFavicon(logoUrl?: string | null): void {
+  if (typeof document === 'undefined') return;
+  const url = logoUrl || getCompanyLogo() || '/favicon.svg';
+  let link = document.querySelector("link[rel*='icon']") as HTMLLinkElement | null;
+  if (!link) {
+    link = document.createElement('link');
+    link.rel = 'icon';
+    document.head.appendChild(link);
+  }
+  const isSvg = url.startsWith('data:image/svg+xml') || url.endsWith('.svg');
+  link.type = isSvg ? 'image/svg+xml' : 'image/png';
+  link.href = url;
+}
+
 export async function saveCompanyLogo(base64DataUrl: string): Promise<{ success: boolean; error?: string }> {
   try {
     const optimized = await optimizeLogoImage(base64DataUrl);
@@ -112,6 +129,7 @@ export async function saveCompanyLogo(base64DataUrl: string): Promise<{ success:
     } catch (lsErr) {
       console.warn('localStorage quota warning for company logo:', lsErr);
     }
+    updateDocumentFavicon(optimized);
     window.dispatchEvent(new CustomEvent('company_logo_updated', { detail: optimized }));
 
     // 1. Instantly sync to Express central server (available to all devices & browsers)
@@ -139,6 +157,7 @@ export async function removeCompanyLogo(): Promise<void> {
   try {
     inMemoryCompanyLogo = null;
     try { localStorage.removeItem(LOGO_STORAGE_KEY); } catch {}
+    updateDocumentFavicon('/favicon.svg');
     window.dispatchEvent(new CustomEvent('company_logo_updated', { detail: null }));
 
     fetch('/api/branding', {
@@ -300,11 +319,13 @@ export async function initBrandingSync(): Promise<{ companyLogo: string | null; 
   }
 
   isSyncing = false;
+  updateDocumentFavicon(getCompanyLogo());
   return { companyLogo: getCompanyLogo(), myLogo: getMyLogo() };
 }
 
 // Auto-run sync on module load in browser environments
 if (typeof window !== 'undefined') {
+  updateDocumentFavicon();
   initBrandingSync().catch(() => {});
 }
 

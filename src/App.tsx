@@ -32,7 +32,7 @@ import {
   Database,
   Loader2
 } from 'lucide-react';
-import { initBrandingSync } from './lib/logoStore';
+import { initBrandingSync, updateDocumentFavicon } from './lib/logoStore';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import WelcomeBanner from './components/WelcomeBanner';
@@ -229,7 +229,14 @@ export default function App() {
   // Automatic Authentication state restoration & Central Branding sync on startup
   useEffect(() => {
     let isMounted = true;
+    updateDocumentFavicon();
     initBrandingSync().catch(() => {});
+
+    const onLogoUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<string | null>;
+      updateDocumentFavicon(customEvent.detail);
+    };
+    window.addEventListener('company_logo_updated', onLogoUpdated);
 
     const restoreSession = async () => {
       try {
@@ -353,6 +360,7 @@ export default function App() {
 
     return () => {
       isMounted = false;
+      window.removeEventListener('company_logo_updated', onLogoUpdated);
     };
   }, []);
 

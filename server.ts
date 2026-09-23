@@ -2106,6 +2106,17 @@ function handleConversationalFollowUp(
   return null;
 }
 
+// Serve Company Logo Favicon directly for browser tabs and shortcuts
+app.get(['/favicon.ico', '/favicon.svg', '/favicon.png'], (req, res) => {
+  const svgPath = path.join(process.cwd(), 'public', 'favicon.svg');
+  if (fs.existsSync(svgPath)) {
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.sendFile(svgPath);
+  }
+  res.status(404).send('Favicon not found');
+});
+
 // Serve Raihan Avatar image asset with automatic fallback to high-res vector
 app.get(['/Gemini_Generated_Image_e0oxaye0oxaye0ox-removebg-preview.png', '/raihan-avatar.png', '/raihan-avatar.svg'], (req, res) => {
   const customPng = path.join(process.cwd(), 'public', 'Gemini_Generated_Image_e0oxaye0oxaye0ox-removebg-preview.png');
