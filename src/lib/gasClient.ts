@@ -1065,11 +1065,22 @@ export class GasClient {
       return str.split(/\s+to\s+/i).map(p => GasClient.formatDateValue(p)).join(' To ');
     }
 
-    const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{1,2}):(\d{1,2}))?/);
     if (isoMatch) {
-      const yr = isoMatch[1];
-      const mIdx = parseInt(isoMatch[2], 10) - 1;
-      const dy = isoMatch[3].padStart(2, '0');
+      let yr = isoMatch[1];
+      let mIdx = parseInt(isoMatch[2], 10) - 1;
+      let dy = isoMatch[3].padStart(2, '0');
+      const hr = isoMatch[4] ? parseInt(isoMatch[4], 10) : undefined;
+      const min = isoMatch[5] ? parseInt(isoMatch[5], 10) : 0;
+      if (hr !== undefined && (hr >= 18 || (hr === 17 && min >= 50))) {
+        const dObj = new Date(str);
+        if (!isNaN(dObj.getTime())) {
+          const bstDate = new Date(dObj.getTime() + 6 * 3600 * 1000 + 15 * 60 * 1000);
+          dy = String(bstDate.getUTCDate()).padStart(2, '0');
+          mIdx = bstDate.getUTCMonth();
+          yr = String(bstDate.getUTCFullYear());
+        }
+      }
       if (mIdx >= 0 && mIdx < 12) {
         return `${dy}-${fullMonths[mIdx]}-${yr}`;
       }
@@ -1089,9 +1100,15 @@ export class GasClient {
 
     const dObj = new Date(str);
     if (!isNaN(dObj.getTime())) {
-      const dy = String(dObj.getDate()).padStart(2, '0');
-      const mName = fullMonths[dObj.getMonth()];
-      const yr = dObj.getFullYear();
+      let d = dObj;
+      if (d.getHours() === 23 && d.getMinutes() >= 50) {
+        d = new Date(d.getTime() + 15 * 60 * 1000);
+      } else if (d.getUTCHours() >= 17 && d.getUTCHours() <= 18 && d.getUTCMinutes() >= 50) {
+        d = new Date(d.getTime() + 15 * 60 * 1000);
+      }
+      const dy = String(d.getDate()).padStart(2, '0');
+      const mName = fullMonths[d.getMonth()];
+      const yr = d.getFullYear();
       return `${dy}-${mName}-${yr}`;
     }
 

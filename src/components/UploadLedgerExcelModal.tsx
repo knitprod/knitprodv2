@@ -148,7 +148,22 @@ export default function UploadLedgerExcelModal({
 
     if (val instanceof Date && !isNaN(val.getTime())) {
       d = val;
+      if (d.getHours() === 23 && d.getMinutes() >= 50) {
+        d = new Date(d.getTime() + 15 * 60 * 1000);
+      } else if (d.getUTCHours() >= 17 && d.getUTCHours() <= 18 && d.getUTCMinutes() >= 50) {
+        d = new Date(d.getTime() + 15 * 60 * 1000);
+      }
     } else if (typeof val === 'number') {
+      try {
+        const dateObj = XLSX.SSF.parse_date_code(val);
+        if (dateObj && dateObj.y && dateObj.m && dateObj.d) {
+          const yr = dateObj.y < 100 ? 2000 + dateObj.y : dateObj.y;
+          const mIdx = dateObj.m - 1;
+          const dy = String(dateObj.d).padStart(2, '0');
+          const mPad = String(mIdx + 1).padStart(2, '0');
+          return { dateStr: `${yr}-${mPad}-${dy}`, year: yr, monthName: MONTHS[mIdx] || 'August' };
+        }
+      } catch {}
       d = new Date(Math.round((val - 25569) * 86400 * 1000));
     } else if (typeof val === 'string' && val.trim()) {
       const trimmed = val.trim();

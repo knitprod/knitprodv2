@@ -607,7 +607,9 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
     reader.onload = async evt => {
       try {
         const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
+        // Using cellDates: false prevents SheetJS Asia/Dhaka 1900 LMT timezone shift (23:59:40 offset)
+        // Excel date serial numbers and string values are preserved and formatted cleanly via formatExcelDate
+        const wb = XLSX.read(bstr, { type: 'binary', cellDates: false });
 
         setSyncProgress(prev => ({
           ...prev,
@@ -729,6 +731,9 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
             ])
           );
 
+          const effectiveKnitStart = rowKnitStart;
+          const effectiveKnitEnd = rowKnitEnd;
+
           let existing = orderMap.get(orderNo);
           if (!existing) {
             existing = {
@@ -736,8 +741,8 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
               orderNo,
               buyerName: rowBuyer || '',
               teamLeader: rowLeader || '',
-              knitStartDate: rowKnitStart || '',
-              knitEndDate: rowKnitEnd || '',
+              knitStartDate: effectiveKnitStart || '',
+              knitEndDate: effectiveKnitEnd || '',
               reqQty: Number(getExcelValue(row, ['Req. Qty', 'Req Qty', 'Required Qty', 'Req.Qty', 'Rq Qty']) || 0),
               greyQty: Number(getExcelValue(row, ['Grey Qty', 'Grey QTY', 'GreyQty', 'Grey Fab Qty']) || 0),
               production: Number(getExcelValue(row, ['Production', 'Knitting Prod', 'Prod Qty', 'Total Prod']) || 0),
@@ -753,11 +758,11 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
             if (rowLeader && !existing.teamLeader) {
               existing.teamLeader = rowLeader;
             }
-            if (rowKnitStart && !existing.knitStartDate) {
-              existing.knitStartDate = rowKnitStart;
+            if (effectiveKnitStart && !existing.knitStartDate) {
+              existing.knitStartDate = effectiveKnitStart;
             }
-            if (rowKnitEnd && !existing.knitEndDate) {
-              existing.knitEndDate = rowKnitEnd;
+            if (effectiveKnitEnd && !existing.knitEndDate) {
+              existing.knitEndDate = effectiveKnitEnd;
             }
           }
 
@@ -846,8 +851,8 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
             // Crucial fix: Item only has knit dates if knitting has actually begun (production > 0 or hold > 0).
             // It MUST NOT inherit the parent order's knit dates when it has zero production and zero hold.
             const hasActivity = numProd > 0 || numHold > 0;
-            const itemKnitStart = hasActivity ? (rowKnitStart || '') : '';
-            const itemKnitEnd = hasActivity ? (rowKnitEnd || '') : '';
+            const itemKnitStart = hasActivity ? (effectiveKnitStart || '') : '';
+            const itemKnitEnd = hasActivity ? (effectiveKnitEnd || '') : '';
 
             const item: KnittingStatusItem = {
               id: `itm-${orderNo}-${existing.items.length + 1}`,
