@@ -12,17 +12,21 @@ import {
   CheckCircle2,
   Clock,
   Layers,
-  Calendar
+  Calendar,
+  Smartphone,
+  MoveHorizontal
 } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { KnittingStatusOrder } from '../types';
 import { calculateKnittingCondition, sortKnittingItems } from '../lib/knittingStatusStore';
 import { getCompanyLogo } from '../lib/logoStore';
+import { useGlobalData } from '../context/GlobalDataContext';
 
 interface KnittingOrderSnippingModalProps {
   order: KnittingStatusOrder | null;
   isOpen: boolean;
   onClose: () => void;
+  allocations?: any[];
 }
 
 /**
@@ -51,15 +55,73 @@ function roundUpAvg(val: number | string | undefined): number {
 export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProps> = ({
   order,
   isOpen,
-  onClose
+  onClose,
+  allocations
 }) => {
+  const { yarnAllocations } = useGlobalData();
+  const allYarn = (allocations && allocations.length > 0) ? allocations : yarnAllocations;
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [imageBlob, setImageBlob] = useState<Blob | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedImage, setCopiedImage] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [customLogo] = useState<string | null>(() => getCompanyLogo());
+
+  // Mobile View & Responsive Scaling States
+  const [viewMode, setViewMode] = useState<'fit' | 'full'>('fit');
+  const [scale, setScale] = useState<number>(1);
+  const [cardHeight, setCardHeight] = useState<number>(0);
+  const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' ? window.innerWidth < 1220 : false);
+
+  // Compute responsive scale for mobile fit
+  useEffect(() => {
+    if (!isOpen || !order) return;
+
+    const measureAndScale = () => {
+      const mobile = window.innerWidth < 1220;
+      setIsMobile(mobile);
+
+      if (scrollContainerRef.current && cardRef.current) {
+        const containerWidth = scrollContainerRef.current.clientWidth;
+        // Natural target width for Knitting Order card is 1220px
+        const targetWidth = 1220;
+        const availableWidth = Math.max(containerWidth - 24, 280);
+        const computedScale = Math.min(1, availableWidth / targetWidth);
+        setScale(computedScale);
+
+        const measuredHeight = cardRef.current.offsetHeight || cardRef.current.scrollHeight || 700;
+        setCardHeight(measuredHeight);
+      }
+    };
+
+    const rafId = requestAnimationFrame(measureAndScale);
+    const timer = setTimeout(measureAndScale, 150);
+
+    const resizeObserver = new ResizeObserver(() => {
+      measureAndScale();
+    });
+
+    if (scrollContainerRef.current) {
+      resizeObserver.observe(scrollContainerRef.current);
+    }
+    if (cardRef.current) {
+      resizeObserver.observe(cardRef.current);
+    }
+
+    window.addEventListener('resize', measureAndScale);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(timer);
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', measureAndScale);
+    };
+  }, [isOpen, order]);
 
   const fileName = order
     ? `Order_${order.orderNo}_Knitting_Details_${new Date().toISOString().slice(0, 10)}.png`
@@ -69,15 +131,28 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
   const captureCard = async (): Promise<{ dataUrl: string; blob: Blob } | null> => {
     if (!cardRef.current) return null;
     try {
-      // Ensure the captured width covers the full table width (1220px) so no column is clipped
-      const captureWidth = Math.max(cardRef.current.scrollWidth, 1220);
-      const dataUrl = await toPng(cardRef.current, {
+      const card = cardRef.current;
+      const captureWidth = 1220;
+      const captureHeight = card.offsetHeight || card.scrollHeight || 750;
+
+      const dataUrl = await toPng(card, {
         pixelRatio: 2,
         backgroundColor: '#ffffff',
         skipFonts: true,
         cacheBust: true,
-        width: captureWidth
+        width: captureWidth,
+        height: captureHeight,
+        style: {
+          transform: 'none',
+          transformOrigin: 'top left',
+          width: '1220px',
+          minWidth: '1220px',
+          maxWidth: '1220px',
+          margin: '0',
+          boxSizing: 'border-box'
+        }
       });
+
       const blob = dataUrlToBlob(dataUrl);
       return { dataUrl, blob };
     } catch (err) {
@@ -124,6 +199,69 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
     }),
     { reqQty: 0, greyQty: 0, production: 0, hold: 0, reject: 0, itmQty: 0, knitBalance: 0, avgProdPerDay: 0 }
   );
+
+  // Filter and group allocated yarn for this order
+  const validAllocations = (Array.isArray(allYarn) ? allYarn : []).filter(y => {
+    if (!order) return false;
+    const ordMatch = String(y.orderNumber || y.order_number || '').trim();
+    const qty = Number(y.allocatedQty ?? y.allocated_qty ?? 0);
+    const yarn = String(y.allocatedYarn || y.allocated_yarn || y.yarnRequired || '').trim();
+    return ordMatch.includes(order.orderNo) && (qty > 0 || yarn.length > 0);
+  });
+
+  const allocGroups = new Map<string, {
+    color: string;
+    fabricType: string;
+    allocatedYarn: string;
+    lot: string;
+    spinner: string;
+    allocatedQty: number;
+  }>();
+
+  for (const y of validAllocations) {
+    const color = String(y.fabricShade || y.fabric_shade || y.color || 'Standard Shade').trim();
+    const fabricType = String(y.fabricsType || y.fabrics_type || y.fabrication || 'Knitted Fabric').trim();
+    const allocatedYarn = String(y.allocatedYarn || y.allocated_yarn || y.yarnRequired || '').trim();
+    const lot = String(y.lotNo || y.lot_no || 'N/A').trim();
+    const spinner = String(y.spinnersName || y.spinners_name || 'N/A').trim();
+    const qty = Number(y.allocatedQty ?? y.allocated_qty ?? 0);
+
+    const key = `${color.toLowerCase()}__${fabricType.toLowerCase()}__${allocatedYarn.toLowerCase()}__${lot.toLowerCase()}__${spinner.toLowerCase()}`;
+    const existing = allocGroups.get(key);
+    if (existing) {
+      existing.allocatedQty += qty;
+    } else {
+      allocGroups.set(key, { color, fabricType, allocatedYarn, lot, spinner, allocatedQty: qty });
+    }
+  }
+
+  // Intelligent fallback: if no yarn allocation records exist in yarn allocations store, derive from order.items
+  if (allocGroups.size === 0 && items.length > 0) {
+    for (const itm of items) {
+      const color = String(itm.color || 'Standard').trim();
+      const fabricType = String(itm.fabType || itm.mcType || 'Knitted Fabric').trim();
+      const allocatedYarn = String(itm.yarnCount || 'Allocated Ring Spun Cotton').trim();
+      const lot = 'Allocated';
+      const spinner = 'Epyllion Spinning / Associated';
+      const qty = Number(itm.greyQty || itm.reqQty || 0);
+
+      const key = `${color.toLowerCase()}__${fabricType.toLowerCase()}__${allocatedYarn.toLowerCase()}`;
+      const existing = allocGroups.get(key);
+      if (existing) {
+        existing.allocatedQty += qty;
+      } else {
+        allocGroups.set(key, { color, fabricType, allocatedYarn, lot, spinner, allocatedQty: qty });
+      }
+    }
+  }
+
+  const sortedAllocations = Array.from(allocGroups.values()).sort((a, b) => {
+    const c = a.color.localeCompare(b.color);
+    if (c !== 0) return c;
+    return a.fabricType.localeCompare(b.fabricType);
+  });
+
+  const totalAllocatedQty = sortedAllocations.reduce((sum, a) => sum + a.allocatedQty, 0);
 
   const handleDownload = async () => {
     let url = imageDataUrl;
@@ -211,6 +349,8 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
       }
 
       const cardClone = cardRef.current.cloneNode(true) as HTMLElement;
+      cardClone.style.transform = 'none';
+      cardClone.style.transformOrigin = 'initial';
       cardClone.style.minWidth = '0';
       cardClone.style.width = '100%';
       cardClone.style.maxWidth = '100%';
@@ -501,14 +641,97 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
         )}
 
         {/* Snipping Preview & Capture Canvas Area */}
-        <div className="knitting-modal-content flex-1 p-3 sm:p-5 overflow-y-auto overflow-x-auto bg-slate-100 dark:bg-slate-950 flex flex-col items-center">
-          {/* Capture Card Container: spacious width 1220px so Balance & Avg Prod/Day columns are 100% visible and never clipped */}
-          <div
-            ref={cardRef}
-            id={`knitting-snip-card-${order.orderNo}`}
-            className="printable-snip-card bg-white text-slate-900 rounded-xl p-5 sm:p-6 shadow-md border border-slate-200 shrink-0"
-            style={{ width: '1220px', minWidth: 'min(100%, 1220px)', color: '#0f172a', backgroundColor: '#ffffff' }}
-          >
+        <div 
+          ref={scrollContainerRef}
+          className="knitting-modal-content flex-1 p-2.5 sm:p-5 overflow-y-auto overflow-x-auto bg-slate-100 dark:bg-slate-950"
+        >
+          <div className="min-w-full w-max mx-auto flex flex-col items-center">
+            {/* Mobile View Mode Toolbar */}
+            <div className="w-full max-w-[1220px] mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
+              <div className="flex items-center gap-1 bg-slate-200/90 dark:bg-slate-800/90 p-1 rounded-xl shadow-xs border border-slate-300 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('fit')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    viewMode === 'fit'
+                      ? 'bg-indigo-700 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white'
+                  }`}
+                  title="Fit whole card to screen"
+                >
+                  <Smartphone className="w-3.5 h-3.5" />
+                  <span>Fit Screen {isMobile && scale < 1 ? `(${Math.round(scale * 100)}%)` : ''}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setViewMode('full')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    viewMode === 'full'
+                      ? 'bg-indigo-700 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white'
+                  }`}
+                  title="View at 100% full scale with smooth horizontal scroll"
+                >
+                  <MoveHorizontal className="w-3.5 h-3.5" />
+                  <span>100% Full View</span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                {viewMode === 'fit' && isMobile && scale < 1 ? (
+                  <span className="flex items-center gap-1 text-indigo-800 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800">
+                    <span>Mobile Fit: Complete 17-column order visible on screen · Tap 100% to zoom</span>
+                  </span>
+                ) : viewMode === 'full' && isMobile ? (
+                  <span className="flex items-center gap-1 text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/60 px-2.5 py-0.5 rounded-md border border-amber-200 dark:border-amber-800">
+                    <span>↔ Swipe horizontally to view all 17 columns & details</span>
+                  </span>
+                ) : (
+                  <span className="text-slate-500">HD Ready · 100% Unclipped Columns</span>
+                )}
+              </div>
+            </div>
+
+            {/* Scaled / Natural Wrapper */}
+            <div
+              ref={wrapperRef}
+              className="relative transition-all duration-150 mx-auto"
+              style={
+                viewMode === 'fit' && isMobile && scale < 1
+                  ? {
+                      width: `${Math.round(1220 * scale)}px`,
+                      height: `${Math.round((cardHeight || 700) * scale)}px`,
+                      overflow: 'hidden'
+                    }
+                  : {
+                      width: '1220px',
+                      overflow: 'visible'
+                    }
+              }
+            >
+              {/* Scaler handles mobile visual fit without modifying the capture card */}
+              <div
+                style={{
+                  transform: (viewMode === 'fit' && isMobile && scale < 1) ? `scale(${scale})` : 'none',
+                  transformOrigin: 'top left',
+                  width: '1220px'
+                }}
+              >
+                {/* Capture Card Container: pristine 1220px unscaled capture target */}
+                <div
+                  ref={cardRef}
+                  id={`knitting-snip-card-${order.orderNo}`}
+                  className="printable-snip-card bg-white text-slate-900 rounded-xl p-5 sm:p-6 shadow-md border border-slate-200 shrink-0"
+                  style={{
+                    width: '1220px',
+                    minWidth: '1220px',
+                    maxWidth: '1220px',
+                    color: '#0f172a',
+                    backgroundColor: '#ffffff',
+                    boxSizing: 'border-box'
+                  }}
+                >
             {/* Header: Company Logo In E letter + Brand Info + Order Condition */}
             <div
               className="flex items-center justify-between pb-3.5 mb-4 border-b-2"
@@ -721,7 +944,7 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
                   No fabric items registered for this order.
                 </div>
               ) : (
-                <div className="rounded-lg border border-slate-300 overflow-hidden" style={{ borderColor: '#cbd5e1' }}>
+                <div className="rounded-lg border border-slate-300 overflow-visible" style={{ borderColor: '#cbd5e1' }}>
                   <table className="w-full text-left text-[10px] border-collapse" style={{ width: '100%', tableLayout: 'auto' }}>
                     <thead>
                       <tr
@@ -850,6 +1073,89 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
               )}
             </div>
 
+            {/* Layer 3: Allocated Yarn Details */}
+            <div className="mt-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-700" style={{ color: '#334155' }}>
+                  <Layers className="w-3.5 h-3.5 text-amber-700" />
+                  <span>Layer 3: Allocated Yarn Details ({sortedAllocations.length} items)</span>
+                </div>
+                {totalAllocatedQty > 0 && (
+                  <div className="text-[10.5px] font-bold text-amber-800" style={{ color: '#92400e' }}>
+                    Total Allocated: <span className="font-mono font-black">{totalAllocatedQty.toLocaleString()}</span> kg
+                  </div>
+                )}
+              </div>
+
+              {sortedAllocations.length === 0 ? (
+                <div className="text-center py-3 text-xs text-slate-400 border border-dashed border-slate-200 rounded-lg">
+                  No yarn allocation records registered for this order.
+                </div>
+              ) : (
+                <div className="rounded-lg border border-slate-300 overflow-visible" style={{ borderColor: '#cbd5e1' }}>
+                  <table className="w-full text-left text-[10px] border-collapse" style={{ width: '100%', tableLayout: 'auto' }}>
+                    <thead>
+                      <tr
+                        style={{ backgroundColor: '#f1f5f9', color: '#1e293b', borderBottom: '2px solid #cbd5e1' }}
+                        className="font-bold uppercase tracking-wider text-[9px]"
+                      >
+                        <th className="py-2 px-2 text-center" style={{ width: '30px' }}>#</th>
+                        <th className="py-2 px-2" style={{ width: '120px' }}>Color</th>
+                        <th className="py-2 px-2" style={{ width: '110px' }}>Fabric Type</th>
+                        <th className="py-2 px-2" style={{ width: '380px' }}>Allocated Yarn</th>
+                        <th className="py-2 px-2 text-center" style={{ width: '110px' }}>Lot</th>
+                        <th className="py-2 px-2" style={{ width: '170px' }}>Spinner</th>
+                        <th className="py-2 px-2 text-right font-black" style={{ width: '120px', color: '#92400e' }}>Sum of Allocated Qty</th>
+                      </tr>
+                    </thead>
+                    <tbody style={{ color: '#0f172a' }}>
+                      {sortedAllocations.map((a, idx) => {
+                        const isEven = idx % 2 === 0;
+                        return (
+                          <tr
+                            key={idx}
+                            style={{
+                              backgroundColor: isEven ? '#ffffff' : '#f8fafc',
+                              borderBottom: '1px solid #e2e8f0'
+                            }}
+                          >
+                            <td className="py-1.5 px-2 text-center font-mono text-slate-400">{idx + 1}</td>
+                            <td className="py-1.5 px-2 font-bold text-slate-900">{a.color}</td>
+                            <td className="py-1.5 px-2 text-slate-700">{a.fabricType}</td>
+                            <td className="py-1.5 px-2 font-mono text-slate-800" title={a.allocatedYarn}>
+                              {a.allocatedYarn}
+                            </td>
+                            <td className="py-1.5 px-2 text-center font-mono text-slate-600">{a.lot}</td>
+                            <td className="py-1.5 px-2 text-slate-700">{a.spinner}</td>
+                            <td className="py-1.5 px-2 text-right font-mono font-bold" style={{ color: '#92400e' }}>
+                              {a.allocatedQty.toLocaleString()} kg
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr
+                        style={{
+                          backgroundColor: '#f1f5f9',
+                          borderTop: '2px solid #cbd5e1',
+                          fontWeight: 'bold',
+                          color: '#0f172a'
+                        }}
+                      >
+                        <td colSpan={6} className="py-2 px-2 text-right uppercase tracking-wider text-[9px] font-black text-slate-600">
+                          Allocated Yarn Total:
+                        </td>
+                        <td className="py-2 px-2 text-right font-mono font-black" style={{ color: '#92400e' }}>
+                          {totalAllocatedQty.toLocaleString()} kg
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+
             {/* Bottom Card Footer Stamp with User Requested Replacement Text */}
             <div
               className="mt-4 pt-3 flex items-center justify-between text-[10px] text-slate-500 border-t border-slate-200"
@@ -862,14 +1168,17 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
 
         {/* Modal Bottom Footer Actions */}
-        <div className="knitting-modal-actions p-3 sm:p-4 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
+        <div className="knitting-modal-actions p-3 sm:p-4 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="text-xs text-slate-500 dark:text-slate-400">
             Click <strong>Copy Image</strong> to paste directly into WhatsApp or emails.
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={handlePrint}

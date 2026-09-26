@@ -32,6 +32,9 @@ import { useGlobalData } from '../context/GlobalDataContext';
 import { RaihanAvatar } from './RaihanAvatar';
 import { generateInitialLedger } from './ProductionLedgerView';
 import { RaihanSnippingModal } from './RaihanSnippingModal';
+import { KnittingOrderSnippingModal } from './KnittingOrderSnippingModal';
+import { RaihanOrderCard } from './RaihanOrderCard';
+import { KnittingStatusOrder } from '../types';
 import { 
   handleSmartProductionLedgerQuery, 
   handleSmartOrderQuery, 
@@ -45,6 +48,8 @@ interface ChatMessage {
   role: 'user' | 'model';
   text: string;
   timestamp: string;
+  orderData?: KnittingStatusOrder | null;
+  yarnAllocations?: any[];
 }
 
 interface RaihanChatBotProps {
@@ -82,10 +87,131 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
   const [snipModalOpen, setSnipModalOpen] = useState(false);
   const [snipTitle, setSnipTitle] = useState('Raihan ERP Summary');
   const [snipRawText, setSnipRawText] = useState('');
+  const [snipOrder, setSnipOrder] = useState<KnittingStatusOrder | null>(null);
 
-  const handleSnipMessage = (_msgId: string, text: string) => {
+  const handleSnipMessage = (_msgId: string, text: string, msgOrderData?: KnittingStatusOrder | null) => {
+    if (msgOrderData) {
+      setSnipOrder(msgOrderData);
+      return;
+    }
+
+    // 1. Check if message is regarding a specific order (e.g. Order #272767 or Order #272074)
+    const orderMatch = text.match(/Order Details:? #?(\d+)/i) || text.match(/Order #?(\d+)/i) || text.match(/#(\d{5,7})/);
+    if (orderMatch) {
+      const orderNum = orderMatch[1];
+      const allOrders = KnittingStatusStorage.getOrders();
+      let matched = allOrders.find(o => String(o.orderNo || '').trim() === orderNum || String(o.orderNo || '').includes(orderNum));
+
+      if (!matched) {
+        // Construct full KnittingStatusOrder from Textile Close PMC, Order Plans, or Yarn Allocations
+        const matchingTcp = textileRecords.filter(t => String(t.orderNo || '').includes(orderNum));
+        const matchingOp = orderPlans.filter(p => String(p.ewo || '').includes(orderNum));
+        const matchingYa = yarnAllocations.filter(y => String(y.orderNumber || '').includes(orderNum));
+
+        if (matchingTcp.length > 0 || matchingOp.length > 0 || matchingYa.length > 0) {
+          const buyer = matchingTcp[0]?.buyerName || matchingOp[0]?.buyer || matchingYa[0]?.buyer || 'Epyllion Buyer';
+          const teamLeader = matchingTcp[0]?.teamLeader || matchingOp[0]?.knitTeamLeaders || 'Unassigned';
+          const knitStart = matchingOp[0]?.knitStart || matchingOp[0]?.aKnitStart || '-';
+          const knitEnd = matchingOp[0]?.knitEnd || matchingOp[0]?.expectedKnitEnd || '-';
+
+          let items: any[] = [];
+          if (matchingTcp.length > 0) {
+            items = matchingTcp.map((t: any, idx) => ({
+              id: `itm-${orderNum}-${idx}`,
+              color: t.color || 'Standard',
+              mcType: '-',
+              fabType: t.fabType || 'Knitted Fabric',
+              fgsm: t.fgsm || '-',
+              fWidth: t.fWidth || '-',
+              yarnCount: matchingYa[0]?.allocatedYarn || matchingYa[0]?.yarnRequired || '-',
+              gaugeDia: '-',
+              knitStartDate: knitStart,
+              knitEndDate: knitEnd,
+              reqQty: Number(t.reqQty || 0),
+              greyQty: Number(t.greyQty || 0),
+              production: Number(t.production || 0),
+              hold: Number(t.hold || 0),
+              reject: Number(t.reject || 0),
+              itmQty: 0,
+              knitBalance: Number(t.knitBal ?? Math.max(0, Number(t.greyQty || 0) - Number(t.production || 0))),
+              productionUnit: '',
+              avgProdPerDay: 0
+            }));
+          } else if (matchingOp.length > 0) {
+            items = matchingOp.map((p: any, idx) => ({
+              id: `itm-${orderNum}-${idx}`,
+              color: p.color || 'Standard',
+              mcType: '-',
+              fabType: p.fabrication || p.fabType || 'Knitted Fabric',
+              fgsm: p.fgsm || '-',
+              fWidth: p.finishedDia || '-',
+              yarnCount: matchingYa[0]?.allocatedYarn || matchingYa[0]?.yarnRequired || '-',
+              gaugeDia: '-',
+              knitStartDate: p.knitStart || p.aKnitStart || '',
+              knitEndDate: p.knitEnd || p.expectedKnitEnd || '',
+              reqQty: Number(p.target || p.reqQty || 0),
+              greyQty: Number(p.allocatedQty || p.greyQty || 0),
+              production: Number(p.knitPro || p.production || 0),
+              hold: 0,
+              reject: 0,
+              itmQty: 0,
+              knitBalance: Number(p.knitBal ?? Math.max(0, Number(p.allocatedQty || 0) - Number(p.knitPro || 0))),
+              productionUnit: '',
+              avgProdPerDay: Number(p.avgProdDay || 0)
+            }));
+          } else {
+            items = matchingYa.map((y: any, idx) => ({
+              id: `itm-${orderNum}-${idx}`,
+              color: y.fabricShade || y.color || 'Standard',
+              mcType: '-',
+              fabType: y.fabricsType || y.fabrication || 'Knitted Fabric',
+              fgsm: y.fabricGsm || '-',
+              fWidth: '-',
+              yarnCount: y.allocatedYarn || y.yarnRequired || '-',
+              gaugeDia: '-',
+              knitStartDate: '',
+              knitEndDate: '',
+              reqQty: Number(y.yarnRqQty || 0),
+              greyQty: Number(y.allocatedQty || 0),
+              production: 0,
+              hold: 0,
+              reject: 0,
+              itmQty: 0,
+              knitBalance: Number(y.allocatedQty || y.yarnRqQty || 0),
+              productionUnit: '',
+              avgProdPerDay: 0
+            }));
+          }
+
+          const sumReq = items.reduce((acc, it) => acc + (it.reqQty || 0), 0);
+          const sumGrey = items.reduce((acc, it) => acc + (it.greyQty || 0), 0);
+          const sumProd = items.reduce((acc, it) => acc + (it.production || 0), 0);
+          const sumBal = items.reduce((acc, it) => acc + (it.knitBalance || 0), 0);
+
+          matched = {
+            id: `ord-${orderNum}`,
+            orderNo: orderNum,
+            buyerName: buyer,
+            teamLeader,
+            knitStartDate: knitStart,
+            knitEndDate: knitEnd,
+            reqQty: sumReq,
+            greyQty: sumGrey,
+            production: sumProd,
+            knitBalance: sumBal,
+            items
+          };
+        }
+      }
+
+      if (matched) {
+        setSnipOrder(matched);
+        return;
+      }
+    }
+
+    // 2. Default to RaihanSnippingModal for non-order summaries
     let title = 'Raihan ERP Summary';
-    const orderMatch = text.match(/Order #?(\d+)/i) || text.match(/#(\d+)/);
     if (orderMatch) {
       title = `Order #${orderMatch[1]} Summary`;
     } else if (text.toLowerCase().includes('daily production') || text.toLowerCase().includes('knitting status')) {
@@ -123,11 +249,11 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
 
   // Quick prompt suggestions
   const SUGGESTIONS = [
+    "Information for Order 272767",
     "Yesterday's production floor by floor",
     "Which floor did not update today?",
     "Last 7 days production of EFL",
     "Predict tomorrow's production",
-    "Information for Order 272277",
     "What is the total knitting balance?"
   ];
 
@@ -597,7 +723,9 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
             id: `msg-${Date.now() + 1}`,
             role: 'model',
             text: orderResult.reply!,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            orderData: orderResult.orderData || null,
+            yarnAllocations: orderResult.yarnAllocations || []
           }
         ]);
         setIsLoading(false);
@@ -991,7 +1119,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
           className={`fixed z-50 flex flex-col bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden transition-all duration-200 animate-scale-up ${
             isMaximized
               ? 'inset-2 sm:inset-4 md:inset-6 rounded-2xl max-w-none max-h-none border-teal-500/40'
-              : 'bottom-5 right-5 w-[390px] sm:w-[480px] md:w-[520px] max-w-[calc(100vw-1.5rem)] h-[620px] max-h-[calc(100vh-3.5rem)] rounded-2xl'
+              : 'bottom-4 right-4 sm:right-6 w-[96vw] sm:w-[780px] md:w-[920px] lg:w-[1040px] xl:w-[1100px] max-w-[calc(100vw-1.5rem)] h-[720px] max-h-[calc(100vh-2.5rem)] rounded-2xl'
           }`}
         >
           {/* Header */}
@@ -1099,38 +1227,61 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
             {messages.map((msg) => {
               const isBot = msg.role === 'model';
               const isWelcome = msg.id.startsWith('welcome-');
+
+              // Identify if this message represents an order status card
+              const cardOrder = msg.orderData || (() => {
+                if (!isBot || isWelcome) return null;
+                const match = msg.text.match(/Order Details:? #?(\d+)/i) || msg.text.match(/Order #?(\d{5,7})/i) || msg.text.match(/#(\d{5,7})/);
+                if (!match) return null;
+                const orderNum = match[1];
+                const allOrders = KnittingStatusStorage.getOrders();
+                return allOrders.find(o => String(o.orderNo || '').trim() === orderNum || String(o.orderNo || '').includes(orderNum)) || null;
+              })();
+
               return (
                 <div
                   key={msg.id}
                   className={`flex items-start gap-2.5 ${isBot ? 'justify-start' : 'justify-end'}`}
                 >
                   {isBot && (
-                    <RaihanAvatar size="sm" className="mt-0.5" />
+                    <RaihanAvatar size="sm" className="mt-0.5 shrink-0" />
                   )}
 
                   <div
-                    className={`max-w-[88%] rounded-2xl p-3 leading-relaxed shadow-xs ${
+                    className={`${cardOrder ? 'w-full max-w-full p-1.5 sm:p-2' : 'max-w-[88%] p-3'} rounded-2xl leading-relaxed shadow-xs ${
                       isBot
                         ? isWelcome
                           ? 'bg-gradient-to-br from-teal-50/90 via-emerald-50/40 to-white dark:from-slate-800 dark:via-teal-950/30 dark:to-slate-800 text-slate-800 dark:text-slate-200 border border-teal-200/90 dark:border-teal-700/60 shadow-xs'
-                          : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200/80 dark:border-slate-700/80'
+                          : cardOrder
+                            ? 'bg-transparent border-0 shadow-none p-0'
+                            : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200/80 dark:border-slate-700/80'
                         : 'bg-teal-600 text-white rounded-br-none font-medium'
                     }`}
                   >
-                    <div id={`raihan-msg-content-${msg.id}`} className="text-[12.5px] leading-relaxed">
-                      {renderFormattedText(msg.text)}
-                    </div>
+                    {cardOrder ? (
+                      <div className="w-full">
+                        <RaihanOrderCard
+                          order={cardOrder}
+                          allocations={msg.yarnAllocations || yarnAllocations}
+                          onOpenSnippingTool={(ord) => setSnipOrder(ord)}
+                        />
+                      </div>
+                    ) : (
+                      <div id={`raihan-msg-content-${msg.id}`} className="text-[12.5px] leading-relaxed">
+                        {renderFormattedText(msg.text)}
+                      </div>
+                    )}
                     <div
-                      className={`flex items-center justify-between mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-700/60 no-snip ${
+                      className={`flex items-center justify-between mt-1 pt-1 ${cardOrder ? 'px-2' : 'border-t border-slate-100 dark:border-slate-700/60'} no-snip ${
                         isBot ? 'text-slate-400 dark:text-slate-500' : 'text-teal-100'
                       }`}
                     >
                       <span className="text-[10px]">{msg.timestamp}</span>
 
-                      {isBot && !isWelcome && (
+                      {isBot && !isWelcome && !cardOrder && (
                         <button
                           type="button"
-                          onClick={() => handleSnipMessage(msg.id, msg.text)}
+                          onClick={() => handleSnipMessage(msg.id, msg.text, msg.orderData)}
                           className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/70 hover:bg-teal-100 dark:hover:bg-teal-900/80 border border-teal-300/80 dark:border-teal-700/80 transition-all cursor-pointer shadow-2xs group"
                           title="Snipping Tool · Save & share clear summary image"
                         >
@@ -1250,7 +1401,14 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         </div>
       )}
 
-      {/* High-Definition Snipping Tool Modal */}
+      {/* Official Factory Floor Order Details Snipping Modal (Exact Match with Photo 2) */}
+      <KnittingOrderSnippingModal
+        order={snipOrder}
+        isOpen={Boolean(snipOrder)}
+        onClose={() => setSnipOrder(null)}
+      />
+
+      {/* High-Definition Snipping Tool Modal for General ERP summaries */}
       <RaihanSnippingModal
         isOpen={snipModalOpen}
         onClose={() => setSnipModalOpen(false)}

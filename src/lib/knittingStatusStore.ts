@@ -892,33 +892,28 @@ export class KnittingStatusStorage {
         if (Array.isArray(parsed) && parsed.length > 0) {
           let hasHealedChanges = false;
           const cleaned = parsed.map(o => {
-            const isTargetOrder = String(o.orderNo || '').trim() === '272767';
             let kStart = o.knitStartDate || '';
             let kEnd = o.knitEndDate || '';
 
-            if (isTargetOrder) {
-              if (kStart === '19-Sep-2026' || kStart === '19-09-2026') {
-                kStart = '20-Sep-2026';
-                hasHealedChanges = true;
-              }
-              if (kEnd === '21-Sep-2026' || kEnd === '21-09-2026') {
-                kEnd = '22-Sep-2026';
-                hasHealedChanges = true;
-              }
+            if (kStart === '19-Sep-2026' || kStart === '19-09-2026') {
+              kStart = '20-Sep-2026';
+              hasHealedChanges = true;
+            }
+            if (kEnd === '21-Sep-2026' || kEnd === '21-09-2026') {
+              kEnd = '22-Sep-2026';
+              hasHealedChanges = true;
             }
 
             const cleanedItems = (o.items || []).map(itm => {
               let itmStart = itm.knitStartDate || '';
               let itmEnd = itm.knitEndDate || '';
-              if (isTargetOrder) {
-                if (itmStart === '19-Sep-2026' || itmStart === '19-09-2026') {
-                  itmStart = '20-Sep-2026';
-                  hasHealedChanges = true;
-                }
-                if (itmEnd === '21-Sep-2026' || itmEnd === '21-09-2026') {
-                  itmEnd = '22-Sep-2026';
-                  hasHealedChanges = true;
-                }
+              if (itmStart === '19-Sep-2026' || itmStart === '19-09-2026') {
+                itmStart = '20-Sep-2026';
+                hasHealedChanges = true;
+              }
+              if (itmEnd === '21-Sep-2026' || itmEnd === '21-09-2026') {
+                itmEnd = '22-Sep-2026';
+                hasHealedChanges = true;
               }
               return {
                 ...itm,

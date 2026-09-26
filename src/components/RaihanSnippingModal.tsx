@@ -8,7 +8,9 @@ import {
   Scissors, 
   RefreshCw,
   Sparkles,
-  Printer
+  Printer,
+  Smartphone,
+  MoveHorizontal
 } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { getCompanyLogo, initBrandingSync } from '../lib/logoStore';
@@ -41,13 +43,22 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
   title,
   rawText
 }) => {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [imageBlob, setImageBlob] = useState<Blob | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedImage, setCopiedImage] = useState(false);
   const [copiedText, setCopiedText] = useState(false);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
+
+  // Mobile View & Responsive Scaling States
+  const [viewMode, setViewMode] = useState<'fit' | 'full'>('fit');
+  const [scale, setScale] = useState<number>(1);
+  const [cardHeight, setCardHeight] = useState<number>(0);
+  const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' ? window.innerWidth < 1060 : false);
 
   const [customLogo, setCustomLogo] = useState<string | null>(() => getCompanyLogo());
 
@@ -60,6 +71,51 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
     window.addEventListener('company_logo_updated', handleUpdate);
     return () => window.removeEventListener('company_logo_updated', handleUpdate);
   }, []);
+
+  // Compute responsive scale for mobile fit
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const measureAndScale = () => {
+      const mobile = window.innerWidth < 1060;
+      setIsMobile(mobile);
+
+      if (scrollContainerRef.current && cardRef.current) {
+        const containerWidth = scrollContainerRef.current.clientWidth;
+        // Natural target width for Raihan summary card is 1060px so all columns (Hold, Reject, Balance) are 100% visible
+        const targetWidth = 1060;
+        const availableWidth = Math.max(containerWidth - 24, 280);
+        const computedScale = Math.min(1, availableWidth / targetWidth);
+        setScale(computedScale);
+
+        const measuredHeight = cardRef.current.offsetHeight || cardRef.current.scrollHeight || 600;
+        setCardHeight(measuredHeight);
+      }
+    };
+
+    const rafId = requestAnimationFrame(measureAndScale);
+    const timer = setTimeout(measureAndScale, 150);
+
+    const resizeObserver = new ResizeObserver(() => {
+      measureAndScale();
+    });
+
+    if (scrollContainerRef.current) {
+      resizeObserver.observe(scrollContainerRef.current);
+    }
+    if (cardRef.current) {
+      resizeObserver.observe(cardRef.current);
+    }
+
+    window.addEventListener('resize', measureAndScale);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(timer);
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', measureAndScale);
+    };
+  }, [isOpen, rawText]);
 
   const fileName = `Raihan_Summary_${title.replace(/[^a-zA-Z0-9_-]/g, '_')}_${new Date().toISOString().slice(0, 10)}.png`;
 
@@ -98,12 +154,12 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
           const dataRows = tableLines.slice(dataStartIdx).map(tl => tl.slice(1, -1).split('|').map(s => s.trim()));
 
           elements.push(
-            <div key={`table-${i}`} className="my-3 rounded-lg border border-slate-300 bg-white shadow-xs overflow-hidden">
+            <div key={`table-${i}`} className="my-3 rounded-lg border border-slate-300 bg-white shadow-xs overflow-visible">
               <table className="w-full text-xs text-left border-collapse table-auto">
                 <thead className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
                   <tr>
                     {rawHeaders.map((h, hIdx) => {
-                      const isNumeric = /qty|quantity|balance|production|req|gsm|width/i.test(h);
+                      const isNumeric = /qty|quantity|balance|production|req|gsm|width|hold|reject/i.test(h);
                       const isAllocatedYarn = /allocated yarn/i.test(h);
                       return (
                         <th 
@@ -131,7 +187,7 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
                       >
                         {row.map((cell, cIdx) => {
                           const headerText = rawHeaders[cIdx] || '';
-                          const isNumeric = /qty|quantity|balance|production|req|gsm|width/i.test(headerText);
+                          const isNumeric = /qty|quantity|balance|production|req|gsm|width|hold|reject/i.test(headerText);
                           const isAllocatedYarn = /allocated yarn/i.test(headerText);
                           return (
                             <td
@@ -216,18 +272,58 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
   const captureCard = async (): Promise<{ dataUrl: string; blob: Blob } | null> => {
     if (!cardRef.current) return null;
     try {
-      const captureWidth = Math.max(cardRef.current.scrollWidth, 800);
-      const dataUrl = await toPng(cardRef.current, {
+      const card = cardRef.current;
+      const wrapper = wrapperRef.current;
+
+      // Save previous transform and wrapper styles
+      const prevTransform = card.style.transform;
+      const prevTransformOrigin = card.style.transformOrigin;
+      const prevWrapperWidth = wrapper ? wrapper.style.width : '';
+      const prevWrapperHeight = wrapper ? wrapper.style.height : '';
+      const prevWrapperOverflow = wrapper ? wrapper.style.overflow : '';
+
+      // Temporarily remove transform and wrapper constraints so html-to-image captures full unscaled 1060px card
+      card.style.transform = 'none';
+      card.style.transformOrigin = 'initial';
+      if (wrapper) {
+        wrapper.style.width = '1060px';
+        wrapper.style.height = 'auto';
+        wrapper.style.overflow = 'visible';
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 35));
+
+      const captureWidth = 1060;
+      const captureHeight = card.scrollHeight || 600;
+
+      const dataUrl = await toPng(card, {
         pixelRatio: 2.2,
         backgroundColor: '#ffffff',
         skipFonts: true,
         cacheBust: true,
-        width: captureWidth
+        width: captureWidth,
+        height: captureHeight
       });
+
+      // Restore styling
+      card.style.transform = prevTransform;
+      card.style.transformOrigin = prevTransformOrigin;
+      if (wrapper) {
+        wrapper.style.width = prevWrapperWidth;
+        wrapper.style.height = prevWrapperHeight;
+        wrapper.style.overflow = prevWrapperOverflow;
+      }
+
       const blob = dataUrlToBlob(dataUrl);
       return { dataUrl, blob };
     } catch (err) {
       console.warn('Image capture failed:', err);
+      if (cardRef.current) {
+        if (viewMode === 'fit' && isMobile && scale < 1) {
+          cardRef.current.style.transform = `scale(${scale})`;
+          cardRef.current.style.transformOrigin = 'top left';
+        }
+      }
       return null;
     }
   };
@@ -395,6 +491,8 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
 
       // Clone card and sanitize styles for 1-page portrait print
       const cardClone = cardRef.current.cloneNode(true) as HTMLElement;
+      cardClone.style.transform = 'none';
+      cardClone.style.transformOrigin = 'initial';
       cardClone.style.minWidth = '0';
       cardClone.style.width = '100%';
       cardClone.style.maxWidth = '100%';
@@ -529,7 +627,7 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
       onClick={onClose}
     >
       <div 
-        className="raihan-modal-box relative w-full max-w-4xl lg:max-w-5xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-teal-500/40 flex flex-col max-h-[92vh] overflow-hidden"
+        className="raihan-modal-box relative w-full max-w-5xl lg:max-w-6xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-teal-500/40 flex flex-col max-h-[92vh] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
@@ -578,118 +676,197 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
         </div>
 
         {/* Modal Content / Preview Area */}
-        <div className="raihan-modal-content flex-1 p-3 sm:p-6 overflow-y-auto overflow-x-auto bg-slate-100 dark:bg-slate-950 flex flex-col items-center">
-          {/* Branded ERP Summary Card that is ALWAYS immediately visible */}
-          <div 
-            ref={cardRef}
-            id="raihan-snip-capture-card"
-            className="printable-snip-card w-full max-w-4xl bg-white text-slate-900 rounded-xl p-5 sm:p-7 shadow-md border border-slate-200 selection:bg-teal-100 shrink-0"
-            style={{ minWidth: 'min(100%, 820px)', color: '#0f172a', backgroundColor: '#ffffff' }}
-          >
-            {/* Card Branded Header */}
-            <div className="flex items-center justify-between pb-3.5 mb-4 border-b-2 border-teal-600">
-              <div className="flex items-center gap-2.5">
-                {customLogo ? (
-                  <div className="flex items-center justify-center shrink-0 max-h-11">
-                    <img
-                      src={customLogo}
-                      alt="Epyllion Knitex Ltd."
-                      className="h-9 w-auto max-w-[120px] max-h-10 object-contain"
-                    />
-                  </div>
+        <div 
+          ref={scrollContainerRef}
+          className="raihan-modal-content flex-1 p-2.5 sm:p-5 overflow-y-auto overflow-x-auto bg-slate-100 dark:bg-slate-950"
+        >
+          <div className="min-w-full w-max mx-auto flex flex-col items-center">
+            {/* Mobile View Mode Toolbar */}
+            <div className="w-full max-w-[1060px] mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
+              <div className="flex items-center gap-1 bg-slate-200/90 dark:bg-slate-800/90 p-1 rounded-xl shadow-xs border border-slate-300 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('fit')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    viewMode === 'fit'
+                      ? 'bg-teal-700 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white'
+                  }`}
+                  title="Fit whole card to screen"
+                >
+                  <Smartphone className="w-3.5 h-3.5" />
+                  <span>Fit Screen {isMobile && scale < 1 ? `(${Math.round(scale * 100)}%)` : ''}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setViewMode('full')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    viewMode === 'full'
+                      ? 'bg-teal-700 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white'
+                  }`}
+                  title="View at 100% full scale with smooth horizontal scroll"
+                >
+                  <MoveHorizontal className="w-3.5 h-3.5" />
+                  <span>100% Full View</span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                {viewMode === 'fit' && isMobile && scale < 1 ? (
+                  <span className="flex items-center gap-1 text-teal-800 dark:text-teal-200 bg-teal-50 dark:bg-teal-950/60 px-2.5 py-0.5 rounded-md border border-teal-200 dark:border-teal-800">
+                    <span>Mobile Fit: Entire document visible · Tap 100% to inspect columns</span>
+                  </span>
+                ) : viewMode === 'full' && isMobile ? (
+                  <span className="flex items-center gap-1 text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/60 px-2.5 py-0.5 rounded-md border border-amber-200 dark:border-amber-800">
+                    <span>↔ Swipe horizontally to see all columns & yarn data</span>
+                  </span>
                 ) : (
-                  <div
-                    className="flex items-center justify-center shrink-0 shadow-xs"
-                    title="Epyllion Knitex Logo"
-                  >
-                    <svg
-                      width="42"
-                      height="42"
-                      viewBox="0 0 44 44"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                      className="rounded-xl overflow-hidden shadow-xs"
-                    >
-                      {/* Brand green background badge */}
-                      <rect width="44" height="44" rx="10" fill="#15803D" />
-                      
-                      {/* Epyllion Sunburst Rays */}
-                      <path d="M 25 13 C 27 10 31 8 35 7" stroke="#FBBF24" strokeWidth="2" strokeLinecap="round" fill="none" />
-                      <path d="M 27 16 C 32 13 36 11 40 10" stroke="#F59E0B" strokeWidth="2.4" strokeLinecap="round" fill="none" />
-                      <path d="M 28 20 C 33 17 38 14 42 13" stroke="#FBBF24" strokeWidth="2" strokeLinecap="round" fill="none" />
-                      
-                      {/* Green leaf shape */}
-                      <path d="M 9 27 C 7 19 16 11 24 17 C 26 19 28 22 26 27 C 20.5 29 15 29 9 27 Z" fill="#22C55E" />
-                      <path d="M 11 26 C 15 22 20 22 24 26" stroke="#FFFFFF" strokeWidth="1.3" strokeLinecap="round" fill="none" />
-                      
-                      {/* Dynamic Golden Arc */}
-                      <path d="M 7 32 C 15 26 26 20 37 23" stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round" fill="none" />
-                      
-                      {/* Official E Monogram */}
-                      <text
-                        x="13"
-                        y="29"
-                        fontFamily="system-ui, -apple-system, sans-serif"
-                        fontSize="18"
-                        fontWeight="900"
-                        fill="#FFFFFF"
-                      >
-                        E
-                      </text>
-                    </svg>
-                  </div>
+                  <span className="text-slate-500">HD Ready · 100% Complete Data</span>
                 )}
-                <div>
-                  <div className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight">
-                    EPYLLION KNITEX LIMITED
-                  </div>
-                  <div className="text-xs font-bold text-teal-700 flex items-center gap-1.5">
-                    <span>Ask Raihan · Production Guide</span>
-                    <span className="text-slate-300">•</span>
-                    <span className="text-slate-600 font-semibold">{title}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="text-right">
-                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 px-2.5 py-0.5 rounded-full">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
-                  Verified ERP Record
-                </span>
-                <div className="text-[10px] text-slate-500 mt-1 font-medium">
-                  {new Date().toLocaleString([], { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                </div>
               </div>
             </div>
 
-            {/* Content Body with Tables & Totals */}
-            <div className="text-[12.5px] leading-relaxed text-slate-900">
-              {renderFormattedCardContent(rawText)}
+            {/* Scaled / Natural Wrapper */}
+            <div
+              ref={wrapperRef}
+              className="relative transition-all duration-150 mx-auto"
+              style={
+                viewMode === 'fit' && isMobile && scale < 1
+                  ? {
+                      width: `${Math.round(1060 * scale)}px`,
+                      height: `${Math.round((cardHeight || 600) * scale)}px`,
+                      overflow: 'hidden'
+                    }
+                  : {
+                      width: '1060px',
+                      overflow: 'visible'
+                    }
+              }
+            >
+              {/* Branded ERP Summary Card that is ALWAYS immediately visible & full 1060px */}
+              <div 
+                ref={cardRef}
+                id="raihan-snip-capture-card"
+                className="printable-snip-card bg-white text-slate-900 rounded-xl p-5 sm:p-7 shadow-md border border-slate-200 selection:bg-teal-100 shrink-0"
+                style={{
+                  width: '1060px',
+                  minWidth: '1060px',
+                  maxWidth: '1060px',
+                  color: '#0f172a',
+                  backgroundColor: '#ffffff',
+                  transform: (viewMode === 'fit' && isMobile && scale < 1) ? `scale(${scale})` : 'none',
+                  transformOrigin: 'top left',
+                  boxSizing: 'border-box'
+                }}
+              >
+                {/* Card Branded Header */}
+                <div className="flex items-center justify-between pb-3.5 mb-4 border-b-2 border-teal-600">
+                  <div className="flex items-center gap-2.5">
+                    {customLogo ? (
+                      <div className="flex items-center justify-center shrink-0 max-h-11">
+                        <img
+                          src={customLogo}
+                          alt="Epyllion Knitex Ltd."
+                          className="h-9 w-auto max-w-[120px] max-h-10 object-contain"
+                        />
+                      </div>
+                    ) : (
+                      <div
+                        className="flex items-center justify-center shrink-0 shadow-xs"
+                        title="Epyllion Knitex Logo"
+                      >
+                        <svg
+                          width="42"
+                          height="42"
+                          viewBox="0 0 44 44"
+                          fill="none"
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="rounded-xl overflow-hidden shadow-xs"
+                        >
+                          {/* Brand green background badge */}
+                          <rect width="44" height="44" rx="10" fill="#15803D" />
+                          
+                          {/* Epyllion Sunburst Rays */}
+                          <path d="M 25 13 C 27 10 31 8 35 7" stroke="#FBBF24" strokeWidth="2" strokeLinecap="round" fill="none" />
+                          <path d="M 27 16 C 32 13 36 11 40 10" stroke="#F59E0B" strokeWidth="2.4" strokeLinecap="round" fill="none" />
+                          <path d="M 28 20 C 33 17 38 14 42 13" stroke="#FBBF24" strokeWidth="2" strokeLinecap="round" fill="none" />
+                          
+                          {/* Green leaf shape */}
+                          <path d="M 9 27 C 7 19 16 11 24 17 C 26 19 28 22 26 27 C 20.5 29 15 29 9 27 Z" fill="#22C55E" />
+                          <path d="M 11 26 C 15 22 20 22 24 26" stroke="#FFFFFF" strokeWidth="1.3" strokeLinecap="round" fill="none" />
+                          
+                          {/* Dynamic Golden Arc */}
+                          <path d="M 7 32 C 15 26 26 20 37 23" stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round" fill="none" />
+                          
+                          {/* Official E Monogram */}
+                          <text
+                            x="13"
+                            y="29"
+                            fontFamily="system-ui, -apple-system, sans-serif"
+                            fontSize="18"
+                            fontWeight="900"
+                            fill="#FFFFFF"
+                          >
+                            E
+                          </text>
+                        </svg>
+                      </div>
+                    )}
+                    <div>
+                      <div className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight">
+                        EPYLLION KNITEX LIMITED
+                      </div>
+                      <div className="text-xs font-bold text-teal-700 flex items-center gap-1.5">
+                        <span>Ask Raihan · Production Guide</span>
+                        <span className="text-slate-300">•</span>
+                        <span className="text-slate-600 font-semibold">{title}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 px-2.5 py-0.5 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                      Verified ERP Record
+                    </span>
+                    <div className="text-[10px] text-slate-500 mt-1 font-medium">
+                      {new Date().toLocaleString([], { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Content Body with Tables & Totals */}
+                <div className="text-[12.5px] leading-relaxed text-slate-900">
+                  {renderFormattedCardContent(rawText)}
+                </div>
+
+                {/* Card Branded Footer */}
+                <div className="mt-5 pt-3 border-t border-dashed border-slate-300 flex items-center justify-between text-[10.5px] text-slate-500">
+                  <span className="flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Verified ERP Summary generated by Ask Raihan</span>
+                  </span>
+                  <span className="font-semibold text-slate-600">
+                    Epyllion Knitex Limited-Knitting Department.
+                  </span>
+                </div>
+              </div>
             </div>
 
-            {/* Card Branded Footer */}
-            <div className="mt-5 pt-3 border-t border-dashed border-slate-300 flex items-center justify-between text-[10.5px] text-slate-500">
-              <span className="flex items-center gap-1">
-                <Sparkles className="w-3.5 h-3.5 text-teal-600" />
-                <span>Verified ERP Summary generated by Ask Raihan</span>
-              </span>
-              <span className="font-semibold text-slate-600">
-                Epyllion Knitex Limited-Knitting Department.
-              </span>
-            </div>
+            <p className="raihan-modal-hint text-[11px] text-slate-500 dark:text-slate-400 mt-3 flex items-center gap-1.5">
+              <Sparkles className="w-3 h-3 text-teal-500" />
+              <span>High-definition snapshot with complete tables and total summaries. Ready to save or share.</span>
+            </p>
+
+            {shareStatus && (
+              <div className="mt-2 text-xs font-semibold px-3.5 py-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1.5 animate-fade-in shadow-xs">
+                <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span>{shareStatus}</span>
+              </div>
+            )}
           </div>
-
-          <p className="raihan-modal-hint text-[11px] text-slate-500 dark:text-slate-400 mt-3 flex items-center gap-1.5">
-            <Sparkles className="w-3 h-3 text-teal-500" />
-            <span>High-definition snapshot with complete tables and total summaries. Ready to save or share.</span>
-          </p>
-
-          {shareStatus && (
-            <div className="mt-2 text-xs font-semibold px-3.5 py-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1.5 animate-fade-in shadow-xs">
-              <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>{shareStatus}</span>
-            </div>
-          )}
         </div>
 
         {/* Action Buttons Bar */}
