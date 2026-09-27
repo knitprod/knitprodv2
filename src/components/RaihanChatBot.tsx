@@ -1491,6 +1491,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         order={snipOrder}
         isOpen={Boolean(snipOrder)}
         onClose={() => setSnipOrder(null)}
+        includeAllocation={true}
       />
 
       {/* High-Definition Snipping Tool Modal for General ERP summaries */}

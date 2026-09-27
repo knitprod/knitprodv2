@@ -1573,19 +1573,31 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
 
                         {/* Action: View Button */}
                         <td className="py-3 px-3 text-center" onClick={e => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setViewingOrder(order);
-                              setExpandedOrderIds(prev => new Set([...prev, order.id]));
-                            }}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600 dark:hover:text-white transition-all shadow-2xs cursor-pointer active:scale-95"
-                            title={`View all data on Order ${order.orderNo}`}
-                            id={`view-order-${order.orderNo}`}
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            <span>View</span>
-                          </button>
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setViewingOrder(order);
+                                setExpandedOrderIds(prev => new Set([...prev, order.id]));
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600 dark:hover:text-white transition-all shadow-2xs cursor-pointer active:scale-95"
+                              title={`View all data on Order ${order.orderNo}`}
+                              id={`view-order-${order.orderNo}`}
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>View</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSnipOrder(order)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600 dark:hover:text-white transition-all shadow-2xs cursor-pointer active:scale-95"
+                              title={`Take Knitting Status snapshot for Order ${order.orderNo}`}
+                              id={`snip-order-main-btn-${order.orderNo}`}
+                            >
+                              <Scissors className="w-3.5 h-3.5" />
+                              <span>Snip</span>
+                            </button>
+                          </div>
                         </td>
                       </tr>
 
@@ -1886,12 +1898,13 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
         />
       )}
 
-      {/* Modal: Snipping Tool for Order Details */}
+      {/* Modal: Snipping Tool for Order Details (Knitting Status Only, No Allocation) */}
       {snipOrder && (
         <KnittingOrderSnippingModal
           order={snipOrder}
           isOpen={Boolean(snipOrder)}
           onClose={() => setSnipOrder(null)}
+          includeAllocation={false}
         />
       )}
 

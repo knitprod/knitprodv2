@@ -27,6 +27,7 @@ interface KnittingOrderSnippingModalProps {
   isOpen: boolean;
   onClose: () => void;
   allocations?: any[];
+  includeAllocation?: boolean;
 }
 
 /**
@@ -56,10 +57,28 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
   order,
   isOpen,
   onClose,
-  allocations
+  allocations,
+  includeAllocation
 }) => {
   const { yarnAllocations } = useGlobalData();
-  const allYarn = (allocations && allocations.length > 0) ? allocations : yarnAllocations;
+
+  // Mode: Default to includeAllocation if specified, otherwise only show allocations if explicitly provided
+  const [showAllocations, setShowAllocations] = useState<boolean>(() => {
+    if (typeof includeAllocation === 'boolean') return includeAllocation;
+    return Boolean(allocations && allocations.length > 0);
+  });
+
+  useEffect(() => {
+    if (typeof includeAllocation === 'boolean') {
+      setShowAllocations(includeAllocation);
+    } else {
+      setShowAllocations(Boolean(allocations && allocations.length > 0));
+    }
+  }, [includeAllocation, allocations, isOpen]);
+
+  const allYarn = showAllocations
+    ? (allocations && allocations.length > 0 ? allocations : yarnAllocations)
+    : [];
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -124,8 +143,10 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
   }, [isOpen, order]);
 
   const fileName = order
-    ? `Order_${order.orderNo}_Knitting_Details_${new Date().toISOString().slice(0, 10)}.png`
-    : 'Order_Knitting_Details.png';
+    ? showAllocations
+      ? `Order_${order.orderNo}_Knitting_&_Allocations_${new Date().toISOString().slice(0, 10)}.png`
+      : `Order_${order.orderNo}_Knitting_Status_${new Date().toISOString().slice(0, 10)}.png`
+    : 'Order_Knitting_Status.png';
 
   // Capture the rendered card into image data
   const captureCard = async (): Promise<{ dataUrl: string; blob: Blob } | null> => {
@@ -161,7 +182,7 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
     }
   };
 
-  // Pre-generate image in background when opened
+  // Pre-generate image in background when opened or when allocation view toggles
   useEffect(() => {
     if (isOpen && order) {
       setImageDataUrl(null);
@@ -179,7 +200,7 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
 
       return () => clearTimeout(timer);
     }
-  }, [isOpen, order]);
+  }, [isOpen, order, showAllocations]);
 
   if (!isOpen || !order) return null;
 
@@ -200,14 +221,16 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
     { reqQty: 0, greyQty: 0, production: 0, hold: 0, reject: 0, itmQty: 0, knitBalance: 0, avgProdPerDay: 0 }
   );
 
-  // Filter and group allocated yarn for this order
-  const validAllocations = (Array.isArray(allYarn) ? allYarn : []).filter(y => {
-    if (!order) return false;
-    const ordMatch = String(y.orderNumber || y.order_number || '').trim();
-    const qty = Number(y.allocatedQty ?? y.allocated_qty ?? 0);
-    const yarn = String(y.allocatedYarn || y.allocated_yarn || y.yarnRequired || '').trim();
-    return ordMatch.includes(order.orderNo) && (qty > 0 || yarn.length > 0);
-  });
+  // Filter and group allocated yarn for this order (only if showAllocations is active)
+  const validAllocations = showAllocations
+    ? (Array.isArray(allYarn) ? allYarn : []).filter(y => {
+        if (!order) return false;
+        const ordMatch = String(y.orderNumber || y.order_number || '').trim();
+        const qty = Number(y.allocatedQty ?? y.allocated_qty ?? 0);
+        const yarn = String(y.allocatedYarn || y.allocated_yarn || y.yarnRequired || '').trim();
+        return ordMatch.includes(order.orderNo) && (qty > 0 || yarn.length > 0);
+      })
+    : [];
 
   const allocGroups = new Map<string, {
     color: string;
@@ -218,39 +241,41 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
     allocatedQty: number;
   }>();
 
-  for (const y of validAllocations) {
-    const color = String(y.fabricShade || y.fabric_shade || y.color || 'Standard Shade').trim();
-    const fabricType = String(y.fabricsType || y.fabrics_type || y.fabrication || 'Knitted Fabric').trim();
-    const allocatedYarn = String(y.allocatedYarn || y.allocated_yarn || y.yarnRequired || '').trim();
-    const lot = String(y.lotNo || y.lot_no || 'N/A').trim();
-    const spinner = String(y.spinnersName || y.spinners_name || 'N/A').trim();
-    const qty = Number(y.allocatedQty ?? y.allocated_qty ?? 0);
+  if (showAllocations) {
+    for (const y of validAllocations) {
+      const color = String(y.fabricShade || y.fabric_shade || y.color || 'Standard Shade').trim();
+      const fabricType = String(y.fabricsType || y.fabrics_type || y.fabrication || 'Knitted Fabric').trim();
+      const allocatedYarn = String(y.allocatedYarn || y.allocated_yarn || y.yarnRequired || '').trim();
+      const lot = String(y.lotNo || y.lot_no || 'N/A').trim();
+      const spinner = String(y.spinnersName || y.spinners_name || 'N/A').trim();
+      const qty = Number(y.allocatedQty ?? y.allocated_qty ?? 0);
 
-    const key = `${color.toLowerCase()}__${fabricType.toLowerCase()}__${allocatedYarn.toLowerCase()}__${lot.toLowerCase()}__${spinner.toLowerCase()}`;
-    const existing = allocGroups.get(key);
-    if (existing) {
-      existing.allocatedQty += qty;
-    } else {
-      allocGroups.set(key, { color, fabricType, allocatedYarn, lot, spinner, allocatedQty: qty });
-    }
-  }
-
-  // Intelligent fallback: if no yarn allocation records exist in yarn allocations store, derive from order.items
-  if (allocGroups.size === 0 && items.length > 0) {
-    for (const itm of items) {
-      const color = String(itm.color || 'Standard').trim();
-      const fabricType = String(itm.fabType || itm.mcType || 'Knitted Fabric').trim();
-      const allocatedYarn = String(itm.yarnCount || 'Allocated Ring Spun Cotton').trim();
-      const lot = 'Allocated';
-      const spinner = 'Epyllion Spinning / Associated';
-      const qty = Number(itm.greyQty || itm.reqQty || 0);
-
-      const key = `${color.toLowerCase()}__${fabricType.toLowerCase()}__${allocatedYarn.toLowerCase()}`;
+      const key = `${color.toLowerCase()}__${fabricType.toLowerCase()}__${allocatedYarn.toLowerCase()}__${lot.toLowerCase()}__${spinner.toLowerCase()}`;
       const existing = allocGroups.get(key);
       if (existing) {
         existing.allocatedQty += qty;
       } else {
         allocGroups.set(key, { color, fabricType, allocatedYarn, lot, spinner, allocatedQty: qty });
+      }
+    }
+
+    // Intelligent fallback: if no yarn allocation records exist in yarn allocations store, derive from order.items
+    if (allocGroups.size === 0 && items.length > 0) {
+      for (const itm of items) {
+        const color = String(itm.color || 'Standard').trim();
+        const fabricType = String(itm.fabType || itm.mcType || 'Knitted Fabric').trim();
+        const allocatedYarn = String(itm.yarnCount || 'Allocated Ring Spun Cotton').trim();
+        const lot = 'Allocated';
+        const spinner = 'Epyllion Spinning / Associated';
+        const qty = Number(itm.greyQty || itm.reqQty || 0);
+
+        const key = `${color.toLowerCase()}__${fabricType.toLowerCase()}__${allocatedYarn.toLowerCase()}`;
+        const existing = allocGroups.get(key);
+        if (existing) {
+          existing.allocatedQty += qty;
+        } else {
+          allocGroups.set(key, { color, fabricType, allocatedYarn, lot, spinner, allocatedQty: qty });
+        }
       }
     }
   }
@@ -646,50 +671,101 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
           className="knitting-modal-content flex-1 p-2.5 sm:p-5 overflow-y-auto overflow-x-auto bg-slate-100 dark:bg-slate-950"
         >
           <div className="min-w-full w-max mx-auto flex flex-col items-center">
-            {/* Mobile View Mode Toolbar */}
+            {/* View Mode Toolbar */}
             <div className="w-full max-w-[1220px] mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
-              <div className="flex items-center gap-1 bg-slate-200/90 dark:bg-slate-800/90 p-1 rounded-xl shadow-xs border border-slate-300 dark:border-slate-700">
-                <button
-                  type="button"
-                  onClick={() => setViewMode('fit')}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                    viewMode === 'fit'
-                      ? 'bg-indigo-700 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white'
-                  }`}
-                  title="Fit whole card to screen"
-                >
-                  <Smartphone className="w-3.5 h-3.5" />
-                  <span>Fit Screen {isMobile && scale < 1 ? `(${Math.round(scale * 100)}%)` : ''}</span>
-                </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Data Scope Toggle: Knitting Status Only vs Full Allocation */}
+                <div className="flex items-center gap-1 bg-slate-200/90 dark:bg-slate-800/90 p-1 rounded-xl shadow-xs border border-slate-300 dark:border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (showAllocations) {
+                        setShowAllocations(false);
+                        setImageDataUrl(null);
+                        setImageBlob(null);
+                      }
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      !showAllocations
+                        ? 'bg-indigo-700 text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white'
+                    }`}
+                    title="Knitting Status Only (Excludes yarn allocation)"
+                    id="snip-mode-knitting-status-btn"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Knitting Status Only</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => setViewMode('full')}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                    viewMode === 'full'
-                      ? 'bg-indigo-700 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white'
-                  }`}
-                  title="View at 100% full scale with smooth horizontal scroll"
-                >
-                  <MoveHorizontal className="w-3.5 h-3.5" />
-                  <span>100% Full View</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!showAllocations) {
+                        setShowAllocations(true);
+                        setImageDataUrl(null);
+                        setImageBlob(null);
+                      }
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      showAllocations
+                        ? 'bg-amber-700 text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white'
+                    }`}
+                    title="Include Layer 3 Allocated Yarn Details"
+                    id="snip-mode-with-allocation-btn"
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>+ Yarn Allocation</span>
+                  </button>
+                </div>
+
+                {/* Mobile Fit & Full View Controls */}
+                <div className="flex items-center gap-1 bg-slate-200/90 dark:bg-slate-800/90 p-1 rounded-xl shadow-xs border border-slate-300 dark:border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('fit')}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      viewMode === 'fit'
+                        ? 'bg-indigo-700 text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white'
+                    }`}
+                    title="Fit whole card to screen"
+                  >
+                    <Smartphone className="w-3.5 h-3.5" />
+                    <span>Fit Screen {isMobile && scale < 1 ? `(${Math.round(scale * 100)}%)` : ''}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('full')}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      viewMode === 'full'
+                        ? 'bg-indigo-700 text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white'
+                    }`}
+                    title="View at 100% full scale with smooth horizontal scroll"
+                  >
+                    <MoveHorizontal className="w-3.5 h-3.5" />
+                    <span>100% Full View</span>
+                  </button>
+                </div>
               </div>
 
               <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                {viewMode === 'fit' && isMobile && scale < 1 ? (
-                  <span className="flex items-center gap-1 text-indigo-800 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800">
-                    <span>Mobile Fit: Complete 17-column order visible on screen · Tap 100% to zoom</span>
-                  </span>
-                ) : viewMode === 'full' && isMobile ? (
-                  <span className="flex items-center gap-1 text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/60 px-2.5 py-0.5 rounded-md border border-amber-200 dark:border-amber-800">
-                    <span>↔ Swipe horizontally to view all 17 columns & details</span>
+                {!showAllocations ? (
+                  <span className="flex items-center gap-1 text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800 font-bold">
+                    <span>Knitting Status Snapshot Mode</span>
                   </span>
                 ) : (
-                  <span className="text-slate-500">HD Ready · 100% Unclipped Columns</span>
+                  <span className="flex items-center gap-1 text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 px-2.5 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 font-bold">
+                    <span>Knitting + Yarn Allocation Mode</span>
+                  </span>
                 )}
+                {viewMode === 'fit' && isMobile && scale < 1 ? (
+                  <span className="flex items-center gap-1 text-indigo-800 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800">
+                    <span>Fit Screen · Tap 100% to zoom</span>
+                  </span>
+                ) : null}
               </div>
             </div>
 
@@ -1073,88 +1149,90 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
               )}
             </div>
 
-            {/* Layer 3: Allocated Yarn Details */}
-            <div className="mt-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-700" style={{ color: '#334155' }}>
-                  <Layers className="w-3.5 h-3.5 text-amber-700" />
-                  <span>Layer 3: Allocated Yarn Details ({sortedAllocations.length} items)</span>
+            {/* Layer 3: Allocated Yarn Details (Only shown when showAllocations is active) */}
+            {showAllocations && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-700" style={{ color: '#334155' }}>
+                    <Layers className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Layer 3: Allocated Yarn Details ({sortedAllocations.length} items)</span>
+                  </div>
+                  {totalAllocatedQty > 0 && (
+                    <div className="text-[10.5px] font-bold text-amber-800" style={{ color: '#92400e' }}>
+                      Total Allocated: <span className="font-mono font-black">{totalAllocatedQty.toLocaleString()}</span> kg
+                    </div>
+                  )}
                 </div>
-                {totalAllocatedQty > 0 && (
-                  <div className="text-[10.5px] font-bold text-amber-800" style={{ color: '#92400e' }}>
-                    Total Allocated: <span className="font-mono font-black">{totalAllocatedQty.toLocaleString()}</span> kg
+
+                {sortedAllocations.length === 0 ? (
+                  <div className="text-center py-3 text-xs text-slate-400 border border-dashed border-slate-200 rounded-lg">
+                    No yarn allocation records registered for this order.
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-slate-300 overflow-visible" style={{ borderColor: '#cbd5e1' }}>
+                    <table className="w-full text-left text-[10px] border-collapse" style={{ width: '100%', tableLayout: 'auto' }}>
+                      <thead>
+                        <tr
+                          style={{ backgroundColor: '#f1f5f9', color: '#1e293b', borderBottom: '2px solid #cbd5e1' }}
+                          className="font-bold uppercase tracking-wider text-[9px]"
+                        >
+                          <th className="py-2 px-2 text-center" style={{ width: '30px' }}>#</th>
+                          <th className="py-2 px-2" style={{ width: '120px' }}>Color</th>
+                          <th className="py-2 px-2" style={{ width: '110px' }}>Fabric Type</th>
+                          <th className="py-2 px-2" style={{ width: '380px' }}>Allocated Yarn</th>
+                          <th className="py-2 px-2 text-center" style={{ width: '110px' }}>Lot</th>
+                          <th className="py-2 px-2" style={{ width: '170px' }}>Spinner</th>
+                          <th className="py-2 px-2 text-right font-black" style={{ width: '120px', color: '#92400e' }}>Sum of Allocated Qty</th>
+                        </tr>
+                      </thead>
+                      <tbody style={{ color: '#0f172a' }}>
+                        {sortedAllocations.map((a, idx) => {
+                          const isEven = idx % 2 === 0;
+                          return (
+                            <tr
+                              key={idx}
+                              style={{
+                                backgroundColor: isEven ? '#ffffff' : '#f8fafc',
+                                borderBottom: '1px solid #e2e8f0'
+                              }}
+                            >
+                              <td className="py-1.5 px-2 text-center font-mono text-slate-400">{idx + 1}</td>
+                              <td className="py-1.5 px-2 font-bold text-slate-900">{a.color}</td>
+                              <td className="py-1.5 px-2 text-slate-700">{a.fabricType}</td>
+                              <td className="py-1.5 px-2 font-mono text-slate-800" title={a.allocatedYarn}>
+                                {a.allocatedYarn}
+                              </td>
+                              <td className="py-1.5 px-2 text-center font-mono text-slate-600">{a.lot}</td>
+                              <td className="py-1.5 px-2 text-slate-700">{a.spinner}</td>
+                              <td className="py-1.5 px-2 text-right font-mono font-bold" style={{ color: '#92400e' }}>
+                                {a.allocatedQty.toLocaleString()} kg
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr
+                          style={{
+                            backgroundColor: '#f1f5f9',
+                            borderTop: '2px solid #cbd5e1',
+                            fontWeight: 'bold',
+                            color: '#0f172a'
+                          }}
+                        >
+                          <td colSpan={6} className="py-2 px-2 text-right uppercase tracking-wider text-[9px] font-black text-slate-600">
+                            Allocated Yarn Total:
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono font-black" style={{ color: '#92400e' }}>
+                            {totalAllocatedQty.toLocaleString()} kg
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
                   </div>
                 )}
               </div>
-
-              {sortedAllocations.length === 0 ? (
-                <div className="text-center py-3 text-xs text-slate-400 border border-dashed border-slate-200 rounded-lg">
-                  No yarn allocation records registered for this order.
-                </div>
-              ) : (
-                <div className="rounded-lg border border-slate-300 overflow-visible" style={{ borderColor: '#cbd5e1' }}>
-                  <table className="w-full text-left text-[10px] border-collapse" style={{ width: '100%', tableLayout: 'auto' }}>
-                    <thead>
-                      <tr
-                        style={{ backgroundColor: '#f1f5f9', color: '#1e293b', borderBottom: '2px solid #cbd5e1' }}
-                        className="font-bold uppercase tracking-wider text-[9px]"
-                      >
-                        <th className="py-2 px-2 text-center" style={{ width: '30px' }}>#</th>
-                        <th className="py-2 px-2" style={{ width: '120px' }}>Color</th>
-                        <th className="py-2 px-2" style={{ width: '110px' }}>Fabric Type</th>
-                        <th className="py-2 px-2" style={{ width: '380px' }}>Allocated Yarn</th>
-                        <th className="py-2 px-2 text-center" style={{ width: '110px' }}>Lot</th>
-                        <th className="py-2 px-2" style={{ width: '170px' }}>Spinner</th>
-                        <th className="py-2 px-2 text-right font-black" style={{ width: '120px', color: '#92400e' }}>Sum of Allocated Qty</th>
-                      </tr>
-                    </thead>
-                    <tbody style={{ color: '#0f172a' }}>
-                      {sortedAllocations.map((a, idx) => {
-                        const isEven = idx % 2 === 0;
-                        return (
-                          <tr
-                            key={idx}
-                            style={{
-                              backgroundColor: isEven ? '#ffffff' : '#f8fafc',
-                              borderBottom: '1px solid #e2e8f0'
-                            }}
-                          >
-                            <td className="py-1.5 px-2 text-center font-mono text-slate-400">{idx + 1}</td>
-                            <td className="py-1.5 px-2 font-bold text-slate-900">{a.color}</td>
-                            <td className="py-1.5 px-2 text-slate-700">{a.fabricType}</td>
-                            <td className="py-1.5 px-2 font-mono text-slate-800" title={a.allocatedYarn}>
-                              {a.allocatedYarn}
-                            </td>
-                            <td className="py-1.5 px-2 text-center font-mono text-slate-600">{a.lot}</td>
-                            <td className="py-1.5 px-2 text-slate-700">{a.spinner}</td>
-                            <td className="py-1.5 px-2 text-right font-mono font-bold" style={{ color: '#92400e' }}>
-                              {a.allocatedQty.toLocaleString()} kg
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                    <tfoot>
-                      <tr
-                        style={{
-                          backgroundColor: '#f1f5f9',
-                          borderTop: '2px solid #cbd5e1',
-                          fontWeight: 'bold',
-                          color: '#0f172a'
-                        }}
-                      >
-                        <td colSpan={6} className="py-2 px-2 text-right uppercase tracking-wider text-[9px] font-black text-slate-600">
-                          Allocated Yarn Total:
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono font-black" style={{ color: '#92400e' }}>
-                          {totalAllocatedQty.toLocaleString()} kg
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              )}
-            </div>
+            )}
 
             {/* Bottom Card Footer Stamp with User Requested Replacement Text */}
             <div

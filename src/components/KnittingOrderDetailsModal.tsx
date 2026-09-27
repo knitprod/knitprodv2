@@ -500,6 +500,7 @@ export function KnittingOrderDetailsModal({ order, onClose }: KnittingOrderDetai
           order={order}
           isOpen={showSnippingModal}
           onClose={() => setShowSnippingModal(false)}
+          includeAllocation={false}
         />
       )}
     </div>
