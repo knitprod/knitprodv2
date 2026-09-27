@@ -50,6 +50,8 @@ interface ChatMessage {
   timestamp: string;
   orderData?: KnittingStatusOrder | null;
   yarnAllocations?: any[];
+  viewMode?: 'all' | 'production' | 'allocation' | 'prediction';
+  filterColor?: string;
 }
 
 interface RaihanChatBotProps {
@@ -249,6 +251,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
 
   // Quick prompt suggestions
   const SUGGESTIONS = [
+    "Predict Completion Date for Order 272767",
     "Information for Order 272767",
     "Yesterday's production floor by floor",
     "Which floor did not update today?",
@@ -625,27 +628,58 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         return;
       }
 
-      // B. Total Yarn Allocation / Total Knitting Balance / Production Summary Check (without specific order)
+      // B. Multi-turn Order Tracking: Retrieve the most recent active order from the conversation
       const normalized = normalizeQueryString(query);
       const numMatches = normalized.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || [];
       const lowerQ = query.toLowerCase().trim();
 
-      const isTotalAllocationQuery = 
-        (lowerQ.includes('alloc') || lowerQ.includes('yarn req') || lowerQ.includes('allocated yarn')) &&
-        !numMatches.length;
+      let lastActiveOrderNum: string | null = null;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if (m.orderData?.orderNo) {
+          lastActiveOrderNum = String(m.orderData.orderNo).trim();
+          break;
+        }
+        const textMatches = String(m.text || '').match(/\b\d{5,8}\b/g);
+        if (textMatches && textMatches.length > 0) {
+          const cand = textMatches[0];
+          if (cand !== '2024' && cand !== '2025' && cand !== '2026') {
+            lastActiveOrderNum = cand;
+            break;
+          }
+        }
+      }
 
-      const isTotalKnittingQuery = 
-        !isTotalAllocationQuery &&
-        ((lowerQ.includes('total') && (lowerQ.includes('balance') || lowerQ.includes('knit') || lowerQ.includes('prod') || lowerQ.includes('summary'))) ||
-        (lowerQ.includes('knitting balance') && !numMatches.length) ||
-        (lowerQ.includes('total balance') && !numMatches.length));
+      const ORDER_FOLLOWUP_COLORS = [
+        'french navy', 'black', 'white', 'grey', 'gray', 'slate grey', 'heather grey', 'charcoal',
+        'navy', 'olive', 'red', 'green', 'blue', 'yellow', 'maroon', 'orange', 'pink', 'purple',
+        'rib', 'fleece'
+      ];
 
-      // C. Multi-turn Order / Color / Fabric / Balance Check
-      let activeOrderNum: string | null = numMatches[0] || null;
-      let isFollowUp = false;
-      if (!activeOrderNum && !isTotalKnittingQuery) {
-        for (let i = historyPayload.length - 1; i >= 0; i--) {
-          const histMatches = String(historyPayload[i]?.text || '').match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g);
+      // Check if this query is a follow-up referring to the last active order (e.g. "Production", "Allocation", "Predict Completion Date", "French Navy", "Black")
+      const isOrderFollowUp = Boolean(lastActiveOrderNum) && !numMatches.length && (
+        lowerQ === 'production' ||
+        lowerQ === 'prod' ||
+        lowerQ === 'allocation' ||
+        lowerQ === 'alloc' ||
+        lowerQ === 'yarn' ||
+        lowerQ.includes('production') ||
+        lowerQ.includes('allocation') ||
+        lowerQ.includes('predict') ||
+        lowerQ.includes('completion') ||
+        lowerQ.includes('finish') ||
+        lowerQ.includes('forecast') ||
+        lowerQ.includes('when will') ||
+        lowerQ.includes('delay') ||
+        ORDER_FOLLOWUP_COLORS.some(c => lowerQ.includes(c))
+      );
+
+      let activeOrderNum: string | null = numMatches[0] || (isOrderFollowUp ? lastActiveOrderNum : null);
+      let isFollowUp = isOrderFollowUp;
+
+      if (!activeOrderNum) {
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const histMatches = String(messages[i]?.text || '').match(/\b\d{5,8}\b/g);
           if (histMatches && histMatches.length > 0) {
             const candidate = histMatches[0];
             if (candidate === '2024' || candidate === '2025' || candidate === '2026') continue;
@@ -655,6 +689,38 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
           }
         }
       }
+
+      // If still no active order, and the query is asking about completion prediction:
+      if (!activeOrderNum && (
+        lowerQ.includes('completion') ||
+        (lowerQ.includes('predict') && !lowerQ.includes('tomorrow')) ||
+        lowerQ.includes('finish date') ||
+        lowerQ.includes('delivery date')
+      )) {
+        const runningOrder = knittingOrders.find(o => {
+          const g = Number(o.greyQty || 0);
+          const b = Number(o.knitBalance || 0);
+          return b > 0 && b < g;
+        }) || knittingOrders.find(o => String(o.orderNo || '').includes('272767')) || knittingOrders[0];
+        if (runningOrder) {
+          activeOrderNum = String(runningOrder.orderNo || '272767');
+          isFollowUp = true;
+        }
+      }
+
+      const isTotalAllocationQuery = 
+        !isOrderFollowUp &&
+        !numMatches.length &&
+        (lowerQ.includes('alloc') || lowerQ.includes('yarn req') || lowerQ.includes('allocated yarn')) &&
+        (lowerQ.includes('total') || lowerQ.includes('all') || lowerQ.includes('company') || !lastActiveOrderNum);
+
+      const isTotalKnittingQuery = 
+        !isOrderFollowUp &&
+        !isTotalAllocationQuery &&
+        !numMatches.length &&
+        ((lowerQ.includes('total') && (lowerQ.includes('balance') || lowerQ.includes('knit') || lowerQ.includes('prod') || lowerQ.includes('summary'))) ||
+        (lowerQ.includes('knitting balance') && (lowerQ.includes('total') || !lastActiveOrderNum)) ||
+        (lowerQ.includes('total balance')));
 
       // Dynamic On-Demand Lookup for Knitting Orders & Textile Close By PMC
       if (activeOrderNum) {
@@ -725,7 +791,9 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
             text: orderResult.reply!,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             orderData: orderResult.orderData || null,
-            yarnAllocations: orderResult.yarnAllocations || []
+            yarnAllocations: orderResult.yarnAllocations || [],
+            viewMode: orderResult.viewMode || 'all',
+            filterColor: orderResult.filterColor
           }
         ]);
         setIsLoading(false);
@@ -1238,6 +1306,21 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
                 return allOrders.find(o => String(o.orderNo || '').trim() === orderNum || String(o.orderNo || '').includes(orderNum)) || null;
               })();
 
+              // Infer viewMode and filterColor if not explicitly set on legacy or fallback messages
+              const currentViewMode = msg.viewMode || (
+                msg.text.includes('Completion Date Prediction') || msg.text.includes('Projected Completion') || msg.text.includes('Forecast')
+                  ? 'prediction'
+                  : msg.text.includes('Allocated Yarn Details') && !msg.text.includes('Production Data')
+                    ? 'allocation'
+                    : msg.text.includes('Production Data') && !msg.text.includes('Allocated Yarn Details')
+                      ? 'production'
+                      : 'all'
+              );
+              const currentColor = msg.filterColor || (() => {
+                const cMatch = msg.text.match(/Color \*\*([^*]+)\*\*/i) || msg.text.match(/Allocated Yarn Details \(([^)]+)\)/i) || msg.text.match(/Production Data \(([^)]+)\)/i);
+                return cMatch ? cMatch[1] : undefined;
+              })();
+
               return (
                 <div
                   key={msg.id}
@@ -1264,6 +1347,8 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
                           order={cardOrder}
                           allocations={msg.yarnAllocations || yarnAllocations}
                           onOpenSnippingTool={(ord) => setSnipOrder(ord)}
+                          viewMode={currentViewMode}
+                          filterColor={currentColor}
                         />
                       </div>
                     ) : (

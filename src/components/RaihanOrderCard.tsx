@@ -1,32 +1,95 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Scissors,
   Copy,
   Check,
   Sparkles,
-  ChevronRight
+  ChevronRight,
+  Clock,
+  Calendar,
+  TrendingUp,
+  AlertTriangle,
+  CheckCircle2,
+  Layers,
+  Factory
 } from 'lucide-react';
 import { KnittingStatusOrder } from '../types';
 import { calculateKnittingCondition } from '../lib/knittingStatusStore';
 import { getCompanyLogo } from '../lib/logoStore';
+
+function parseDateString(str?: string): Date | null {
+  if (!str || str === '-' || str.toLowerCase() === 'pending' || str.toLowerCase() === 'not set') return null;
+  const parts = str.match(/(\d{1,2})-([A-Za-z]{3})-(\d{4})/);
+  if (parts) {
+    const day = parseInt(parts[1], 10);
+    const mStr = parts[2].toLowerCase();
+    const year = parseInt(parts[3], 10);
+    const months: Record<string, number> = {
+      jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+      jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+    };
+    if (months[mStr] !== undefined) {
+      return new Date(year, months[mStr], day);
+    }
+  }
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function formatDateToStr(d: Date): string {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const day = String(d.getDate()).padStart(2, '0');
+  const mon = months[d.getMonth()];
+  const yr = d.getFullYear();
+  return `${day}-${mon}-${yr}`;
+}
+
+function addDays(d: Date, days: number): Date {
+  const res = new Date(d.getTime());
+  res.setDate(res.getDate() + days);
+  return res;
+}
 
 interface RaihanOrderCardProps {
   order: KnittingStatusOrder;
   allocations?: any[];
   onOpenSnippingTool?: (order: KnittingStatusOrder) => void;
   className?: string;
+  viewMode?: 'all' | 'production' | 'allocation' | 'prediction';
+  filterColor?: string;
 }
 
 export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
   order,
   allocations = [],
   onOpenSnippingTool,
-  className = ''
+  className = '',
+  viewMode = 'all',
+  filterColor
 }) => {
   const [copied, setCopied] = useState(false);
+  const [activeMode, setActiveMode] = useState<'all' | 'production' | 'allocation' | 'prediction'>(viewMode || 'all');
   const customLogo = getCompanyLogo();
 
-  const items = Array.isArray(order.items) ? order.items : [];
+  useEffect(() => {
+    if (viewMode) {
+      setActiveMode(viewMode);
+    }
+  }, [viewMode]);
+
+  // If a specific color was queried, filter items strictly for that color
+  let rawItems = Array.isArray(order.items) ? order.items : [];
+  if (filterColor) {
+    const fc = filterColor.toLowerCase().trim();
+    const filtered = rawItems.filter(it => {
+      const c = String(it.color || '').toLowerCase().trim();
+      return c.includes(fc) || fc.includes(c);
+    });
+    if (filtered.length > 0) {
+      rawItems = filtered;
+    }
+  }
+  const items = rawItems;
   const condition = calculateKnittingCondition(order.greyQty, order.knitBalance);
 
   // Compute sums
@@ -39,12 +102,46 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
     reject: items.reduce((acc, it) => acc + (Number(it.reject) || 0), 0)
   };
 
-  // Filter allocated yarn for this order
+  // Prediction calculations
+  const activeDailyRate = items.reduce((acc, it) => acc + (Number(it.avgProdPerDay) || 0), 0);
+  const standardMachineRate = 180; // standard Epyllion factory circular machine output kg/day
+  const totalItemCount = Math.max(1, items.length);
+  const fullCapacityRate = Math.max(totalItemCount * standardMachineRate, activeDailyRate);
+
+  const daysAtCurrent = activeDailyRate > 0 ? Math.ceil(totals.bal / activeDailyRate) : (totals.bal > 0 ? Math.ceil(totals.bal / 180) : 0);
+  const finishAtCurrent = addDays(new Date(), daysAtCurrent);
+  const finishAtCurrentStr = formatDateToStr(finishAtCurrent);
+
+  const daysAtFullCapacity = Math.ceil(totals.bal / fullCapacityRate);
+  const finishAtFullCapacity = addDays(new Date(), daysAtFullCapacity);
+  const finishAtFullCapacityStr = formatDateToStr(finishAtFullCapacity);
+
+  const targetEndDate = parseDateString(order.knitEndDate);
+  const pctDone = totals.grey > 0 ? ((totals.prod / totals.grey) * 100).toFixed(1) : '0';
+
+  let varianceBadge = { text: 'On Track', color: 'emerald', days: 0 };
+  if (targetEndDate && totals.bal > 0 && activeDailyRate > 0) {
+    const diffMs = finishAtCurrent.getTime() - targetEndDate.getTime();
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+    if (diffDays > 0) {
+      varianceBadge = { text: `Delayed by ${diffDays} day(s) past target knit end`, color: 'amber', days: diffDays };
+    } else if (diffDays < 0) {
+      varianceBadge = { text: `On Track (${Math.abs(diffDays)} day(s) ahead of schedule)`, color: 'emerald', days: diffDays };
+    } else {
+      varianceBadge = { text: 'Exact On-Schedule delivery', color: 'teal', days: 0 };
+    }
+  } else if (totals.bal <= 0) {
+    varianceBadge = { text: '100% Completed', color: 'emerald', days: 0 };
+  }
+
+  // Filter allocated yarn for this order (and color if filterColor is specified)
   const validAllocations = (Array.isArray(allocations) ? allocations : []).filter(y => {
     const ordMatch = String(y.orderNumber || y.order_number || '').trim();
     const qty = Number(y.allocatedQty ?? y.allocated_qty ?? 0);
     const yarn = String(y.allocatedYarn || y.allocated_yarn || y.yarnRequired || '').trim();
-    return ordMatch.includes(order.orderNo) && qty > 0 && yarn.length > 0;
+    const color = String(y.fabricShade || y.fabric_shade || y.color || '').toLowerCase().trim();
+    const matchesColor = !filterColor || color.includes(filterColor.toLowerCase().trim()) || filterColor.toLowerCase().trim().includes(color);
+    return ordMatch.includes(order.orderNo) && (qty > 0 || yarn.length > 0) && matchesColor;
   });
 
   // Group allocations
@@ -74,7 +171,7 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
     }
   }
 
-  // Fallback: if no yarn allocation records exist in yarn allocations store, derive from order.items
+  // Fallback: if no yarn allocation records exist in yarn allocations store, derive from filtered items
   if (allocGroups.size === 0 && items.length > 0) {
     for (const itm of items) {
       const color = String(itm.color || 'Standard').trim();
@@ -101,23 +198,42 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
   });
 
   const totalAllocatedQty = sortedAllocations.reduce((sum, a) => sum + a.allocatedQty, 0);
-
   const conditionText = condition === 'Running' ? 'currently running' : condition.toLowerCase();
 
   const handleCopySummary = () => {
-    let summaryText = `Sure! I found it. Order #${order.orderNo} is ${conditionText} (${order.buyerName || 'Epyllion'}):\n\n`;
-    summaryText += `🏭 Production Data:\n`;
-    summaryText += `Color | Fabric Type | GSM | Width | Req. QTY | Grey QTY | Production | Hold | Reject | Balance\n`;
-    items.forEach(it => {
-      const pText = Number(it.production || 0) > 0 ? `${Number(it.production).toLocaleString()} kg` : '0 kg';
-      const hText = Number(it.hold || 0) > 0 ? `${Number(it.hold).toLocaleString()} kg` : '-';
-      const rText = Number(it.reject || 0) > 0 ? `${Number(it.reject).toLocaleString()} kg` : '-';
-      summaryText += `${it.color} | ${it.fabType} | ${it.fgsm || '-'} | ${it.fWidth || '-'} | ${Number(it.reqQty || 0).toLocaleString()} kg | ${Number(it.greyQty || 0).toLocaleString()} kg | ${pText} | ${hText} | ${rText} | ${Number(it.knitBalance || 0).toLocaleString()} kg\n`;
-    });
-    summaryText += `Total | - | - | - | ${totals.req.toLocaleString()} kg | ${totals.grey.toLocaleString()} kg | ${totals.prod.toLocaleString()} kg | ${totals.hold > 0 ? `${totals.hold.toLocaleString()} kg` : '-'} | ${totals.reject > 0 ? `${totals.reject.toLocaleString()} kg` : '-'} | ${totals.bal.toLocaleString()} kg\n\n`;
-    summaryText += `📊 Total Summary: Req: ${totals.req.toLocaleString()} kg | Grey: ${totals.grey.toLocaleString()} kg | Production: ${totals.prod.toLocaleString()} kg | Hold: ${totals.hold.toLocaleString()} kg | Reject: ${totals.reject.toLocaleString()} kg | Balance: ${totals.bal.toLocaleString()} kg\n`;
+    if (activeMode === 'prediction') {
+      let predText = `⏱️ Completion Date Prediction • Order #${order.orderNo}\n`;
+      predText += `Buyer: ${order.buyerName || 'Epyllion'} | Team Leader: ${order.teamLeader || 'Unassigned'}\n`;
+      predText += `Target Knit Dates: ${order.knitStartDate || 'N/A'} to ${order.knitEndDate || 'N/A'}\n\n`;
+      predText += `• Progress: ${pctDone}% (${totals.prod.toLocaleString()} kg produced / ${totals.grey.toLocaleString()} kg grey)\n`;
+      predText += `• Remaining Balance: ${totals.bal.toLocaleString()} kg\n`;
+      predText += `• Active Floor Run-Rate: ${activeDailyRate > 0 ? `${Math.ceil(activeDailyRate).toLocaleString()} kg/day` : '0 kg/day'}\n`;
+      predText += `• Projected Completion Date: ${finishAtCurrentStr} (${varianceBadge.text})\n\n`;
+      predText += `Itemized Breakdown:\n`;
+      items.forEach(it => {
+        predText += `• ${it.color} (${it.fabType}): ${Number(it.knitBalance || 0).toLocaleString()} kg remaining | Daily: ${Math.ceil(Number(it.avgProdPerDay || 0))} kg/d\n`;
+      });
+      navigator.clipboard.writeText(predText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+      return;
+    }
 
-    if (sortedAllocations.length > 0) {
+    let summaryText = `Sure! I found it. Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} is ${conditionText} (${order.buyerName || 'Epyllion'}):\n\n`;
+    if (activeMode !== 'allocation') {
+      summaryText += `🏭 Production Data:\n`;
+      summaryText += `Color | Fabric Type | GSM | Width | Req. QTY | Grey QTY | Production | Hold | Reject | Balance\n`;
+      items.forEach(it => {
+        const pText = Number(it.production || 0) > 0 ? `${Number(it.production).toLocaleString()} kg` : '0 kg';
+        const hText = Number(it.hold || 0) > 0 ? `${Number(it.hold).toLocaleString()} kg` : '-';
+        const rText = Number(it.reject || 0) > 0 ? `${Number(it.reject).toLocaleString()} kg` : '-';
+        summaryText += `${it.color} | ${it.fabType} | ${it.fgsm || '-'} | ${it.fWidth || '-'} | ${Number(it.reqQty || 0).toLocaleString()} kg | ${Number(it.greyQty || 0).toLocaleString()} kg | ${pText} | ${hText} | ${rText} | ${Number(it.knitBalance || 0).toLocaleString()} kg\n`;
+      });
+      summaryText += `Total | - | - | - | ${totals.req.toLocaleString()} kg | ${totals.grey.toLocaleString()} kg | ${totals.prod.toLocaleString()} kg | ${totals.hold > 0 ? `${totals.hold.toLocaleString()} kg` : '-'} | ${totals.reject > 0 ? `${totals.reject.toLocaleString()} kg` : '-'} | ${totals.bal.toLocaleString()} kg\n\n`;
+      summaryText += `📊 Total Summary: Req: ${totals.req.toLocaleString()} kg | Grey: ${totals.grey.toLocaleString()} kg | Production: ${totals.prod.toLocaleString()} kg | Hold: ${totals.hold.toLocaleString()} kg | Reject: ${totals.reject.toLocaleString()} kg | Balance: ${totals.bal.toLocaleString()} kg\n`;
+    }
+
+    if (activeMode !== 'production' && sortedAllocations.length > 0) {
       summaryText += `\n🧶 Allocated Yarn Details:\n`;
       sortedAllocations.forEach(a => {
         summaryText += `• ${a.color} | ${a.fabricType} | ${a.allocatedYarn} | Lot: ${a.lot} | Spinner: ${a.spinner} | Qty: ${a.allocatedQty.toLocaleString()} kg\n`;
@@ -166,11 +282,11 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
               <div className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white tracking-tight">
                 EPYLLION KNITEX LIMITED
               </div>
-              <div className="text-xs font-bold text-teal-700 dark:text-teal-400 flex items-center gap-1.5">
+              <div className="text-xs font-bold text-teal-700 dark:text-teal-400 flex items-center gap-1.5 flex-wrap">
                 <span>Ask Raihan · Production Guide</span>
                 <span className="text-slate-300 dark:text-slate-600">•</span>
                 <span className="text-slate-700 dark:text-slate-300 font-semibold">
-                  Order #{order.orderNo} Summary
+                  Order #{order.orderNo} {filterColor ? `(${filterColor})` : ''} {activeMode === 'prediction' ? '• Completion Date Prediction' : activeMode === 'production' ? '• Production Data' : activeMode === 'allocation' ? '• Yarn Allocation' : 'Summary'}
                 </span>
               </div>
             </div>
@@ -186,121 +302,359 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
             </div>
           </div>
         </div>
+
+        {/* View Mode Interactive Switcher */}
+        <div className="flex items-center gap-1.5 mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 overflow-x-auto text-[11.5px]">
+          <span className="text-slate-400 dark:text-slate-500 text-[11px] font-semibold mr-1 shrink-0">View:</span>
+          <button
+            type="button"
+            onClick={() => setActiveMode('all')}
+            className={`px-2.5 py-1 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
+              activeMode === 'all'
+                ? 'bg-teal-600 text-white shadow-2xs'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            📊 All Details
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveMode('prediction')}
+            className={`px-2.5 py-1 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
+              activeMode === 'prediction'
+                ? 'bg-teal-600 text-white shadow-2xs'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            ⏱️ Completion Prediction
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveMode('production')}
+            className={`px-2.5 py-1 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
+              activeMode === 'production'
+                ? 'bg-teal-600 text-white shadow-2xs'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            🏭 Production Data
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveMode('allocation')}
+            className={`px-2.5 py-1 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
+              activeMode === 'allocation'
+                ? 'bg-teal-600 text-white shadow-2xs'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            🧶 Allocated Yarn
+          </button>
+        </div>
       </div>
 
-      <div className="p-4 sm:p-5 space-y-3.5">
+      <div className="p-4 sm:p-5 space-y-4">
         {/* Intro text line */}
         <p className="text-xs sm:text-[13px] text-slate-800 dark:text-slate-200 leading-relaxed font-normal">
-          Sure! I found it. Order #{order.orderNo} is {conditionText} ({order.buyerName || 'Stanley Stella'}):
+          {activeMode === 'prediction'
+            ? `Sure! Here is the completion date prediction & timeline forecast for Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} (${order.buyerName || 'Stanley Stella'}):`
+            : activeMode === 'allocation'
+              ? `Sure! I found it. Here is the allocated yarn for Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} (${order.buyerName || 'Stanley Stella'}):`
+              : activeMode === 'production'
+                ? `Sure! I found it. Here is the production data for Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} (${order.buyerName || 'Stanley Stella'}):`
+                : `Sure! I found it. Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} is ${conditionText} (${order.buyerName || 'Stanley Stella'}):`
+          }
         </p>
 
-        {/* Section Heading: Production Data */}
-        <div>
-          <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5 mb-2">
-            <span>🏭</span>
-            <span>Production Data:</span>
-          </h4>
+        {/* SECTION: COMPLETION DATE PREDICTION DASHBOARD (When activeMode is 'prediction') */}
+        {activeMode === 'prediction' && (
+          <div className="space-y-4">
+            {/* KPI Cards Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              {/* Projected Finish Date */}
+              <div className="p-3 rounded-xl bg-teal-50/80 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800/60 shadow-2xs">
+                <div className="flex items-center gap-1.5 text-teal-800 dark:text-teal-300 font-bold text-[11px] mb-1">
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>Projected Completion</span>
+                </div>
+                <div className="text-base sm:text-lg font-black text-teal-950 dark:text-teal-100">
+                  {finishAtCurrentStr}
+                </div>
+                <div className="text-[10px] font-bold text-teal-700 dark:text-teal-400 mt-0.5">
+                  ~{daysAtCurrent} days remaining
+                </div>
+              </div>
 
-          {/* 10-Column Production Data Table with Generous Width */}
-          <div className="rounded-xl border border-slate-300 dark:border-slate-700 overflow-x-auto bg-white dark:bg-slate-900 shadow-2xs">
-            <table className="w-full text-xs text-left border-collapse table-auto min-w-[760px]">
-              <thead>
-                <tr className="bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold border-b border-slate-300 dark:border-slate-700">
-                  <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 min-w-[100px]">Color</th>
-                  <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 min-w-[100px]">Fabric Type</th>
-                  <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-center min-w-[65px]">GSM</th>
-                  <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-center min-w-[65px]">Width</th>
-                  <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right min-w-[95px]">Req. QTY</th>
-                  <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right min-w-[95px]">Grey QTY</th>
-                  <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right min-w-[100px]">Production</th>
-                  <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right min-w-[70px]">Hold</th>
-                  <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right min-w-[70px]">Reject</th>
-                  <th className="px-3 py-2.5 text-right min-w-[100px] font-bold">Balance</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                {items.length === 0 ? (
-                  <tr>
-                    <td colSpan={10} className="py-4 text-center text-slate-400">
-                      No production data registered for this order.
-                    </td>
-                  </tr>
-                ) : (
-                  items.map((it, idx) => {
-                    const prodNum = Number(it.production || 0);
-                    const holdNum = Number(it.hold || 0);
-                    const rejectNum = Number(it.reject || 0);
-                    const isEven = idx % 2 === 1;
+              {/* Status Variance */}
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 shadow-2xs">
+                <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400 font-bold text-[11px] mb-1">
+                  <TrendingUp className="w-3.5 h-3.5" />
+                  <span>Schedule Variance</span>
+                </div>
+                <div className="text-xs sm:text-sm font-black text-slate-900 dark:text-white line-clamp-1">
+                  {varianceBadge.text}
+                </div>
+                <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Target: {order.knitEndDate || 'Not set'}
+                </div>
+              </div>
 
-                    return (
-                      <tr
-                        key={idx}
-                        className={isEven ? 'bg-slate-50/70 dark:bg-slate-850/60' : 'bg-white dark:bg-slate-900'}
-                      >
-                        <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 font-semibold text-slate-900 dark:text-white">
-                          {it.color || 'Standard'}
-                        </td>
-                        <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300">
-                          {it.fabType || '-'}
-                        </td>
-                        <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-center font-mono text-slate-600 dark:text-slate-400">
-                          {it.fgsm || '-'}
-                        </td>
-                        <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-center font-mono text-slate-600 dark:text-slate-400">
-                          {it.fWidth || '-'}
-                        </td>
-                        <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-right font-mono">
-                          {Number(it.reqQty || 0).toLocaleString()} kg
-                        </td>
-                        <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-right font-mono">
-                          {Number(it.greyQty || 0).toLocaleString()} kg
-                        </td>
-                        <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-right font-mono">
-                          {prodNum > 0 ? `${prodNum.toLocaleString()} kg` : '0 kg'}
-                        </td>
-                        <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-right font-mono text-slate-600 dark:text-slate-400">
-                          {holdNum > 0 ? `${holdNum.toLocaleString()} kg` : '-'}
-                        </td>
-                        <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-right font-mono text-slate-600 dark:text-slate-400">
-                          {rejectNum > 0 ? `${rejectNum.toLocaleString()} kg` : '-'}
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono font-bold text-slate-900 dark:text-white">
-                          {Number(it.knitBalance || 0).toLocaleString()} kg
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-                {/* Total Row */}
-                <tr className="bg-emerald-50 dark:bg-emerald-950/40 font-bold border-t-2 border-emerald-400 dark:border-emerald-700 text-emerald-950 dark:text-emerald-100">
-                  <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 font-extrabold uppercase text-xs">Total</td>
-                  <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-center">-</td>
-                  <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-center">-</td>
-                  <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-center">-</td>
-                  <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right font-mono">{totals.req.toLocaleString()} kg</td>
-                  <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right font-mono">{totals.grey.toLocaleString()} kg</td>
-                  <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right font-mono">{totals.prod.toLocaleString()} kg</td>
-                  <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right font-mono">{totals.hold > 0 ? `${totals.hold.toLocaleString()} kg` : '-'}</td>
-                  <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right font-mono">{totals.reject > 0 ? `${totals.reject.toLocaleString()} kg` : '-'}</td>
-                  <td className="px-3 py-2.5 text-right font-mono font-black">{totals.bal.toLocaleString()} kg</td>
-                </tr>
-              </tbody>
-            </table>
+              {/* Balance Remaining */}
+              <div className="p-3 rounded-xl bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 shadow-2xs">
+                <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300 font-bold text-[11px] mb-1">
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>Knit Balance Left</span>
+                </div>
+                <div className="text-base sm:text-lg font-black text-amber-950 dark:text-amber-100">
+                  {totals.bal.toLocaleString()} kg
+                </div>
+                <div className="text-[10px] font-bold text-amber-700 dark:text-amber-400 mt-0.5">
+                  {pctDone}% finished
+                </div>
+              </div>
+
+              {/* Current Daily Run-rate */}
+              <div className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 shadow-2xs">
+                <div className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300 font-bold text-[11px] mb-1">
+                  <Factory className="w-3.5 h-3.5" />
+                  <span>Floor Speed</span>
+                </div>
+                <div className="text-base sm:text-lg font-black text-emerald-950 dark:text-emerald-100">
+                  {activeDailyRate > 0 ? `${Math.ceil(activeDailyRate).toLocaleString()} kg` : '0 kg'}
+                </div>
+                <div className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 mt-0.5">
+                  daily output rate
+                </div>
+              </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="bg-slate-100 dark:bg-slate-800 rounded-xl p-3 border border-slate-200 dark:border-slate-700/80">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                <span>Production Progress</span>
+                <span className="font-mono">{pctDone}% ({totals.prod.toLocaleString()} kg / {totals.grey.toLocaleString()} kg)</span>
+              </div>
+              <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden">
+                <div
+                  className="bg-teal-600 h-2.5 rounded-full transition-all duration-500"
+                  style={{ width: `${Math.min(100, Math.max(0, Number(pctDone)))}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Projected Scenarios */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="p-3.5 rounded-xl border border-teal-200 dark:border-teal-900/80 bg-teal-50/30 dark:bg-teal-950/20">
+                <div className="text-xs font-bold text-teal-900 dark:text-teal-200 mb-1 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" />
+                  <span>Scenario A (Current Daily Pace @ {Math.ceil(activeDailyRate).toLocaleString()} kg/d)</span>
+                </div>
+                <ul className="text-xs space-y-1 text-slate-700 dark:text-slate-300 mt-2">
+                  <li>• Estimated Working Days Needed: <strong className="text-slate-900 dark:text-white">~{daysAtCurrent} days</strong></li>
+                  <li>• Projected Finish Date: <strong className="text-teal-700 dark:text-teal-300">{finishAtCurrentStr}</strong></li>
+                  <li>• Schedule Variance: <strong className="text-slate-900 dark:text-white">{varianceBadge.text}</strong></li>
+                </ul>
+              </div>
+
+              <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40">
+                <div className="text-xs font-bold text-slate-900 dark:text-white mb-1 flex items-center gap-1.5">
+                  <TrendingUp className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" />
+                  <span>Scenario B (Standard Floor Loading — {totalItemCount} Machine(s) @ 180 kg/d)</span>
+                </div>
+                <ul className="text-xs space-y-1 text-slate-700 dark:text-slate-300 mt-2">
+                  <li>• Estimated Daily Output: <strong className="text-slate-900 dark:text-white">{fullCapacityRate.toLocaleString()} kg/day</strong></li>
+                  <li>• Estimated Days Needed: <strong className="text-slate-900 dark:text-white">~{daysAtFullCapacity} days</strong></li>
+                  <li>• Projected Completion: <strong className="text-slate-900 dark:text-white">{finishAtFullCapacityStr}</strong></li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Item-by-item breakdown */}
+            <div>
+              <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5 mb-2">
+                <span>🧵</span>
+                <span>Color-by-Color Item Status & Remaining Days</span>
+              </h4>
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-x-auto bg-white dark:bg-slate-900 shadow-2xs">
+                <table className="w-full text-xs text-left border-collapse table-auto min-w-[550px]">
+                  <thead>
+                    <tr className="bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold border-b border-slate-200 dark:border-slate-700">
+                      <th className="px-3 py-2">Color</th>
+                      <th className="px-3 py-2">Fabric Type</th>
+                      <th className="px-3 py-2 text-right">Balance</th>
+                      <th className="px-3 py-2 text-right">Daily Rate</th>
+                      <th className="px-3 py-2">Status & Estimated Timeline</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {items.map((it, idx) => {
+                      const itmBal = Number(it.knitBalance || 0);
+                      const itmRate = Number(it.avgProdPerDay || 0);
+                      const itmProd = Number(it.production || 0);
+                      return (
+                        <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                          <td className="px-3 py-2 font-bold text-slate-900 dark:text-white">{it.color || 'Standard'}</td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{it.fabType || '-'}</td>
+                          <td className="px-3 py-2 text-right font-mono font-bold text-slate-900 dark:text-white">
+                            {itmBal.toLocaleString()} kg
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-slate-600 dark:text-slate-400">
+                            {itmRate > 0 ? `${Math.ceil(itmRate)} kg/d` : '-'}
+                          </td>
+                          <td className="px-3 py-2">
+                            {itmBal <= 0 ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-md">
+                                ✅ Completed
+                              </span>
+                            ) : itmRate > 0 ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-700 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/60 px-2 py-0.5 rounded-md">
+                                🟢 Running (~{Math.ceil(itmBal / itmRate)} days left)
+                              </span>
+                            ) : itmProd > 0 ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded-md">
+                                🟡 Stopped / Hold ({itmProd.toLocaleString()} kg done)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md">
+                                ⏳ Pending Setup (~{Math.ceil(itmBal / standardMachineRate)} days @ 180 kg/d)
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Floor Optimization Advice */}
+            <div className="p-3.5 rounded-xl bg-teal-50/60 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-900/60 text-xs space-y-1.5">
+              <div className="font-bold text-teal-900 dark:text-teal-200 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                <span>💡 Raihan's Floor Optimization Advice</span>
+              </div>
+              <p className="text-slate-700 dark:text-slate-300">
+                • Target delivery end date is <strong>{order.knitEndDate || 'Not set'}</strong>. Current floor pace yields <strong>~{daysAtCurrent} days</strong> of knitting balance.
+              </p>
+              {items.some(it => (Number(it.production) || 0) === 0 && (Number(it.knitBalance) || 0) > 0) && (
+                <p className="text-slate-700 dark:text-slate-300">
+                  • Setup dedicated circular machines on pending items to boost output by <strong>+{standardMachineRate} kg/day</strong> per machine.
+                </p>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Total Summary Row matching image.png */}
-        <div className="text-xs sm:text-[12.5px] font-bold text-slate-800 dark:text-slate-200 leading-relaxed pt-1">
-          <span>📊 Total Summary:</span> Req: <strong className="text-slate-900 dark:text-white">{totals.req.toLocaleString()} kg</strong> | Grey: <strong className="text-slate-900 dark:text-white">{totals.grey.toLocaleString()} kg</strong> | Production: <strong className="text-slate-900 dark:text-white">{totals.prod.toLocaleString()} kg</strong> | Hold: <strong className="text-slate-900 dark:text-white">{totals.hold.toLocaleString()} kg</strong> | Reject: <strong className="text-slate-900 dark:text-white">{totals.reject.toLocaleString()} kg</strong> | Balance: <strong className="text-slate-900 dark:text-white">{totals.bal.toLocaleString()} kg</strong>
-        </div>
+        {/* Section: Production Data (Shown when activeMode is 'all' or 'production') */}
+        {activeMode !== 'allocation' && activeMode !== 'prediction' && (
+          <div>
+            <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5 mb-2">
+              <span>🏭</span>
+              <span>Production Data: {filterColor ? `(${filterColor})` : ''}</span>
+            </h4>
 
-        {/* Layer 3: Allocated Yarn Details if exists */}
-        {sortedAllocations.length > 0 && (
+            {/* 10-Column Production Data Table with Generous Width */}
+            <div className="rounded-xl border border-slate-300 dark:border-slate-700 overflow-x-auto bg-white dark:bg-slate-900 shadow-2xs">
+              <table className="w-full text-xs text-left border-collapse table-auto min-w-[760px]">
+                <thead>
+                  <tr className="bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold border-b border-slate-300 dark:border-slate-700">
+                    <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 min-w-[100px]">Color</th>
+                    <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 min-w-[100px]">Fabric Type</th>
+                    <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-center min-w-[65px]">GSM</th>
+                    <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-center min-w-[65px]">Width</th>
+                    <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right min-w-[95px]">Req. QTY</th>
+                    <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right min-w-[95px]">Grey QTY</th>
+                    <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right min-w-[100px]">Production</th>
+                    <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right min-w-[70px]">Hold</th>
+                    <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right min-w-[70px]">Reject</th>
+                    <th className="px-3 py-2.5 text-right min-w-[100px] font-bold">Balance</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                  {items.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="py-4 text-center text-slate-400">
+                        No production data registered for this order.
+                      </td>
+                    </tr>
+                  ) : (
+                    items.map((it, idx) => {
+                      const prodNum = Number(it.production || 0);
+                      const holdNum = Number(it.hold || 0);
+                      const rejectNum = Number(it.reject || 0);
+                      const isEven = idx % 2 === 1;
+
+                      return (
+                        <tr
+                          key={idx}
+                          className={isEven ? 'bg-slate-50/70 dark:bg-slate-850/60' : 'bg-white dark:bg-slate-900'}
+                        >
+                          <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 font-semibold text-slate-900 dark:text-white">
+                            {it.color || 'Standard'}
+                          </td>
+                          <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300">
+                            {it.fabType || '-'}
+                          </td>
+                          <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-center font-mono text-slate-600 dark:text-slate-400">
+                            {it.fgsm || '-'}
+                          </td>
+                          <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-center font-mono text-slate-600 dark:text-slate-400">
+                            {it.fWidth || '-'}
+                          </td>
+                          <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-right font-mono">
+                            {Number(it.reqQty || 0).toLocaleString()} kg
+                          </td>
+                          <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-right font-mono">
+                            {Number(it.greyQty || 0).toLocaleString()} kg
+                          </td>
+                          <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-right font-mono">
+                            {prodNum > 0 ? `${prodNum.toLocaleString()} kg` : '0 kg'}
+                          </td>
+                          <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-right font-mono text-slate-600 dark:text-slate-400">
+                            {holdNum > 0 ? `${holdNum.toLocaleString()} kg` : '-'}
+                          </td>
+                          <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-right font-mono text-slate-600 dark:text-slate-400">
+                            {rejectNum > 0 ? `${rejectNum.toLocaleString()} kg` : '-'}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono font-bold text-slate-900 dark:text-white">
+                            {Number(it.knitBalance || 0).toLocaleString()} kg
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                  {/* Total Row */}
+                  <tr className="bg-emerald-50 dark:bg-emerald-950/40 font-bold border-t-2 border-emerald-400 dark:border-emerald-700 text-emerald-950 dark:text-emerald-100">
+                    <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 font-extrabold uppercase text-xs">Total</td>
+                    <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-center">-</td>
+                    <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-center">-</td>
+                    <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-center">-</td>
+                    <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right font-mono">{totals.req.toLocaleString()} kg</td>
+                    <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right font-mono">{totals.grey.toLocaleString()} kg</td>
+                    <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right font-mono">{totals.prod.toLocaleString()} kg</td>
+                    <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right font-mono">{totals.hold > 0 ? `${totals.hold.toLocaleString()} kg` : '-'}</td>
+                    <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right font-mono">{totals.reject > 0 ? `${totals.reject.toLocaleString()} kg` : '-'}</td>
+                    <td className="px-3 py-2.5 text-right font-mono font-black">{totals.bal.toLocaleString()} kg</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Total Summary Row matching image.png */}
+            <div className="text-xs sm:text-[12.5px] font-bold text-slate-800 dark:text-slate-200 leading-relaxed pt-2">
+              <span>📊 Total Summary:</span> Req: <strong className="text-slate-900 dark:text-white">{totals.req.toLocaleString()} kg</strong> | Grey: <strong className="text-slate-900 dark:text-white">{totals.grey.toLocaleString()} kg</strong> | Production: <strong className="text-slate-900 dark:text-white">{totals.prod.toLocaleString()} kg</strong> | Hold: <strong className="text-slate-900 dark:text-white">{totals.hold.toLocaleString()} kg</strong> | Reject: <strong className="text-slate-900 dark:text-white">{totals.reject.toLocaleString()} kg</strong> | Balance: <strong className="text-slate-900 dark:text-white">{totals.bal.toLocaleString()} kg</strong>
+            </div>
+          </div>
+        )}
+
+        {/* Section: Allocated Yarn Details (Shown when activeMode is 'all' or 'allocation') */}
+        {activeMode !== 'production' && activeMode !== 'prediction' && sortedAllocations.length > 0 && (
           <div className="pt-2">
             <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white flex items-center justify-between mb-2">
               <span className="flex items-center gap-1.5">
                 <span>🧶</span>
-                <span>Allocated Yarn Details:</span>
+                <span>Allocated Yarn Details: {filterColor ? `(${filterColor})` : ''}</span>
               </span>
               <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">
                 Total: {totalAllocatedQty.toLocaleString()} kg
@@ -385,7 +739,7 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
               ) : (
                 <>
                   <Copy className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Copy Summary</span>
+                  <span>{activeMode === 'prediction' ? 'Copy Prediction' : 'Copy Summary'}</span>
                 </>
               )}
             </button>

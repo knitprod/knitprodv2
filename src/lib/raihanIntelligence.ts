@@ -135,6 +135,8 @@ export interface SmartQueryResult {
   reply?: string;
   orderData?: any;
   yarnAllocations?: any[];
+  viewMode?: 'all' | 'production' | 'allocation' | 'prediction';
+  filterColor?: string;
 }
 
 export const DEFAULT_FALLBACK_LEDGER_RECORDS: any[] = [
@@ -823,14 +825,20 @@ export function handleSmartProductionLedgerQuery(
     }
   }
 
-  // 4. Tomorrow's Production Forecast & Predictive Analysis
-  const isPredictionQuery = 
-    lower.includes('predict') || 
-    lower.includes('prediction') || 
-    lower.includes('forecast') || 
-    lower.includes('projection') || 
-    lower.includes('tomorrow') ||
-    lower.includes('future production');
+  // 4. Tomorrow's Production Forecast & Predictive Analysis (Floor-level)
+  const isCompletionQuery = 
+    lower.includes('completion') ||
+    lower.includes('finish date') ||
+    lower.includes('when will') ||
+    lower.includes('delay') ||
+    lower.includes('order');
+
+  const isPredictionQuery = !isCompletionQuery && (
+    (lower.includes('tomorrow') && (lower.includes('predict') || lower.includes('forecast') || lower.includes('production') || lower.includes('projection'))) ||
+    lower.includes("tomorrow's production") ||
+    lower.includes('future production') ||
+    ((lower.includes('predict') || lower.includes('forecast') || lower.includes('projection')) && (lower.includes('floor') || lower.includes('factory') || lower.includes('efl') || lower.includes('kdl') || lower.includes('total production')))
+  );
 
   if (isPredictionQuery) {
     const floorProjections: Record<string, { avg30: number; avg7: number; projected: number; eff: number; mc: number; count: number }> = {};
@@ -916,6 +924,160 @@ export function handleSmartProductionLedgerQuery(
   return { handled: false };
 }
 
+function parseDateString(str: string): Date | null {
+  if (!str || str === '-' || str.toLowerCase() === 'pending' || str.toLowerCase() === 'not set') return null;
+  const parts = str.match(/(\d{1,2})-([A-Za-z]{3})-(\d{4})/);
+  if (parts) {
+    const day = parseInt(parts[1], 10);
+    const mStr = parts[2].toLowerCase();
+    const year = parseInt(parts[3], 10);
+    const months: Record<string, number> = {
+      jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+      jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+    };
+    if (months[mStr] !== undefined) {
+      return new Date(year, months[mStr], day);
+    }
+  }
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function formatDateToStr(d: Date): string {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const day = String(d.getDate()).padStart(2, '0');
+  const mon = months[d.getMonth()];
+  const yr = d.getFullYear();
+  return `${day}-${mon}-${yr}`;
+}
+
+function addDays(d: Date, days: number): Date {
+  const res = new Date(d.getTime());
+  res.setDate(res.getDate() + days);
+  return res;
+}
+
+export function buildCompletionForecastMarkdown(
+  orderNo: string,
+  buyer: string,
+  teamLeader: string,
+  knitStart: string,
+  knitEnd: string,
+  totals: any,
+  items: any[],
+  conditionText: string
+): string {
+  const bal = Number(totals.sumBal || 0);
+  const prod = Number(totals.sumProd || 0);
+  const grey = Number(totals.sumGrey || 0);
+
+  // Sum active daily rate from items with production
+  const activeDailyRate = items.reduce((acc, it) => acc + (Number(it.avgProdPerDay) || 0), 0);
+  const today = new Date();
+  const targetEndDate = parseDateString(knitEnd);
+
+  let forecast = `### ⏱️ Completion Date Prediction • Order #${orderNo}\n`;
+  forecast += `**Buyer:** ${buyer} &nbsp;•&nbsp; **Team Leader:** ${teamLeader}\n`;
+  forecast += `**Target Knit Dates:** ${knitStart} to ${knitEnd} &nbsp;•&nbsp; **Current Status:** \`${conditionText}\`\n\n`;
+
+  // 1. Executive Summary Table
+  const pctDone = grey > 0 ? ((prod / grey) * 100).toFixed(1) : '0';
+  forecast += `| Total Grey Qty | Produced | Remaining Balance | Current Run-Rate | Progress |\n`;
+  forecast += `| :--- | :--- | :--- | :--- | :--- |\n`;
+  forecast += `| **${grey.toLocaleString()} kg** | **${prod.toLocaleString()} kg** | **${bal.toLocaleString()} kg** | **${activeDailyRate > 0 ? `${Math.ceil(activeDailyRate).toLocaleString()} kg/day` : '0 kg/day'}** | **${pctDone}%** |\n\n`;
+
+  if (bal <= 0) {
+    forecast += `🎉 **Order is 100% Completed!**\n`;
+    forecast += `All knitting production is finished with **0 kg** remaining balance.\n`;
+    return forecast;
+  }
+
+  // 2. Forecasting Scenarios
+  forecast += `#### 📊 Projected Completion Scenarios\n\n`;
+
+  if (activeDailyRate > 0) {
+    const daysAtCurrent = Math.ceil(bal / activeDailyRate);
+    const finishAtCurrent = addDays(today, daysAtCurrent);
+    const finishStr = formatDateToStr(finishAtCurrent);
+
+    forecast += `• **Scenario A (Current Speed @ ${Math.ceil(activeDailyRate).toLocaleString()} kg/day):**\n`;
+    forecast += `  - **Estimated Days Needed:** ~**${daysAtCurrent} days**\n`;
+    forecast += `  - **Projected Completion Date:** **${finishStr}**\n`;
+
+    if (targetEndDate) {
+      const diffMs = finishAtCurrent.getTime() - targetEndDate.getTime();
+      const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      if (diffDays > 0) {
+        forecast += `  - **Schedule Variance:** ⚠️ **Delayed by ${diffDays} days** past target Knit End (${knitEnd})\n`;
+      } else if (diffDays < 0) {
+        forecast += `  - **Schedule Variance:** ✅ **On Track (${Math.abs(diffDays)} days ahead** of target Knit End ${knitEnd})\n`;
+      } else {
+        forecast += `  - **Schedule Variance:** 🎯 **Exact on-schedule delivery** on target Knit End (${knitEnd})\n`;
+      }
+    }
+    forecast += `\n`;
+  }
+
+  // Multi-Machine Floor Capacity Scenario
+  const totalItemCount = Math.max(1, items.length);
+  const standardMachineRate = 180; // standard Epyllion factory circular machine output kg/day
+  const fullCapacityRate = Math.max(totalItemCount * standardMachineRate, activeDailyRate);
+  const daysAtFullCapacity = Math.ceil(bal / fullCapacityRate);
+  const finishAtFullCapacity = addDays(today, daysAtFullCapacity);
+
+  forecast += `• **Scenario B (Standard Floor Loading — ${totalItemCount} Dedicated Machine(s) @ ~${standardMachineRate} kg/day/mc):**\n`;
+  forecast += `  - **Estimated Floor Daily Output:** **${fullCapacityRate.toLocaleString()} kg/day**\n`;
+  forecast += `  - **Days Needed:** **${daysAtFullCapacity} days**\n`;
+  forecast += `  - **Projected Completion:** **${formatDateToStr(finishAtFullCapacity)}**\n\n`;
+
+  // 3. Itemized Color & Fabric Breakdown
+  forecast += `#### 🧵 Item-by-Item Breakdown & Run Status\n\n`;
+  forecast += `| # | Color | Fab Type | Balance | Daily Rate | Status & Estimated Days |\n`;
+  forecast += `| :---: | :--- | :--- | :---: | :---: | :--- |\n`;
+
+  items.forEach((it, idx) => {
+    const itmBal = Number(it.knitBalance || 0);
+    const itmRate = Number(it.avgProdPerDay || 0);
+    const itmProd = Number(it.production || 0);
+    let statusText = '';
+
+    if (itmBal <= 0) {
+      statusText = '✅ Completed (0 kg left)';
+    } else if (itmRate > 0) {
+      const days = Math.ceil(itmBal / itmRate);
+      statusText = `🟢 Running · **~${days} days remaining**`;
+    } else if (itmProd > 0) {
+      statusText = `🟡 Stopped / Hold (${itmProd.toLocaleString()} kg done)`;
+    } else {
+      const estDays = Math.ceil(itmBal / standardMachineRate);
+      statusText = `⏳ Pending Machine Setup (~${estDays} days @ 180 kg/d)`;
+    }
+
+    forecast += `| ${idx + 1} | **${it.color || 'Standard'}** | ${it.fabType || '-'} | ${itmBal.toLocaleString()} kg | ${itmRate > 0 ? `${Math.ceil(itmRate)} kg/d` : '-'} | ${statusText} |\n`;
+  });
+
+  // 4. Actionable AI Floor Recommendation
+  forecast += `\n#### 💡 Raihan's Floor Optimization Advice\n`;
+  const unstartedItems = items.filter(it => (Number(it.production) || 0) === 0 && (Number(it.knitBalance) || 0) > 0);
+  const runningItems = items.filter(it => (Number(it.production) || 0) > 0);
+
+  if (unstartedItems.length > 0) {
+    forecast += `• **Load Idle Items:** Currently **${unstartedItems.length} item(s)** (${unstartedItems.map(u => u.color).join(', ')}) have 0 kg recorded. Setting up dedicated machines will add **+${(unstartedItems.length * standardMachineRate).toLocaleString()} kg/day** capacity.\n`;
+  }
+  if (runningItems.length > 0) {
+    forecast += `• **Running Line:** **${runningItems.map(r => r.color).join(', ')}** is running at ${Math.ceil(activeDailyRate)} kg/day. Maintain continuous yarn creeling to prevent stoppage.\n`;
+  }
+  if (targetEndDate && targetEndDate < today) {
+    forecast += `• **Priority Scheduling:** Target Knit End was **${knitEnd}**. Expedite floor priority to minimize delivery delays.\n`;
+  } else if (targetEndDate) {
+    const daysLeftToTarget = Math.max(1, Math.round((targetEndDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+    const neededDailyRate = Math.ceil(bal / daysLeftToTarget);
+    forecast += `• **Target Run-Rate:** To complete by **${knitEnd}** (${daysLeftToTarget} days left), the floor needs **${neededDailyRate.toLocaleString()} kg/day** (~**${Math.ceil(neededDailyRate / standardMachineRate)} machine(s)**).\n`;
+  }
+
+  return forecast.trim();
+}
+
 /**
  * Evaluates Order, Color, Fabric, Allocation, and Production inquiries autonomously.
  */
@@ -942,10 +1104,19 @@ export function handleSmartOrderQuery(
       lower.includes('follow the second') ||
       lower.includes('use this format') ||
       lower.includes('this format') ||
-      lower.includes('increase the width')
+      lower.includes('increase the width') ||
+      lower.includes('predict') ||
+      lower.includes('completion') ||
+      lower.includes('finish date') ||
+      lower.includes('delivery date') ||
+      lower.includes('forecast')
     ) {
-      const sample = knittingOrders.find(o => String(o.orderNo || '').includes('272767')) || knittingOrders[0];
-      activeOrderNum = sample?.orderNo || '272767';
+      const runningOrder = knittingOrders.find(o => {
+        const g = Number(o.greyQty || 0);
+        const b = Number(o.knitBalance || 0);
+        return b > 0 && b < g;
+      }) || knittingOrders.find(o => String(o.orderNo || '').includes('272767')) || knittingOrders[0];
+      activeOrderNum = runningOrder?.orderNo || '272767';
     } else {
       return { handled: false };
     }
@@ -1324,9 +1495,22 @@ export function handleSmartOrderQuery(
   }
 
   // Determine user intent keywords
-  const asksAllocOnly = (lower.includes('alloc') || lower.includes('yarn') || lower.includes('lot') || lower.includes('spinner')) &&
+  const asksPredictCompletion = 
+    lower.includes('predict completion') ||
+    lower.includes('completion date') ||
+    lower.includes('predict') ||
+    lower.includes('when will') ||
+    lower.includes('finish date') ||
+    lower.includes('finish on time') ||
+    lower.includes('estimated completion') ||
+    lower.includes('how many days') ||
+    lower.includes('delivery date') ||
+    lower.includes('forecast') ||
+    lower.includes('delay');
+
+  const asksAllocOnly = !asksPredictCompletion && (lower.includes('alloc') || lower.includes('yarn') || lower.includes('lot') || lower.includes('spinner')) &&
     !lower.includes('prod') && !lower.includes('knit');
-  const asksProdOnly = (lower.includes('prod') || lower.includes('production') || lower.includes('knitting')) &&
+  const asksProdOnly = !asksPredictCompletion && (lower.includes('prod') || lower.includes('production') || lower.includes('knitting')) &&
     !lower.includes('alloc') && !lower.includes('yarn');
 
   const fallbackSource = ko || opList[0] || tcp || yaList[0];
@@ -1400,28 +1584,96 @@ export function handleSmartOrderQuery(
   }
 
   // =========================================================================
-  // CASE 1: Specific color query (e.g., "272767 french navy" or "272767 black")
+  // CASE 0: Predict Completion Date & Delay Forecasting
+  // =========================================================================
+  if (asksPredictCompletion) {
+    const forecastMarkdown = buildCompletionForecastMarkdown(
+      activeOrderNum,
+      buyer,
+      teamLeader,
+      knitStart,
+      knitEnd,
+      totals,
+      execReport.itemList || items,
+      conditionText
+    );
+    return {
+      handled: true,
+      reply: forecastMarkdown,
+      orderData: completeOrder,
+      yarnAllocations: yaList,
+      viewMode: 'prediction'
+    };
+  }
+
+  // =========================================================================
+  // CASE 1: Specific color query (e.g., "French Navy", "Black", "272767 french navy")
   // =========================================================================
   if (matchedColor) {
+    if (asksAllocOnly) {
+      if (!allocTable) {
+        return {
+          handled: true,
+          reply: `Looks like there isn't any data for that. No yarn has been allocated yet for color **${matchedColor}** on Order #${activeOrderNum} (${buyer}).`,
+          orderData: completeOrder,
+          yarnAllocations: yaList,
+          viewMode: 'allocation',
+          filterColor: matchedColor
+        };
+      }
+      let reply = `Sure! I found it. Here is the allocated yarn for color **${matchedColor}** on Order #${activeOrderNum} (${buyer}):\n\n`;
+      reply += `### 🧶 Allocated Yarn Details (${matchedColor}):\n\n${allocTable}\n`;
+      return {
+        handled: true,
+        reply: reply.trim(),
+        orderData: completeOrder,
+        yarnAllocations: yaList,
+        viewMode: 'allocation',
+        filterColor: matchedColor
+      };
+    }
+
+    if (asksProdOnly) {
+      let reply = `Sure! I found it. Here is the production data for color **${matchedColor}** on Order #${activeOrderNum} (${buyer}):\n\n`;
+      reply += `${execReport.productionTable}${execReport.totalSummaryLine}\n`;
+      return {
+        handled: true,
+        reply: reply.trim(),
+        orderData: completeOrder,
+        yarnAllocations: yaList,
+        viewMode: 'production',
+        filterColor: matchedColor
+      };
+    }
+
+    // Both Production and Allocation for that color
     let reply = `Sure! I found it. Color **${matchedColor}** on Order #${activeOrderNum} is ${conditionText} (${buyer}):\n\n`;
     reply += `${execReport.productionTable}${execReport.totalSummaryLine}\n`;
     if (allocTable) {
-      reply += `\n### 🧶 Allocated Yarn Details:\n\n${allocTable}\n`;
+      reply += `\n### 🧶 Allocated Yarn Details (${matchedColor}):\n\n${allocTable}\n`;
     }
     return {
       handled: true,
       reply: reply.trim(),
       orderData: completeOrder,
-      yarnAllocations: yaList
+      yarnAllocations: yaList,
+      viewMode: 'all',
+      filterColor: matchedColor
     };
   }
 
   // =========================================================================
-  // CASE 2: "eg: 271522 Allocation" - show only the allocated Yarn
+  // CASE 2: "Allocation" only (e.g. "Allocation", "272767 Allocation", "Yarn")
   // =========================================================================
   if (asksAllocOnly) {
     if (!allocTable) {
-      return { handled: true, reply: `Looks like there isn't any data for that. No yarn has been allocated yet for **Order #${activeOrderNum}** (${buyer}).` };
+      return {
+        handled: true,
+        reply: `Looks like there isn't any data for that. No yarn has been allocated yet for **Order #${activeOrderNum}** (${buyer}).`,
+        orderData: completeOrder,
+        yarnAllocations: yaList,
+        viewMode: 'allocation'
+      };
     }
     let reply = `Sure! I found it. Here is the allocated yarn for **Order #${activeOrderNum}** (${buyer}):\n\n`;
     reply += `### 🧶 Allocated Yarn Details:\n\n${allocTable}\n`;
@@ -1429,12 +1681,28 @@ export function handleSmartOrderQuery(
       handled: true,
       reply: reply.trim(),
       orderData: completeOrder,
-      yarnAllocations: yaList
+      yarnAllocations: yaList,
+      viewMode: 'allocation'
     };
   }
 
   // =========================================================================
-  // CASE 3 & 4: General Order Number or Production query - Exact Format as image.png
+  // CASE 3: "Production" only (e.g. "Production", "272767 Production")
+  // =========================================================================
+  if (asksProdOnly) {
+    let reply = `Sure! I found it. Here is the production data for **Order #${activeOrderNum}** (${buyer}):\n\n`;
+    reply += `${execReport.productionTable}${execReport.totalSummaryLine}\n`;
+    return {
+      handled: true,
+      reply: reply.trim(),
+      orderData: completeOrder,
+      yarnAllocations: yaList,
+      viewMode: 'production'
+    };
+  }
+
+  // =========================================================================
+  // CASE 4: Full Order Number Query (e.g. "272767", "Order 272767") - Both Production & Allocation
   // =========================================================================
   let combinedReport = `${introText}\n\n${execReport.productionTable}${execReport.totalSummaryLine}\n`;
 
@@ -1446,7 +1714,8 @@ export function handleSmartOrderQuery(
     handled: true,
     reply: combinedReport.trim(),
     orderData: completeOrder,
-    yarnAllocations: yaList
+    yarnAllocations: yaList,
+    viewMode: 'all'
   };
 }
 
