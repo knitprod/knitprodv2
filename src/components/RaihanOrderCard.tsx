@@ -205,14 +205,15 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
     if (activeMode === 'prediction') {
       let predText = `⏱️ Completion Date Prediction • Order #${order.orderNo}\n`;
       predText += `Buyer: ${order.buyerName || 'Epyllion'} | Team Leader: ${order.teamLeader || 'Unassigned'}\n`;
-      predText += `Target Knit Dates: ${order.knitStartDate || 'N/A'} to ${order.knitEndDate || 'N/A'}\n\n`;
+      predText += `PMC Knit Dates: ${order.pmcKnitStartDate || 'N/A'} to ${order.pmcKnitEndDate || 'N/A'}\n`;
+      predText += `Actual Knit Dates: ${order.actualKnitStartDate || order.knitStartDate || 'N/A'} to ${order.actualKnitEndDate || order.knitEndDate || 'N/A'}\n\n`;
       predText += `• Progress: ${pctDone}% (${totals.prod.toLocaleString()} kg produced / ${totals.grey.toLocaleString()} kg grey)\n`;
       predText += `• Remaining Balance: ${totals.bal.toLocaleString()} kg\n`;
       predText += `• Active Floor Run-Rate: ${activeDailyRate > 0 ? `${Math.ceil(activeDailyRate).toLocaleString()} kg/day` : '0 kg/day'}\n`;
       predText += `• Projected Completion Date: ${finishAtCurrentStr} (${varianceBadge.text})\n\n`;
       predText += `Itemized Breakdown:\n`;
       items.forEach(it => {
-        predText += `• ${it.color} (${it.fabType}): ${Number(it.knitBalance || 0).toLocaleString()} kg remaining | Daily: ${Math.ceil(Number(it.avgProdPerDay || 0))} kg/d\n`;
+        predText += `• ${it.color} (${it.fabType}): ${Number(it.knitBalance || 0).toLocaleString()} kg remaining | Daily: ${Math.ceil(Number(it.avgProdPerDay || 0))} kg/d | PMC: ${it.pmcKnitStartDate || '-'}\n`;
       });
       navigator.clipboard.writeText(predText);
       setCopied(true);
@@ -220,17 +221,20 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
       return;
     }
 
-    let summaryText = `Sure! I found it. Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} is ${conditionText} (${order.buyerName || 'Epyllion'}):\n\n`;
+    let summaryText = `Sure! I found it. Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} is ${conditionText} (${order.buyerName || 'Epyllion'}):\n`;
+    summaryText += `👤 Buyer: ${order.buyerName || 'Epyllion'} | 👔 Team Leader: ${order.teamLeader || 'Unassigned'}\n`;
+    summaryText += `📅 PMC Knit Start: ${order.pmcKnitStartDate || '-'} | 📅 PMC Knit End: ${order.pmcKnitEndDate || '-'}\n`;
+    summaryText += `📅 Actual Knit Start: ${order.actualKnitStartDate || order.knitStartDate || '-'} | 📅 Actual Knit End: ${order.actualKnitEndDate || order.knitEndDate || '-'}\n\n`;
     if (activeMode !== 'allocation') {
       summaryText += `🏭 Production Data:\n`;
-      summaryText += `Color | Fabric Type | GSM | Width | Req. QTY | Grey QTY | Production | Hold | Reject | Balance\n`;
+      summaryText += `Color | Fabric Type | GSM | Width | PMC Start | PMC End | Actual Start | Actual End | Req. QTY | Grey QTY | Production | Hold | Reject | Balance\n`;
       items.forEach(it => {
         const pText = Number(it.production || 0) > 0 ? `${Number(it.production).toLocaleString()} kg` : '0 kg';
         const hText = Number(it.hold || 0) > 0 ? `${Number(it.hold).toLocaleString()} kg` : '-';
         const rText = Number(it.reject || 0) > 0 ? `${Number(it.reject).toLocaleString()} kg` : '-';
-        summaryText += `${it.color} | ${it.fabType} | ${it.fgsm || '-'} | ${it.fWidth || '-'} | ${Number(it.reqQty || 0).toLocaleString()} kg | ${Number(it.greyQty || 0).toLocaleString()} kg | ${pText} | ${hText} | ${rText} | ${Number(it.knitBalance || 0).toLocaleString()} kg\n`;
+        summaryText += `${it.color} | ${it.fabType} | ${it.fgsm || '-'} | ${it.fWidth || '-'} | ${it.pmcKnitStartDate || '-'} | ${it.pmcKnitEndDate || '-'} | ${it.actualKnitStartDate || it.knitStartDate || '-'} | ${it.actualKnitEndDate || it.knitEndDate || '-'} | ${Number(it.reqQty || 0).toLocaleString()} kg | ${Number(it.greyQty || 0).toLocaleString()} kg | ${pText} | ${hText} | ${rText} | ${Number(it.knitBalance || 0).toLocaleString()} kg\n`;
       });
-      summaryText += `Total | - | - | - | ${totals.req.toLocaleString()} kg | ${totals.grey.toLocaleString()} kg | ${totals.prod.toLocaleString()} kg | ${totals.hold > 0 ? `${totals.hold.toLocaleString()} kg` : '-'} | ${totals.reject > 0 ? `${totals.reject.toLocaleString()} kg` : '-'} | ${totals.bal.toLocaleString()} kg\n\n`;
+      summaryText += `Total | - | - | - | - | - | - | - | ${totals.req.toLocaleString()} kg | ${totals.grey.toLocaleString()} kg | ${totals.prod.toLocaleString()} kg | ${totals.hold > 0 ? `${totals.hold.toLocaleString()} kg` : '-'} | ${totals.reject > 0 ? `${totals.reject.toLocaleString()} kg` : '-'} | ${totals.bal.toLocaleString()} kg\n\n`;
       summaryText += `📊 Total Summary: Req: ${totals.req.toLocaleString()} kg | Grey: ${totals.grey.toLocaleString()} kg | Production: ${totals.prod.toLocaleString()} kg | Hold: ${totals.hold.toLocaleString()} kg | Reject: ${totals.reject.toLocaleString()} kg | Balance: ${totals.bal.toLocaleString()} kg\n`;
     }
 
@@ -371,6 +375,51 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
       </div>
 
       <div className="p-4 sm:p-5 space-y-4">
+        {/* Order Overview & PMC / ACT Dates Breakdown Strip */}
+        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700/80 text-xs">
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-500 font-semibold">Buyer:</span>
+            <strong className="text-slate-900 dark:text-white font-bold">{order.buyerName || 'N/A'}</strong>
+          </div>
+          <span className="text-slate-300 dark:text-slate-600 hidden sm:inline">•</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-500 font-semibold">Team Leader:</span>
+            <strong className="text-slate-900 dark:text-white font-bold">{order.teamLeader || 'N/A'}</strong>
+          </div>
+          <span className="text-slate-300 dark:text-slate-600 hidden sm:inline">•</span>
+          <div className="flex items-center gap-1.5">
+            <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+            <span className="text-slate-500 font-semibold">PMC Knit Start:</span>
+            <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800">
+              {order.pmcKnitStartDate || '-'}
+            </span>
+          </div>
+          <span className="text-slate-300 dark:text-slate-600 hidden sm:inline">•</span>
+          <div className="flex items-center gap-1.5">
+            <Calendar className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span className="text-slate-500 font-semibold">ACT Knit Start:</span>
+            <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+              {order.actualKnitStartDate || order.knitStartDate || '-'}
+            </span>
+          </div>
+          <span className="text-slate-300 dark:text-slate-600 hidden sm:inline">•</span>
+          <div className="flex items-center gap-1.5">
+            <Calendar className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+            <span className="text-slate-500 font-semibold">PMC Knit End:</span>
+            <span className="font-mono font-bold text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800">
+              {order.pmcKnitEndDate || '-'}
+            </span>
+          </div>
+          <span className="text-slate-300 dark:text-slate-600 hidden sm:inline">•</span>
+          <div className="flex items-center gap-1.5">
+            <Calendar className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span className="text-slate-500 font-semibold">ACT Knit End:</span>
+            <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+              {order.actualKnitEndDate || order.knitEndDate || '-'}
+            </span>
+          </div>
+        </div>
+
         {/* Intro text line */}
         <p className="text-xs sm:text-[13px] text-slate-800 dark:text-slate-200 leading-relaxed font-normal">
           {activeMode === 'prediction'
@@ -580,6 +629,14 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
                     <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 min-w-[100px]">Fabric Type</th>
                     <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-center min-w-[65px]">GSM</th>
                     <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-center min-w-[65px]">Width</th>
+                    <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 min-w-[105px]">
+                      <div>Knit Start</div>
+                      <div className="text-[9px] font-bold text-indigo-600 dark:text-indigo-400">PMC / ACT</div>
+                    </th>
+                    <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 min-w-[105px]">
+                      <div>Knit End</div>
+                      <div className="text-[9px] font-bold text-purple-600 dark:text-purple-400">PMC / ACT</div>
+                    </th>
                     <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right min-w-[95px]">Req. QTY</th>
                     <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right min-w-[95px]">Grey QTY</th>
                     <th className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-right min-w-[100px]">Production</th>
@@ -619,6 +676,42 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
                           <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-center font-mono text-slate-600 dark:text-slate-400">
                             {it.fWidth || '-'}
                           </td>
+                          <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 font-mono text-[10.5px]">
+                            <div className="flex flex-col gap-0.5">
+                              {it.pmcKnitStartDate && (
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">PMC:</span>
+                                  <span className="text-slate-600 dark:text-slate-300 font-semibold">{it.pmcKnitStartDate}</span>
+                                </div>
+                              )}
+                              {(it.actualKnitStartDate || it.knitStartDate) ? (
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">ACT:</span>
+                                  <span className="font-bold text-slate-900 dark:text-white">{it.actualKnitStartDate || it.knitStartDate}</span>
+                                </div>
+                              ) : (
+                                !it.pmcKnitStartDate && <span className="text-slate-400">-</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 font-mono text-[10.5px]">
+                            <div className="flex flex-col gap-0.5">
+                              {it.pmcKnitEndDate && (
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">PMC:</span>
+                                  <span className="text-slate-600 dark:text-slate-300 font-semibold">{it.pmcKnitEndDate}</span>
+                                </div>
+                              )}
+                              {(it.actualKnitEndDate || it.knitEndDate) ? (
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">ACT:</span>
+                                  <span className="font-bold text-slate-900 dark:text-white">{it.actualKnitEndDate || it.knitEndDate}</span>
+                                </div>
+                              ) : (
+                                !it.pmcKnitEndDate && <span className="text-slate-400">-</span>
+                              )}
+                            </div>
+                          </td>
                           <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-right font-mono">
                             {Number(it.reqQty || 0).toLocaleString()} kg
                           </td>
@@ -644,6 +737,8 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
                   {/* Total Row */}
                   <tr className="bg-emerald-50 dark:bg-emerald-950/40 font-bold border-t-2 border-emerald-400 dark:border-emerald-700 text-emerald-950 dark:text-emerald-100">
                     <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 font-extrabold uppercase text-xs">Total</td>
+                    <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-center">-</td>
+                    <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-center">-</td>
                     <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-center">-</td>
                     <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-center">-</td>
                     <td className="px-3 py-2.5 border-r border-slate-200 dark:border-slate-700 text-center">-</td>

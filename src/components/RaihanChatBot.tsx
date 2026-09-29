@@ -113,8 +113,13 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         if (matchingTcp.length > 0 || matchingOp.length > 0 || matchingYa.length > 0) {
           const buyer = matchingTcp[0]?.buyerName || matchingOp[0]?.buyer || matchingYa[0]?.buyer || 'Epyllion Buyer';
           const teamLeader = matchingTcp[0]?.teamLeader || matchingOp[0]?.knitTeamLeaders || 'Unassigned';
-          const knitStart = matchingOp[0]?.knitStart || matchingOp[0]?.aKnitStart || '-';
-          const knitEnd = matchingOp[0]?.knitEnd || matchingOp[0]?.expectedKnitEnd || '-';
+          const opFirst = matchingOp[0] as any;
+          const pmcStart = opFirst?.pmcKnitStart || opFirst?.pmcKStart || '-';
+          const pmcEnd = opFirst?.pmcKnitEnd || opFirst?.pmcKEnd || '-';
+          const actStart = opFirst?.aKnitStart || opFirst?.knitStart || '-';
+          const actEnd = opFirst?.lastKnit || opFirst?.knitEnd || '-';
+          const knitStart = actStart !== '-' ? actStart : pmcStart;
+          const knitEnd = actEnd !== '-' ? actEnd : pmcEnd;
 
           let items: any[] = [];
           if (matchingTcp.length > 0) {
@@ -127,6 +132,10 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
               fWidth: t.fWidth || '-',
               yarnCount: matchingYa[0]?.allocatedYarn || matchingYa[0]?.yarnRequired || '-',
               gaugeDia: '-',
+              pmcKnitStartDate: pmcStart,
+              actualKnitStartDate: actStart,
+              pmcKnitEndDate: pmcEnd,
+              actualKnitEndDate: actEnd,
               knitStartDate: knitStart,
               knitEndDate: knitEnd,
               reqQty: Number(t.reqQty || 0),
@@ -149,6 +158,10 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
               fWidth: p.finishedDia || '-',
               yarnCount: matchingYa[0]?.allocatedYarn || matchingYa[0]?.yarnRequired || '-',
               gaugeDia: '-',
+              pmcKnitStartDate: p.pmcKnitStart || p.pmcKStart || pmcStart,
+              actualKnitStartDate: p.aKnitStart || p.knitStart || actStart,
+              pmcKnitEndDate: p.pmcKnitEnd || p.pmcKEnd || pmcEnd,
+              actualKnitEndDate: p.lastKnit || p.knitEnd || actEnd,
               knitStartDate: p.knitStart || p.aKnitStart || '',
               knitEndDate: p.knitEnd || p.expectedKnitEnd || '',
               reqQty: Number(p.target || p.reqQty || 0),
@@ -171,6 +184,10 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
               fWidth: '-',
               yarnCount: y.allocatedYarn || y.yarnRequired || '-',
               gaugeDia: '-',
+              pmcKnitStartDate: pmcStart,
+              actualKnitStartDate: actStart,
+              pmcKnitEndDate: pmcEnd,
+              actualKnitEndDate: actEnd,
               knitStartDate: '',
               knitEndDate: '',
               reqQty: Number(y.yarnRqQty || 0),
@@ -195,7 +212,11 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
             orderNo: orderNum,
             buyerName: buyer,
             teamLeader,
+            pmcKnitStartDate: pmcStart,
+            actualKnitStartDate: actStart,
             knitStartDate: knitStart,
+            pmcKnitEndDate: pmcEnd,
+            actualKnitEndDate: actEnd,
             knitEndDate: knitEnd,
             reqQty: sumReq,
             greyQty: sumGrey,

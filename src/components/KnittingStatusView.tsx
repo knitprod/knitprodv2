@@ -6,7 +6,7 @@
  * Layered Order & Fabric Production Tracking under Plan Order Followup
  */
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import {
   Search,
@@ -51,7 +51,8 @@ import {
   enrichKnittingOrderWithPlanData,
   calculateStartOtdStatus,
   calculateEndOtdStatus,
-  calculateOverallOtdStatus
+  calculateOverallOtdStatus,
+  parseDateToTimestamp
 } from '../lib/knittingStatusStore';
 import { useGlobalData } from '../context/GlobalDataContext';
 import { KnittingOrderDetailsModal } from './KnittingOrderDetailsModal';
@@ -63,6 +64,274 @@ import { SyncProgressBar, SyncProgressState } from './SyncProgressBar';
 interface KnittingStatusViewProps {
   currentUser?: UserRecord | null;
   initialTab?: 'knitting_status' | 'textile_close_pmc';
+}
+
+export interface SearchableFilterOption {
+  value: string;
+  label: string;
+  count?: number;
+}
+
+interface SearchableFilterDropdownProps {
+  label?: string;
+  sublabel?: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: (SearchableFilterOption | string)[];
+  allLabel: string;
+  placeholder?: string;
+  themeColor?: 'indigo' | 'purple' | 'teal' | 'emerald' | 'cyan' | 'amber' | 'blue';
+  id?: string;
+  className?: string;
+  align?: 'left' | 'right';
+}
+
+/**
+ * High-performance searchable filter dropdown.
+ * Includes sticky in-dropdown search box so users can type and filter options
+ * without tedious manual scrolling through long lists.
+ */
+function SearchableFilterDropdown({
+  label,
+  sublabel,
+  value,
+  onChange,
+  options,
+  allLabel,
+  placeholder = 'Type to search...',
+  themeColor = 'indigo',
+  id,
+  className = '',
+  align = 'left'
+}: SearchableFilterDropdownProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Close when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
+
+  // Auto focus search input when opened
+  useEffect(() => {
+    if (isOpen) {
+      const timer = setTimeout(() => {
+        inputRef.current?.focus();
+      }, 60);
+      return () => clearTimeout(timer);
+    } else {
+      setQuery('');
+    }
+  }, [isOpen]);
+
+  // Normalize options to { value, label, count? }
+  const normalizedOptions: SearchableFilterOption[] = useMemo(() => {
+    return options.map(opt => {
+      if (typeof opt === 'string') {
+        return { value: opt, label: opt };
+      }
+      return opt;
+    });
+  }, [options]);
+
+  // Filter options based on query
+  const filteredOptions = useMemo(() => {
+    if (!query.trim()) return normalizedOptions;
+    const q = query.toLowerCase().trim();
+    return normalizedOptions.filter(opt =>
+      opt.label.toLowerCase().includes(q) || opt.value.toLowerCase().includes(q)
+    );
+  }, [normalizedOptions, query]);
+
+  const selectedOption = normalizedOptions.find(o => o.value === value);
+  const displayText = value === 'All' ? allLabel : (selectedOption ? selectedOption.label : value);
+  const isSelected = value !== 'All';
+
+  // Theme-specific active border and background styles
+  const activeBorderBg = {
+    indigo: 'border-indigo-500 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-200 font-bold',
+    purple: 'border-purple-500 bg-purple-50/60 dark:bg-purple-950/40 text-purple-900 dark:text-purple-200 font-bold',
+    teal: 'border-teal-500 bg-teal-50/60 dark:bg-teal-950/40 text-teal-900 dark:text-teal-200 font-bold',
+    emerald: 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 font-bold',
+    cyan: 'border-cyan-500 bg-cyan-50/60 dark:bg-cyan-950/40 text-cyan-900 dark:text-cyan-200 font-bold',
+    amber: 'border-amber-500 bg-amber-50/60 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 font-bold',
+    blue: 'border-blue-500 bg-blue-50/60 dark:bg-blue-950/40 text-blue-900 dark:text-blue-200 font-bold'
+  }[themeColor];
+
+  const focusRing = {
+    indigo: 'focus:ring-indigo-500',
+    purple: 'focus:ring-purple-500',
+    teal: 'focus:ring-teal-500',
+    emerald: 'focus:ring-emerald-500',
+    cyan: 'focus:ring-cyan-500',
+    amber: 'focus:ring-amber-500',
+    blue: 'focus:ring-blue-500'
+  }[themeColor];
+
+  return (
+    <div className={`relative w-full ${className}`} ref={dropdownRef}>
+      {label && (
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+            {label}
+          </label>
+          {sublabel && (
+            <span className="text-[9.5px] text-slate-400 font-mono">{sublabel}</span>
+          )}
+        </div>
+      )}
+
+      {/* Trigger Button */}
+      <button
+        type="button"
+        id={id}
+        onClick={() => setIsOpen(prev => !prev)}
+        className={`w-full flex items-center justify-between gap-1.5 px-2.5 py-1.5 text-xs rounded-xl border text-left transition-colors cursor-pointer ${
+          isSelected
+            ? activeBorderBg
+            : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white'
+        } ${focusRing} hover:border-slate-400 dark:hover:border-slate-600`}
+      >
+        <span className="truncate pr-2 font-medium">{displayText}</span>
+        <div className="flex items-center gap-1 shrink-0">
+          {isSelected && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={e => {
+                e.stopPropagation();
+                onChange('All');
+              }}
+              className="p-0.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-sm cursor-pointer"
+              title="Clear filter"
+            >
+              <X className="w-3 h-3" />
+            </span>
+          )}
+          <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        </div>
+      </button>
+
+      {/* Floating Dropdown Popover with Search Box */}
+      {isOpen && (
+        <div
+          className={`absolute z-50 mt-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden min-w-[240px] max-w-[360px] w-full ${
+            align === 'right' ? 'right-0' : 'left-0'
+          }`}
+        >
+          {/* Search Box Header */}
+          <div className="p-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900/90 sticky top-0 z-10">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder={placeholder}
+                className="w-full pl-8 pr-7 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                onKeyDown={e => {
+                  if (e.key === 'Escape') {
+                    setIsOpen(false);
+                  } else if (e.key === 'Enter') {
+                    if (filteredOptions.length > 0) {
+                      onChange(filteredOptions[0].value);
+                      setIsOpen(false);
+                    }
+                  }
+                }}
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+            {query && (
+              <div className="text-[10px] text-slate-400 mt-1 px-1">
+                Found {filteredOptions.length} of {normalizedOptions.length}
+              </div>
+            )}
+          </div>
+
+          {/* Options List */}
+          <div className="max-h-56 overflow-y-auto divide-y divide-slate-50 dark:divide-slate-800/60 p-1 text-xs">
+            {/* "All" Option */}
+            {(!query || allLabel.toLowerCase().includes(query.toLowerCase())) && (
+              <button
+                type="button"
+                onClick={() => {
+                  onChange('All');
+                  setIsOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition-colors cursor-pointer ${
+                  value === 'All'
+                    ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <span>{allLabel}</span>
+                {value === 'All' && <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
+              </button>
+            )}
+
+            {filteredOptions.length === 0 ? (
+              <div className="py-4 text-center text-slate-400 text-xs">
+                No matching options for "{query}"
+              </div>
+            ) : (
+              filteredOptions.map(opt => {
+                const isItemActive = value === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      onChange(opt.value);
+                      setIsOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition-colors cursor-pointer ${
+                      isItemActive
+                        ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    <span className="truncate">{opt.label}</span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {opt.count !== undefined && (
+                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                          {opt.count}
+                        </span>
+                      )}
+                      {isItemActive && (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                      )}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function KnittingStatusView({ currentUser, initialTab }: KnittingStatusViewProps) {
@@ -174,6 +443,14 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
   const [fgsmFilter, setFgsmFilter] = useState<string>('All');
   const [otdFilter, setOtdFilter] = useState<'All' | 'Passed' | 'Failed' | 'Pending'>('All');
 
+  // PMC Knit Start & Knit End Filter States
+  const [pmcStartFilter, setPmcStartFilter] = useState<string>('All');
+  const [pmcStartFrom, setPmcStartFrom] = useState<string>('');
+  const [pmcStartTo, setPmcStartTo] = useState<string>('');
+  const [pmcEndFilter, setPmcEndFilter] = useState<string>('All');
+  const [pmcEndFrom, setPmcEndFrom] = useState<string>('');
+  const [pmcEndTo, setPmcEndTo] = useState<string>('');
+
   // Admin status
   const isAdmin = currentUser?.userType === 'Admin';
 
@@ -224,63 +501,278 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
     setExpandedOrderIds(new Set());
   };
 
-  // Distinct Filter Options
+  // Helper function to check if an order matches all active criteria,
+  // optionally excluding one field to calculate relational/faceted options for that field.
+  const matchesOrderCriteria = useCallback((
+    order: KnittingStatusOrder,
+    exclude?: 'buyer' | 'teamLeader' | 'otd' | 'fabType' | 'color' | 'gaugeDia' | 'fgsm' | 'pmcStart' | 'pmcEnd' | 'condition'
+  ): boolean => {
+    // 1. Search term (matches orderNo, buyer, team leader, items, dates, etc.)
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase().trim();
+      const cleanQ = q.replace(/^#+/, '');
+      const matchesOrder =
+        order.orderNo.toLowerCase().includes(q) ||
+        (cleanQ ? order.orderNo.toLowerCase().includes(cleanQ) : false) ||
+        order.buyerName.toLowerCase().includes(q) ||
+        order.teamLeader.toLowerCase().includes(q) ||
+        (order.otdStatus || '').toLowerCase().includes(q) ||
+        (order.pmcKnitStartDate || '').toLowerCase().includes(q) ||
+        (order.pmcKnitEndDate || '').toLowerCase().includes(q);
+
+      const matchesItem = order.items?.some(i =>
+        i.color.toLowerCase().includes(q) ||
+        i.fabType.toLowerCase().includes(q) ||
+        i.mcType.toLowerCase().includes(q) ||
+        String(i.gaugeDia || '').toLowerCase().includes(q) ||
+        String(i.fgsm || '').toLowerCase().includes(q) ||
+        i.productionUnit.toLowerCase().includes(q) ||
+        (i.pmcKnitStartDate || '').toLowerCase().includes(q) ||
+        (i.pmcKnitEndDate || '').toLowerCase().includes(q)
+      );
+
+      if (!matchesOrder && !matchesItem) return false;
+    }
+
+    // 2. Condition filter (Running, Pending, Complete)
+    if (exclude !== 'condition' && conditionFilter !== 'All') {
+      const cond = calculateKnittingCondition(order.greyQty, order.knitBalance);
+      if (cond !== conditionFilter) return false;
+    }
+
+    // 3. Buyer filter
+    if (exclude !== 'buyer' && buyerFilter !== 'All' && order.buyerName !== buyerFilter) {
+      return false;
+    }
+
+    // 4. Team Leader filter
+    if (exclude !== 'teamLeader' && teamLeaderFilter !== 'All' && order.teamLeader !== teamLeaderFilter) {
+      return false;
+    }
+
+    // 5. FAB. Type filter
+    if (exclude !== 'fabType' && fabTypeFilter !== 'All') {
+      const hasFabType = order.items?.some(it => {
+        const ft = (it.fabType || it.fabrication || '').trim();
+        return ft.toLowerCase() === fabTypeFilter.toLowerCase();
+      });
+      if (!hasFabType) return false;
+    }
+
+    // 6. Color filter
+    if (exclude !== 'color' && colorFilter !== 'All') {
+      const hasColor = order.items?.some(it => {
+        const c = (it.color || '').trim();
+        return c.toLowerCase() === colorFilter.toLowerCase();
+      });
+      if (!hasColor) return false;
+    }
+
+    // 7. Gauge Dia filter
+    if (exclude !== 'gaugeDia' && gaugeDiaFilter !== 'All') {
+      const hasGaugeDia = order.items?.some(it => {
+        const gd = (it.gaugeDia || '').trim();
+        return gd.toLowerCase() === gaugeDiaFilter.toLowerCase();
+      });
+      if (!hasGaugeDia) return false;
+    }
+
+    // 8. FGSM filter
+    if (exclude !== 'fgsm' && fgsmFilter !== 'All') {
+      const hasFgsm = order.items?.some(it => {
+        const g = String(it.fgsm ?? '').trim();
+        return g.toLowerCase() === fgsmFilter.toLowerCase();
+      });
+      if (!hasFgsm) return false;
+    }
+
+    // 9. OTD Status filter
+    if (exclude !== 'otd' && otdFilter !== 'All') {
+      const otd = order.otdStatus || 'Pending';
+      if (otd !== otdFilter) return false;
+    }
+
+    // 10. PMC Knit Start filter (Specific date)
+    if (exclude !== 'pmcStart' && pmcStartFilter !== 'All') {
+      const targetTs = parseDateToTimestamp(pmcStartFilter);
+      const matchesStart = (dStr?: string) => {
+        if (!dStr) return false;
+        if (dStr.trim().toLowerCase() === pmcStartFilter.toLowerCase().trim()) return true;
+        if (targetTs !== null) {
+          const curTs = parseDateToTimestamp(dStr);
+          if (curTs !== null && curTs === targetTs) return true;
+        }
+        return false;
+      };
+
+      const matchesOrder = matchesStart(order.pmcKnitStartDate);
+      const matchesAnyItem = order.items?.some(it => matchesStart(it.pmcKnitStartDate));
+      if (!matchesOrder && !matchesAnyItem) return false;
+    }
+
+    // PMC Knit Start Range filter (From / To)
+    if (exclude !== 'pmcStart' && (pmcStartFrom || pmcStartTo)) {
+      const fromTs = pmcStartFrom ? new Date(pmcStartFrom + 'T00:00:00').getTime() : null;
+      const toTs = pmcStartTo ? new Date(pmcStartTo + 'T23:59:59').getTime() : null;
+
+      const inRange = (dStr?: string) => {
+        if (!dStr) return false;
+        const ts = parseDateToTimestamp(dStr);
+        if (ts === null) return false;
+        if (fromTs !== null && ts < fromTs) return false;
+        if (toTs !== null && ts > toTs) return false;
+        return true;
+      };
+
+      const matchesOrder = inRange(order.pmcKnitStartDate);
+      const matchesAnyItem = order.items?.some(it => inRange(it.pmcKnitStartDate));
+      if (!matchesOrder && !matchesAnyItem) return false;
+    }
+
+    // 11. PMC Knit End filter (Specific date)
+    if (exclude !== 'pmcEnd' && pmcEndFilter !== 'All') {
+      const targetTs = parseDateToTimestamp(pmcEndFilter);
+      const matchesEnd = (dStr?: string) => {
+        if (!dStr) return false;
+        if (dStr.trim().toLowerCase() === pmcEndFilter.toLowerCase().trim()) return true;
+        if (targetTs !== null) {
+          const curTs = parseDateToTimestamp(dStr);
+          if (curTs !== null && curTs === targetTs) return true;
+        }
+        return false;
+      };
+
+      const matchesOrder = matchesEnd(order.pmcKnitEndDate);
+      const matchesAnyItem = order.items?.some(it => matchesEnd(it.pmcKnitEndDate));
+      if (!matchesOrder && !matchesAnyItem) return false;
+    }
+
+    // PMC Knit End Range filter (From / To)
+    if (exclude !== 'pmcEnd' && (pmcEndFrom || pmcEndTo)) {
+      const fromTs = pmcEndFrom ? new Date(pmcEndFrom + 'T00:00:00').getTime() : null;
+      const toTs = pmcEndTo ? new Date(pmcEndTo + 'T23:59:59').getTime() : null;
+
+      const inRange = (dStr?: string) => {
+        if (!dStr) return false;
+        const ts = parseDateToTimestamp(dStr);
+        if (ts === null) return false;
+        if (fromTs !== null && ts < fromTs) return false;
+        if (toTs !== null && ts > toTs) return false;
+        return true;
+      };
+
+      const matchesOrder = inRange(order.pmcKnitEndDate);
+      const matchesAnyItem = order.items?.some(it => inRange(it.pmcKnitEndDate));
+      if (!matchesOrder && !matchesAnyItem) return false;
+    }
+
+    return true;
+  }, [
+    searchTerm,
+    conditionFilter,
+    buyerFilter,
+    teamLeaderFilter,
+    otdFilter,
+    fabTypeFilter,
+    colorFilter,
+    gaugeDiaFilter,
+    fgsmFilter,
+    pmcStartFilter,
+    pmcStartFrom,
+    pmcStartTo,
+    pmcEndFilter,
+    pmcEndFrom,
+    pmcEndTo
+  ]);
+
+  // Relational Distinct Filter Options (each derived from orders that match all other active filters)
   const buyerOptions = useMemo(() => {
     const set = new Set<string>();
     enrichedOrders.forEach(o => {
-      if (o.buyerName) set.add(o.buyerName);
+      if (matchesOrderCriteria(o, 'buyer') && o.buyerName) {
+        set.add(o.buyerName.trim());
+      }
     });
-    return Array.from(set).sort();
-  }, [enrichedOrders]);
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [enrichedOrders, matchesOrderCriteria]);
 
   const teamLeaderOptions = useMemo(() => {
     const set = new Set<string>();
     enrichedOrders.forEach(o => {
-      if (o.teamLeader) set.add(o.teamLeader);
+      if (matchesOrderCriteria(o, 'teamLeader') && o.teamLeader) {
+        set.add(o.teamLeader.trim());
+      }
     });
-    return Array.from(set).sort();
-  }, [enrichedOrders]);
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [enrichedOrders, matchesOrderCriteria]);
+
+  const otdOptions = useMemo(() => {
+    let passed = 0;
+    let failed = 0;
+    let pending = 0;
+    enrichedOrders.forEach(o => {
+      if (matchesOrderCriteria(o, 'otd')) {
+        const otd = o.otdStatus || 'Pending';
+        if (otd === 'Passed') passed++;
+        else if (otd === 'Failed') failed++;
+        else pending++;
+      }
+    });
+    const opts: SearchableFilterOption[] = [];
+    if (passed > 0) opts.push({ value: 'Passed', label: `Passed (On Time) (${passed})`, count: passed });
+    if (failed > 0) opts.push({ value: 'Failed', label: `Failed (Delayed) (${failed})`, count: failed });
+    if (pending > 0) opts.push({ value: 'Pending', label: `Pending (${pending})`, count: pending });
+    return opts;
+  }, [enrichedOrders, matchesOrderCriteria]);
 
   const fabTypeOptions = useMemo(() => {
     const set = new Set<string>();
     enrichedOrders.forEach(o => {
-      o.items?.forEach(it => {
-        const ft = (it.fabType || it.fabrication || '').trim();
-        if (ft && ft !== '-' && ft.toLowerCase() !== 'n/a') set.add(ft);
-      });
+      if (matchesOrderCriteria(o, 'fabType')) {
+        o.items?.forEach(it => {
+          const ft = (it.fabType || it.fabrication || '').trim();
+          if (ft && ft !== '-' && ft.toLowerCase() !== 'n/a') set.add(ft);
+        });
+      }
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [enrichedOrders]);
+  }, [enrichedOrders, matchesOrderCriteria]);
 
   const colorOptions = useMemo(() => {
     const set = new Set<string>();
     enrichedOrders.forEach(o => {
-      o.items?.forEach(it => {
-        const c = (it.color || '').trim();
-        if (c && c !== '-' && c.toLowerCase() !== 'n/a') set.add(c);
-      });
+      if (matchesOrderCriteria(o, 'color')) {
+        o.items?.forEach(it => {
+          const c = (it.color || '').trim();
+          if (c && c !== '-' && c.toLowerCase() !== 'n/a') set.add(c);
+        });
+      }
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [enrichedOrders]);
+  }, [enrichedOrders, matchesOrderCriteria]);
 
   const gaugeDiaOptions = useMemo(() => {
     const set = new Set<string>();
     enrichedOrders.forEach(o => {
-      o.items?.forEach(it => {
-        const gd = (it.gaugeDia || '').trim();
-        if (gd && gd !== '-' && gd.toLowerCase() !== 'n/a') set.add(gd);
-      });
+      if (matchesOrderCriteria(o, 'gaugeDia')) {
+        o.items?.forEach(it => {
+          const gd = (it.gaugeDia || '').trim();
+          if (gd && gd !== '-' && gd.toLowerCase() !== 'n/a') set.add(gd);
+        });
+      }
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [enrichedOrders]);
+  }, [enrichedOrders, matchesOrderCriteria]);
 
   const fgsmOptions = useMemo(() => {
     const set = new Set<string>();
     enrichedOrders.forEach(o => {
-      o.items?.forEach(it => {
-        const g = String(it.fgsm ?? '').trim();
-        if (g && g !== '-' && g.toLowerCase() !== 'n/a' && g !== '0') set.add(g);
-      });
+      if (matchesOrderCriteria(o, 'fgsm')) {
+        o.items?.forEach(it => {
+          const g = String(it.fgsm ?? '').trim();
+          if (g && g !== '-' && g.toLowerCase() !== 'n/a' && g !== '0') set.add(g);
+        });
+      }
     });
     return Array.from(set).sort((a, b) => {
       const numA = parseFloat(a);
@@ -288,87 +780,159 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
       if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
       return a.localeCompare(b);
     });
-  }, [enrichedOrders]);
+  }, [enrichedOrders, matchesOrderCriteria]);
 
-  // Criteria-Filtered Orders (matching Buyer, Team Leader, Fab. Type, Color, Gauge Dia, FGSM, OTD Status, and Search query)
-  const criteriaFilteredOrders = useMemo(() => {
-    return enrichedOrders.filter(order => {
-      // Buyer filter
-      if (buyerFilter !== 'All' && order.buyerName !== buyerFilter) {
-        return false;
-      }
-
-      // Team Leader filter
-      if (teamLeaderFilter !== 'All' && order.teamLeader !== teamLeaderFilter) {
-        return false;
-      }
-
-      // FAB. Type filter
-      if (fabTypeFilter !== 'All') {
-        const hasFabType = order.items?.some(it => {
-          const ft = (it.fabType || it.fabrication || '').trim();
-          return ft.toLowerCase() === fabTypeFilter.toLowerCase();
+  // Relational Distinct PMC Start Date options (Sorted Chronologically: 1-Aug, 2-Aug, 3-Aug, 1-Sep)
+  const pmcStartDateOptions = useMemo(() => {
+    const map = new Map<string, { date: string; count: number; timestamp: number }>();
+    enrichedOrders.forEach(o => {
+      if (matchesOrderCriteria(o, 'pmcStart')) {
+        const dates = new Set<string>();
+        if (o.pmcKnitStartDate && o.pmcKnitStartDate !== '-' && o.pmcKnitStartDate.toLowerCase() !== 'n/a') {
+          dates.add(o.pmcKnitStartDate.trim());
+        }
+        o.items?.forEach(it => {
+          if (it.pmcKnitStartDate && it.pmcKnitStartDate !== '-' && it.pmcKnitStartDate.toLowerCase() !== 'n/a') {
+            dates.add(it.pmcKnitStartDate.trim());
+          }
         });
-        if (!hasFabType) return false;
-      }
-
-      // Color filter
-      if (colorFilter !== 'All') {
-        const hasColor = order.items?.some(it => {
-          const c = (it.color || '').trim();
-          return c.toLowerCase() === colorFilter.toLowerCase();
+        dates.forEach(d => {
+          const existing = map.get(d);
+          if (existing) {
+            existing.count += 1;
+          } else {
+            const ts = parseDateToTimestamp(d) || 0;
+            map.set(d, { date: d, count: 1, timestamp: ts });
+          }
         });
-        if (!hasColor) return false;
       }
-
-      // Gauge Dia filter
-      if (gaugeDiaFilter !== 'All') {
-        const hasGaugeDia = order.items?.some(it => {
-          const gd = (it.gaugeDia || '').trim();
-          return gd.toLowerCase() === gaugeDiaFilter.toLowerCase();
-        });
-        if (!hasGaugeDia) return false;
-      }
-
-      // FGSM filter
-      if (fgsmFilter !== 'All') {
-        const hasFgsm = order.items?.some(it => {
-          const g = String(it.fgsm ?? '').trim();
-          return g.toLowerCase() === fgsmFilter.toLowerCase();
-        });
-        if (!hasFgsm) return false;
-      }
-
-      // OTD Status filter
-      if (otdFilter !== 'All') {
-        const otd = order.otdStatus || 'Pending';
-        if (otd !== otdFilter) return false;
-      }
-
-      // Search term
-      if (searchTerm.trim()) {
-        const q = searchTerm.toLowerCase().trim();
-        const matchesOrder =
-          order.orderNo.toLowerCase().includes(q) ||
-          order.buyerName.toLowerCase().includes(q) ||
-          order.teamLeader.toLowerCase().includes(q) ||
-          (order.otdStatus || '').toLowerCase().includes(q);
-
-        const matchesItem = order.items?.some(i =>
-          i.color.toLowerCase().includes(q) ||
-          i.fabType.toLowerCase().includes(q) ||
-          i.mcType.toLowerCase().includes(q) ||
-          String(i.gaugeDia || '').toLowerCase().includes(q) ||
-          String(i.fgsm || '').toLowerCase().includes(q) ||
-          i.productionUnit.toLowerCase().includes(q)
-        );
-
-        if (!matchesOrder && !matchesItem) return false;
-      }
-
-      return true;
     });
-  }, [enrichedOrders, buyerFilter, teamLeaderFilter, fabTypeFilter, colorFilter, gaugeDiaFilter, fgsmFilter, otdFilter, searchTerm]);
+
+    return Array.from(map.values()).sort((a, b) => {
+      const tsA = a.timestamp || parseDateToTimestamp(a.date) || 0;
+      const tsB = b.timestamp || parseDateToTimestamp(b.date) || 0;
+      if (tsA && tsB && tsA !== tsB) {
+        return tsA - tsB;
+      }
+      if (tsA && !tsB) return -1;
+      if (!tsA && tsB) return 1;
+      return a.date.localeCompare(b.date);
+    });
+  }, [enrichedOrders, matchesOrderCriteria]);
+
+  // Relational Distinct PMC End Date options (Sorted Chronologically: 1-Aug, 2-Aug, 3-Aug, 1-Sep)
+  const pmcEndDateOptions = useMemo(() => {
+    const map = new Map<string, { date: string; count: number; timestamp: number }>();
+    enrichedOrders.forEach(o => {
+      if (matchesOrderCriteria(o, 'pmcEnd')) {
+        const dates = new Set<string>();
+        if (o.pmcKnitEndDate && o.pmcKnitEndDate !== '-' && o.pmcKnitEndDate.toLowerCase() !== 'n/a') {
+          dates.add(o.pmcKnitEndDate.trim());
+        }
+        o.items?.forEach(it => {
+          if (it.pmcKnitEndDate && it.pmcKnitEndDate !== '-' && it.pmcKnitEndDate.toLowerCase() !== 'n/a') {
+            dates.add(it.pmcKnitEndDate.trim());
+          }
+        });
+        dates.forEach(d => {
+          const existing = map.get(d);
+          if (existing) {
+            existing.count += 1;
+          } else {
+            const ts = parseDateToTimestamp(d) || 0;
+            map.set(d, { date: d, count: 1, timestamp: ts });
+          }
+        });
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => {
+      const tsA = a.timestamp || parseDateToTimestamp(a.date) || 0;
+      const tsB = b.timestamp || parseDateToTimestamp(b.date) || 0;
+      if (tsA && tsB && tsA !== tsB) {
+        return tsA - tsB;
+      }
+      if (tsA && !tsB) return -1;
+      if (!tsA && tsB) return 1;
+      return a.date.localeCompare(b.date);
+    });
+  }, [enrichedOrders, matchesOrderCriteria]);
+
+  // Criteria-Filtered Orders (all active filters matching, excluding condition to allow condition card metrics calculation)
+  const criteriaFilteredOrders = useMemo(() => {
+    return enrichedOrders.filter(order => matchesOrderCriteria(order, 'condition'));
+  }, [enrichedOrders, matchesOrderCriteria]);
+
+  // Auto-reset active selections if they become invalid under new relational constraints
+  useEffect(() => {
+    if (buyerFilter !== 'All' && !buyerOptions.includes(buyerFilter)) {
+      setBuyerFilter('All');
+    }
+  }, [buyerFilter, buyerOptions]);
+
+  useEffect(() => {
+    if (teamLeaderFilter !== 'All' && !teamLeaderOptions.includes(teamLeaderFilter)) {
+      setTeamLeaderFilter('All');
+    }
+  }, [teamLeaderFilter, teamLeaderOptions]);
+
+  useEffect(() => {
+    if (otdFilter !== 'All' && !otdOptions.some(opt => opt.value === otdFilter)) {
+      setOtdFilter('All');
+    }
+  }, [otdFilter, otdOptions]);
+
+  useEffect(() => {
+    if (fabTypeFilter !== 'All' && !fabTypeOptions.includes(fabTypeFilter)) {
+      setFabTypeFilter('All');
+    }
+  }, [fabTypeFilter, fabTypeOptions]);
+
+  useEffect(() => {
+    if (colorFilter !== 'All' && !colorOptions.includes(colorFilter)) {
+      setColorFilter('All');
+    }
+  }, [colorFilter, colorOptions]);
+
+  useEffect(() => {
+    if (gaugeDiaFilter !== 'All' && !gaugeDiaOptions.includes(gaugeDiaFilter)) {
+      setGaugeDiaFilter('All');
+    }
+  }, [gaugeDiaFilter, gaugeDiaOptions]);
+
+  useEffect(() => {
+    if (fgsmFilter !== 'All' && !fgsmOptions.includes(fgsmFilter)) {
+      setFgsmFilter('All');
+    }
+  }, [fgsmFilter, fgsmOptions]);
+
+  useEffect(() => {
+    if (pmcStartFilter !== 'All') {
+      const targetTs = parseDateToTimestamp(pmcStartFilter);
+      const exists = pmcStartDateOptions.some(opt => {
+        if (opt.date.toLowerCase() === pmcStartFilter.toLowerCase()) return true;
+        if (targetTs !== null && opt.timestamp === targetTs) return true;
+        return false;
+      });
+      if (!exists) {
+        setPmcStartFilter('All');
+      }
+    }
+  }, [pmcStartFilter, pmcStartDateOptions]);
+
+  useEffect(() => {
+    if (pmcEndFilter !== 'All') {
+      const targetTs = parseDateToTimestamp(pmcEndFilter);
+      const exists = pmcEndDateOptions.some(opt => {
+        if (opt.date.toLowerCase() === pmcEndFilter.toLowerCase()) return true;
+        if (targetTs !== null && opt.timestamp === targetTs) return true;
+        return false;
+      });
+      if (!exists) {
+        setPmcEndFilter('All');
+      }
+    }
+  }, [pmcEndFilter, pmcEndDateOptions]);
 
   // Filtered Orders (including Condition filter)
   const filteredOrders = useMemo(() => {
@@ -386,7 +950,23 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
   // Reset pagination when search or filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, conditionFilter, buyerFilter, teamLeaderFilter, fabTypeFilter, colorFilter, gaugeDiaFilter, fgsmFilter, otdFilter]);
+  }, [
+    searchTerm,
+    conditionFilter,
+    buyerFilter,
+    teamLeaderFilter,
+    fabTypeFilter,
+    colorFilter,
+    gaugeDiaFilter,
+    fgsmFilter,
+    otdFilter,
+    pmcStartFilter,
+    pmcStartFrom,
+    pmcStartTo,
+    pmcEndFilter,
+    pmcEndFrom,
+    pmcEndTo
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(filteredOrders.length / pageSize));
   const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
@@ -462,6 +1042,12 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
       gaugeDiaFilter !== 'All' ||
       fgsmFilter !== 'All' ||
       otdFilter !== 'All' ||
+      pmcStartFilter !== 'All' ||
+      Boolean(pmcStartFrom) ||
+      Boolean(pmcStartTo) ||
+      pmcEndFilter !== 'All' ||
+      Boolean(pmcEndFrom) ||
+      Boolean(pmcEndTo) ||
       Boolean(searchTerm.trim());
 
     return {
@@ -480,7 +1066,26 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
       otdFailedCount,
       otdPendingCount
     };
-  }, [filteredOrders, criteriaFilteredOrders, conditionFilter, buyerFilter, teamLeaderFilter, fabTypeFilter, colorFilter, gaugeDiaFilter, fgsmFilter, otdFilter, searchTerm, enrichedOrders.length]);
+  }, [
+    filteredOrders,
+    criteriaFilteredOrders,
+    conditionFilter,
+    buyerFilter,
+    teamLeaderFilter,
+    fabTypeFilter,
+    colorFilter,
+    gaugeDiaFilter,
+    fgsmFilter,
+    otdFilter,
+    pmcStartFilter,
+    pmcStartFrom,
+    pmcStartTo,
+    pmcEndFilter,
+    pmcEndFrom,
+    pmcEndTo,
+    searchTerm,
+    enrichedOrders.length
+  ]);
 
   const clearAllFilters = () => {
     setConditionFilter('All');
@@ -491,6 +1096,12 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
     setGaugeDiaFilter('All');
     setFgsmFilter('All');
     setOtdFilter('All');
+    setPmcStartFilter('All');
+    setPmcStartFrom('');
+    setPmcStartTo('');
+    setPmcEndFilter('All');
+    setPmcEndFrom('');
+    setPmcEndTo('');
     setSearchTerm('');
   };
 
@@ -1555,46 +2166,6 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
                 );
               })}
             </div>
-
-            {/* OTD Filter Quick Pills */}
-            <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl overflow-x-auto">
-              <span className="text-[10px] font-extrabold uppercase text-slate-400 px-1.5">OTD:</span>
-              {(['All', 'Passed', 'Failed', 'Pending'] as const).map(tab => {
-                const active = otdFilter === tab;
-                return (
-                  <button
-                    key={tab}
-                    onClick={() => setOtdFilter(tab)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                      active
-                        ? tab === 'Passed'
-                          ? 'bg-emerald-600 text-white shadow-xs'
-                          : tab === 'Failed'
-                          ? 'bg-rose-600 text-white shadow-xs'
-                          : 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                  >
-                    {tab === 'All' ? 'All OTD' : tab}
-                    {tab === 'Passed' && (
-                      <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
-                        {summaryMetrics.otdPassedCount}
-                      </span>
-                    )}
-                    {tab === 'Failed' && (
-                      <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300">
-                        {summaryMetrics.otdFailedCount}
-                      </span>
-                    )}
-                    {tab === 'Pending' && (
-                      <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
-                        {summaryMetrics.otdPendingCount}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
           </div>
 
           {/* Expand / Collapse All Controls */}
@@ -1646,66 +2217,43 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
             {/* Buyer Select */}
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-500 whitespace-nowrap shrink-0">Buyer:</span>
-              <select
+              <SearchableFilterDropdown
                 value={buyerFilter}
-                onChange={e => setBuyerFilter(e.target.value)}
-                className={`w-full px-2.5 py-2 text-xs rounded-xl border transition-colors cursor-pointer ${
-                  buyerFilter !== 'All'
-                    ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-200 font-bold'
-                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white'
-                } focus:outline-hidden focus:ring-2 focus:ring-indigo-500`}
-              >
-                <option value="All">All Buyers ({buyerOptions.length})</option>
-                {buyerOptions.map(b => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </select>
+                onChange={setBuyerFilter}
+                options={buyerOptions}
+                allLabel={`All Buyers (${buyerOptions.length})`}
+                placeholder="Type to search buyer..."
+                themeColor="indigo"
+                id="buyer-filter-dropdown"
+              />
             </div>
 
             {/* Team Leader Select */}
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-500 whitespace-nowrap shrink-0">Leader:</span>
-              <select
+              <SearchableFilterDropdown
                 value={teamLeaderFilter}
-                onChange={e => setTeamLeaderFilter(e.target.value)}
-                className={`w-full px-2.5 py-2 text-xs rounded-xl border transition-colors cursor-pointer ${
-                  teamLeaderFilter !== 'All'
-                    ? 'border-purple-500 bg-purple-50/50 dark:bg-purple-950/40 text-purple-900 dark:text-purple-200 font-bold'
-                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white'
-                } focus:outline-hidden focus:ring-2 focus:ring-indigo-500`}
-              >
-                <option value="All">All Team Leaders ({teamLeaderOptions.length})</option>
-                {teamLeaderOptions.map(tl => (
-                  <option key={tl} value={tl}>
-                    {tl}
-                  </option>
-                ))}
-              </select>
+                onChange={setTeamLeaderFilter}
+                options={teamLeaderOptions}
+                allLabel={`All Team Leaders (${teamLeaderOptions.length})`}
+                placeholder="Type to search leader..."
+                themeColor="purple"
+                id="leader-filter-dropdown"
+              />
             </div>
 
             {/* OTD Status Select */}
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-500 whitespace-nowrap shrink-0">OTD:</span>
-              <select
+              <SearchableFilterDropdown
                 value={otdFilter}
-                onChange={e => setOtdFilter(e.target.value as any)}
-                className={`w-full px-2.5 py-2 text-xs rounded-xl border transition-colors cursor-pointer ${
-                  otdFilter !== 'All'
-                    ? otdFilter === 'Passed'
-                      ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 font-bold'
-                      : otdFilter === 'Failed'
-                      ? 'border-rose-500 bg-rose-50/50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-200 font-bold'
-                      : 'border-slate-500 bg-slate-50/50 dark:bg-slate-800 text-slate-900 dark:text-white font-bold'
-                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white'
-                } focus:outline-hidden focus:ring-2 focus:ring-indigo-500`}
-              >
-                <option value="All">All OTD Status</option>
-                <option value="Passed">Passed (On Time) ({summaryMetrics.otdPassedCount})</option>
-                <option value="Failed">Failed (Delayed) ({summaryMetrics.otdFailedCount})</option>
-                <option value="Pending">Pending ({summaryMetrics.otdPendingCount})</option>
-              </select>
+                onChange={val => setOtdFilter(val as any)}
+                options={otdOptions}
+                allLabel={otdOptions.length > 0 ? `All OTD Status (${otdOptions.length})` : 'All OTD Status'}
+                placeholder="Search OTD status..."
+                themeColor="blue"
+                id="otd-filter-dropdown"
+              />
             </div>
           </div>
 
@@ -1714,85 +2262,146 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
             {/* 1. FAB. Type Select */}
             <div className="flex items-center gap-1.5">
               <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap shrink-0">FAB. Type:</span>
-              <select
+              <SearchableFilterDropdown
                 value={fabTypeFilter}
-                onChange={e => setFabTypeFilter(e.target.value)}
-                className={`w-full px-2 py-1.5 text-xs rounded-xl border transition-colors cursor-pointer ${
-                  fabTypeFilter !== 'All'
-                    ? 'border-teal-500 bg-teal-50/50 dark:bg-teal-950/40 text-teal-900 dark:text-teal-200 font-bold'
-                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white'
-                } focus:outline-hidden focus:ring-2 focus:ring-teal-500`}
-              >
-                <option value="All">All FAB Types ({fabTypeOptions.length})</option>
-                {fabTypeOptions.map(ft => (
-                  <option key={ft} value={ft}>
-                    {ft}
-                  </option>
-                ))}
-              </select>
+                onChange={setFabTypeFilter}
+                options={fabTypeOptions}
+                allLabel={`All FAB Types (${fabTypeOptions.length})`}
+                placeholder="Type to search FAB type..."
+                themeColor="teal"
+                id="fabtype-filter-dropdown"
+              />
             </div>
 
             {/* 2. Color Select */}
             <div className="flex items-center gap-1.5">
               <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap shrink-0">Color:</span>
-              <select
+              <SearchableFilterDropdown
                 value={colorFilter}
-                onChange={e => setColorFilter(e.target.value)}
-                className={`w-full px-2 py-1.5 text-xs rounded-xl border transition-colors cursor-pointer ${
-                  colorFilter !== 'All'
-                    ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 font-bold'
-                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white'
-                } focus:outline-hidden focus:ring-2 focus:ring-emerald-500`}
-              >
-                <option value="All">All Colors ({colorOptions.length})</option>
-                {colorOptions.map(c => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+                onChange={setColorFilter}
+                options={colorOptions}
+                allLabel={`All Colors (${colorOptions.length})`}
+                placeholder="Type to search color..."
+                themeColor="emerald"
+                id="color-filter-dropdown"
+              />
             </div>
 
             {/* 3. Gauge Dia Select */}
             <div className="flex items-center gap-1.5">
               <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap shrink-0">Gauge Dia:</span>
-              <select
+              <SearchableFilterDropdown
                 value={gaugeDiaFilter}
-                onChange={e => setGaugeDiaFilter(e.target.value)}
-                className={`w-full px-2 py-1.5 text-xs rounded-xl border transition-colors cursor-pointer ${
-                  gaugeDiaFilter !== 'All'
-                    ? 'border-cyan-500 bg-cyan-50/50 dark:bg-cyan-950/40 text-cyan-900 dark:text-cyan-200 font-bold'
-                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white'
-                } focus:outline-hidden focus:ring-2 focus:ring-cyan-500`}
-              >
-                <option value="All">All Gauge &amp; Dia ({gaugeDiaOptions.length})</option>
-                {gaugeDiaOptions.map(gd => (
-                  <option key={gd} value={gd}>
-                    {gd}
-                  </option>
-                ))}
-              </select>
+                onChange={setGaugeDiaFilter}
+                options={gaugeDiaOptions}
+                allLabel={`All Gauge & Dia (${gaugeDiaOptions.length})`}
+                placeholder="Type to search gauge & dia..."
+                themeColor="cyan"
+                id="gaugedia-filter-dropdown"
+              />
             </div>
 
             {/* 4. FGSM Select */}
             <div className="flex items-center gap-1.5">
               <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap shrink-0">FGSM:</span>
-              <select
+              <SearchableFilterDropdown
                 value={fgsmFilter}
-                onChange={e => setFgsmFilter(e.target.value)}
-                className={`w-full px-2 py-1.5 text-xs rounded-xl border transition-colors cursor-pointer ${
-                  fgsmFilter !== 'All'
-                    ? 'border-amber-500 bg-amber-50/50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 font-bold'
-                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white'
-                } focus:outline-hidden focus:ring-2 focus:ring-amber-500`}
-              >
-                <option value="All">All FGSM ({fgsmOptions.length})</option>
-                {fgsmOptions.map(g => (
-                  <option key={g} value={g}>
-                    {g} GSM
-                  </option>
-                ))}
-              </select>
+                onChange={setFgsmFilter}
+                options={fgsmOptions.map(g => ({ value: g, label: `${g} GSM` }))}
+                allLabel={`All FGSM (${fgsmOptions.length})`}
+                placeholder="Type to search FGSM..."
+                themeColor="amber"
+                id="fgsm-filter-dropdown"
+              />
+            </div>
+          </div>
+
+          {/* Row 3: Knit Start Plan Date. & Knit End Plan Date. */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1 border-t border-slate-100 dark:border-slate-800/80">
+            {/* Knit Start Plan Date. Panel */}
+            <div className="bg-slate-50/60 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-700/70 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    Knit Start Plan Date.
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">(PMC K-START)</span>
+                  {pmcStartFilter !== 'All' && (
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
+                      Active
+                    </span>
+                  )}
+                </div>
+                {pmcStartFilter !== 'All' && (
+                  <button
+                    type="button"
+                    onClick={() => setPmcStartFilter('All')}
+                    className="text-[10.5px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                  >
+                    Reset Start Plan Date
+                  </button>
+                )}
+              </div>
+
+              <div>
+                <SearchableFilterDropdown
+                  value={pmcStartFilter}
+                  onChange={setPmcStartFilter}
+                  options={pmcStartDateOptions.map(opt => ({
+                    value: opt.date,
+                    label: opt.date,
+                    count: opt.count
+                  }))}
+                  allLabel={`All Start Dates (${pmcStartDateOptions.length})`}
+                  placeholder="Type to search start plan date (e.g. 10-Aug)..."
+                  themeColor="indigo"
+                  id="knit-start-plan-date-select"
+                />
+              </div>
+            </div>
+
+            {/* Knit End Plan Date. Panel */}
+            <div className="bg-slate-50/60 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-700/70 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    Knit End Plan Date.
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">(PMC K-END)</span>
+                  {pmcEndFilter !== 'All' && (
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300">
+                      Active
+                    </span>
+                  )}
+                </div>
+                {pmcEndFilter !== 'All' && (
+                  <button
+                    type="button"
+                    onClick={() => setPmcEndFilter('All')}
+                    className="text-[10.5px] font-semibold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
+                  >
+                    Reset End Plan Date
+                  </button>
+                )}
+              </div>
+
+              <div>
+                <SearchableFilterDropdown
+                  value={pmcEndFilter}
+                  onChange={setPmcEndFilter}
+                  options={pmcEndDateOptions.map(opt => ({
+                    value: opt.date,
+                    label: opt.date,
+                    count: opt.count
+                  }))}
+                  allLabel={`All End Dates (${pmcEndDateOptions.length})`}
+                  placeholder="Type to search end plan date (e.g. 26-Aug)..."
+                  themeColor="purple"
+                  id="knit-end-plan-date-select"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -1822,6 +2431,12 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
                   <button onClick={() => setTeamLeaderFilter('All')} className="hover:text-purple-900 dark:hover:text-white cursor-pointer">×</button>
                 </span>
               )}
+              {otdFilter !== 'All' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 font-medium">
+                  OTD: {otdFilter}
+                  <button onClick={() => setOtdFilter('All')} className="hover:text-blue-900 dark:hover:text-white cursor-pointer">×</button>
+                </span>
+              )}
               {fabTypeFilter !== 'All' && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 font-medium">
                   Fab: {fabTypeFilter}
@@ -1844,6 +2459,18 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 font-medium">
                   FGSM: {fgsmFilter}
                   <button onClick={() => setFgsmFilter('All')} className="hover:text-amber-900 dark:hover:text-white cursor-pointer">×</button>
+                </span>
+              )}
+              {pmcStartFilter !== 'All' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium">
+                  Knit Start Plan: {pmcStartFilter}
+                  <button onClick={() => setPmcStartFilter('All')} className="hover:text-indigo-900 dark:hover:text-white cursor-pointer">×</button>
+                </span>
+              )}
+              {pmcEndFilter !== 'All' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 font-medium">
+                  Knit End Plan: {pmcEndFilter}
+                  <button onClick={() => setPmcEndFilter('All')} className="hover:text-purple-900 dark:hover:text-white cursor-pointer">×</button>
                 </span>
               )}
               {searchTerm && (

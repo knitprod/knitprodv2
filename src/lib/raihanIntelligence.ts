@@ -1335,6 +1335,10 @@ export function handleSmartOrderQuery(
         fWidth: width,
         yarnCount: orderFallback.yarnCount || (yaList[0]?.allocatedYarn || yaList[0]?.yarnRequired || '-'),
         gaugeDia: orderFallback.gaugeDia || '-',
+        pmcKnitStartDate: orderFallback.pmcKnitStartDate || orderFallback.pmcKnitStart || orderFallback.pmcKStart || '-',
+        actualKnitStartDate: orderFallback.actualKnitStartDate || orderFallback.knitStartDate || orderFallback.aKnitStart || '-',
+        pmcKnitEndDate: orderFallback.pmcKnitEndDate || orderFallback.pmcKnitEnd || orderFallback.pmcKEnd || '-',
+        actualKnitEndDate: orderFallback.actualKnitEndDate || orderFallback.knitEndDate || orderFallback.lastKnit || '-',
         knitStartDate: orderFallback.knitStartDate || orderFallback.knitStart || orderFallback.aKnitStart || '-',
         knitEndDate: orderFallback.knitEndDate || orderFallback.knitEnd || orderFallback.expectedKnitEnd || '-',
         reqQty: reqVal,
@@ -1368,14 +1372,18 @@ export function handleSmartOrderQuery(
     let sumAvg = 0;
 
     let productionTable = `### 🏭 Production Data:\n\n`;
-    productionTable += `| Color | Fabric Type | GSM | Width | Req. QTY | Grey QTY | Production | Hold | Reject | Balance |\n`;
-    productionTable += `| :--- | :--- | :---: | :---: | ---: | ---: | ---: | ---: | ---: | ---: |\n`;
+    productionTable += `| Color | Fabric Type | GSM | Width | PMC Start | PMC End | Actual Start | Actual End | Req. QTY | Grey QTY | Production | Hold | Reject | Balance |\n`;
+    productionTable += `| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | ---: | ---: | ---: | ---: | ---: | ---: |\n`;
 
     itemList.forEach((it) => {
       const color = String(it.color || 'Standard').trim();
       const fabType = String(it.fabType || it.fabrication || it.fabricsType || 'Knitted Fabric').trim();
       const gsm = it.fgsm ? String(it.fgsm) : '-';
       const width = it.fWidth ? String(it.fWidth) : (it.finishedDia ? String(it.finishedDia) : '-');
+      const pmcStart = it.pmcKnitStartDate || '-';
+      const pmcEnd = it.pmcKnitEndDate || '-';
+      const actStart = it.actualKnitStartDate || it.knitStartDate || '-';
+      const actEnd = it.actualKnitEndDate || it.knitEndDate || '-';
 
       const reqNum = Number(it.reqQty ?? it.req_qty ?? 0);
       const greyNum = Number(it.greyQty ?? it.grey_qty ?? 0);
@@ -1397,12 +1405,12 @@ export function handleSmartOrderQuery(
       const holdText = holdNum > 0 ? `${holdNum.toLocaleString()} kg` : '-';
       const rejectText = rejectNum > 0 ? `${rejectNum.toLocaleString()} kg` : '-';
 
-      productionTable += `| ${color} | ${fabType} | ${gsm} | ${width} | ${reqNum.toLocaleString()} kg | ${greyNum.toLocaleString()} kg | ${prodText} | ${holdText} | ${rejectText} | ${balNum.toLocaleString()} kg |\n`;
+      productionTable += `| ${color} | ${fabType} | ${gsm} | ${width} | ${pmcStart} | ${pmcEnd} | ${actStart} | ${actEnd} | ${reqNum.toLocaleString()} kg | ${greyNum.toLocaleString()} kg | ${prodText} | ${holdText} | ${rejectText} | ${balNum.toLocaleString()} kg |\n`;
     });
 
     const totalHold = sumHold > 0 ? `${sumHold.toLocaleString()} kg` : '-';
     const totalReject = sumReject > 0 ? `${sumReject.toLocaleString()} kg` : '-';
-    productionTable += `| **Total** | - | - | - | **${sumReq.toLocaleString()} kg** | **${sumGrey.toLocaleString()} kg** | **${sumProd.toLocaleString()} kg** | **${totalHold}** | **${totalReject}** | **${sumBal.toLocaleString()} kg** |\n\n`;
+    productionTable += `| **Total** | - | - | - | - | - | - | - | **${sumReq.toLocaleString()} kg** | **${sumGrey.toLocaleString()} kg** | **${sumProd.toLocaleString()} kg** | **${totalHold}** | **${totalReject}** | **${sumBal.toLocaleString()} kg** |\n\n`;
 
     const totalSummaryLine = `📊 **Total Summary:** Req: **${sumReq.toLocaleString()} kg** | Grey: **${sumGrey.toLocaleString()} kg** | Production: **${sumProd.toLocaleString()} kg** | Hold: **${sumHold.toLocaleString()} kg** | Reject: **${sumReject.toLocaleString()} kg** | Balance: **${sumBal.toLocaleString()} kg**`;
 
@@ -1478,8 +1486,12 @@ export function handleSmartOrderQuery(
   const fallbackSource = ko || opList[0] || tcp || yaList[0];
 
   // Derive high-level dates and condition
-  const knitStart = ko?.knitStartDate || opList[0]?.knitStart || opList[0]?.aKnitStart || 'Not set';
-  const knitEnd = ko?.knitEndDate || opList[0]?.knitEnd || opList[0]?.expectedKnitEnd || 'Not set';
+  const pmcStart = ko?.pmcKnitStartDate || opList[0]?.pmcKnitStart || opList[0]?.pmcKStart || 'Not set';
+  const pmcEnd = ko?.pmcKnitEndDate || opList[0]?.pmcKnitEnd || opList[0]?.pmcKEnd || 'Not set';
+  const actStart = ko?.actualKnitStartDate || ko?.knitStartDate || opList[0]?.aKnitStart || opList[0]?.knitStart || 'Not set';
+  const actEnd = ko?.actualKnitEndDate || ko?.knitEndDate || opList[0]?.lastKnit || opList[0]?.knitEnd || 'Not set';
+  const knitStart = actStart !== 'Not set' ? actStart : pmcStart;
+  const knitEnd = actEnd !== 'Not set' ? actEnd : pmcEnd;
 
   const execReport = buildExecutiveOrderReport(items, fallbackSource, matchedColor || undefined);
   const allocTable = buildAllocatedYarnTable(yaList, matchedColor || undefined);
@@ -1501,7 +1513,11 @@ export function handleSmartOrderQuery(
     orderNo: activeOrderNum,
     buyerName: buyer,
     teamLeader: teamLeader,
+    pmcKnitStartDate: pmcStart,
+    actualKnitStartDate: actStart,
     knitStartDate: knitStart,
+    pmcKnitEndDate: pmcEnd,
+    actualKnitEndDate: actEnd,
     knitEndDate: knitEnd,
     reqQty: totals.sumReq || req,
     greyQty: totals.sumGrey || grey,
@@ -1521,7 +1537,9 @@ export function handleSmartOrderQuery(
     return `### 🏢 EPYLLION KNITEX LIMITED\n` +
       `**${reportTitle}: ${activeOrderNum}** &nbsp;·&nbsp; \`● ${conditionBadge}\`\n\n` +
       noticeLine +
-      `👤 **Buyer:** ${buyer || 'N/A'} &nbsp;•&nbsp; 👔 **Team Leader:** ${teamLeader || 'N/A'} &nbsp;•&nbsp; 📅 **Knit Start:** ${knitStart} &nbsp;•&nbsp; 📅 **Knit End:** ${knitEnd}\n\n`;
+      `👤 **Buyer:** ${buyer || 'N/A'} &nbsp;•&nbsp; 👔 **Team Leader:** ${teamLeader || 'N/A'}\n` +
+      `📅 **PMC Knit Start:** ${pmcStart} &nbsp;•&nbsp; 📅 **PMC Knit End:** ${pmcEnd}\n` +
+      `📅 **Actual Knit Start:** ${actStart} &nbsp;•&nbsp; 📅 **Actual Knit End:** ${actEnd}\n\n`;
   };
 
   const conditionText = isPmcClosed 

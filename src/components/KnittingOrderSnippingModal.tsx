@@ -914,7 +914,7 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
               </div>
             </div>
 
-            {/* Buyer & Leader Meta */}
+            {/* Buyer & Leader Meta + PMC & Actual Knit Dates */}
             <div
               className="flex flex-wrap items-center gap-4 text-xs font-semibold p-2.5 rounded-lg mb-4"
               style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', color: '#334155' }}
@@ -932,18 +932,34 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
               </div>
               <span>•</span>
               <div className="flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-emerald-700" />
-                <span>Knit Start:</span>
-                <strong className="font-mono text-slate-800" style={{ color: '#1e293b' }}>
-                  {order.knitStartDate || 'Not set'}
+                <Calendar className="w-3.5 h-3.5 text-indigo-700" />
+                <span className="font-semibold text-slate-600">PMC Knit Start:</span>
+                <strong className="font-mono text-indigo-900 font-bold" style={{ color: '#312e81' }}>
+                  {order.pmcKnitStartDate || '-'}
                 </strong>
               </div>
               <span>•</span>
               <div className="flex items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5 text-emerald-700" />
-                <span>Knit End:</span>
-                <strong className="font-mono text-slate-800" style={{ color: '#1e293b' }}>
-                  {order.knitEndDate || 'Not set'}
+                <span className="font-semibold text-slate-600">Actual Knit Start:</span>
+                <strong className="font-mono text-slate-900 font-bold" style={{ color: '#0f172a' }}>
+                  {order.actualKnitStartDate || order.knitStartDate || '-'}
+                </strong>
+              </div>
+              <span>•</span>
+              <div className="flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-purple-700" />
+                <span className="font-semibold text-slate-600">PMC Knit End:</span>
+                <strong className="font-mono text-purple-900 font-bold" style={{ color: '#581c87' }}>
+                  {order.pmcKnitEndDate || '-'}
+                </strong>
+              </div>
+              <span>•</span>
+              <div className="flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-emerald-700" />
+                <span className="font-semibold text-slate-600">Actual Knit End:</span>
+                <strong className="font-mono text-slate-900 font-bold" style={{ color: '#0f172a' }}>
+                  {order.actualKnitEndDate || order.knitEndDate || '-'}
                 </strong>
               </div>
             </div>
@@ -1035,8 +1051,14 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
                         <th className="py-2 px-2 text-center" style={{ width: '50px' }}>F. Width</th>
                         <th className="py-2 px-2" style={{ width: '170px' }}>Yarn Count</th>
                         <th className="py-2 px-2 text-center" style={{ width: '70px' }}>Gauge &amp; Dia</th>
-                        <th className="py-2 px-2 text-center" style={{ width: '85px' }}>Knit Start</th>
-                        <th className="py-2 px-2 text-center" style={{ width: '85px' }}>Knit End</th>
+                        <th className="py-2 px-2 text-center" style={{ width: '100px' }}>
+                          <div>Knit Start</div>
+                          <div className="text-[9px] font-bold text-indigo-600 uppercase tracking-tight">PMC / ACT</div>
+                        </th>
+                        <th className="py-2 px-2 text-center" style={{ width: '100px' }}>
+                          <div>Knit End</div>
+                          <div className="text-[9px] font-bold text-purple-600 uppercase tracking-tight">PMC / ACT</div>
+                        </th>
                         <th className="py-2 px-2 text-right" style={{ width: '70px' }}>Req. Qty</th>
                         <th className="py-2 px-2 text-right" style={{ width: '70px' }}>Grey Qty</th>
                         <th className="py-2 px-2 text-right" style={{ width: '75px' }}>Production</th>
@@ -1070,14 +1092,44 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
                             </td>
                             <td className="py-1.5 px-2 text-center font-mono text-slate-600">{itm.gaugeDia || '-'}</td>
 
-                            {/* Knit Start Date */}
-                            <td className="py-1.5 px-2 text-center font-mono text-slate-700 whitespace-nowrap">
-                              {hasActivity ? (itm.knitStartDate || '-') : '-'}
+                            {/* Knit Start Date (PMC vs Actual) */}
+                            <td className="py-1.5 px-2 font-mono text-slate-700 whitespace-nowrap">
+                              <div className="flex flex-col gap-0.5 text-[10px]">
+                                {itm.pmcKnitStartDate ? (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">PMC:</span>
+                                    <span className="text-slate-600 font-semibold">{itm.pmcKnitStartDate}</span>
+                                  </div>
+                                ) : null}
+                                {(itm.actualKnitStartDate || itm.knitStartDate) ? (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">ACT:</span>
+                                    <span className="font-bold text-slate-900">{itm.actualKnitStartDate || itm.knitStartDate}</span>
+                                  </div>
+                                ) : (
+                                  !itm.pmcKnitStartDate && <span className="text-slate-400 text-center">-</span>
+                                )}
+                              </div>
                             </td>
 
-                            {/* Knit End Date */}
-                            <td className="py-1.5 px-2 text-center font-mono text-slate-700 whitespace-nowrap">
-                              {hasActivity ? (itm.knitEndDate || '-') : '-'}
+                            {/* Knit End Date (PMC vs Actual) */}
+                            <td className="py-1.5 px-2 font-mono text-slate-700 whitespace-nowrap">
+                              <div className="flex flex-col gap-0.5 text-[10px]">
+                                {itm.pmcKnitEndDate ? (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">PMC:</span>
+                                    <span className="text-slate-600 font-semibold">{itm.pmcKnitEndDate}</span>
+                                  </div>
+                                ) : null}
+                                {(itm.actualKnitEndDate || itm.knitEndDate) ? (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">ACT:</span>
+                                    <span className="font-bold text-slate-900">{itm.actualKnitEndDate || itm.knitEndDate}</span>
+                                  </div>
+                                ) : (
+                                  !itm.pmcKnitEndDate && <span className="text-slate-400 text-center">-</span>
+                                )}
+                              </div>
                             </td>
 
                             <td className="py-1.5 px-2 text-right font-mono text-slate-700">
