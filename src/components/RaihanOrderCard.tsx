@@ -9,6 +9,7 @@ import {
   Calendar,
   TrendingUp,
   AlertTriangle,
+  AlertCircle,
   CheckCircle2,
   Layers,
   Factory
@@ -293,15 +294,31 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
           </div>
 
           <div className="text-right">
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-300 dark:border-emerald-700 px-3 py-1 rounded-full shadow-2xs">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
-              Verified ERP Record
-            </span>
+            {(order as any).isSyntheticKnittingStatus || (order as any).dataSource === 'plan_allocation' ? (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-700 px-3 py-1 rounded-full shadow-2xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                Plan / Allocation (Pending Knitting)
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-300 dark:border-emerald-700 px-3 py-1 rounded-full shadow-2xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                Verified ERP Record
+              </span>
+            )}
             <div className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-1 font-medium">
               {new Date().toLocaleString([], { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
             </div>
           </div>
         </div>
+
+        {((order as any).isSyntheticKnittingStatus || (order as any).dataSource === 'plan_allocation') && (
+          <div className="mt-2.5 px-3 py-2 bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
+            <span>
+              <strong>Note:</strong> Order #{order.orderNo} does not have entries in the Knitting Status tracking module yet. Specifications are displayed from <strong>Plan Order Followup / Yarn Allocation</strong>.
+            </span>
+          </div>
+        )}
 
         {/* View Mode Interactive Switcher */}
         <div className="flex items-center gap-1.5 mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 overflow-x-auto text-[11.5px]">

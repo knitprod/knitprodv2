@@ -1163,44 +1163,6 @@ export function handleSmartOrderQuery(
     }));
   }
 
-  // If items array is still empty and orderPlans exist, populate from orderPlans!
-  if (items.length === 0 && opList.length > 0) {
-    items = opList.map(p => ({
-      color: p.color || 'Standard',
-      fabType: p.fabrication || p.fabType || 'Knitted Fabric',
-      fabrication: p.fabrication,
-      fgsm: p.fgsm || 'N/A',
-      fWidth: p.finishedDia || p.fWidth || 'N/A',
-      reqQty: Number(p.target || p.reqQty || 0),
-      greyQty: Number(p.allocatedQty || p.greyQty || 0),
-      production: Number(p.knitPro || p.production || 0),
-      hold: 0,
-      reject: 0,
-      knitBalance: Number(p.knitBal ?? (Number(p.allocatedQty || 0) - Number(p.knitPro || 0))),
-      status: p.status || (Number(p.knitPro || 0) > 0 ? 'Running' : 'Pending'),
-      remarks: p.remarks || ''
-    }));
-  }
-
-  // If items array is still empty and yarnAllocations exist, populate from yarnAllocations!
-  if (items.length === 0 && yaList.length > 0) {
-    items = yaList.map(y => ({
-      color: y.color || 'Standard',
-      fabType: y.fabricsType || y.fabrication || 'Knitted Fabric',
-      fabrication: y.fabrication || y.fabricsType,
-      fgsm: y.fabricGsm || 'N/A',
-      fWidth: 'N/A',
-      reqQty: Number(y.yarnRqQty || 0),
-      greyQty: Number(y.allocatedQty || 0),
-      production: 0,
-      hold: 0,
-      reject: 0,
-      knitBalance: Number(y.allocatedQty || y.yarnRqQty || 0),
-      status: 'Pending Knitting',
-      remarks: 'Yarn Allocated'
-    }));
-  }
-
   // Extract Fabrication & Fabric Types across all datasets
   const rawFabrics: string[] = [];
   if (ko?.fabrication) rawFabrics.push(ko.fabrication);
@@ -1523,12 +1485,15 @@ export function handleSmartOrderQuery(
   const allocTable = buildAllocatedYarnTable(yaList, matchedColor || undefined);
 
   const { totals } = execReport;
+  const isKnittingStatusRecorded = Boolean(ko);
   const isPmcClosed = tcpList.length > 0;
   const conditionBadge = isPmcClosed
     ? `${tcpList[0]?.status || 'Cancel'} (Textile Close By PMC)`
-    : (totals.sumBal < 3 && totals.sumProd > 0
-      ? 'Completed'
-      : (totals.sumGrey > totals.sumBal ? 'Running (Grey Qty > Balance)' : 'Pending (Grey Qty = Balance)'));
+    : (!isKnittingStatusRecorded
+      ? 'Pending Knitting (Plan / Allocation Record)'
+      : (totals.sumBal < 3 && totals.sumProd > 0
+        ? 'Completed'
+        : (totals.sumGrey > totals.sumBal ? 'Running (Grey Qty > Balance)' : 'Pending (Grey Qty = Balance)')));
 
   // Construct complete KnittingStatusOrder object matching Photo 2
   const completeOrder: any = {
@@ -1542,21 +1507,134 @@ export function handleSmartOrderQuery(
     greyQty: totals.sumGrey || grey,
     production: totals.sumProd || prod,
     knitBalance: totals.sumBal || bal,
-    items: execReport.itemList || items
+    items: execReport.itemList || items,
+    isSyntheticKnittingStatus: !isKnittingStatusRecorded && !isPmcClosed,
+    dataSource: isKnittingStatusRecorded ? 'knitting_status' : (isPmcClosed ? 'textile_close' : 'plan_allocation')
   };
 
   // Build the complete Executive Floor Header matching Photo 2
   const buildHeaderMarkdown = () => {
+    const noticeLine = !isKnittingStatusRecorded && !isPmcClosed
+      ? `> ℹ️ **Notice:** Order #${activeOrderNum} has **no records in the Knitting Status tracking module yet**. The data below is retrieved from **Plan Order Followup / Yarn Allocation**.\n\n`
+      : '';
+    const reportTitle = isKnittingStatusRecorded ? 'Knitting Status Report • Order Details' : 'Order Details';
     return `### 🏢 EPYLLION KNITEX LIMITED\n` +
-      `**Knitting Status Report • Order Details: ${activeOrderNum}** &nbsp;·&nbsp; \`● ${conditionBadge}\`\n\n` +
+      `**${reportTitle}: ${activeOrderNum}** &nbsp;·&nbsp; \`● ${conditionBadge}\`\n\n` +
+      noticeLine +
       `👤 **Buyer:** ${buyer || 'N/A'} &nbsp;•&nbsp; 👔 **Team Leader:** ${teamLeader || 'N/A'} &nbsp;•&nbsp; 📅 **Knit Start:** ${knitStart} &nbsp;•&nbsp; 📅 **Knit End:** ${knitEnd}\n\n`;
   };
 
   const conditionText = isPmcClosed 
     ? `${tcpList[0]?.status || 'Closed'} (Textile Close By PMC)`
-    : (totals.sumBal <= 0 ? 'completed' : (totals.sumProd > 0 ? 'currently running' : 'pending'));
+    : (!isKnittingStatusRecorded
+      ? 'pending knitting (found in Plan Order Followup / Yarn Allocation)'
+      : (totals.sumBal <= 0 ? 'completed' : (totals.sumProd > 0 ? 'currently running' : 'pending')));
 
-  const introText = `Sure! I found it. Order #${activeOrderNum} is ${conditionText} (${buyer}):`;
+  const introText = !isKnittingStatusRecorded && !isPmcClosed
+    ? `Sure! I found **Order #${activeOrderNum}** in **Plan Order Followup / Yarn Allocation** (${buyer}).\n\n> ⚠️ **Note:** This order has **no data in the Knitting Status module yet** (knitting production has not been entered). Showing the registered planning and yarn allocation details:`
+    : `Sure! I found it. Order #${activeOrderNum} is ${conditionText} (${buyer}):`;
+
+  // CRITICAL BUSINESS RULE:
+  // If the order has NOT been added to Knitting Status (and is not closed in Textile Close),
+  // DO NOT show any production data! It is missing from the production directory, so it has NO production data.
+  if (!isKnittingStatusRecorded && !isPmcClosed) {
+    // 1. Completion Prediction request
+    if (asksPredictCompletion) {
+      let reply = `Cannot predict completion date for **Order #${activeOrderNum}** because it has **not been added to Knitting Status yet** (no production records exist in the production directory).`;
+      if (allocTable) {
+        reply += `\n\nHowever, yarn has been allocated for this order:\n\n### 🧶 Allocated Yarn Details:\n\n${allocTable}`;
+      }
+      return {
+        handled: true,
+        reply: reply.trim(),
+        orderData: null,
+        yarnAllocations: yaList,
+        viewMode: 'allocation'
+      };
+    }
+
+    // 2. Production request
+    if (asksProdOnly) {
+      return {
+        handled: true,
+        reply: `**Order #${activeOrderNum}** has not been added to Knitting Status yet. Since this order is missing from the production directory, there is no production data recorded for it.`,
+        orderData: null,
+        yarnAllocations: yaList,
+        viewMode: 'allocation'
+      };
+    }
+
+    // 3. Allocation request
+    if (asksAllocOnly) {
+      if (!allocTable) {
+        return {
+          handled: true,
+          reply: `No yarn has been allocated yet for **Order #${activeOrderNum}** (${buyer}). Also, this order is not yet added to Knitting Status.`,
+          orderData: null,
+          yarnAllocations: yaList,
+          viewMode: 'allocation'
+        };
+      }
+      return {
+        handled: true,
+        reply: `Sure! Here is the allocated yarn for **Order #${activeOrderNum}** (${buyer}):\n\n### 🧶 Allocated Yarn Details:\n\n${allocTable}\n\n*(Note: Order #${activeOrderNum} is not yet added to Knitting Status, so no production data exists).*`,
+        orderData: null,
+        yarnAllocations: yaList,
+        viewMode: 'allocation'
+      };
+    }
+
+    // 4. Color-specific request
+    if (matchedColor) {
+      const colorAllocTable = buildAllocatedYarnTable(yaList, matchedColor);
+      if (colorAllocTable) {
+        return {
+          handled: true,
+          reply: `**Order #${activeOrderNum}** has not been added to Knitting Status yet, so no production data exists for color **${matchedColor}**.\n\nHere are the yarn allocation records for color **${matchedColor}** (${buyer}):\n\n### 🧶 Allocated Yarn Details (${matchedColor}):\n\n${colorAllocTable}`,
+          orderData: null,
+          yarnAllocations: yaList,
+          viewMode: 'allocation',
+          filterColor: matchedColor
+        };
+      }
+      return {
+        handled: true,
+        reply: `**Order #${activeOrderNum}** has not been added to Knitting Status yet (no production data exists), and no yarn allocation was found for color **${matchedColor}**.`,
+        orderData: null,
+        yarnAllocations: yaList,
+        viewMode: 'allocation'
+      };
+    }
+
+    // 5. Default Order query (e.g. "272830" or "Order 272830" or general)
+    if (allocTable) {
+      return {
+        handled: true,
+        reply: `**Order #${activeOrderNum}** has **not been added to Knitting Status yet**, so there is **no production data** available.\n\nHere are the **Yarn Allocation** details on record for **Order #${activeOrderNum}** (${buyer}):\n\n### 🧶 Allocated Yarn Details:\n\n${allocTable}`,
+        orderData: null,
+        yarnAllocations: yaList,
+        viewMode: 'allocation'
+      };
+    }
+
+    if (opList.length > 0) {
+      const op = opList[0];
+      return {
+        handled: true,
+        reply: `**Order #${activeOrderNum}** has **not been added to Knitting Status yet** (no floor production data exists).\n\nIt is registered in **Plan Order Followup** with a target of **${(Number(op.target || op.allocatedQty) || 0).toLocaleString()} kg** (${buyer}, Delivery Month: ${op.planMonth || 'N/A'}), but knitting production has not started or been entered.`,
+        orderData: null,
+        yarnAllocations: yaList,
+        viewMode: 'all'
+      };
+    }
+
+    return {
+      handled: true,
+      reply: `**Order #${activeOrderNum}** has not been added to Knitting Status yet, and no production data or yarn allocation records were found in the system.`,
+      orderData: null,
+      yarnAllocations: yaList
+    };
+  }
 
   // Check if user is asking about Raihan's generation format or asking to follow the format
   const asksAboutFormat = 

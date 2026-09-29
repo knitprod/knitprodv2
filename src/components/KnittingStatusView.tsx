@@ -154,6 +154,10 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
   const [conditionFilter, setConditionFilter] = useState<'All' | KnittingCondition>('All');
   const [buyerFilter, setBuyerFilter] = useState<string>('All');
   const [teamLeaderFilter, setTeamLeaderFilter] = useState<string>('All');
+  const [fabTypeFilter, setFabTypeFilter] = useState<string>('All');
+  const [colorFilter, setColorFilter] = useState<string>('All');
+  const [gaugeDiaFilter, setGaugeDiaFilter] = useState<string>('All');
+  const [fgsmFilter, setFgsmFilter] = useState<string>('All');
 
   // Admin status
   const isAdmin = currentUser?.userType === 'Admin';
@@ -222,7 +226,56 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
     return Array.from(set).sort();
   }, [orders]);
 
-  // Criteria-Filtered Orders (matching Buyer, Team Leader, and Search query)
+  const fabTypeOptions = useMemo(() => {
+    const set = new Set<string>();
+    orders.forEach(o => {
+      o.items?.forEach(it => {
+        const ft = (it.fabType || it.fabrication || '').trim();
+        if (ft && ft !== '-' && ft.toLowerCase() !== 'n/a') set.add(ft);
+      });
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [orders]);
+
+  const colorOptions = useMemo(() => {
+    const set = new Set<string>();
+    orders.forEach(o => {
+      o.items?.forEach(it => {
+        const c = (it.color || '').trim();
+        if (c && c !== '-' && c.toLowerCase() !== 'n/a') set.add(c);
+      });
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [orders]);
+
+  const gaugeDiaOptions = useMemo(() => {
+    const set = new Set<string>();
+    orders.forEach(o => {
+      o.items?.forEach(it => {
+        const gd = (it.gaugeDia || '').trim();
+        if (gd && gd !== '-' && gd.toLowerCase() !== 'n/a') set.add(gd);
+      });
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [orders]);
+
+  const fgsmOptions = useMemo(() => {
+    const set = new Set<string>();
+    orders.forEach(o => {
+      o.items?.forEach(it => {
+        const g = String(it.fgsm ?? '').trim();
+        if (g && g !== '-' && g.toLowerCase() !== 'n/a' && g !== '0') set.add(g);
+      });
+    });
+    return Array.from(set).sort((a, b) => {
+      const numA = parseFloat(a);
+      const numB = parseFloat(b);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return a.localeCompare(b);
+    });
+  }, [orders]);
+
+  // Criteria-Filtered Orders (matching Buyer, Team Leader, Fab. Type, Color, Gauge Dia, FGSM, and Search query)
   const criteriaFilteredOrders = useMemo(() => {
     return orders.filter(order => {
       // Buyer filter
@@ -233,6 +286,42 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
       // Team Leader filter
       if (teamLeaderFilter !== 'All' && order.teamLeader !== teamLeaderFilter) {
         return false;
+      }
+
+      // FAB. Type filter
+      if (fabTypeFilter !== 'All') {
+        const hasFabType = order.items?.some(it => {
+          const ft = (it.fabType || it.fabrication || '').trim();
+          return ft.toLowerCase() === fabTypeFilter.toLowerCase();
+        });
+        if (!hasFabType) return false;
+      }
+
+      // Color filter
+      if (colorFilter !== 'All') {
+        const hasColor = order.items?.some(it => {
+          const c = (it.color || '').trim();
+          return c.toLowerCase() === colorFilter.toLowerCase();
+        });
+        if (!hasColor) return false;
+      }
+
+      // Gauge Dia filter
+      if (gaugeDiaFilter !== 'All') {
+        const hasGaugeDia = order.items?.some(it => {
+          const gd = (it.gaugeDia || '').trim();
+          return gd.toLowerCase() === gaugeDiaFilter.toLowerCase();
+        });
+        if (!hasGaugeDia) return false;
+      }
+
+      // FGSM filter
+      if (fgsmFilter !== 'All') {
+        const hasFgsm = order.items?.some(it => {
+          const g = String(it.fgsm ?? '').trim();
+          return g.toLowerCase() === fgsmFilter.toLowerCase();
+        });
+        if (!hasFgsm) return false;
       }
 
       // Search term
@@ -247,6 +336,8 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
           i.color.toLowerCase().includes(q) ||
           i.fabType.toLowerCase().includes(q) ||
           i.mcType.toLowerCase().includes(q) ||
+          String(i.gaugeDia || '').toLowerCase().includes(q) ||
+          String(i.fgsm || '').toLowerCase().includes(q) ||
           i.productionUnit.toLowerCase().includes(q)
         );
 
@@ -255,7 +346,7 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
 
       return true;
     });
-  }, [orders, buyerFilter, teamLeaderFilter, searchTerm]);
+  }, [orders, buyerFilter, teamLeaderFilter, fabTypeFilter, colorFilter, gaugeDiaFilter, fgsmFilter, searchTerm]);
 
   // Filtered Orders (including Condition filter)
   const filteredOrders = useMemo(() => {
@@ -273,7 +364,7 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
   // Reset pagination when search or filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, conditionFilter, buyerFilter, teamLeaderFilter]);
+  }, [searchTerm, conditionFilter, buyerFilter, teamLeaderFilter, fabTypeFilter, colorFilter, gaugeDiaFilter, fgsmFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredOrders.length / pageSize));
   const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
@@ -334,6 +425,10 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
       conditionFilter !== 'All' ||
       buyerFilter !== 'All' ||
       teamLeaderFilter !== 'All' ||
+      fabTypeFilter !== 'All' ||
+      colorFilter !== 'All' ||
+      gaugeDiaFilter !== 'All' ||
+      fgsmFilter !== 'All' ||
       Boolean(searchTerm.trim());
 
     return {
@@ -349,12 +444,16 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
       pendingCount,
       completeCount
     };
-  }, [filteredOrders, criteriaFilteredOrders, conditionFilter, buyerFilter, teamLeaderFilter, searchTerm, orders.length]);
+  }, [filteredOrders, criteriaFilteredOrders, conditionFilter, buyerFilter, teamLeaderFilter, fabTypeFilter, colorFilter, gaugeDiaFilter, fgsmFilter, searchTerm, orders.length]);
 
   const clearAllFilters = () => {
     setConditionFilter('All');
     setBuyerFilter('All');
     setTeamLeaderFilter('All');
+    setFabTypeFilter('All');
+    setColorFilter('All');
+    setGaugeDiaFilter('All');
+    setFgsmFilter('All');
     setSearchTerm('');
   };
 
@@ -1338,59 +1437,157 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
         </div>
 
         {/* Dropdowns & Search */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100 dark:border-slate-800/80">
-          {/* Search Box */}
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Search by Order No, Buyer, Leader, Color, Fabric..."
-              className="w-full pl-9 pr-8 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-            />
-            {searchTerm && (
-              <button
-                onClick={() => setSearchTerm('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+        <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+          {/* Row 1: Search, Buyer, Team Leader */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* Search Box */}
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="Search by Order No, Buyer, Leader, Color, Fabric..."
+                className="w-full pl-9 pr-8 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+              />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Buyer Select */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-500 whitespace-nowrap">Buyer:</span>
+              <select
+                value={buyerFilter}
+                onChange={e => setBuyerFilter(e.target.value)}
+                className={`w-full px-2.5 py-2 text-xs rounded-xl border transition-colors cursor-pointer ${
+                  buyerFilter !== 'All'
+                    ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-200 font-bold'
+                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white'
+                } focus:outline-hidden focus:ring-2 focus:ring-indigo-500`}
               >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
+                <option value="All">All Buyers ({buyerOptions.length})</option>
+                {buyerOptions.map(b => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Team Leader Select */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-500 whitespace-nowrap">Leader:</span>
+              <select
+                value={teamLeaderFilter}
+                onChange={e => setTeamLeaderFilter(e.target.value)}
+                className={`w-full px-2.5 py-2 text-xs rounded-xl border transition-colors cursor-pointer ${
+                  teamLeaderFilter !== 'All'
+                    ? 'border-purple-500 bg-purple-50/50 dark:bg-purple-950/40 text-purple-900 dark:text-purple-200 font-bold'
+                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white'
+                } focus:outline-hidden focus:ring-2 focus:ring-indigo-500`}
+              >
+                <option value="All">All Team Leaders ({teamLeaderOptions.length})</option>
+                {teamLeaderOptions.map(tl => (
+                  <option key={tl} value={tl}>
+                    {tl}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          {/* Buyer Select */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-500 whitespace-nowrap">Buyer:</span>
-            <select
-              value={buyerFilter}
-              onChange={e => setBuyerFilter(e.target.value)}
-              className="w-full px-2.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-            >
-              <option value="All">All Buyers ({buyerOptions.length})</option>
-              {buyerOptions.map(b => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* Row 2: 1. FAB. Type, 2. Color, 3. Gauge Dia, 4. FGSM */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+            {/* 1. FAB. Type Select */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap shrink-0">FAB. Type:</span>
+              <select
+                value={fabTypeFilter}
+                onChange={e => setFabTypeFilter(e.target.value)}
+                className={`w-full px-2 py-1.5 text-xs rounded-xl border transition-colors cursor-pointer ${
+                  fabTypeFilter !== 'All'
+                    ? 'border-teal-500 bg-teal-50/50 dark:bg-teal-950/40 text-teal-900 dark:text-teal-200 font-bold'
+                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white'
+                } focus:outline-hidden focus:ring-2 focus:ring-teal-500`}
+              >
+                <option value="All">All FAB Types ({fabTypeOptions.length})</option>
+                {fabTypeOptions.map(ft => (
+                  <option key={ft} value={ft}>
+                    {ft}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          {/* Team Leader Select */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-500 whitespace-nowrap">Leader:</span>
-            <select
-              value={teamLeaderFilter}
-              onChange={e => setTeamLeaderFilter(e.target.value)}
-              className="w-full px-2.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-            >
-              <option value="All">All Team Leaders ({teamLeaderOptions.length})</option>
-              {teamLeaderOptions.map(tl => (
-                <option key={tl} value={tl}>
-                  {tl}
-                </option>
-              ))}
-            </select>
+            {/* 2. Color Select */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap shrink-0">Color:</span>
+              <select
+                value={colorFilter}
+                onChange={e => setColorFilter(e.target.value)}
+                className={`w-full px-2 py-1.5 text-xs rounded-xl border transition-colors cursor-pointer ${
+                  colorFilter !== 'All'
+                    ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 font-bold'
+                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white'
+                } focus:outline-hidden focus:ring-2 focus:ring-emerald-500`}
+              >
+                <option value="All">All Colors ({colorOptions.length})</option>
+                {colorOptions.map(c => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 3. Gauge Dia Select */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap shrink-0">Gauge Dia:</span>
+              <select
+                value={gaugeDiaFilter}
+                onChange={e => setGaugeDiaFilter(e.target.value)}
+                className={`w-full px-2 py-1.5 text-xs rounded-xl border transition-colors cursor-pointer ${
+                  gaugeDiaFilter !== 'All'
+                    ? 'border-cyan-500 bg-cyan-50/50 dark:bg-cyan-950/40 text-cyan-900 dark:text-cyan-200 font-bold'
+                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white'
+                } focus:outline-hidden focus:ring-2 focus:ring-cyan-500`}
+              >
+                <option value="All">All Gauge &amp; Dia ({gaugeDiaOptions.length})</option>
+                {gaugeDiaOptions.map(gd => (
+                  <option key={gd} value={gd}>
+                    {gd}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 4. FGSM Select */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap shrink-0">FGSM:</span>
+              <select
+                value={fgsmFilter}
+                onChange={e => setFgsmFilter(e.target.value)}
+                className={`w-full px-2 py-1.5 text-xs rounded-xl border transition-colors cursor-pointer ${
+                  fgsmFilter !== 'All'
+                    ? 'border-amber-500 bg-amber-50/50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 font-bold'
+                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white'
+                } focus:outline-hidden focus:ring-2 focus:ring-amber-500`}
+              >
+                <option value="All">All FGSM ({fgsmOptions.length})</option>
+                {fgsmOptions.map(g => (
+                  <option key={g} value={g}>
+                    {g} GSM
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
@@ -1419,10 +1616,34 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
                   <button onClick={() => setTeamLeaderFilter('All')} className="hover:text-purple-900 dark:hover:text-white cursor-pointer">×</button>
                 </span>
               )}
-              {searchTerm && (
+              {fabTypeFilter !== 'All' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 font-medium">
+                  Fab: {fabTypeFilter}
+                  <button onClick={() => setFabTypeFilter('All')} className="hover:text-teal-900 dark:hover:text-white cursor-pointer">×</button>
+                </span>
+              )}
+              {colorFilter !== 'All' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 font-medium">
+                  Color: {colorFilter}
+                  <button onClick={() => setColorFilter('All')} className="hover:text-emerald-900 dark:hover:text-white cursor-pointer">×</button>
+                </span>
+              )}
+              {gaugeDiaFilter !== 'All' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-50 dark:bg-cyan-950/50 text-cyan-700 dark:text-cyan-300 font-medium">
+                  Gauge: {gaugeDiaFilter}
+                  <button onClick={() => setGaugeDiaFilter('All')} className="hover:text-cyan-900 dark:hover:text-white cursor-pointer">×</button>
+                </span>
+              )}
+              {fgsmFilter !== 'All' && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 font-medium">
+                  FGSM: {fgsmFilter}
+                  <button onClick={() => setFgsmFilter('All')} className="hover:text-amber-900 dark:hover:text-white cursor-pointer">×</button>
+                </span>
+              )}
+              {searchTerm && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium">
                   Search: "{searchTerm}"
-                  <button onClick={() => setSearchTerm('')} className="hover:text-amber-900 dark:hover:text-white cursor-pointer">×</button>
+                  <button onClick={() => setSearchTerm('')} className="hover:text-slate-900 dark:hover:text-white cursor-pointer">×</button>
                 </span>
               )}
             </div>
@@ -1672,8 +1893,26 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                      {sortKnittingItems(order.items || []).map((itm, itmIdx) => (
-                                        <tr key={itm.id ? `${itm.id}-${itmIdx}` : `itm-${itmIdx}`} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                                      {sortKnittingItems(order.items || []).map((itm, itmIdx) => {
+                                        const matchesSelectedColor = colorFilter !== 'All' && (itm.color || '').trim().toLowerCase() === colorFilter.toLowerCase();
+                                        const matchesSelectedFabType = fabTypeFilter !== 'All' && (itm.fabType || itm.fabrication || '').trim().toLowerCase() === fabTypeFilter.toLowerCase();
+                                        const matchesSelectedGaugeDia = gaugeDiaFilter !== 'All' && (itm.gaugeDia || '').trim().toLowerCase() === gaugeDiaFilter.toLowerCase();
+                                        const matchesSelectedFgsm = fgsmFilter !== 'All' && String(itm.fgsm ?? '').trim().toLowerCase() === fgsmFilter.toLowerCase();
+
+                                        const isMatchedItem = matchesSelectedColor || matchesSelectedFabType || matchesSelectedGaugeDia || matchesSelectedFgsm;
+                                        const isAnySpecFilterActive = colorFilter !== 'All' || fabTypeFilter !== 'All' || gaugeDiaFilter !== 'All' || fgsmFilter !== 'All';
+
+                                        return (
+                                          <tr
+                                            key={itm.id ? `${itm.id}-${itmIdx}` : `itm-${itmIdx}`}
+                                            className={`transition-colors ${
+                                              isMatchedItem
+                                                ? 'bg-amber-50/90 dark:bg-amber-950/40 ring-1 ring-inset ring-amber-400 dark:ring-amber-600 font-semibold'
+                                                : isAnySpecFilterActive
+                                                  ? 'opacity-65 hover:opacity-100 hover:bg-slate-50/60 dark:hover:bg-slate-800/40'
+                                                  : 'hover:bg-slate-50/60 dark:hover:bg-slate-800/40'
+                                            }`}
+                                          >
                                           {/* Color */}
                                           <td className="py-2 px-2.5 font-semibold text-slate-900 dark:text-white">
                                             {itm.color}
@@ -1767,7 +2006,8 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
                                             {itm.avgProdPerDay ? `${Math.ceil(Number(itm.avgProdPerDay)).toLocaleString()} Kg` : ''}
                                           </td>
                                         </tr>
-                                      ))}
+                                      );
+                                    })}
                                     </tbody>
                                   </table>
                                 </div>

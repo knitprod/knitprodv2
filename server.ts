@@ -1846,6 +1846,43 @@ function formatOrderResponse(orderNum: string, erpData: any, userQuery: string =
     }
   }
 
+  const isKnittingStatusRecorded = Boolean(ko);
+  const isPmcClosed = Boolean(tcp);
+
+  // If order is not in Knitting Status and not closed in Textile Close, it has NO production data!
+  if (!isKnittingStatusRecorded && !isPmcClosed) {
+    const allocTable = buildAllocatedYarnTable(yaList, matchedColor || undefined);
+
+    if (asksProdOnly) {
+      return `**Order #${orderNum}** has not been added to Knitting Status yet. Since this order is missing from the production directory, there is no production data recorded for it.`;
+    }
+
+    if (asksAllocOnly) {
+      if (!allocTable) {
+        return `No yarn has been allocated yet for **Order #${orderNum}** (${buyer}). Also, this order is not yet added to Knitting Status.`;
+      }
+      return `Sure! Here is the allocated yarn for **Order #${orderNum}** (${buyer}):\n\n#### 🧶 Allocated Yarn:\n${allocTable}`;
+    }
+
+    if (matchedColor) {
+      const colorAllocTable = buildAllocatedYarnTable(yaList, matchedColor);
+      if (colorAllocTable) {
+        return `**Order #${orderNum}** has not been added to Knitting Status yet, so no production data exists for color **${matchedColor}**.\n\nHere are the yarn allocation records for color **${matchedColor}** (${buyer}):\n\n#### 🧶 Allocated Yarn (${matchedColor}):\n${colorAllocTable}`;
+      }
+      return `**Order #${orderNum}** has not been added to Knitting Status yet (no production data exists), and no yarn allocation was found for color **${matchedColor}**.`;
+    }
+
+    if (allocTable) {
+      return `**Order #${orderNum}** has **not been added to Knitting Status yet**, so there is **no production data** available.\n\nHere are the **Yarn Allocation** details on record for **Order #${orderNum}** (${buyer}):\n\n#### 🧶 Allocated Yarn:\n${allocTable}`;
+    }
+
+    if (op) {
+      return `**Order #${orderNum}** has **not been added to Knitting Status yet** (no floor production data exists).\n\nIt is registered in **Plan Order Followup** with a target of **${(Number(op.target || op.allocated_qty) || 0).toLocaleString()} kg** (${buyer}, Delivery Month: ${op.planMonth || 'N/A'}), but knitting production has not started or been entered.`;
+    }
+
+    return `**Order #${orderNum}** has not been added to Knitting Status yet, and no production data or yarn allocation records were found in the system.`;
+  }
+
   // CASE 1: Handle color-specific request: "eg: 271522 black"
   if (matchedColor) {
     const prodTable = buildProductionTable(items, ko || op, matchedColor);
@@ -1873,16 +1910,18 @@ function formatOrderResponse(orderNum: string, erpData: any, userQuery: string =
 
   // CASE 3: Handle Production-only request: "eg: 271522 Production"
   if (asksProdOnly) {
-    const prodTable = buildProductionTable(items, ko || op || tcp);
+    const prodTable = buildProductionTable(items, ko || tcp);
     return `Sure! I found it. Here is the production data for **Order #${orderNum}** (${buyer}):\n\n${prodTable}`;
   }
 
-  // CASE 4: Default: Show Production and Allocated Yarn data
-  const prodTable = buildProductionTable(items, ko || op || tcp);
+  // CASE 4: Default: Show Production and Allocated Yarn data (for orders in Knitting Status or PMC)
+  const prodTable = buildProductionTable(items, ko || tcp);
   const allocTable = buildAllocatedYarnTable(yaList);
 
   const tcpStatus = tcp?.status || 'Closed (PMC)';
-  const statusStr = tcp ? `${tcpStatus} (Textile Close By PMC)` : (balance <= 0 ? 'completed' : (prod > 0 ? 'currently running' : 'pending'));
+  const statusStr = tcp 
+    ? `${tcpStatus} (Textile Close By PMC)` 
+    : (balance <= 0 ? 'completed' : (prod > 0 ? 'currently running' : 'pending'));
 
   let combinedReport = `Sure! I found it. Order #${orderNum} is ${statusStr} (${buyer}):\n\n`;
   if (prodTable) {
