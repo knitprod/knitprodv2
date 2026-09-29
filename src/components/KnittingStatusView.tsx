@@ -47,8 +47,13 @@ import {
   aggregateOrderValues,
   formatExcelDate,
   sortKnittingItems,
-  KnittingCondition
+  KnittingCondition,
+  enrichKnittingOrderWithPlanData,
+  calculateStartOtdStatus,
+  calculateEndOtdStatus,
+  calculateOverallOtdStatus
 } from '../lib/knittingStatusStore';
+import { useGlobalData } from '../context/GlobalDataContext';
 import { KnittingOrderDetailsModal } from './KnittingOrderDetailsModal';
 import { KnittingOrderSnippingModal } from './KnittingOrderSnippingModal';
 import { SupabaseSync } from '../lib/supabaseClient';
@@ -149,6 +154,15 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
     };
   }, []);
 
+  // Connect to GlobalDataContext to hydrate PMC plan dates and OTD evaluations
+  const { orderPlans } = useGlobalData();
+
+  // Enriched orders state (cross-module PMC dates and OTD performance evaluation)
+  const enrichedOrders = useMemo(() => {
+    if (!orderPlans || orderPlans.length === 0) return orders;
+    return orders.map(ord => enrichKnittingOrderWithPlanData(ord, orderPlans));
+  }, [orders, orderPlans]);
+
   // Filter & Search States
   const [searchTerm, setSearchTerm] = useState('');
   const [conditionFilter, setConditionFilter] = useState<'All' | KnittingCondition>('All');
@@ -158,6 +172,7 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
   const [colorFilter, setColorFilter] = useState<string>('All');
   const [gaugeDiaFilter, setGaugeDiaFilter] = useState<string>('All');
   const [fgsmFilter, setFgsmFilter] = useState<string>('All');
+  const [otdFilter, setOtdFilter] = useState<'All' | 'Passed' | 'Failed' | 'Pending'>('All');
 
   // Admin status
   const isAdmin = currentUser?.userType === 'Admin';
@@ -212,56 +227,56 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
   // Distinct Filter Options
   const buyerOptions = useMemo(() => {
     const set = new Set<string>();
-    orders.forEach(o => {
+    enrichedOrders.forEach(o => {
       if (o.buyerName) set.add(o.buyerName);
     });
     return Array.from(set).sort();
-  }, [orders]);
+  }, [enrichedOrders]);
 
   const teamLeaderOptions = useMemo(() => {
     const set = new Set<string>();
-    orders.forEach(o => {
+    enrichedOrders.forEach(o => {
       if (o.teamLeader) set.add(o.teamLeader);
     });
     return Array.from(set).sort();
-  }, [orders]);
+  }, [enrichedOrders]);
 
   const fabTypeOptions = useMemo(() => {
     const set = new Set<string>();
-    orders.forEach(o => {
+    enrichedOrders.forEach(o => {
       o.items?.forEach(it => {
         const ft = (it.fabType || it.fabrication || '').trim();
         if (ft && ft !== '-' && ft.toLowerCase() !== 'n/a') set.add(ft);
       });
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [orders]);
+  }, [enrichedOrders]);
 
   const colorOptions = useMemo(() => {
     const set = new Set<string>();
-    orders.forEach(o => {
+    enrichedOrders.forEach(o => {
       o.items?.forEach(it => {
         const c = (it.color || '').trim();
         if (c && c !== '-' && c.toLowerCase() !== 'n/a') set.add(c);
       });
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [orders]);
+  }, [enrichedOrders]);
 
   const gaugeDiaOptions = useMemo(() => {
     const set = new Set<string>();
-    orders.forEach(o => {
+    enrichedOrders.forEach(o => {
       o.items?.forEach(it => {
         const gd = (it.gaugeDia || '').trim();
         if (gd && gd !== '-' && gd.toLowerCase() !== 'n/a') set.add(gd);
       });
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [orders]);
+  }, [enrichedOrders]);
 
   const fgsmOptions = useMemo(() => {
     const set = new Set<string>();
-    orders.forEach(o => {
+    enrichedOrders.forEach(o => {
       o.items?.forEach(it => {
         const g = String(it.fgsm ?? '').trim();
         if (g && g !== '-' && g.toLowerCase() !== 'n/a' && g !== '0') set.add(g);
@@ -273,11 +288,11 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
       if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
       return a.localeCompare(b);
     });
-  }, [orders]);
+  }, [enrichedOrders]);
 
-  // Criteria-Filtered Orders (matching Buyer, Team Leader, Fab. Type, Color, Gauge Dia, FGSM, and Search query)
+  // Criteria-Filtered Orders (matching Buyer, Team Leader, Fab. Type, Color, Gauge Dia, FGSM, OTD Status, and Search query)
   const criteriaFilteredOrders = useMemo(() => {
-    return orders.filter(order => {
+    return enrichedOrders.filter(order => {
       // Buyer filter
       if (buyerFilter !== 'All' && order.buyerName !== buyerFilter) {
         return false;
@@ -324,13 +339,20 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
         if (!hasFgsm) return false;
       }
 
+      // OTD Status filter
+      if (otdFilter !== 'All') {
+        const otd = order.otdStatus || 'Pending';
+        if (otd !== otdFilter) return false;
+      }
+
       // Search term
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase().trim();
         const matchesOrder =
           order.orderNo.toLowerCase().includes(q) ||
           order.buyerName.toLowerCase().includes(q) ||
-          order.teamLeader.toLowerCase().includes(q);
+          order.teamLeader.toLowerCase().includes(q) ||
+          (order.otdStatus || '').toLowerCase().includes(q);
 
         const matchesItem = order.items?.some(i =>
           i.color.toLowerCase().includes(q) ||
@@ -346,7 +368,7 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
 
       return true;
     });
-  }, [orders, buyerFilter, teamLeaderFilter, fabTypeFilter, colorFilter, gaugeDiaFilter, fgsmFilter, searchTerm]);
+  }, [enrichedOrders, buyerFilter, teamLeaderFilter, fabTypeFilter, colorFilter, gaugeDiaFilter, fgsmFilter, otdFilter, searchTerm]);
 
   // Filtered Orders (including Condition filter)
   const filteredOrders = useMemo(() => {
@@ -364,7 +386,7 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
   // Reset pagination when search or filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, conditionFilter, buyerFilter, teamLeaderFilter, fabTypeFilter, colorFilter, gaugeDiaFilter, fgsmFilter]);
+  }, [searchTerm, conditionFilter, buyerFilter, teamLeaderFilter, fabTypeFilter, colorFilter, gaugeDiaFilter, fgsmFilter, otdFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredOrders.length / pageSize));
   const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
@@ -414,11 +436,21 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
     let pendingCount = 0;
     let completeCount = 0;
 
+    // OTD counts
+    let otdPassedCount = 0;
+    let otdFailedCount = 0;
+    let otdPendingCount = 0;
+
     criteriaFilteredOrders.forEach(o => {
       const cond = calculateKnittingCondition(o.greyQty, o.knitBalance);
       if (cond === 'Running') runningCount++;
       else if (cond === 'Pending') pendingCount++;
       else if (cond === 'Complete') completeCount++;
+
+      const otd = o.otdStatus || 'Pending';
+      if (otd === 'Passed') otdPassedCount++;
+      else if (otd === 'Failed') otdFailedCount++;
+      else otdPendingCount++;
     });
 
     const isFiltered =
@@ -429,12 +461,13 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
       colorFilter !== 'All' ||
       gaugeDiaFilter !== 'All' ||
       fgsmFilter !== 'All' ||
+      otdFilter !== 'All' ||
       Boolean(searchTerm.trim());
 
     return {
       totalOrders: filteredOrders.length,
       scopeTotalOrders: criteriaFilteredOrders.length,
-      allOrdersCount: orders.length,
+      allOrdersCount: enrichedOrders.length,
       isFiltered,
       totalReq,
       totalGrey,
@@ -442,9 +475,12 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
       totalBal,
       runningCount,
       pendingCount,
-      completeCount
+      completeCount,
+      otdPassedCount,
+      otdFailedCount,
+      otdPendingCount
     };
-  }, [filteredOrders, criteriaFilteredOrders, conditionFilter, buyerFilter, teamLeaderFilter, fabTypeFilter, colorFilter, gaugeDiaFilter, fgsmFilter, searchTerm, orders.length]);
+  }, [filteredOrders, criteriaFilteredOrders, conditionFilter, buyerFilter, teamLeaderFilter, fabTypeFilter, colorFilter, gaugeDiaFilter, fgsmFilter, otdFilter, searchTerm, enrichedOrders.length]);
 
   const clearAllFilters = () => {
     setConditionFilter('All');
@@ -454,6 +490,7 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
     setColorFilter('All');
     setGaugeDiaFilter('All');
     setFgsmFilter('All');
+    setOtdFilter('All');
     setSearchTerm('');
   };
 
@@ -556,8 +593,13 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
             'Condition': cond,
             'Buyer Name': o.buyerName,
             'Team Leader': o.teamLeader,
-            'Knit Start Date': o.knitStartDate,
-            'Knit End Date': o.knitEndDate,
+            'PMC Knit Start': o.pmcKnitStartDate || '',
+            'Actual Knit Start': o.actualKnitStartDate || o.knitStartDate || '',
+            'Start OTD': o.knitStartOtd || 'Pending',
+            'PMC Knit End': o.pmcKnitEndDate || '',
+            'Actual Knit End': o.actualKnitEndDate || o.knitEndDate || '',
+            'End OTD': o.knitEndOtd || 'Pending',
+            'OTD Status': o.otdStatus || 'Pending',
             'Req. Qty (Kg)': o.reqQty,
             'Grey Qty (Kg)': o.greyQty,
             'Production (Kg)': o.production,
@@ -584,8 +626,13 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
               'F. Width': itm.fWidth,
               'Yarn Count': itm.yarnCount,
               'Gauge & Dia': itm.gaugeDia,
-              'Knit Start Date': itemHasAct ? (itm.knitStartDate || '') : '',
-              'Knit End Date': itemHasAct ? (itm.knitEndDate || '') : '',
+              'PMC Knit Start': itm.pmcKnitStartDate || o.pmcKnitStartDate || '',
+              'Actual Knit Start': itemHasAct ? (itm.actualKnitStartDate || itm.knitStartDate || '') : '',
+              'Start OTD': itm.knitStartOtd || 'Pending',
+              'PMC Knit End': itm.pmcKnitEndDate || o.pmcKnitEndDate || '',
+              'Actual Knit End': itemHasAct ? (itm.actualKnitEndDate || itm.knitEndDate || '') : '',
+              'End OTD': itm.knitEndOtd || 'Pending',
+              'OTD Status': itm.otdStatus || 'Pending',
               'Req. Qty': itm.reqQty,
               'Grey Qty': itm.greyQty,
               'Production': itm.production,
@@ -783,13 +830,15 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
               'A. Knit Star',
               'A. Knit\nStar',
               'A. Knit\r\nStar',
+              'A.Knit Star',
+              'A Knit Star',
               'A. Knit Start',
               'A. Knit\nStart',
               'A. Knit\r\nStart',
+              'A.Knit Start',
+              'A Knit Start',
               'A. Knit Star Date',
               'A. Knit Start Date',
-              'A.Knit Star',
-              'A.Knit Start',
               'A.Knit Start Date',
               'Actual Knit Start',
               'Actual Knit Start Date',
@@ -802,7 +851,7 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
           );
 
           // Knit End Date from "Last Knit", "Last Knit Date", "A. Knit End", etc.
-          // User directive: "Last Knit Date is The Knit End Date", column header in file is "Last Knit"
+          // User directive: "Take Actual Knit End Date From: Last Knit"
           const rowKnitEnd = formatExcelDate(
             getExcelValue(row, [
               'Last Knit',
@@ -830,6 +879,67 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
             ])
           );
 
+          // PMC Planned Start Date: "Take PMC Knit Start date From: PMC K-START"
+          const rowPmcStart = formatExcelDate(
+            getExcelValue(row, [
+              'PMC K-START',
+              'PMC K-Start',
+              'PMC K.START',
+              'PMC K.Start',
+              'PMC K START',
+              'PMC_K_START',
+              'PMC Knit Start',
+              'PMC Knit Start Date',
+              'PMC Start Date',
+              'PMC Start',
+              'PMC Date',
+              'Plan Knit Start',
+              'Plan Start Date',
+              'Plan Start',
+              'Target Start Date',
+              'Target Start'
+            ])
+          );
+
+          // PMC Planned End Date: "Take PMC Knit End Date From : PMC K-END"
+          const rowPmcEnd = formatExcelDate(
+            getExcelValue(row, [
+              'PMC K-END',
+              'PMC K-End',
+              'PMC K.END',
+              'PMC K.End',
+              'PMC K END',
+              'PMC_K_END',
+              'PMC Knit End',
+              'PMC Knit End Date',
+              'PMC End Date',
+              'PMC End',
+              'Plan Knit End',
+              'Plan End Date',
+              'Plan End',
+              'Target End Date',
+              'Target End'
+            ])
+          );
+
+          const rawStartOtd = String(getExcelValue(row, ['Knit Start OTD', 'Start OTD', 'Knit Start OtD', 'Start OtD']) || '').trim().toLowerCase();
+          const rowStartOtd: 'Passed' | 'Failed' | 'Pending' | undefined =
+            rawStartOtd.includes('pass') ? 'Passed' :
+            rawStartOtd.includes('fail') ? 'Failed' :
+            rawStartOtd.includes('pend') ? 'Pending' : undefined;
+
+          const rawEndOtd = String(getExcelValue(row, ['Knit End OTD', 'End OTD', 'Knit End OtD', 'End OtD']) || '').trim().toLowerCase();
+          const rowEndOtd: 'Passed' | 'Failed' | 'Pending' | undefined =
+            rawEndOtd.includes('pass') ? 'Passed' :
+            rawEndOtd.includes('fail') ? 'Failed' :
+            rawEndOtd.includes('pend') ? 'Pending' : undefined;
+
+          const rawOverallOtd = String(getExcelValue(row, ['OTD Status', 'OTD', 'Overall OTD', 'Order OTD']) || '').trim().toLowerCase();
+          const rowOverallOtd: 'Passed' | 'Failed' | 'Pending' | undefined =
+            rawOverallOtd.includes('pass') ? 'Passed' :
+            rawOverallOtd.includes('fail') ? 'Failed' :
+            rawOverallOtd.includes('pend') ? 'Pending' : undefined;
+
           const effectiveKnitStart = rowKnitStart;
           const effectiveKnitEnd = rowKnitEnd;
 
@@ -840,8 +950,15 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
               orderNo,
               buyerName: rowBuyer || '',
               teamLeader: rowLeader || '',
+              pmcKnitStartDate: rowPmcStart || '',
+              actualKnitStartDate: effectiveKnitStart || '',
               knitStartDate: effectiveKnitStart || '',
+              knitStartOtd: rowStartOtd,
+              pmcKnitEndDate: rowPmcEnd || '',
+              actualKnitEndDate: effectiveKnitEnd || '',
               knitEndDate: effectiveKnitEnd || '',
+              knitEndOtd: rowEndOtd,
+              otdStatus: rowOverallOtd,
               reqQty: Number(getExcelValue(row, ['Req. Qty', 'Req Qty', 'Required Qty', 'Req.Qty', 'Rq Qty']) || 0),
               greyQty: Number(getExcelValue(row, ['Grey Qty', 'Grey QTY', 'GreyQty', 'Grey Fab Qty']) || 0),
               production: Number(getExcelValue(row, ['Production', 'Knitting Prod', 'Prod Qty', 'Total Prod']) || 0),
@@ -857,11 +974,28 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
             if (rowLeader && !existing.teamLeader) {
               existing.teamLeader = rowLeader;
             }
+            if (rowPmcStart && !existing.pmcKnitStartDate) {
+              existing.pmcKnitStartDate = rowPmcStart;
+            }
             if (effectiveKnitStart && !existing.knitStartDate) {
               existing.knitStartDate = effectiveKnitStart;
+              existing.actualKnitStartDate = effectiveKnitStart;
+            }
+            if (rowPmcEnd && !existing.pmcKnitEndDate) {
+              existing.pmcKnitEndDate = rowPmcEnd;
             }
             if (effectiveKnitEnd && !existing.knitEndDate) {
               existing.knitEndDate = effectiveKnitEnd;
+              existing.actualKnitEndDate = effectiveKnitEnd;
+            }
+            if (rowStartOtd && !existing.knitStartOtd) {
+              existing.knitStartOtd = rowStartOtd;
+            }
+            if (rowEndOtd && !existing.knitEndOtd) {
+              existing.knitEndOtd = rowEndOtd;
+            }
+            if (rowOverallOtd && !existing.otdStatus) {
+              existing.otdStatus = rowOverallOtd;
             }
           }
 
@@ -947,11 +1081,8 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
 
             const numProd = Number(prod) || 0;
             const numHold = rawHold !== '' && rawHold !== undefined && !isNaN(Number(rawHold)) ? Number(rawHold) : 0;
-            // Crucial fix: Item only has knit dates if knitting has actually begun (production > 0 or hold > 0).
-            // It MUST NOT inherit the parent order's knit dates when it has zero production and zero hold.
-            const hasActivity = numProd > 0 || numHold > 0;
-            const itemKnitStart = hasActivity ? (effectiveKnitStart || '') : '';
-            const itemKnitEnd = hasActivity ? (effectiveKnitEnd || '') : '';
+            const itemKnitStart = rowKnitStart || '';
+            const itemKnitEnd = rowKnitEnd || '';
 
             const item: KnittingStatusItem = {
               id: `itm-${orderNo}-${existing.items.length + 1}`,
@@ -963,8 +1094,15 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
               fWidth: fWidth,
               yarnCount: actualCount || '',
               gaugeDia: gaugeDia,
+              pmcKnitStartDate: rowPmcStart || '',
+              actualKnitStartDate: itemKnitStart,
               knitStartDate: itemKnitStart,
+              knitStartOtd: rowStartOtd,
+              pmcKnitEndDate: rowPmcEnd || '',
+              actualKnitEndDate: itemKnitEnd,
               knitEndDate: itemKnitEnd,
+              knitEndOtd: rowEndOtd,
+              otdStatus: rowOverallOtd,
               reqQty: reqQ,
               greyQty: greyQ,
               production: prod,
@@ -982,7 +1120,9 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
           }
         });
 
-        const freshOrders = Array.from(orderMap.values()).map(aggregateOrderValues);
+        const freshOrders = Array.from(orderMap.values())
+          .map(aggregateOrderValues)
+          .map(ord => enrichKnittingOrderWithPlanData(ord, orderPlans));
 
         if (freshOrders.length === 0) {
           setSyncProgress({
@@ -1378,40 +1518,83 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
 
       {/* Filter & Search Bar */}
       <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          {/* Condition Filter Tabs */}
-          <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl overflow-x-auto">
-            {(['All', 'Running', 'Pending', 'Complete'] as const).map(tab => {
-              const active = conditionFilter === tab;
-              return (
-                <button
-                  key={tab}
-                  onClick={() => setConditionFilter(tab)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                    active
-                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  {tab}
-                  {tab === 'Running' && (
-                    <span className="ml-1.5 px-1.5 py-0.2 rounded-full text-[10px] bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">
-                      {summaryMetrics.runningCount}
-                    </span>
-                  )}
-                  {tab === 'Pending' && (
-                    <span className="ml-1.5 px-1.5 py-0.2 rounded-full text-[10px] bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300">
-                      {summaryMetrics.pendingCount}
-                    </span>
-                  )}
-                  {tab === 'Complete' && (
-                    <span className="ml-1.5 px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300">
-                      {summaryMetrics.completeCount}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 flex-wrap">
+          {/* Condition Filter Tabs & OTD Filter Tabs */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Condition Filter Tabs */}
+            <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl overflow-x-auto">
+              {(['All', 'Running', 'Pending', 'Complete'] as const).map(tab => {
+                const active = conditionFilter === tab;
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => setConditionFilter(tab)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                      active
+                        ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    {tab}
+                    {tab === 'Running' && (
+                      <span className="ml-1.5 px-1.5 py-0.2 rounded-full text-[10px] bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">
+                        {summaryMetrics.runningCount}
+                      </span>
+                    )}
+                    {tab === 'Pending' && (
+                      <span className="ml-1.5 px-1.5 py-0.2 rounded-full text-[10px] bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300">
+                        {summaryMetrics.pendingCount}
+                      </span>
+                    )}
+                    {tab === 'Complete' && (
+                      <span className="ml-1.5 px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300">
+                        {summaryMetrics.completeCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* OTD Filter Quick Pills */}
+            <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl overflow-x-auto">
+              <span className="text-[10px] font-extrabold uppercase text-slate-400 px-1.5">OTD:</span>
+              {(['All', 'Passed', 'Failed', 'Pending'] as const).map(tab => {
+                const active = otdFilter === tab;
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => setOtdFilter(tab)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                      active
+                        ? tab === 'Passed'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : tab === 'Failed'
+                          ? 'bg-rose-600 text-white shadow-xs'
+                          : 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    {tab === 'All' ? 'All OTD' : tab}
+                    {tab === 'Passed' && (
+                      <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                        {summaryMetrics.otdPassedCount}
+                      </span>
+                    )}
+                    {tab === 'Failed' && (
+                      <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300">
+                        {summaryMetrics.otdFailedCount}
+                      </span>
+                    )}
+                    {tab === 'Pending' && (
+                      <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                        {summaryMetrics.otdPendingCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Expand / Collapse All Controls */}
@@ -1438,8 +1621,8 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
 
         {/* Dropdowns & Search */}
         <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/80">
-          {/* Row 1: Search, Buyer, Team Leader */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* Row 1: Search, Buyer, Team Leader, OTD Status */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {/* Search Box */}
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1462,7 +1645,7 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
 
             {/* Buyer Select */}
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-500 whitespace-nowrap">Buyer:</span>
+              <span className="text-xs font-bold text-slate-500 whitespace-nowrap shrink-0">Buyer:</span>
               <select
                 value={buyerFilter}
                 onChange={e => setBuyerFilter(e.target.value)}
@@ -1483,7 +1666,7 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
 
             {/* Team Leader Select */}
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-500 whitespace-nowrap">Leader:</span>
+              <span className="text-xs font-bold text-slate-500 whitespace-nowrap shrink-0">Leader:</span>
               <select
                 value={teamLeaderFilter}
                 onChange={e => setTeamLeaderFilter(e.target.value)}
@@ -1499,6 +1682,29 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
                     {tl}
                   </option>
                 ))}
+              </select>
+            </div>
+
+            {/* OTD Status Select */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-500 whitespace-nowrap shrink-0">OTD:</span>
+              <select
+                value={otdFilter}
+                onChange={e => setOtdFilter(e.target.value as any)}
+                className={`w-full px-2.5 py-2 text-xs rounded-xl border transition-colors cursor-pointer ${
+                  otdFilter !== 'All'
+                    ? otdFilter === 'Passed'
+                      ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 font-bold'
+                      : otdFilter === 'Failed'
+                      ? 'border-rose-500 bg-rose-50/50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-200 font-bold'
+                      : 'border-slate-500 bg-slate-50/50 dark:bg-slate-800 text-slate-900 dark:text-white font-bold'
+                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white'
+                } focus:outline-hidden focus:ring-2 focus:ring-indigo-500`}
+              >
+                <option value="All">All OTD Status</option>
+                <option value="Passed">Passed (On Time) ({summaryMetrics.otdPassedCount})</option>
+                <option value="Failed">Failed (Delayed) ({summaryMetrics.otdFailedCount})</option>
+                <option value="Pending">Pending ({summaryMetrics.otdPendingCount})</option>
               </select>
             </div>
           </div>
@@ -1669,8 +1875,14 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
                 <th className="py-3 px-3">Condition</th>
                 <th className="py-3 px-3">Buyer Name</th>
                 <th className="py-3 px-3">Team Leader</th>
-                <th className="py-3 px-3">Knit Start Date</th>
-                <th className="py-3 px-3">Knit End Date</th>
+                <th className="py-3 px-4 min-w-[150px] w-44">
+                  <div className="text-slate-800 dark:text-slate-200">Knit Start</div>
+                  <div className="text-[9.5px] font-semibold text-slate-400 lowercase tracking-normal">PMC / Actual</div>
+                </th>
+                <th className="py-3 px-4 min-w-[150px] w-44">
+                  <div className="text-slate-800 dark:text-slate-200">Knit End</div>
+                  <div className="text-[9.5px] font-semibold text-slate-400 lowercase tracking-normal">PMC / Actual</div>
+                </th>
                 <th className="py-3 px-3 text-right">Req. Qty</th>
                 <th className="py-3 px-3 text-right">Grey Qty</th>
                 <th className="py-3 px-3 text-right">Production</th>
@@ -1752,14 +1964,32 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
                           {order.teamLeader || ''}
                         </td>
 
-                        {/* Knit Start Date */}
-                        <td className="py-3 px-3 text-slate-600 dark:text-slate-300 font-mono">
-                          {order.knitStartDate || ''}
+                        {/* Knit Start Date (PMC vs Actual) - Minimum Date from Color List */}
+                        <td className="py-2.5 px-4 min-w-[150px]">
+                          <div className="flex flex-col gap-1 text-[11px] font-mono">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase w-8 shrink-0">PMC:</span>
+                              <span className="text-slate-700 dark:text-slate-300 font-semibold">{order.pmcKnitStartDate || '-'}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase w-8 shrink-0">ACT:</span>
+                              <span className="font-bold text-slate-900 dark:text-white">{order.actualKnitStartDate || order.knitStartDate || '-'}</span>
+                            </div>
+                          </div>
                         </td>
 
-                        {/* Knit End Date */}
-                        <td className="py-3 px-3 text-slate-600 dark:text-slate-300 font-mono">
-                          {order.knitEndDate || ''}
+                        {/* Knit End Date (PMC vs Actual) - Maximum Date from Color List */}
+                        <td className="py-2.5 px-4 min-w-[150px]">
+                          <div className="flex flex-col gap-1 text-[11px] font-mono">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase w-8 shrink-0">PMC:</span>
+                              <span className="text-slate-700 dark:text-slate-300 font-semibold">{order.pmcKnitEndDate || '-'}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase w-8 shrink-0">ACT:</span>
+                              <span className="font-bold text-slate-900 dark:text-white">{order.actualKnitEndDate || order.knitEndDate || '-'}</span>
+                            </div>
+                          </div>
                         </td>
 
                         {/* Req. Qty */}
@@ -1832,10 +2062,10 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
                                 <div className="flex items-center gap-2">
                                   <Layers className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                                   <span className="text-xs font-bold uppercase tracking-wider text-indigo-900 dark:text-indigo-200">
-                                    Fabric &amp; Color Specifications for Order {order.orderNo}
+                                    Color-Wise Fabric &amp; Knitting Specifications for Order {order.orderNo}
                                   </span>
                                   <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                                    ({itemsCount} {itemsCount === 1 ? 'item registered' : 'items registered'})
+                                    ({itemsCount} {itemsCount === 1 ? 'color specification' : 'color specifications'})
                                   </span>
                                 </div>
 
@@ -1880,8 +2110,14 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
                                         <th className="py-2.5 px-2.5">F. Width</th>
                                         <th className="py-2.5 px-2.5">Yarn Count</th>
                                         <th className="py-2.5 px-2.5">Gauge &amp; Dia</th>
-                                        <th className="py-2.5 px-2.5">Knit Start Date</th>
-                                        <th className="py-2.5 px-2.5">Knit End Date</th>
+                                        <th className="py-2.5 px-3 min-w-[130px]">
+                                          <div>Knit Start Date</div>
+                                          <div className="text-[9px] font-normal text-slate-400 lowercase tracking-normal">PMC / ACT</div>
+                                        </th>
+                                        <th className="py-2.5 px-3 min-w-[130px]">
+                                          <div>Knit End Date</div>
+                                          <div className="text-[9px] font-normal text-slate-400 lowercase tracking-normal">PMC / ACT</div>
+                                        </th>
                                         <th className="py-2.5 px-2.5 text-right">Req. Qty</th>
                                         <th className="py-2.5 px-2.5 text-right">Grey Qty</th>
                                         <th className="py-2.5 px-2.5 text-right">Production</th>
@@ -1948,14 +2184,44 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
                                             {itm.gaugeDia}
                                           </td>
 
-                                          {/* Knit Start Date: strictly empty if no production and no hold */}
-                                          <td className="py-2 px-2.5 font-mono text-slate-600 dark:text-slate-400">
-                                            {(Number(itm.production || 0) > 0 || Number(itm.hold || 0) > 0) ? (itm.knitStartDate || '') : ''}
+                                          {/* Knit Start Date (PMC K-START vs A. Knit Star) */}
+                                          <td className="py-2 px-3 font-mono text-slate-700 dark:text-slate-300">
+                                            <div className="flex flex-col gap-0.5 text-[10.5px]">
+                                              {itm.pmcKnitStartDate ? (
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">PMC:</span>
+                                                  <span className="text-slate-600 dark:text-slate-400 font-semibold">{itm.pmcKnitStartDate}</span>
+                                                </div>
+                                              ) : null}
+                                              {(itm.actualKnitStartDate || itm.knitStartDate) ? (
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">ACT:</span>
+                                                  <span className="font-bold text-slate-900 dark:text-white">{itm.actualKnitStartDate || itm.knitStartDate}</span>
+                                                </div>
+                                              ) : (
+                                                !itm.pmcKnitStartDate && <span className="text-slate-400">-</span>
+                                              )}
+                                            </div>
                                           </td>
 
-                                          {/* Knit End Date: strictly empty if no production and no hold */}
-                                          <td className="py-2 px-2.5 font-mono text-slate-600 dark:text-slate-400">
-                                            {(Number(itm.production || 0) > 0 || Number(itm.hold || 0) > 0) ? (itm.knitEndDate || '') : ''}
+                                          {/* Knit End Date (PMC K-END vs Last Knit) */}
+                                          <td className="py-2 px-3 font-mono text-slate-700 dark:text-slate-300">
+                                            <div className="flex flex-col gap-0.5 text-[10.5px]">
+                                              {itm.pmcKnitEndDate ? (
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">PMC:</span>
+                                                  <span className="text-slate-600 dark:text-slate-400 font-semibold">{itm.pmcKnitEndDate}</span>
+                                                </div>
+                                              ) : null}
+                                              {(itm.actualKnitEndDate || itm.knitEndDate) ? (
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">ACT:</span>
+                                                  <span className="font-bold text-slate-900 dark:text-white">{itm.actualKnitEndDate || itm.knitEndDate}</span>
+                                                </div>
+                                              ) : (
+                                                !itm.pmcKnitEndDate && <span className="text-slate-400">-</span>
+                                              )}
+                                            </div>
                                           </td>
 
                                           {/* Req. Qty */}

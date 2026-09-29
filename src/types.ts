@@ -237,6 +237,13 @@ export interface KnittingStatusItem {
   gaugeDia: string;       // Gauge & Dia
   knitStartDate: string;  // Knit Start Date
   knitEndDate: string;    // Knit End Date
+  pmcKnitStartDate?: string;    // PMC Planned Start Date
+  actualKnitStartDate?: string; // Actual Start Date
+  knitStartOtd?: 'Passed' | 'Failed' | 'Pending'; // Start OTD
+  pmcKnitEndDate?: string;      // PMC Target End Date
+  actualKnitEndDate?: string;   // Actual Completion Date
+  knitEndOtd?: 'Passed' | 'Failed' | 'Pending';   // End OTD
+  otdStatus?: 'Passed' | 'Failed' | 'Pending';     // Overall OTD Status
   reqQty: number;         // Req. Qty
   greyQty: number;        // Grey Qty
   production: number;     // Production
@@ -256,6 +263,13 @@ export interface KnittingStatusOrder extends SyncMetadata {
   fabrication?: string;
   knitStartDate: string;
   knitEndDate: string;
+  pmcKnitStartDate?: string;    // PMC Planned Start Date
+  actualKnitStartDate?: string; // Actual Start Date
+  knitStartOtd?: 'Passed' | 'Failed' | 'Pending'; // Start OTD
+  pmcKnitEndDate?: string;      // PMC Target End Date
+  actualKnitEndDate?: string;   // Actual Completion Date
+  knitEndOtd?: 'Passed' | 'Failed' | 'Pending';   // End OTD
+  otdStatus?: 'Passed' | 'Failed' | 'Pending';     // Overall OTD Status
   reqQty: number;
   greyQty: number;
   production: number;

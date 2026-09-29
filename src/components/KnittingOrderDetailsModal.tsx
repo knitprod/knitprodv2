@@ -305,30 +305,97 @@ export function KnittingOrderDetailsModal({ order, onClose }: KnittingOrderDetai
             </div>
           </div>
 
-          {/* Schedule & Metadata Highlights */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50/70 dark:bg-slate-800/40 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800">
-            <div className="flex items-center gap-2.5">
-              <Calendar className="w-4 h-4 text-indigo-500 shrink-0" />
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Knit Start Date</div>
-                <div className="text-xs font-bold text-slate-800 dark:text-slate-100">{order.knitStartDate || 'Not set'}</div>
+          {/* Schedule & OTD Performance Highlights */}
+          <div className="bg-slate-50/80 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                  Knitting Schedule, PMC Milestones &amp; OTD Performance
+                </span>
               </div>
+              {order.otdStatus && (
+                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold shadow-2xs ${
+                  order.otdStatus === 'Passed'
+                    ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700'
+                    : order.otdStatus === 'Failed'
+                      ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-800 dark:text-rose-200 border border-rose-300 dark:border-rose-700'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${
+                    order.otdStatus === 'Passed' ? 'bg-emerald-600' : order.otdStatus === 'Failed' ? 'bg-rose-600' : 'bg-slate-400'
+                  }`} />
+                  Overall OTD: {order.otdStatus}
+                </span>
+              )}
             </div>
 
-            <div className="flex items-center gap-2.5">
-              <Calendar className="w-4 h-4 text-emerald-500 shrink-0" />
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Knit End Date</div>
-                <div className="text-xs font-bold text-slate-800 dark:text-slate-100">{order.knitEndDate || 'Not set'}</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* Knit Start Dates */}
+              <div className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Knit Start Schedule</div>
+                <div className="space-y-1 font-mono text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">PMC Plan:</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">{order.pmcKnitStartDate || '-'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Actual:</span>
+                    <span className="font-bold text-slate-900 dark:text-white">{order.actualKnitStartDate || order.knitStartDate || '-'}</span>
+                  </div>
+                </div>
               </div>
-            </div>
 
-            <div className="flex items-center gap-2.5">
-              <Layers className="w-4 h-4 text-purple-500 shrink-0" />
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Fabric Specifications</div>
-                <div className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                  {items.length} {items.length === 1 ? 'Specification' : 'Specifications'}
+              {/* Start OTD */}
+              <div className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Start OTD Status</div>
+                <div className="mt-1">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold ${
+                    order.knitStartOtd === 'Passed'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                      : order.knitStartOtd === 'Failed'
+                        ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                  }`}>
+                    {order.knitStartOtd || 'Pending'}
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">
+                  {order.actualKnitStartDate ? 'Started vs PMC Target' : 'Awaiting start'}
+                </div>
+              </div>
+
+              {/* Knit End Dates */}
+              <div className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Knit End Schedule</div>
+                <div className="space-y-1 font-mono text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">PMC Target:</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">{order.pmcKnitEndDate || '-'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Actual/End:</span>
+                    <span className="font-bold text-slate-900 dark:text-white">{order.actualKnitEndDate || order.knitEndDate || '-'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* End OTD */}
+              <div className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">End OTD Status</div>
+                <div className="mt-1">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold ${
+                    order.knitEndOtd === 'Passed'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                      : order.knitEndOtd === 'Failed'
+                        ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                  }`}>
+                    {order.knitEndOtd || 'Pending'}
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">
+                  {order.knitBalance < 3 ? 'Completed vs PMC' : 'Target completion tracking'}
                 </div>
               </div>
             </div>
@@ -365,8 +432,14 @@ export function KnittingOrderDetailsModal({ order, onClose }: KnittingOrderDetai
                       <th className="py-2.5 px-2.5">F. Width</th>
                       <th className="py-2.5 px-2.5">Yarn Count</th>
                       <th className="py-2.5 px-2.5">Gauge &amp; Dia</th>
-                      <th className="py-2.5 px-2.5">Knit Start Date</th>
-                      <th className="py-2.5 px-2.5">Knit End Date</th>
+                      <th className="py-2.5 px-3 min-w-[130px]">
+                        <div>Knit Start Date</div>
+                        <div className="text-[9px] font-normal text-slate-400 lowercase tracking-normal">PMC / ACT</div>
+                      </th>
+                      <th className="py-2.5 px-3 min-w-[130px]">
+                        <div>Knit End Date</div>
+                        <div className="text-[9px] font-normal text-slate-400 lowercase tracking-normal">PMC / ACT</div>
+                      </th>
                       <th className="py-2.5 px-2.5 text-right">Req. Qty</th>
                       <th className="py-2.5 px-2.5 text-right">Grey Qty</th>
                       <th className="py-2.5 px-2.5 text-right">Production</th>

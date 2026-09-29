@@ -333,6 +333,48 @@ export function parseDateToTimestamp(val: any): number | null {
 }
 
 /**
+ * Takes the Minimum Date from a list of date strings (e.g. PMC K-START or A. Knit Star)
+ */
+export function getMinDateFromList(dateStrings: (string | undefined | null)[], fallback: string = ''): string {
+  let minTime = Infinity;
+  let minDateStr = '';
+
+  for (const s of dateStrings) {
+    if (!s || typeof s !== 'string') continue;
+    const trimmed = s.trim();
+    if (!trimmed || trimmed === '-' || trimmed.toLowerCase() === 'n/a') continue;
+    const time = parseDateToTimestamp(trimmed);
+    if (time !== null && time < minTime) {
+      minTime = time;
+      minDateStr = trimmed;
+    }
+  }
+
+  return minDateStr || fallback;
+}
+
+/**
+ * Takes the Maximum Date from a list of date strings (e.g. PMC K-END or Last Knit)
+ */
+export function getMaxDateFromList(dateStrings: (string | undefined | null)[], fallback: string = ''): string {
+  let maxTime = -Infinity;
+  let maxDateStr = '';
+
+  for (const s of dateStrings) {
+    if (!s || typeof s !== 'string') continue;
+    const trimmed = s.trim();
+    if (!trimmed || trimmed === '-' || trimmed.toLowerCase() === 'n/a') continue;
+    const time = parseDateToTimestamp(trimmed);
+    if (time !== null && time > maxTime) {
+      maxTime = time;
+      maxDateStr = trimmed;
+    }
+  }
+
+  return maxDateStr || fallback;
+}
+
+/**
  * Helper to check if an individual fabric item has actual knitting activity (production or hold)
  */
 export function isKnittingItemActive(itm: KnittingStatusItem): boolean {
@@ -344,19 +386,8 @@ export function isKnittingItemActive(itm: KnittingStatusItem): boolean {
  */
 export function getMinKnitStartDate(items: KnittingStatusItem[], fallback: string = ''): string {
   if (!items || items.length === 0) return fallback;
-  let minTime = Infinity;
-  let minDateStr = '';
-
-  for (const itm of items) {
-    const hasActivity = (Number(itm.production || 0) > 0) || (Number(itm.hold || 0) > 0);
-    if (!hasActivity || !itm.knitStartDate) continue;
-    const time = parseDateToTimestamp(itm.knitStartDate);
-    if (time !== null && time < minTime) {
-      minTime = time;
-      minDateStr = itm.knitStartDate;
-    }
-  }
-  return minDateStr || (items.some(i => (Number(i.production || 0) > 0) || (Number(i.hold || 0) > 0)) ? fallback : '');
+  const dates = items.map(itm => itm.actualKnitStartDate || itm.knitStartDate);
+  return getMinDateFromList(dates, fallback);
 }
 
 /**
@@ -364,19 +395,8 @@ export function getMinKnitStartDate(items: KnittingStatusItem[], fallback: strin
  */
 export function getMaxKnitEndDate(items: KnittingStatusItem[], fallback: string = ''): string {
   if (!items || items.length === 0) return fallback;
-  let maxTime = -Infinity;
-  let maxDateStr = '';
-
-  for (const itm of items) {
-    const hasActivity = (Number(itm.production || 0) > 0) || (Number(itm.hold || 0) > 0);
-    if (!hasActivity || !itm.knitEndDate) continue;
-    const time = parseDateToTimestamp(itm.knitEndDate);
-    if (time !== null && time > maxTime) {
-      maxTime = time;
-      maxDateStr = itm.knitEndDate;
-    }
-  }
-  return maxDateStr || (items.some(i => (Number(i.production || 0) > 0) || (Number(i.hold || 0) > 0)) ? fallback : '');
+  const dates = items.map(itm => itm.actualKnitEndDate || itm.knitEndDate);
+  return getMaxDateFromList(dates, fallback);
 }
 
 /**
@@ -424,31 +444,197 @@ export function calculateKnittingCondition(greyQty: number, knitBalance: number)
 }
 
 /**
+ * Evaluates Start OTD (On-Time Delivery):
+ * - If actualDateStr exists and pmcDateStr exists:
+ *   - actual <= pmc => 'Passed'
+ *   - actual > pmc => 'Failed'
+ * - If no actualDateStr yet (not started):
+ *   - If today > pmcDateStr => 'Failed' (overdue start)
+ *   - Else => 'Pending'
+ */
+export function calculateStartOtdStatus(
+  pmcDateStr?: string,
+  actualDateStr?: string,
+  explicitOtd?: 'Passed' | 'Failed' | 'Pending'
+): 'Passed' | 'Failed' | 'Pending' {
+  if (explicitOtd && explicitOtd !== 'Pending') return explicitOtd;
+  if (!pmcDateStr || !pmcDateStr.trim() || pmcDateStr === '-') {
+    return explicitOtd || 'Pending';
+  }
+
+  const pmcTime = parseDateToTimestamp(pmcDateStr);
+  if (pmcTime === null) return explicitOtd || 'Pending';
+
+  if (actualDateStr && actualDateStr.trim() && actualDateStr !== '-') {
+    const actTime = parseDateToTimestamp(actualDateStr);
+    if (actTime !== null) {
+      return actTime <= pmcTime ? 'Passed' : 'Failed';
+    }
+  }
+
+  // Not started yet: check if PMC planned start date has already elapsed
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const targetDay = new Date(pmcTime);
+  targetDay.setHours(0, 0, 0, 0);
+
+  if (today.getTime() > targetDay.getTime()) {
+    return 'Failed';
+  }
+
+  return 'Pending';
+}
+
+/**
+ * Evaluates End OTD (On-Time Delivery):
+ * - If order/item is complete (balance < 3 or itmQty >= greyQty or explicit isCompleted):
+ *   - If actualDateStr exists and pmcDateStr exists:
+ *     - actual <= pmc => 'Passed'
+ *     - actual > pmc => 'Failed'
+ * - If not complete yet:
+ *   - If today > pmcDateStr => 'Failed' (overdue/delayed)
+ *   - Else => 'Pending'
+ */
+export function calculateEndOtdStatus(
+  pmcDateStr?: string,
+  actualDateStr?: string,
+  isCompleted?: boolean,
+  explicitOtd?: 'Passed' | 'Failed' | 'Pending'
+): 'Passed' | 'Failed' | 'Pending' {
+  if (explicitOtd && explicitOtd !== 'Pending') return explicitOtd;
+  if (!pmcDateStr || !pmcDateStr.trim() || pmcDateStr === '-') {
+    return explicitOtd || 'Pending';
+  }
+
+  const pmcTime = parseDateToTimestamp(pmcDateStr);
+  if (pmcTime === null) return explicitOtd || 'Pending';
+
+  if (isCompleted && actualDateStr && actualDateStr.trim() && actualDateStr !== '-') {
+    const actTime = parseDateToTimestamp(actualDateStr);
+    if (actTime !== null) {
+      return actTime <= pmcTime ? 'Passed' : 'Failed';
+    }
+  }
+
+  // If not completed: check if PMC planned end date has passed
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const targetDay = new Date(pmcTime);
+  targetDay.setHours(0, 0, 0, 0);
+
+  if (today.getTime() > targetDay.getTime()) {
+    return 'Failed';
+  }
+
+  return 'Pending';
+}
+
+/**
+ * Evaluates Overall Order OTD Status:
+ * - 'Failed' if either Start OTD or End OTD has Failed.
+ * - 'Passed' if End OTD is Passed, or both Start & End are Passed.
+ * - 'Pending' otherwise.
+ */
+export function calculateOverallOtdStatus(
+  startOtd?: 'Passed' | 'Failed' | 'Pending',
+  endOtd?: 'Passed' | 'Failed' | 'Pending'
+): 'Passed' | 'Failed' | 'Pending' {
+  if (startOtd === 'Failed' || endOtd === 'Failed') return 'Failed';
+  if (endOtd === 'Passed') return 'Passed';
+  if (startOtd === 'Passed' && (!endOtd || endOtd === 'Pending')) return 'Pending';
+  return 'Pending';
+}
+
+/**
+ * Enriches a KnittingStatusOrder with PMC planned dates and OTD evaluations from OrderPlan dataset.
+ */
+export function enrichKnittingOrderWithPlanData(
+  order: KnittingStatusOrder,
+  orderPlans?: { ewo?: string; id?: string; knitStart?: string; knitEnd?: string; aKnitStart?: string; lastProductionDate?: string; knitStartOtd?: 'Passed' | 'Failed' | 'Pending'; knitEndOtd?: 'Passed' | 'Failed' | 'Pending' }[]
+): KnittingStatusOrder {
+  if (!orderPlans || orderPlans.length === 0) return order;
+  const norm = (s?: string) => (s || '').replace(/\D+/g, '').replace(/^0+/, '');
+  const ordKey = norm(order.orderNo || order.id);
+  if (!ordKey) return order;
+
+  const matchedPlan = orderPlans.find(p => norm(p.ewo || p.id) === ordKey);
+  if (!matchedPlan) return order;
+
+  const pmcStart = order.pmcKnitStartDate || matchedPlan.knitStart || '';
+  const pmcEnd = order.pmcKnitEndDate || matchedPlan.knitEnd || '';
+  const actualStart = order.actualKnitStartDate || order.knitStartDate || matchedPlan.aKnitStart || '';
+  const actualEnd = order.actualKnitEndDate || order.knitEndDate || (matchedPlan.lastProductionDate && matchedPlan.lastProductionDate !== '-' ? matchedPlan.lastProductionDate : '');
+
+  const isComplete = (order.knitBalance !== undefined && order.knitBalance < 3) || (order.production > 0 && order.production >= order.greyQty);
+  const startOtd = calculateStartOtdStatus(pmcStart, actualStart, order.knitStartOtd || (matchedPlan.knitStartOtd !== 'Pending' ? matchedPlan.knitStartOtd : undefined));
+  const endOtd = calculateEndOtdStatus(pmcEnd, actualEnd, isComplete, order.knitEndOtd || (matchedPlan.knitEndOtd !== 'Pending' ? matchedPlan.knitEndOtd : undefined));
+  const overallOtd = calculateOverallOtdStatus(startOtd, endOtd);
+
+  return {
+    ...order,
+    pmcKnitStartDate: pmcStart,
+    actualKnitStartDate: actualStart,
+    knitStartOtd: startOtd,
+    pmcKnitEndDate: pmcEnd,
+    actualKnitEndDate: actualEnd,
+    knitEndOtd: endOtd,
+    otdStatus: overallOtd
+  };
+}
+
+/**
  * Calculates order aggregates from its sub-items if items are present:
  * - Sorts items by Color -> Machine Type -> Fabric Type
  * - Knit Start Date = Minimum Date from the expanded ledger column
  * - Knit End Date = Maximum Date from the expanded ledger column
+ * - Evaluates PMC Dates, Actual Dates, and OTD Status
  */
 export function aggregateOrderValues(order: KnittingStatusOrder): KnittingStatusOrder {
   if (!order.items || order.items.length === 0) {
     const knitBalance = order.knitBalance !== undefined ? order.knitBalance : Math.max(0, (order.greyQty || 0) - (order.production || 0));
     const hasOrderActivity = (Number(order.production || 0) > 0);
+    const actStart = hasOrderActivity ? (order.actualKnitStartDate || order.knitStartDate || '') : '';
+    const actEnd = hasOrderActivity ? (order.actualKnitEndDate || order.knitEndDate || '') : '';
+    const isComplete = knitBalance < 3 || (order.production > 0 && order.production >= (order.greyQty || 0));
+    const startOtd = calculateStartOtdStatus(order.pmcKnitStartDate, actStart, order.knitStartOtd);
+    const endOtd = calculateEndOtdStatus(order.pmcKnitEndDate, actEnd, isComplete, order.knitEndOtd);
+    const otdStatus = calculateOverallOtdStatus(startOtd, endOtd);
+
     return {
       ...order,
       knitBalance,
-      knitStartDate: hasOrderActivity ? (order.knitStartDate || '') : '',
-      knitEndDate: hasOrderActivity ? (order.knitEndDate || '') : ''
+      knitStartDate: actStart,
+      knitEndDate: actEnd,
+      actualKnitStartDate: actStart,
+      actualKnitEndDate: actEnd,
+      knitStartOtd: startOtd,
+      knitEndOtd: endOtd,
+      otdStatus: order.otdStatus || otdStatus
     };
   }
 
-  // Crucial rule: If an item has NO production and NO hold, it has NOT started knitting yet.
-  // Its knitStartDate and knitEndDate must be empty.
+  // Cleaned and normalized items for each color
   const cleanedItems = order.items.map(itm => {
-    const hasActivity = (Number(itm.production || 0) > 0) || (Number(itm.hold || 0) > 0);
+    const itmActStart = itm.actualKnitStartDate || itm.knitStartDate || '';
+    const itmActEnd = itm.actualKnitEndDate || itm.knitEndDate || '';
+    const itmPmcStart = itm.pmcKnitStartDate || '';
+    const itmPmcEnd = itm.pmcKnitEndDate || '';
+    const itmIsComplete = (itm.knitBalance !== undefined && itm.knitBalance < 3) || (Number(itm.production || 0) > 0 && Number(itm.production || 0) >= Number(itm.greyQty || 0));
+    const itmStartOtd = calculateStartOtdStatus(itmPmcStart, itmActStart, itm.knitStartOtd);
+    const itmEndOtd = calculateEndOtdStatus(itmPmcEnd, itmActEnd, itmIsComplete, itm.knitEndOtd);
+    const itmOverallOtd = calculateOverallOtdStatus(itmStartOtd, itmEndOtd);
+
     return {
       ...itm,
-      knitStartDate: hasActivity ? (itm.knitStartDate || '') : '',
-      knitEndDate: hasActivity ? (itm.knitEndDate || '') : ''
+      knitStartDate: itmActStart,
+      knitEndDate: itmActEnd,
+      actualKnitStartDate: itmActStart,
+      actualKnitEndDate: itmActEnd,
+      pmcKnitStartDate: itmPmcStart,
+      pmcKnitEndDate: itmPmcEnd,
+      knitStartOtd: itmStartOtd,
+      knitEndOtd: itmEndOtd,
+      otdStatus: itm.otdStatus || itmOverallOtd
     };
   });
 
@@ -460,12 +646,20 @@ export function aggregateOrderValues(order: KnittingStatusOrder): KnittingStatus
   const production = sortedItems.reduce((sum, itm) => sum + (Number(itm.production) || 0), 0);
   const knitBalance = sortedItems.reduce((sum, itm) => sum + (Number(itm.knitBalance) || 0), 0);
 
-  const hasAnyActivity = production > 0 || sortedItems.some(i => (Number(i.hold || 0) > 0));
+  // USER DIRECTIVE:
+  // 1st Layer Main Order Row:
+  // Knit Start Date collects the Minimum date for PMC (from PMC K-START) and ACT (from A. Knit Star) from the Color List Below.
+  const minPmcStart = getMinDateFromList(sortedItems.map(i => i.pmcKnitStartDate), order.pmcKnitStartDate || '');
+  const minActStart = getMinDateFromList(sortedItems.map(i => i.actualKnitStartDate || i.knitStartDate), order.actualKnitStartDate || order.knitStartDate || '');
 
-  // Take the Minimum Date from the active expanded ledger items for Knit Start Date
-  const minStartDate = hasAnyActivity ? getMinKnitStartDate(sortedItems, order.knitStartDate || '') : '';
-  // Take the Maximum Date from the active expanded ledger items for Knit End Date
-  const maxEndDate = hasAnyActivity ? getMaxKnitEndDate(sortedItems, order.knitEndDate || '') : '';
+  // Knit End Date collects the Maximum date for PMC (from PMC K-END) and ACT (from Last Knit) from the Color List Below.
+  const maxPmcEnd = getMaxDateFromList(sortedItems.map(i => i.pmcKnitEndDate), order.pmcKnitEndDate || '');
+  const maxActEnd = getMaxDateFromList(sortedItems.map(i => i.actualKnitEndDate || i.knitEndDate), order.actualKnitEndDate || order.knitEndDate || '');
+
+  const orderIsComplete = knitBalance < 3 || (production > 0 && production >= greyQty);
+  const orderStartOtd = calculateStartOtdStatus(minPmcStart, minActStart, order.knitStartOtd);
+  const orderEndOtd = calculateEndOtdStatus(maxPmcEnd, maxActEnd, orderIsComplete, order.knitEndOtd);
+  const orderOverallOtd = calculateOverallOtdStatus(orderStartOtd, orderEndOtd);
 
   return {
     ...order,
@@ -474,8 +668,15 @@ export function aggregateOrderValues(order: KnittingStatusOrder): KnittingStatus
     greyQty: greyQty || order.greyQty || 0,
     production: production || order.production || 0,
     knitBalance: knitBalance !== undefined ? knitBalance : Math.max(0, greyQty - production),
-    knitStartDate: minStartDate,
-    knitEndDate: maxEndDate
+    pmcKnitStartDate: minPmcStart,
+    actualKnitStartDate: minActStart,
+    knitStartDate: minActStart,
+    pmcKnitEndDate: maxPmcEnd,
+    actualKnitEndDate: maxActEnd,
+    knitEndDate: maxActEnd,
+    knitStartOtd: orderStartOtd,
+    knitEndOtd: orderEndOtd,
+    otdStatus: order.otdStatus || orderOverallOtd
   };
 }
 
@@ -485,8 +686,15 @@ export const INITIAL_KNITTING_STATUS_ORDERS: KnittingStatusOrder[] = [
     orderNo: '271890',
     buyerName: 'Vogue Sourcin',
     teamLeader: 'Kabir Hossain',
+    pmcKnitStartDate: '10-Aug-2026',
+    actualKnitStartDate: '12-Aug-2026',
     knitStartDate: '12-Aug-2026',
+    knitStartOtd: 'Failed',
+    pmcKnitEndDate: '26-Aug-2026',
+    actualKnitEndDate: '25-Aug-2026',
     knitEndDate: '25-Aug-2026',
+    knitEndOtd: 'Pending',
+    otdStatus: 'Failed',
     reqQty: 3200,
     greyQty: 3250,
     production: 1850,
@@ -501,8 +709,15 @@ export const INITIAL_KNITTING_STATUS_ORDERS: KnittingStatusOrder[] = [
         fWidth: '72" Open',
         yarnCount: '26s Combed',
         gaugeDia: '24G x 30"',
+        pmcKnitStartDate: '10-Aug-2026',
+        actualKnitStartDate: '12-Aug-2026',
         knitStartDate: '12-Aug-2026',
+        knitStartOtd: 'Failed',
+        pmcKnitEndDate: '22-Aug-2026',
+        actualKnitEndDate: '20-Aug-2026',
         knitEndDate: '20-Aug-2026',
+        knitEndOtd: 'Pending',
+        otdStatus: 'Failed',
         reqQty: 1800,
         greyQty: 1825,
         production: 1100,
@@ -522,8 +737,15 @@ export const INITIAL_KNITTING_STATUS_ORDERS: KnittingStatusOrder[] = [
         fWidth: '68" Open',
         yarnCount: '30s Combed + 20D Lycra',
         gaugeDia: '28G x 32"',
+        pmcKnitStartDate: '14-Aug-2026',
+        actualKnitStartDate: '16-Aug-2026',
         knitStartDate: '16-Aug-2026',
+        knitStartOtd: 'Failed',
+        pmcKnitEndDate: '26-Aug-2026',
+        actualKnitEndDate: '25-Aug-2026',
         knitEndDate: '25-Aug-2026',
+        knitEndOtd: 'Pending',
+        otdStatus: 'Failed',
         reqQty: 1400,
         greyQty: 1425,
         production: 750,
@@ -541,8 +763,15 @@ export const INITIAL_KNITTING_STATUS_ORDERS: KnittingStatusOrder[] = [
     orderNo: '271891',
     buyerName: 'S.Oliver',
     teamLeader: 'Shahidul Islam',
+    pmcKnitStartDate: '15-Aug-2026',
+    actualKnitStartDate: '15-Aug-2026',
     knitStartDate: '15-Aug-2026',
+    knitStartOtd: 'Passed',
+    pmcKnitEndDate: '30-Aug-2026',
+    actualKnitEndDate: '28-Aug-2026',
     knitEndDate: '28-Aug-2026',
+    knitEndOtd: 'Passed',
+    otdStatus: 'Passed',
     reqQty: 2450,
     greyQty: 2480,
     production: 2480,
@@ -557,8 +786,15 @@ export const INITIAL_KNITTING_STATUS_ORDERS: KnittingStatusOrder[] = [
         fWidth: '64" Tube',
         yarnCount: '24s Carded',
         gaugeDia: '18G x 30"',
+        pmcKnitStartDate: '15-Aug-2026',
+        actualKnitStartDate: '15-Aug-2026',
         knitStartDate: '15-Aug-2026',
+        knitStartOtd: 'Passed',
+        pmcKnitEndDate: '24-Aug-2026',
+        actualKnitEndDate: '22-Aug-2026',
         knitEndDate: '22-Aug-2026',
+        knitEndOtd: 'Passed',
+        otdStatus: 'Passed',
         reqQty: 1200,
         greyQty: 1220,
         production: 1220,
@@ -578,8 +814,15 @@ export const INITIAL_KNITTING_STATUS_ORDERS: KnittingStatusOrder[] = [
         fWidth: '70" Open',
         yarnCount: '34s CVC',
         gaugeDia: '24G x 34"',
+        pmcKnitStartDate: '18-Aug-2026',
+        actualKnitStartDate: '18-Aug-2026',
         knitStartDate: '18-Aug-2026',
+        knitStartOtd: 'Passed',
+        pmcKnitEndDate: '30-Aug-2026',
+        actualKnitEndDate: '28-Aug-2026',
         knitEndDate: '28-Aug-2026',
+        knitEndOtd: 'Passed',
+        otdStatus: 'Passed',
         reqQty: 1250,
         greyQty: 1260,
         production: 1260,
@@ -597,8 +840,15 @@ export const INITIAL_KNITTING_STATUS_ORDERS: KnittingStatusOrder[] = [
     orderNo: '270258',
     buyerName: 'C&A',
     teamLeader: 'Tanvir Ahmed',
-    knitStartDate: '20-Aug-2026',
-    knitEndDate: '02-Sep-2026',
+    pmcKnitStartDate: '22-Aug-2026',
+    actualKnitStartDate: '',
+    knitStartDate: '',
+    knitStartOtd: 'Pending',
+    pmcKnitEndDate: '05-Sep-2026',
+    actualKnitEndDate: '',
+    knitEndDate: '',
+    knitEndOtd: 'Pending',
+    otdStatus: 'Pending',
     reqQty: 4100,
     greyQty: 4180,
     production: 0,
@@ -613,8 +863,15 @@ export const INITIAL_KNITTING_STATUS_ORDERS: KnittingStatusOrder[] = [
         fWidth: '76" Open',
         yarnCount: '20s CVC + 10s OE',
         gaugeDia: '20G x 30"',
-        knitStartDate: '20-Aug-2026',
-        knitEndDate: '28-Aug-2026',
+        pmcKnitStartDate: '22-Aug-2026',
+        actualKnitStartDate: '',
+        knitStartDate: '',
+        knitStartOtd: 'Pending',
+        pmcKnitEndDate: '30-Aug-2026',
+        actualKnitEndDate: '',
+        knitEndDate: '',
+        knitEndOtd: 'Pending',
+        otdStatus: 'Pending',
         reqQty: 2500,
         greyQty: 2550,
         production: 0,
@@ -634,8 +891,15 @@ export const INITIAL_KNITTING_STATUS_ORDERS: KnittingStatusOrder[] = [
         fWidth: '60" Tube',
         yarnCount: '24s Melange + 30D Spandex',
         gaugeDia: '18G x 32"',
-        knitStartDate: '24-Aug-2026',
-        knitEndDate: '02-Sep-2026',
+        pmcKnitStartDate: '25-Aug-2026',
+        actualKnitStartDate: '',
+        knitStartDate: '',
+        knitStartOtd: 'Pending',
+        pmcKnitEndDate: '05-Sep-2026',
+        actualKnitEndDate: '',
+        knitEndDate: '',
+        knitEndOtd: 'Pending',
+        otdStatus: 'Pending',
         reqQty: 1600,
         greyQty: 1630,
         production: 0,
@@ -653,8 +917,15 @@ export const INITIAL_KNITTING_STATUS_ORDERS: KnittingStatusOrder[] = [
     orderNo: '260796',
     buyerName: 'H&M',
     teamLeader: 'Masud Rana',
+    pmcKnitStartDate: '05-Aug-2026',
+    actualKnitStartDate: '05-Aug-2026',
     knitStartDate: '05-Aug-2026',
+    knitStartOtd: 'Passed',
+    pmcKnitEndDate: '20-Aug-2026',
+    actualKnitEndDate: '18-Aug-2026',
     knitEndDate: '18-Aug-2026',
+    knitEndOtd: 'Passed',
+    otdStatus: 'Passed',
     reqQty: 5400,
     greyQty: 5490,
     production: 5488,
@@ -669,8 +940,15 @@ export const INITIAL_KNITTING_STATUS_ORDERS: KnittingStatusOrder[] = [
         fWidth: '74" Open',
         yarnCount: '30s Organic Combed',
         gaugeDia: '28G x 32"',
+        pmcKnitStartDate: '05-Aug-2026',
+        actualKnitStartDate: '05-Aug-2026',
         knitStartDate: '05-Aug-2026',
+        knitStartOtd: 'Passed',
+        pmcKnitEndDate: '14-Aug-2026',
+        actualKnitEndDate: '12-Aug-2026',
         knitEndDate: '12-Aug-2026',
+        knitEndOtd: 'Passed',
+        otdStatus: 'Passed',
         reqQty: 3000,
         greyQty: 3050,
         production: 3049,
@@ -690,8 +968,15 @@ export const INITIAL_KNITTING_STATUS_ORDERS: KnittingStatusOrder[] = [
         fWidth: '72" Open',
         yarnCount: '26s Slub Yarn',
         gaugeDia: '24G x 30"',
+        pmcKnitStartDate: '10-Aug-2026',
+        actualKnitStartDate: '10-Aug-2026',
         knitStartDate: '10-Aug-2026',
+        knitStartOtd: 'Passed',
+        pmcKnitEndDate: '20-Aug-2026',
+        actualKnitEndDate: '18-Aug-2026',
         knitEndDate: '18-Aug-2026',
+        knitEndOtd: 'Passed',
+        otdStatus: 'Passed',
         reqQty: 2400,
         greyQty: 2440,
         production: 2439,
