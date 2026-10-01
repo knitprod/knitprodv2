@@ -648,7 +648,7 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                   {items.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="py-4 text-center text-slate-400">
+                      <td colSpan={12} className="py-4 text-center text-slate-400">
                         No production data registered for this order.
                       </td>
                     </tr>
@@ -658,6 +658,11 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
                       const holdNum = Number(it.hold || 0);
                       const rejectNum = Number(it.reject || 0);
                       const isEven = idx % 2 === 1;
+
+                      const itemPmcStart = it.pmcKnitStartDate || order.pmcKnitStartDate || '';
+                      const itemActStart = it.actualKnitStartDate || it.knitStartDate || order.actualKnitStartDate || '';
+                      const itemPmcEnd = it.pmcKnitEndDate || order.pmcKnitEndDate || '';
+                      const itemActEnd = it.actualKnitEndDate || it.knitEndDate || order.actualKnitEndDate || '';
 
                       return (
                         <tr
@@ -678,37 +683,37 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
                           </td>
                           <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 font-mono text-[10.5px]">
                             <div className="flex flex-col gap-0.5">
-                              {it.pmcKnitStartDate && (
+                              {itemPmcStart ? (
                                 <div className="flex items-center gap-1">
                                   <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">PMC:</span>
-                                  <span className="text-slate-600 dark:text-slate-300 font-semibold">{it.pmcKnitStartDate}</span>
+                                  <span className="text-slate-600 dark:text-slate-300 font-semibold">{itemPmcStart}</span>
                                 </div>
-                              )}
-                              {(it.actualKnitStartDate || it.knitStartDate) ? (
+                              ) : null}
+                              {itemActStart ? (
                                 <div className="flex items-center gap-1">
                                   <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">ACT:</span>
-                                  <span className="font-bold text-slate-900 dark:text-white">{it.actualKnitStartDate || it.knitStartDate}</span>
+                                  <span className="font-bold text-slate-900 dark:text-white">{itemActStart}</span>
                                 </div>
                               ) : (
-                                !it.pmcKnitStartDate && <span className="text-slate-400">-</span>
+                                !itemPmcStart && <span className="text-slate-400">-</span>
                               )}
                             </div>
                           </td>
                           <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 font-mono text-[10.5px]">
                             <div className="flex flex-col gap-0.5">
-                              {it.pmcKnitEndDate && (
+                              {itemPmcEnd ? (
                                 <div className="flex items-center gap-1">
                                   <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">PMC:</span>
-                                  <span className="text-slate-600 dark:text-slate-300 font-semibold">{it.pmcKnitEndDate}</span>
+                                  <span className="text-slate-600 dark:text-slate-300 font-semibold">{itemPmcEnd}</span>
                                 </div>
-                              )}
-                              {(it.actualKnitEndDate || it.knitEndDate) ? (
+                              ) : null}
+                              {itemActEnd ? (
                                 <div className="flex items-center gap-1">
                                   <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">ACT:</span>
-                                  <span className="font-bold text-slate-900 dark:text-white">{it.actualKnitEndDate || it.knitEndDate}</span>
+                                  <span className="font-bold text-slate-900 dark:text-white">{itemActEnd}</span>
                                 </div>
                               ) : (
-                                !it.pmcKnitEndDate && <span className="text-slate-400">-</span>
+                                !itemPmcEnd && <span className="text-slate-400">-</span>
                               )}
                             </div>
                           </td>

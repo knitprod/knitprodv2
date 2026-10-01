@@ -1910,6 +1910,14 @@ export class SupabaseSync {
     if (kStart === '19-Sep-2026' || kStart === '19-09-2026') kStart = '20-Sep-2026';
     if (kEnd === '21-Sep-2026' || kEnd === '21-09-2026') kEnd = '22-Sep-2026';
 
+    const pmcStart = raw.pmcKnitStartDate || row.pmc_knit_start_date || '';
+    const pmcEnd = raw.pmcKnitEndDate || row.pmc_knit_end_date || '';
+    const actStart = raw.actualKnitStartDate || row.actual_knit_start_date || kStart || '';
+    const actEnd = raw.actualKnitEndDate || row.actual_knit_end_date || kEnd || '';
+    const otd = raw.otdStatus || row.otd_status || 'Pending';
+    const sOtd = raw.knitStartOtd || row.knit_start_otd || 'Pending';
+    const eOtd = raw.knitEndOtd || row.knit_end_otd || 'Pending';
+
     const rawItems: any[] = Array.isArray(row.items) ? row.items : (raw.items || []);
     const items = rawItems.map(itm => {
       const hasAct = (Number(itm.production || 0) > 0) || (Number(itm.hold || 0) > 0);
@@ -1917,10 +1925,23 @@ export class SupabaseSync {
       let itmEnd = itm.knitEndDate || '';
       if (itmStart === '19-Sep-2026' || itmStart === '19-09-2026') itmStart = '20-Sep-2026';
       if (itmEnd === '21-Sep-2026' || itmEnd === '21-09-2026') itmEnd = '22-Sep-2026';
+
+      const itmPmcStart = itm.pmcKnitStartDate || pmcStart;
+      const itmPmcEnd = itm.pmcKnitEndDate || pmcEnd;
+      const itmActStart = itm.actualKnitStartDate || (hasAct ? itmStart : '') || actStart;
+      const itmActEnd = itm.actualKnitEndDate || (hasAct ? itmEnd : '') || actEnd;
+
       return {
         ...itm,
-        knitStartDate: hasAct ? (itmStart || '') : '',
-        knitEndDate: hasAct ? (itmEnd || '') : ''
+        pmcKnitStartDate: itmPmcStart,
+        pmcKnitEndDate: itmPmcEnd,
+        actualKnitStartDate: itmActStart,
+        actualKnitEndDate: itmActEnd,
+        knitStartDate: itmActStart || (hasAct ? itmStart : ''),
+        knitEndDate: itmActEnd || (hasAct ? itmEnd : ''),
+        knitStartOtd: itm.knitStartOtd || sOtd,
+        knitEndOtd: itm.knitEndOtd || eOtd,
+        otdStatus: itm.otdStatus || otd
       };
     });
 
@@ -1929,14 +1950,22 @@ export class SupabaseSync {
       orderNo: ordNo,
       buyerName: row.buyer_name || raw.buyerName || '',
       teamLeader: row.team_leader || raw.teamLeader || '',
-      knitStartDate: kStart,
-      knitEndDate: kEnd,
+      pmcKnitStartDate: pmcStart,
+      pmcKnitEndDate: pmcEnd,
+      actualKnitStartDate: actStart,
+      actualKnitEndDate: actEnd,
+      knitStartDate: kStart || actStart,
+      knitEndDate: kEnd || actEnd,
+      knitStartOtd: sOtd,
+      knitEndOtd: eOtd,
+      otdStatus: otd,
       reqQty: parseFloat(String(row.req_qty ?? raw.reqQty ?? 0)) || 0,
       greyQty: parseFloat(String(row.grey_qty ?? raw.greyQty ?? 0)) || 0,
       production: parseFloat(String(row.production ?? raw.production ?? 0)) || 0,
       knitBalance: parseFloat(String(row.knit_balance ?? raw.knitBalance ?? 0)) || 0,
       items: items,
       remarks: row.remarks || raw.remarks || '',
+      fabrication: row.fabrication || raw.fabrication || '',
       createdAt: row.created_at || raw.createdAt,
       updatedAt: row.updated_at || raw.updatedAt
     };

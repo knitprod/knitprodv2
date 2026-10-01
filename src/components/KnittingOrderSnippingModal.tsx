@@ -1093,44 +1093,56 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
                             <td className="py-1.5 px-2 text-center font-mono text-slate-600">{itm.gaugeDia || '-'}</td>
 
                             {/* Knit Start Date (PMC vs Actual) */}
-                            <td className="py-1.5 px-2 font-mono text-slate-700 whitespace-nowrap">
-                              <div className="flex flex-col gap-0.5 text-[10px]">
-                                {itm.pmcKnitStartDate ? (
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">PMC:</span>
-                                    <span className="text-slate-600 font-semibold">{itm.pmcKnitStartDate}</span>
+                            {(() => {
+                              const itmPmcStart = itm.pmcKnitStartDate || order.pmcKnitStartDate || '';
+                              const itmActStart = itm.actualKnitStartDate || itm.knitStartDate || order.actualKnitStartDate || '';
+                              return (
+                                <td className="py-1.5 px-2 font-mono text-slate-700 whitespace-nowrap">
+                                  <div className="flex flex-col gap-0.5 text-[10px]">
+                                    {itmPmcStart ? (
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">PMC:</span>
+                                        <span className="text-slate-600 font-semibold">{itmPmcStart}</span>
+                                      </div>
+                                    ) : null}
+                                    {itmActStart ? (
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">ACT:</span>
+                                        <span className="font-bold text-slate-900">{itmActStart}</span>
+                                      </div>
+                                    ) : (
+                                      !itmPmcStart && <span className="text-slate-400 text-center">-</span>
+                                    )}
                                   </div>
-                                ) : null}
-                                {(itm.actualKnitStartDate || itm.knitStartDate) ? (
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">ACT:</span>
-                                    <span className="font-bold text-slate-900">{itm.actualKnitStartDate || itm.knitStartDate}</span>
-                                  </div>
-                                ) : (
-                                  !itm.pmcKnitStartDate && <span className="text-slate-400 text-center">-</span>
-                                )}
-                              </div>
-                            </td>
+                                </td>
+                              );
+                            })()}
 
                             {/* Knit End Date (PMC vs Actual) */}
-                            <td className="py-1.5 px-2 font-mono text-slate-700 whitespace-nowrap">
-                              <div className="flex flex-col gap-0.5 text-[10px]">
-                                {itm.pmcKnitEndDate ? (
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">PMC:</span>
-                                    <span className="text-slate-600 font-semibold">{itm.pmcKnitEndDate}</span>
+                            {(() => {
+                              const itmPmcEnd = itm.pmcKnitEndDate || order.pmcKnitEndDate || '';
+                              const itmActEnd = itm.actualKnitEndDate || itm.knitEndDate || order.actualKnitEndDate || '';
+                              return (
+                                <td className="py-1.5 px-2 font-mono text-slate-700 whitespace-nowrap">
+                                  <div className="flex flex-col gap-0.5 text-[10px]">
+                                    {itmPmcEnd ? (
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">PMC:</span>
+                                        <span className="text-slate-600 font-semibold">{itmPmcEnd}</span>
+                                      </div>
+                                    ) : null}
+                                    {itmActEnd ? (
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">ACT:</span>
+                                        <span className="font-bold text-slate-900">{itmActEnd}</span>
+                                      </div>
+                                    ) : (
+                                      !itmPmcEnd && <span className="text-slate-400 text-center">-</span>
+                                    )}
                                   </div>
-                                ) : null}
-                                {(itm.actualKnitEndDate || itm.knitEndDate) ? (
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">ACT:</span>
-                                    <span className="font-bold text-slate-900">{itm.actualKnitEndDate || itm.knitEndDate}</span>
-                                  </div>
-                                ) : (
-                                  !itm.pmcKnitEndDate && <span className="text-slate-400 text-center">-</span>
-                                )}
-                              </div>
-                            </td>
+                                </td>
+                              );
+                            })()}
 
                             <td className="py-1.5 px-2 text-right font-mono text-slate-700">
                               {itm.reqQty ? itm.reqQty.toLocaleString() : '-'}

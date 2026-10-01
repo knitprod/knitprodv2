@@ -550,15 +550,17 @@ export function calculateOverallOtdStatus(
  */
 export function enrichKnittingOrderWithPlanData(
   order: KnittingStatusOrder,
-  orderPlans?: { ewo?: string; id?: string; knitStart?: string; knitEnd?: string; aKnitStart?: string; lastProductionDate?: string; knitStartOtd?: 'Passed' | 'Failed' | 'Pending'; knitEndOtd?: 'Passed' | 'Failed' | 'Pending' }[]
+  orderPlans?: { ewo?: string; id?: string; color?: string; knitStart?: string; knitEnd?: string; aKnitStart?: string; lastProductionDate?: string; knitStartOtd?: 'Passed' | 'Failed' | 'Pending'; knitEndOtd?: 'Passed' | 'Failed' | 'Pending' }[]
 ): KnittingStatusOrder {
   if (!orderPlans || orderPlans.length === 0) return order;
   const norm = (s?: string) => (s || '').replace(/\D+/g, '').replace(/^0+/, '');
   const ordKey = norm(order.orderNo || order.id);
   if (!ordKey) return order;
 
-  const matchedPlan = orderPlans.find(p => norm(p.ewo || p.id) === ordKey);
-  if (!matchedPlan) return order;
+  const matchedPlans = orderPlans.filter(p => norm(p.ewo || p.id) === ordKey);
+  if (!matchedPlans || matchedPlans.length === 0) return order;
+
+  const matchedPlan = matchedPlans[0];
 
   const pmcStart = order.pmcKnitStartDate || matchedPlan.knitStart || '';
   const pmcEnd = order.pmcKnitEndDate || matchedPlan.knitEnd || '';
@@ -570,6 +572,35 @@ export function enrichKnittingOrderWithPlanData(
   const endOtd = calculateEndOtdStatus(pmcEnd, actualEnd, isComplete, order.knitEndOtd || (matchedPlan.knitEndOtd !== 'Pending' ? matchedPlan.knitEndOtd : undefined));
   const overallOtd = calculateOverallOtdStatus(startOtd, endOtd);
 
+  // Also enrich each individual fabric item with color-matched or order-level PMC & Actual dates
+  const enrichedItems = (order.items || []).map(itm => {
+    const itmColorNorm = normColorName(itm.color);
+    const colorMatchedPlan = matchedPlans.find(p => normColorName(p.color) === itmColorNorm) || matchedPlan;
+
+    const itmPmcStart = itm.pmcKnitStartDate || colorMatchedPlan?.knitStart || pmcStart;
+    const itmPmcEnd = itm.pmcKnitEndDate || colorMatchedPlan?.knitEnd || pmcEnd;
+    const itmActStart = itm.actualKnitStartDate || itm.knitStartDate || colorMatchedPlan?.aKnitStart || actualStart;
+    const itmActEnd = itm.actualKnitEndDate || itm.knitEndDate || (colorMatchedPlan?.lastProductionDate && colorMatchedPlan.lastProductionDate !== '-' ? colorMatchedPlan.lastProductionDate : '') || actualEnd;
+
+    const itmIsComplete = (itm.knitBalance !== undefined && itm.knitBalance < 3) || (Number(itm.production || 0) > 0 && Number(itm.production || 0) >= Number(itm.greyQty || 0));
+    const itmStartOtd = calculateStartOtdStatus(itmPmcStart, itmActStart, itm.knitStartOtd || (colorMatchedPlan?.knitStartOtd !== 'Pending' ? colorMatchedPlan?.knitStartOtd : undefined));
+    const itmEndOtd = calculateEndOtdStatus(itmPmcEnd, itmActEnd, itmIsComplete, itm.knitEndOtd || (colorMatchedPlan?.knitEndOtd !== 'Pending' ? colorMatchedPlan?.knitEndOtd : undefined));
+    const itmOverallOtd = calculateOverallOtdStatus(itmStartOtd, itmEndOtd);
+
+    return {
+      ...itm,
+      pmcKnitStartDate: itmPmcStart,
+      pmcKnitEndDate: itmPmcEnd,
+      actualKnitStartDate: itmActStart,
+      actualKnitEndDate: itmActEnd,
+      knitStartDate: itmActStart || itmPmcStart,
+      knitEndDate: itmActEnd || itmPmcEnd,
+      knitStartOtd: itmStartOtd,
+      knitEndOtd: itmEndOtd,
+      otdStatus: itm.otdStatus || itmOverallOtd
+    };
+  });
+
   return {
     ...order,
     pmcKnitStartDate: pmcStart,
@@ -578,7 +609,8 @@ export function enrichKnittingOrderWithPlanData(
     pmcKnitEndDate: pmcEnd,
     actualKnitEndDate: actualEnd,
     knitEndOtd: endOtd,
-    otdStatus: overallOtd
+    otdStatus: overallOtd,
+    items: enrichedItems.length > 0 ? enrichedItems : order.items
   };
 }
 
@@ -593,18 +625,22 @@ export function aggregateOrderValues(order: KnittingStatusOrder): KnittingStatus
   if (!order.items || order.items.length === 0) {
     const knitBalance = order.knitBalance !== undefined ? order.knitBalance : Math.max(0, (order.greyQty || 0) - (order.production || 0));
     const hasOrderActivity = (Number(order.production || 0) > 0);
-    const actStart = hasOrderActivity ? (order.actualKnitStartDate || order.knitStartDate || '') : '';
-    const actEnd = hasOrderActivity ? (order.actualKnitEndDate || order.knitEndDate || '') : '';
+    const actStart = hasOrderActivity ? (order.actualKnitStartDate || order.knitStartDate || '') : (order.actualKnitStartDate || '');
+    const actEnd = hasOrderActivity ? (order.actualKnitEndDate || order.knitEndDate || '') : (order.actualKnitEndDate || '');
+    const pmcStart = order.pmcKnitStartDate || '';
+    const pmcEnd = order.pmcKnitEndDate || '';
     const isComplete = knitBalance < 3 || (order.production > 0 && order.production >= (order.greyQty || 0));
-    const startOtd = calculateStartOtdStatus(order.pmcKnitStartDate, actStart, order.knitStartOtd);
-    const endOtd = calculateEndOtdStatus(order.pmcKnitEndDate, actEnd, isComplete, order.knitEndOtd);
+    const startOtd = calculateStartOtdStatus(pmcStart, actStart, order.knitStartOtd);
+    const endOtd = calculateEndOtdStatus(pmcEnd, actEnd, isComplete, order.knitEndOtd);
     const otdStatus = calculateOverallOtdStatus(startOtd, endOtd);
 
     return {
       ...order,
       knitBalance,
-      knitStartDate: actStart,
-      knitEndDate: actEnd,
+      pmcKnitStartDate: pmcStart,
+      pmcKnitEndDate: pmcEnd,
+      knitStartDate: actStart || pmcStart,
+      knitEndDate: actEnd || pmcEnd,
       actualKnitStartDate: actStart,
       actualKnitEndDate: actEnd,
       knitStartOtd: startOtd,
@@ -615,10 +651,10 @@ export function aggregateOrderValues(order: KnittingStatusOrder): KnittingStatus
 
   // Cleaned and normalized items for each color
   const cleanedItems = order.items.map(itm => {
-    const itmActStart = itm.actualKnitStartDate || itm.knitStartDate || '';
-    const itmActEnd = itm.actualKnitEndDate || itm.knitEndDate || '';
-    const itmPmcStart = itm.pmcKnitStartDate || '';
-    const itmPmcEnd = itm.pmcKnitEndDate || '';
+    const itmActStart = itm.actualKnitStartDate || itm.knitStartDate || order.actualKnitStartDate || '';
+    const itmActEnd = itm.actualKnitEndDate || itm.knitEndDate || order.actualKnitEndDate || '';
+    const itmPmcStart = itm.pmcKnitStartDate || order.pmcKnitStartDate || '';
+    const itmPmcEnd = itm.pmcKnitEndDate || order.pmcKnitEndDate || '';
     const itmIsComplete = (itm.knitBalance !== undefined && itm.knitBalance < 3) || (Number(itm.production || 0) > 0 && Number(itm.production || 0) >= Number(itm.greyQty || 0));
     const itmStartOtd = calculateStartOtdStatus(itmPmcStart, itmActStart, itm.knitStartOtd);
     const itmEndOtd = calculateEndOtdStatus(itmPmcEnd, itmActEnd, itmIsComplete, itm.knitEndOtd);
@@ -626,8 +662,8 @@ export function aggregateOrderValues(order: KnittingStatusOrder): KnittingStatus
 
     return {
       ...itm,
-      knitStartDate: itmActStart,
-      knitEndDate: itmActEnd,
+      knitStartDate: itmActStart || itmPmcStart,
+      knitEndDate: itmActEnd || itmPmcEnd,
       actualKnitStartDate: itmActStart,
       actualKnitEndDate: itmActEnd,
       pmcKnitStartDate: itmPmcStart,
@@ -1335,38 +1371,52 @@ export function deduplicateOrderPlans(orders: OrderPlan[]): OrderPlan[] {
       const canonicalId = ord.id || getOrderPlanCanonicalId(ord);
       map.set(compositeKey, { ...ord, id: canonicalId });
     } else {
-      // Merge records: preserve non-empty/latest values and populated fields
-      const latestProdDate = (ord.lastProductionDate && ord.lastProductionDate !== '-') ? ord.lastProductionDate : existing.lastProductionDate;
-      const latestAKnitStart = (ord.aKnitStart && ord.aKnitStart !== '-') ? ord.aKnitStart : existing.aKnitStart;
+      // Determine which record is primary.
+      // Callers pass newly updated items at the beginning of the array (e.g. [finalizedOrder, ...prev]),
+      // so `existing` was encountered earlier and is primary, unless `ord` has an explicitly newer timestamp.
+      const existingTs = existing.updatedAt || (existing as any).updated_at ? new Date(existing.updatedAt || (existing as any).updated_at).getTime() : 0;
+      const currentTs = ord.updatedAt || (ord as any).updated_at ? new Date(ord.updatedAt || (ord as any).updated_at).getTime() : 0;
+      const ordIsNewer = currentTs > existingTs && currentTs > 0;
+
+      const primary = ordIsNewer ? ord : existing;
+      const secondary = ordIsNewer ? existing : ord;
+
+      const latestProdDate = (primary.lastProductionDate && primary.lastProductionDate !== '-')
+        ? primary.lastProductionDate
+        : ((secondary.lastProductionDate && secondary.lastProductionDate !== '-') ? secondary.lastProductionDate : '');
+      const latestAKnitStart = (primary.aKnitStart && primary.aKnitStart !== '-')
+        ? primary.aKnitStart
+        : ((secondary.aKnitStart && secondary.aKnitStart !== '-') ? secondary.aKnitStart : '');
+
       const merged: OrderPlan = {
-        ...existing,
-        ...ord,
-        id: existing.id || getOrderPlanCanonicalId(ord),
-        planMonth: ord.planMonth || existing.planMonth,
-        planType: ord.planType || existing.planType,
-        ewo: existing.ewo || ord.ewo,
-        buyer: ord.buyer || existing.buyer,
-        color: ord.color || existing.color,
-        knitStart: ord.knitStart || existing.knitStart,
-        knitEnd: ord.knitEnd || existing.knitEnd,
-        target: (ord.target !== undefined && ord.target !== 0) ? ord.target : (existing.target || 0),
-        targetNextMonth: (ord.targetNextMonth !== undefined && ord.targetNextMonth !== 0) ? ord.targetNextMonth : (existing.targetNextMonth || 0),
-        allocationStart: ord.allocationStart || existing.allocationStart,
-        allocationEnd: ord.allocationEnd || existing.allocationEnd,
-        allocatedQty: (ord.allocatedQty !== undefined && ord.allocatedQty !== 0) ? ord.allocatedQty : (existing.allocatedQty || 0),
-        allocatedBal: (ord.allocatedBal !== undefined && ord.allocatedBal !== 0) ? ord.allocatedBal : (existing.allocatedBal || 0),
-        greyReq: (ord.greyReq !== undefined && ord.greyReq !== 0) ? ord.greyReq : (existing.greyReq || 0),
-        knitPro: (ord.knitPro !== undefined && ord.knitPro !== 0) ? ord.knitPro : (existing.knitPro || 0),
-        knitBal: ord.knitBal !== undefined ? ord.knitBal : existing.knitBal,
+        ...secondary,
+        ...primary,
+        id: primary.id || secondary.id || getOrderPlanCanonicalId(primary),
+        planMonth: primary.planMonth !== undefined && primary.planMonth !== '' ? primary.planMonth : secondary.planMonth,
+        planType: primary.planType !== undefined && primary.planType !== '' ? primary.planType : secondary.planType,
+        ewo: primary.ewo || secondary.ewo,
+        buyer: primary.buyer !== undefined && primary.buyer !== '' ? primary.buyer : secondary.buyer,
+        color: primary.color !== undefined && primary.color !== '' ? primary.color : secondary.color,
+        knitStart: primary.knitStart !== undefined && primary.knitStart !== '' ? primary.knitStart : secondary.knitStart,
+        knitEnd: primary.knitEnd !== undefined && primary.knitEnd !== '' ? primary.knitEnd : secondary.knitEnd,
+        target: primary.target !== undefined ? primary.target : (secondary.target || 0),
+        targetNextMonth: primary.targetNextMonth !== undefined ? primary.targetNextMonth : (secondary.targetNextMonth || 0),
+        allocationStart: primary.allocationStart !== undefined && primary.allocationStart !== '' ? primary.allocationStart : secondary.allocationStart,
+        allocationEnd: primary.allocationEnd !== undefined && primary.allocationEnd !== '' ? primary.allocationEnd : secondary.allocationEnd,
+        allocatedQty: primary.allocatedQty !== undefined ? primary.allocatedQty : (secondary.allocatedQty || 0),
+        allocatedBal: primary.allocatedBal !== undefined ? primary.allocatedBal : (secondary.allocatedBal || 0),
+        greyReq: primary.greyReq !== undefined ? primary.greyReq : (secondary.greyReq || 0),
+        knitPro: primary.knitPro !== undefined ? primary.knitPro : (secondary.knitPro || 0),
+        knitBal: primary.knitBal !== undefined ? primary.knitBal : secondary.knitBal,
         aKnitStart: latestAKnitStart,
         lastProductionDate: latestProdDate,
-        avgProdDay: (ord.avgProdDay !== undefined && ord.avgProdDay !== 0) ? ord.avgProdDay : (existing.avgProdDay || 0),
-        expectedKnitEnd: ord.expectedKnitEnd || existing.expectedKnitEnd,
-        knitStartOtd: (ord.knitStartOtd && ord.knitStartOtd !== 'Pending') ? ord.knitStartOtd : existing.knitStartOtd,
-        knitEndOtd: (ord.knitEndOtd && ord.knitEndOtd !== 'Pending') ? ord.knitEndOtd : existing.knitEndOtd,
-        knitStartRemarks: ord.knitStartRemarks || existing.knitStartRemarks,
-        knitEndRemarks: ord.knitEndRemarks || existing.knitEndRemarks,
-        knitTeamLeaders: ord.knitTeamLeaders || existing.knitTeamLeaders,
+        avgProdDay: primary.avgProdDay !== undefined ? primary.avgProdDay : (secondary.avgProdDay || 0),
+        expectedKnitEnd: primary.expectedKnitEnd !== undefined && primary.expectedKnitEnd !== '' ? primary.expectedKnitEnd : secondary.expectedKnitEnd,
+        knitStartOtd: (primary.knitStartOtd && primary.knitStartOtd !== 'Pending') ? primary.knitStartOtd : secondary.knitStartOtd,
+        knitEndOtd: (primary.knitEndOtd && primary.knitEndOtd !== 'Pending') ? primary.knitEndOtd : secondary.knitEndOtd,
+        knitStartRemarks: primary.knitStartRemarks !== undefined ? primary.knitStartRemarks : (secondary.knitStartRemarks || ''),
+        knitEndRemarks: primary.knitEndRemarks !== undefined ? primary.knitEndRemarks : (secondary.knitEndRemarks || ''),
+        knitTeamLeaders: primary.knitTeamLeaders !== undefined && primary.knitTeamLeaders !== '' ? primary.knitTeamLeaders : secondary.knitTeamLeaders,
       };
       map.set(compositeKey, merged);
     }

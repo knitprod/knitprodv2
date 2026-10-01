@@ -26,7 +26,7 @@ import {
   Camera
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
-import { KnittingStatusStorage } from '../lib/knittingStatusStore';
+import { KnittingStatusStorage, enrichKnittingOrderWithPlanData } from '../lib/knittingStatusStore';
 import { TextileClosePMCStorage } from '../lib/textileClosePMCStore';
 import { useGlobalData } from '../context/GlobalDataContext';
 import { RaihanAvatar } from './RaihanAvatar';
@@ -104,6 +104,11 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
       const allOrders = KnittingStatusStorage.getOrders();
       let matched = allOrders.find(o => String(o.orderNo || '').trim() === orderNum || String(o.orderNo || '').includes(orderNum));
 
+      if (matched) {
+        setSnipOrder(enrichKnittingOrderWithPlanData(matched, orderPlans));
+        return;
+      }
+
       if (!matched) {
         // Construct full KnittingStatusOrder from Textile Close PMC, Order Plans, or Yarn Allocations
         const matchingTcp = textileRecords.filter(t => String(t.orderNo || '').includes(orderNum));
@@ -114,10 +119,10 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
           const buyer = matchingTcp[0]?.buyerName || matchingOp[0]?.buyer || matchingYa[0]?.buyer || 'Epyllion Buyer';
           const teamLeader = matchingTcp[0]?.teamLeader || matchingOp[0]?.knitTeamLeaders || 'Unassigned';
           const opFirst = matchingOp[0] as any;
-          const pmcStart = opFirst?.pmcKnitStart || opFirst?.pmcKStart || '-';
-          const pmcEnd = opFirst?.pmcKnitEnd || opFirst?.pmcKEnd || '-';
-          const actStart = opFirst?.aKnitStart || opFirst?.knitStart || '-';
-          const actEnd = opFirst?.lastKnit || opFirst?.knitEnd || '-';
+          const pmcStart = opFirst?.pmcKnitStartDate || opFirst?.pmcKnitStart || opFirst?.pmcKStart || opFirst?.knitStart || '-';
+          const pmcEnd = opFirst?.pmcKnitEndDate || opFirst?.pmcKnitEnd || opFirst?.pmcKEnd || opFirst?.knitEnd || '-';
+          const actStart = opFirst?.actualKnitStartDate || opFirst?.aKnitStart || opFirst?.actualKnitStart || '-';
+          const actEnd = opFirst?.actualKnitEndDate || opFirst?.lastProductionDate || opFirst?.lastKnit || '-';
           const knitStart = actStart !== '-' ? actStart : pmcStart;
           const knitEnd = actEnd !== '-' ? actEnd : pmcEnd;
 
@@ -158,12 +163,12 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
               fWidth: p.finishedDia || '-',
               yarnCount: matchingYa[0]?.allocatedYarn || matchingYa[0]?.yarnRequired || '-',
               gaugeDia: '-',
-              pmcKnitStartDate: p.pmcKnitStart || p.pmcKStart || pmcStart,
-              actualKnitStartDate: p.aKnitStart || p.knitStart || actStart,
-              pmcKnitEndDate: p.pmcKnitEnd || p.pmcKEnd || pmcEnd,
-              actualKnitEndDate: p.lastKnit || p.knitEnd || actEnd,
-              knitStartDate: p.knitStart || p.aKnitStart || '',
-              knitEndDate: p.knitEnd || p.expectedKnitEnd || '',
+              pmcKnitStartDate: p.pmcKnitStartDate || p.knitStart || pmcStart,
+              actualKnitStartDate: p.actualKnitStartDate || p.aKnitStart || actStart,
+              pmcKnitEndDate: p.pmcKnitEndDate || p.knitEnd || pmcEnd,
+              actualKnitEndDate: p.actualKnitEndDate || p.lastProductionDate || actEnd,
+              knitStartDate: p.aKnitStart || p.knitStart || '',
+              knitEndDate: p.lastProductionDate || p.knitEnd || p.expectedKnitEnd || '',
               reqQty: Number(p.target || p.reqQty || 0),
               greyQty: Number(p.allocatedQty || p.greyQty || 0),
               production: Number(p.knitPro || p.production || 0),
@@ -272,12 +277,14 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
 
   // Quick prompt suggestions
   const SUGGESTIONS = [
+    "Datewise Production Update missing unit by unit",
+    "Missing production update unit by unit for last 7 days",
+    "Monthly missing production update unit by unit",
     "Predict Completion Date for Order 272767",
     "Information for Order 272767",
     "Yesterday's production floor by floor",
     "Which floor did not update today?",
     "Last 7 days production of EFL",
-    "Predict tomorrow's production",
     "What is the total knitting balance?"
   ];
 
@@ -395,7 +402,8 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
   // Helper to package current in-website context for the server
   const getERPContext = (userQuestion: string, activeTextileRecords?: any[]) => {
     try {
-      const knittingOrders = KnittingStatusStorage.getOrders();
+      const rawKnittingOrders = KnittingStatusStorage.getOrders();
+      const knittingOrders = rawKnittingOrders.map(o => enrichKnittingOrderWithPlanData(o, orderPlans));
       const storedTextile = TextileClosePMCStorage.getRecords();
       const textileRecords = (activeTextileRecords && activeTextileRecords.length >= storedTextile.length)
         ? activeTextileRecords
@@ -618,7 +626,8 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
     setInputQuery('');
     setIsLoading(true);
 
-    const knittingOrders = KnittingStatusStorage.getOrders();
+    const rawKnittingOrders = KnittingStatusStorage.getOrders();
+    const knittingOrders = rawKnittingOrders.map(o => enrichKnittingOrderWithPlanData(o, orderPlans));
     const storedTextile = TextileClosePMCStorage.getRecords();
     let currentTextileRecords = (textileRecords && textileRecords.length >= storedTextile.length)
       ? textileRecords
@@ -750,8 +759,9 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
           try {
             const remoteKnitting = await KnittingStatusStorage.findOrFetchRecordsByOrder(activeOrderNum);
             if (remoteKnitting && remoteKnitting.length > 0) {
+              const enrichedRemote = remoteKnitting.map(o => enrichKnittingOrderWithPlanData(o, orderPlans));
               const currentIds = new Set(knittingOrders.map(o => o.id));
-              const newK = remoteKnitting.filter(o => !currentIds.has(o.id));
+              const newK = enrichedRemote.filter(o => !currentIds.has(o.id));
               knittingOrders.push(...newK);
             }
           } catch (kErr) {
@@ -1324,7 +1334,8 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
                 if (!match) return null;
                 const orderNum = match[1];
                 const allOrders = KnittingStatusStorage.getOrders();
-                return allOrders.find(o => String(o.orderNo || '').trim() === orderNum || String(o.orderNo || '').includes(orderNum)) || null;
+                const rawOrd = allOrders.find(o => String(o.orderNo || '').trim() === orderNum || String(o.orderNo || '').includes(orderNum)) || null;
+                return rawOrd ? enrichKnittingOrderWithPlanData(rawOrd, orderPlans) : null;
               })();
 
               // Infer viewMode and filterColor if not explicitly set on legacy or fallback messages

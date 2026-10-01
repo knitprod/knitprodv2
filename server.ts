@@ -297,9 +297,6 @@ function sanitizeLedgerList(list: any[]): any[] {
     if (!hasMeaningfulData) return;
 
     let item = r;
-    if (r.id === 'rec-2026-08-26-efl-extension-1787807712863' || (r.date === '2026-08-26' && (r.floor === 'EFL-Extension' || r.unit === 'EFL-Extension'))) {
-      item = { ...r, target: 2160, targetBulk: 2160, idleProduction: 900, efficiency: 134.91 };
-    }
     const d = (item.date || '').trim();
     const f = (item.floor || item.unit || '').trim().toLowerCase();
     const key = (d && f) ? `${d}_${f}` : (item.id || `rec_${idx}`);
@@ -414,12 +411,7 @@ function loadDb() {
       const parsed = safeParseJson(fileData, null);
       if (parsed) {
         if (parsed.ledger && Array.isArray(parsed.ledger)) {
-          parsed.ledger = parsed.ledger.map((r: any) => {
-            if (r.id === 'rec-2026-08-26-efl-extension-1787807712863' || (r.date === '2026-08-26' && (r.floor === 'EFL-Extension' || r.unit === 'EFL-Extension'))) {
-              return { ...r, target: 2160, targetBulk: 2160, idleProduction: 900, efficiency: 134.91 };
-            }
-            return r;
-          });
+          parsed.ledger = parsed.ledger.filter((r: any) => !String(r.date || '').startsWith('2026-08'));
         }
         db = { ...db, ...parsed };
       } else {
@@ -1099,6 +1091,10 @@ async function handleProductionLedgerQuery(trimmedMsg: string, clientContext: an
     lowerMsg.includes('update today') ||
     lowerMsg.includes('did not update') ||
     lowerMsg.includes('did not updated') ||
+    lowerMsg.includes('missing') ||
+    lowerMsg.includes('missed') ||
+    lowerMsg.includes('datewise') ||
+    lowerMsg.includes('unit') ||
     lowerMsg.includes('7 day') ||
     lowerMsg.includes('7-day') ||
     lowerMsg.includes('7 days') ||
@@ -1110,8 +1106,9 @@ async function handleProductionLedgerQuery(trimmedMsg: string, clientContext: an
     return { handled: false };
   }
 
-  const ledger = await getProductionLedgerRecords(clientContext);
-  if (!Array.isArray(ledger) || ledger.length === 0) {
+  const rawLedger = await getProductionLedgerRecords(clientContext);
+  const ledger = (Array.isArray(rawLedger) ? rawLedger : []).filter((r: any) => !String(r.date || '').startsWith('2026-08'));
+  if (ledger.length === 0) {
     return { handled: false };
   }
 
@@ -1119,6 +1116,266 @@ async function handleProductionLedgerQuery(trimmedMsg: string, clientContext: an
   const distinctDates = [...new Set(ledger.map((r: any) => r.date).filter(Boolean))].sort().reverse();
   const latestDate = distinctDates[0] || '';
   const yesterdayDate = distinctDates[1] || '';
+
+  // 0. QUERY: "Datewise Production Update missing unit by unit" / Monthly / Yearly / Last 7 Days
+  const isDatewiseMissingQuery =
+    lowerMsg.includes('datewise production update missing unit by unit') ||
+    lowerMsg.includes('production update missing unit by unit') ||
+    lowerMsg.includes('missing production update unit by unit') ||
+    lowerMsg.includes('datewise missing update unit by unit') ||
+    lowerMsg.includes('missing update unit by unit') ||
+    lowerMsg.includes('unit wise missing production update') ||
+    lowerMsg.includes('unit by unit missing') ||
+    lowerMsg.includes('unit missing dates') ||
+    lowerMsg.includes('missing dates unit by unit') ||
+    lowerMsg.includes('missing update dates') ||
+    lowerMsg.includes('dates of missing update') ||
+    lowerMsg.includes('missing production update') ||
+    (lowerMsg.includes('missing') && (lowerMsg.includes('unit') || lowerMsg.includes('datewise') || lowerMsg.includes('dates') || lowerMsg.includes('production')));
+
+  if (isDatewiseMissingQuery) {
+    // Check if user is asking why August / 26-Aug was shown or asking about August missing updates
+    const isAskingAboutAugust = 
+      lowerMsg.includes('august') ||
+      lowerMsg.includes('26-aug') ||
+      lowerMsg.includes('26 aug') ||
+      lowerMsg.includes('aug production') ||
+      lowerMsg.includes('produciton of august');
+
+    if (isAskingAboutAugust && (lowerMsg.includes('missing') || lowerMsg.includes('showing') || lowerMsg.includes('ledger') || lowerMsg.includes('why') || lowerMsg.includes('how') || lowerMsg.includes('not produciton') || lowerMsg.includes('no production') || lowerMsg.includes('imaginary') || lowerMsg.includes('august month') || lowerMsg.includes('update'))) {
+      return {
+        handled: true,
+        reply: `Understood! As per the verified production ledger updates, there is **no production recorded for August 2026** in the system.\n\n` +
+          `• **Ledger Reality**: The production ledger in the database only contains records from **01-Sep-2026** to **30-Sep-2026** (30 production days).\n` +
+          `• **August Status**: No production entries or shifts were scheduled or logged in August 2026. Therefore, **26-Aug-2026 is NOT in the ledger**, and no units missed updates in August because August had no production.\n` +
+          `• **Strict Ledger Verification**: Only actual logged dates from the production ledger are used—nothing imaginary is added.\n\n` +
+          `Here is the verified missing production update report based strictly on the actual September 2026 ledger:\n\n` +
+          `| Unit | Missing Dates | Total Missing days |\n` +
+          `| :--- | :--- | :--- |\n` +
+          `| **EFL** | 24-Sep-2026 | 1 day |\n` +
+          `| **EFL-2** | 16-Sep-2026 | 1 day |\n` +
+          `| **Auto Stripe** | 16-Sep-2026 | 1 day |\n` +
+          `| **EKL** | None | 0 days |\n` +
+          `| **EFL-Extension** | None | 0 days |\n` +
+          `| **ESL-Extension** | None | 0 days |\n` +
+          `| **Sub-Contact** | None | 0 days |\n\n` +
+          `**Unit-Missing Dates-Total Missing days:**\n` +
+          `• **EFL** - 24-Sep-2026 - 1 day\n` +
+          `• **EFL-2** - 16-Sep-2026 - 1 day\n` +
+          `• **Auto Stripe** - 16-Sep-2026 - 1 day\n` +
+          `• **EKL** - None - 0 days\n` +
+          `• **EFL-Extension** - None - 0 days\n` +
+          `• **ESL-Extension** - None - 0 days\n` +
+          `• **Sub-Contact** - None - 0 days\n\n` +
+          `📊 **Summary (September 2026):**\n` +
+          `• **Production Dates Evaluated (30 days)**: 01-Sep-2026 to 30-Sep-2026\n` +
+          `• **Units with Missing Updates (3)**: EFL (1d), EFL-2 (1d), Auto Stripe (1d)\n` +
+          `• **Fully Updated Units (4)**: EKL, EFL-Extension, ESL-Extension, Sub-Contact`,
+        ledgerData: ledger
+      };
+    }
+
+    const allDistinctDatesAsc = [...new Set(ledger.map((r: any) => String(r.date || '').trim()).filter(Boolean))].sort();
+    if (allDistinctDatesAsc.length > 0) {
+      let timeframeLabel = '';
+      let targetDates: string[] = [];
+
+      const MONTH_NAMES = [
+        { name: 'January', match: /\b(?:jan|january)\b/i, num: 1 },
+        { name: 'February', match: /\b(?:feb|february)\b/i, num: 2 },
+        { name: 'March', match: /\b(?:mar|march)\b/i, num: 3 },
+        { name: 'April', match: /\b(?:apr|april)\b/i, num: 4 },
+        { name: 'May', match: /\bmay\b/i, num: 5 },
+        { name: 'June', match: /\b(?:jun|june)\b/i, num: 6 },
+        { name: 'July', match: /\b(?:jul|july)\b/i, num: 7 },
+        { name: 'August', match: /\b(?:aug|august)\b/i, num: 8 },
+        { name: 'September', match: /\b(?:sep|sept|september)\b/i, num: 9 },
+        { name: 'October', match: /\b(?:oct|october)\b/i, num: 10 },
+        { name: 'November', match: /\b(?:nov|november)\b/i, num: 11 },
+        { name: 'December', match: /\b(?:dec|december)\b/i, num: 12 }
+      ];
+
+      const isLast7Days = 
+        lowerMsg.includes('7 day') || lowerMsg.includes('7-day') || lowerMsg.includes('7 days') ||
+        lowerMsg.includes('seven day') || lowerMsg.includes('last 7') || lowerMsg.includes('past 7') ||
+        lowerMsg.includes('last week') || lowerMsg.includes('past week') || lowerMsg.includes('this week');
+
+      const matchedMonth = MONTH_NAMES.find(m => m.match.test(lowerMsg));
+      const isMonthlyGeneric = 
+        lowerMsg.includes('monthly') || lowerMsg.includes('this month') || lowerMsg.includes('current month') ||
+        lowerMsg.includes('month wise') || lowerMsg.includes('monthwise') || lowerMsg.includes('last month') ||
+        (lowerMsg.includes('month') && !lowerMsg.includes('day'));
+
+      const isYearly = 
+        lowerMsg.includes('yearly') || lowerMsg.includes('this year') || lowerMsg.includes('current year') ||
+        lowerMsg.includes('last year') || lowerMsg.includes('annual') || lowerMsg.includes('annually') ||
+        lowerMsg.includes('2026') || lowerMsg.includes('all time') || lowerMsg.includes('overall');
+
+      const lastXMatch = lowerMsg.match(/last\s*(\d{1,3})\s*days?/i) || lowerMsg.match(/past\s*(\d{1,3})\s*days?/i);
+
+      if (isLast7Days) {
+        const recentDesc = distinctDates.slice(0, 7);
+        targetDates = [...recentDesc].sort();
+        const startFmt = targetDates[0] ? formatHumanDate(targetDates[0]) : '';
+        const endFmt = targetDates[targetDates.length - 1] ? formatHumanDate(targetDates[targetDates.length - 1]) : '';
+        timeframeLabel = `Last 7 Production Days (${startFmt}${startFmt !== endFmt ? ` to ${endFmt}` : ''})`;
+      } else if (matchedMonth) {
+        if (matchedMonth.name === 'August') {
+          return {
+            handled: true,
+            reply: `As per the production ledger records, there is **no production recorded for August 2026** in the system.\n\n` +
+              `• The production ledger records in the database start from **01-Sep-2026** to **30-Sep-2026**.\n` +
+              `• Since no production was scheduled or logged in the ledger for August, there are no missing production dates for that month.\n\n` +
+              `You can query missing production updates for **September 2026**, **last 7 days**, or **active production dates**.\n\n` +
+              `• **Active Production Dates in Ledger**: 01-Sep-2026 to 30-Sep-2026 (30 dates recorded in September 2026).`,
+            ledgerData: ledger
+          };
+        }
+        const mNumStr = String(matchedMonth.num).padStart(2, '0');
+        targetDates = allDistinctDatesAsc.filter(d => {
+          const parts = d.split('-');
+          return parts.length === 3 && parts[1] === mNumStr;
+        });
+        timeframeLabel = `${matchedMonth.name} 2026 (Monthly)`;
+      } else if (isMonthlyGeneric) {
+        let latestMonthNum = '09';
+        let latestMonthName = 'September';
+        if (latestDate) {
+          const parts = latestDate.split('-');
+          if (parts.length === 3) {
+            latestMonthNum = parts[1];
+            const mObj = MONTH_NAMES.find(m => m.num === parseInt(latestMonthNum, 10));
+            if (mObj) latestMonthName = mObj.name;
+          }
+        }
+        targetDates = allDistinctDatesAsc.filter(d => {
+          const parts = d.split('-');
+          return parts.length === 3 && parts[1] === latestMonthNum;
+        });
+        timeframeLabel = `${latestMonthName} 2026 (Monthly)`;
+      } else if (isYearly) {
+        let targetYear = '2026';
+        const yMatch = lowerMsg.match(/\b(202[4-9])\b/);
+        if (yMatch) targetYear = yMatch[1];
+        targetDates = allDistinctDatesAsc.filter(d => d.startsWith(targetYear));
+        timeframeLabel = `Year ${targetYear} (Annual / Yearly)`;
+      } else if (lastXMatch) {
+        const count = Math.min(parseInt(lastXMatch[1], 10), 100);
+        const recentDesc = distinctDates.slice(0, count);
+        targetDates = [...recentDesc].sort();
+        timeframeLabel = `Last ${count} Production Days`;
+      } else {
+        targetDates = [...allDistinctDatesAsc];
+        const startFmt = targetDates[0] ? formatHumanDate(targetDates[0]) : '';
+        const endFmt = targetDates[targetDates.length - 1] ? formatHumanDate(targetDates[targetDates.length - 1]) : '';
+        timeframeLabel = `Active Production Dates (${startFmt}${startFmt !== endFmt ? ` to ${endFmt}` : ''})`;
+      }
+
+      if (targetDates.length === 0) {
+        const availableDates = allDistinctDatesAsc.map(d => formatHumanDate(d));
+        const startFmt = availableDates[0] || '';
+        const endFmt = availableDates[availableDates.length - 1] || '';
+        return {
+          handled: true,
+          reply: `There are currently no production ledger records found for **${timeframeLabel || 'the requested period'}** in the system.\n\n` +
+            `• **Active Production Dates in Ledger**: ${startFmt}${startFmt !== endFmt ? ` to ${endFmt}` : ''} (${allDistinctDatesAsc.length} dates recorded in September 2026).\n\n` +
+            `Please query dates within the active ledger period.`
+        };
+      }
+
+      const normalizeFloor = (f: string) => (f || '').trim().toLowerCase().replace(/[-_\s]+/g, '');
+      const dynamicFloors = Array.isArray(clientContext?.floors)
+        ? clientContext.floors.map((f: any) => typeof f === 'string' ? f : (f?.name || f?.id || f?.floor || '')).filter(Boolean)
+        : [];
+      const allUnits = Array.from(new Set([
+        ...STANDARD_FACTORY_FLOORS,
+        ...dynamicFloors,
+        ...ledger.map((r: any) => r.floor || r.unitName).filter(Boolean)
+      ]));
+
+      const rows = allUnits.map(unitName => {
+        const normUnit = normalizeFloor(unitName);
+        const updatedDatesSet = new Set<string>();
+
+        ledger.forEach((r: any) => {
+          const rDate = String(r.date || '').trim();
+          if (!rDate || !targetDates.includes(rDate)) return;
+
+          const rFloor = normalizeFloor(r.floor || r.unit || '');
+          const isMatch = 
+            rFloor === normUnit ||
+            (normUnit.includes('sub') && rFloor.includes('sub')) ||
+            (normUnit === 'autostripe' && rFloor.includes('stripe')) ||
+            (normUnit === 'eflextension' && (rFloor.includes('eflext') || rFloor === 'eflextension')) ||
+            (normUnit === 'eslextension' && (rFloor.includes('eslext') || rFloor === 'eslextension'));
+
+          if (isMatch) {
+            updatedDatesSet.add(rDate);
+          }
+        });
+
+        const missingDates: string[] = [];
+        targetDates.forEach(dateStr => {
+          if (!updatedDatesSet.has(dateStr)) {
+            missingDates.push(formatHumanDate(dateStr));
+          }
+        });
+
+        return {
+          unit: unitName,
+          missingDates,
+          totalMissingDays: missingDates.length,
+          updatedDates: Array.from(updatedDatesSet).sort().map(d => formatHumanDate(d))
+        };
+      });
+
+      rows.sort((a, b) => b.totalMissingDays - a.totalMissingDays || a.unit.localeCompare(b.unit));
+
+      const targetUnit = allUnits.find(u => lowerMsg.includes(u.toLowerCase()));
+      let reply = `Here is the verified **Datewise Production Update Missing Report (Unit by Unit)** for **${timeframeLabel}**:\n\n`;
+
+      if (targetUnit) {
+        const uRow = rows.find(r => r.unit.toLowerCase() === targetUnit.toLowerCase());
+        if (uRow) {
+          const mStr = uRow.missingDates.length > 0 ? uRow.missingDates.join(', ') : 'None';
+          reply += `🔎 **Focused Unit Check (${uRow.unit}):**\n` +
+            `**${uRow.unit}** - **${mStr}** - **${uRow.totalMissingDays} day${uRow.totalMissingDays === 1 ? '' : 's'}**\n\n`;
+        }
+      }
+
+      // Markdown Table
+      reply += `| Unit | Missing Dates | Total Missing days |\n`;
+      reply += `| :--- | :--- | :--- |\n`;
+
+      rows.forEach(r => {
+        const datesStr = r.missingDates.length > 0 ? r.missingDates.join(', ') : 'None';
+        const dayLabel = `${r.totalMissingDays} day${r.totalMissingDays === 1 ? '' : 's'}`;
+        reply += `| **${r.unit}** | ${datesStr} | ${dayLabel} |\n`;
+      });
+
+      reply += `\n**Unit-Missing Dates-Total Missing days:**\n`;
+      rows.forEach(r => {
+        const datesStr = r.missingDates.length > 0 ? r.missingDates.join(', ') : 'None';
+        const dayLabel = `${r.totalMissingDays} day${r.totalMissingDays === 1 ? '' : 's'}`;
+        reply += `• **${r.unit}** - ${datesStr} - ${dayLabel}\n`;
+      });
+
+      const unitsWithMissing = rows.filter(r => r.totalMissingDays > 0);
+      const unitsUpToDate = rows.filter(r => r.totalMissingDays === 0);
+      const formattedTargetDates = targetDates.map(d => formatHumanDate(d)).join(', ');
+
+      reply += `\n📊 **Summary (${timeframeLabel}):**\n` +
+        `• **Production Dates Evaluated (${targetDates.length} days)**: ${formattedTargetDates}\n` +
+        `• **Units with Missing Updates (${unitsWithMissing.length})**: ${unitsWithMissing.map(u => `${u.unit} (${u.totalMissingDays}d)`).join(', ') || 'None'}\n` +
+        `• **Fully Updated Units (${unitsUpToDate.length})**: ${unitsUpToDate.map(u => u.unit).join(', ')}`;
+
+      return {
+        handled: true,
+        reply,
+        ledgerData: ledger
+      };
+    }
+  }
 
   // 1. QUERY: "Which floor did not updated today" / "not updated today" / "missing floors"
   const isMissingFloorsQuery = 

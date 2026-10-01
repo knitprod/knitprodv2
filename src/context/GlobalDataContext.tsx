@@ -153,20 +153,10 @@ function recalculateFloorsFromLedger(prevFloors: FactoryFloor[], ledgerRecords: 
 function sanitizeLedgerRecords(records: LedgerRecord[]): LedgerRecord[] {
   if (!records || !Array.isArray(records)) return [];
   return records
-    .filter((r: LedgerRecord) => r.id !== 'rec-2026-08-11-extension')
+    .filter((r: LedgerRecord) => !String(r.date || '').startsWith('2026-08') && r.id !== 'rec-2026-08-11-extension')
     .map((r: LedgerRecord) => {
       const cleanDate = normalizeDateKey(r.date) || r.date;
-      const record = { ...r, date: cleanDate };
-      if (r.id === 'rec-2026-08-26-efl-extension-1787807712863' || (cleanDate === '2026-08-26' && (r.floor === 'EFL-Extension' || r.unit === 'EFL-Extension'))) {
-        return {
-          ...record,
-          target: 2160,
-          targetBulk: 2160,
-          idleProduction: 900,
-          efficiency: 134.91
-        };
-      }
-      return record;
+      return { ...r, date: cleanDate };
     });
 }
 
@@ -179,17 +169,22 @@ function deduplicateLedgerRecords(records: LedgerRecord[]): LedgerRecord[] {
     const floorKey = normalizeFloorKey(r.floor || r.unit || '');
     const compositeKey = (dateKey && floorKey) ? `${dateKey}_${floorKey}` : (r.id || `rec-idx-${idx}`);
     
-    // Merge / keep the most complete record
+    // Merge / keep the most recent record
     const existing = map.get(compositeKey);
     if (!existing) {
       map.set(compositeKey, r);
     } else {
-      // Prioritize the entry with non-empty production/target or newer update
-      const existingProd = Number(existing.totalProduction) || Number(existing.bulkProd) || 0;
-      const currentProd = Number(r.totalProduction) || Number(r.bulkProd) || 0;
-      if (currentProd >= existingProd) {
+      // Determine which record is primary.
+      // Callers pass newly updated items at the beginning of the array (e.g. [record, ...prev]),
+      // so `existing` was encountered earlier and is primary, unless `r` has an explicitly newer timestamp.
+      const existingTs = existing.updatedAt || (existing as any).updated_at ? new Date(existing.updatedAt || (existing as any).updated_at).getTime() : 0;
+      const currentTs = r.updatedAt || (r as any).updated_at ? new Date(r.updatedAt || (r as any).updated_at).getTime() : 0;
+
+      if (currentTs > existingTs && currentTs > 0) {
+        // r is newer by timestamp
         map.set(compositeKey, { ...existing, ...r });
       } else {
+        // existing was encountered first or is newer
         map.set(compositeKey, { ...r, ...existing });
       }
     }
@@ -245,25 +240,15 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const sanitized = parsed.map((r: LedgerRecord) => {
-            if (r.id === 'rec-2026-08-26-efl-extension-1787807712863' && (r.targetBulk === 7200 || r.target === 3541)) {
-              return {
-                ...r,
-                target: 2160,
-                targetBulk: 2160,
-                idleProduction: 900,
-                efficiency: 134.91
-              };
-            }
-            return r;
-          });
-          const has0909 = sanitized.some((r: LedgerRecord) => String(r.date || '').includes('2026-09-09') || String(r.date || '').includes('09/09/2026'));
-          if (!has0909) {
-            const initial = generateInitialLedger();
-            const sepRecords = initial.filter((r: LedgerRecord) => String(r.date || '').includes('2026-09-09') || String(r.date || '').includes('2026-09-10'));
-            sanitized.unshift(...sepRecords);
+          const sanitized = parsed
+            .filter((r: LedgerRecord) => !String(r.date || '').startsWith('2026-08'))
+            .map((r: LedgerRecord) => {
+              const cleanDate = normalizeDateKey(r.date) || r.date;
+              return { ...r, date: cleanDate };
+            });
+          if (sanitized.length > 0) {
+            return deduplicateLedgerRecords(sanitized);
           }
-          return deduplicateLedgerRecords(sanitized);
         }
       }
     } catch (e) {}
@@ -639,7 +624,11 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try {
         // 1. Primary Cloud Database Sync: Supabase
         if (SupabaseSync.isConfigured()) {
-          const supOrders = await SupabaseSync.fetchOrderPlans().catch(() => []);
+          const [supOrders, supLedgers] = await Promise.all([
+            SupabaseSync.fetchOrderPlans().catch(() => []),
+            SupabaseSync.fetchProductionLedger().catch(() => [])
+          ]);
+
           if (Array.isArray(supOrders) && supOrders.length > 0) {
             const cleanOrders = filterDeletedOrders(deduplicateOrderPlans(supOrders));
             setOrderPlans(prev => {
@@ -652,47 +641,60 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               return prev;
             });
           }
-          setLastSyncedAt(new Date());
-        }
 
-        // 2. Cold Archive / Fallback Sync: Google Sheets
-        const res = await fetch('/api/sheets?action=all', {
-          headers: { 'Accept': 'application/json' },
-          signal: AbortSignal.timeout(20000)
-        });
-
-        if (!res.ok) return;
-
-        const json = await res.json();
-        if (json && json.success && json.data) {
-          const { orderPlans: rOrders, yarnAllocations: rYarn } = json.data;
-          // Only pull Orders from Google Sheets if Supabase is unconfigured or local orders is empty (Google Sheets is cold archive)
-          if ((!SupabaseSync.isConfigured() || orderPlans.length === 0) && Array.isArray(rOrders) && rOrders.length > 0) {
-            const cleanOrders = filterDeletedOrders(deduplicateOrderPlans(rOrders));
-            setOrderPlans(prev => {
-              if (prev.length !== cleanOrders.length || JSON.stringify(prev) !== JSON.stringify(cleanOrders)) {
+          if (Array.isArray(supLedgers) && supLedgers.length > 0) {
+            const cleanLedger = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(supLedgers)));
+            setLedger(prev => {
+              if (prev.length !== cleanLedger.length || JSON.stringify(prev) !== JSON.stringify(cleanLedger)) {
                 try {
-                  localStorage.setItem('cached_order_plans', JSON.stringify(cleanOrders));
+                  localStorage.setItem('cached_production_ledger', JSON.stringify(cleanLedger));
                 } catch (e) {}
-                return cleanOrders;
+                setFloors(fl => recalculateFloorsFromLedger(fl, cleanLedger));
+                return cleanLedger;
               }
               return prev;
             });
           }
-          // Only pull Yarn from Google Sheets if Supabase is unconfigured or local yarn is empty (Google Sheets is cold archive)
-          if ((!SupabaseSync.isConfigured() || yarnAllocations.length === 0) && Array.isArray(rYarn) && rYarn.length > 0) {
-            const cleanYarn = filterDeletedYarn(deduplicateWithUniqueIds(rYarn, 'yarn'));
-            setYarnAllocations(prev => {
-              if (prev.length !== cleanYarn.length || JSON.stringify(prev) !== JSON.stringify(cleanYarn)) {
-                try {
-                  localStorage.setItem('cached_yarn_allocations', JSON.stringify(cleanYarn));
-                } catch (e) {}
-                return cleanYarn;
-              }
-              return prev;
-            });
-          }
+
           setLastSyncedAt(new Date());
+        } else {
+          // 2. Cold Archive / Fallback Sync: Google Sheets ONLY when Supabase is NOT configured
+          const res = await fetch('/api/sheets?action=all', {
+            headers: { 'Accept': 'application/json' },
+            signal: AbortSignal.timeout(20000)
+          });
+
+          if (!res.ok) return;
+
+          const json = await res.json();
+          if (json && json.success && json.data) {
+            const { orderPlans: rOrders, yarnAllocations: rYarn } = json.data;
+            if (Array.isArray(rOrders) && rOrders.length > 0) {
+              const cleanOrders = filterDeletedOrders(deduplicateOrderPlans(rOrders));
+              setOrderPlans(prev => {
+                if (prev.length !== cleanOrders.length || JSON.stringify(prev) !== JSON.stringify(cleanOrders)) {
+                  try {
+                    localStorage.setItem('cached_order_plans', JSON.stringify(cleanOrders));
+                  } catch (e) {}
+                  return cleanOrders;
+                }
+                return prev;
+              });
+            }
+            if (Array.isArray(rYarn) && rYarn.length > 0) {
+              const cleanYarn = filterDeletedYarn(deduplicateWithUniqueIds(rYarn, 'yarn'));
+              setYarnAllocations(prev => {
+                if (prev.length !== cleanYarn.length || JSON.stringify(prev) !== JSON.stringify(cleanYarn)) {
+                  try {
+                    localStorage.setItem('cached_yarn_allocations', JSON.stringify(cleanYarn));
+                  } catch (e) {}
+                  return cleanYarn;
+                }
+                return prev;
+              });
+            }
+            setLastSyncedAt(new Date());
+          }
         }
       } catch {
         // Silent catch for background poll
@@ -738,7 +740,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const saveOrderPlan = async (order: OrderPlan) => {
     const cleanOrder = sanitizeOrderPlanRemarks(order);
     const canonicalId = getOrderPlanCanonicalId(cleanOrder);
-    const finalizedOrder = { ...cleanOrder, id: canonicalId };
+    const finalizedOrder = { ...cleanOrder, id: canonicalId, updatedAt: new Date().toISOString() };
     if (finalizedOrder.id) deletedOrderIdsRef.current.delete(finalizedOrder.id);
     if (finalizedOrder.ewo) deletedOrderIdsRef.current.delete(finalizedOrder.ewo);
 
@@ -854,27 +856,36 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const saveYarnAllocation = async (item: YarnAllocationRecord): Promise<{ success: boolean; message?: string }> => {
-    if (item.id) deletedYarnIdsRef.current.delete(item.id);
+    const finalizedId = item.id && String(item.id).trim()
+      ? String(item.id).trim()
+      : (item.allocationNo && String(item.allocationNo).trim()
+          ? String(item.allocationNo).trim()
+          : `ya-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`);
+    const finalizedItem: YarnAllocationRecord = { ...item, id: finalizedId };
+
+    if (finalizedItem.id) deletedYarnIdsRef.current.delete(finalizedItem.id);
     
     // 1. Instant optimistic local React state update
     setYarnAllocations(prev => {
-      const idx = prev.findIndex(y => isMatchingYarn(y, item));
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = item;
-        return next;
-      }
-      return [item, ...prev];
+      const idx = prev.findIndex(y => isMatchingYarn(y, finalizedItem));
+      const next = idx >= 0 ? prev.map((y, i) => i === idx ? finalizedItem : y) : [finalizedItem, ...prev];
+      try {
+        localStorage.setItem('cached_yarn_allocations', JSON.stringify(next));
+      } catch (e) {}
+      return next;
     });
 
     // 2. Primary Database Save: Supabase (<50ms, direct connection)
-    SupabaseSync.saveYarnAllocation(item).catch(err => console.warn('Supabase saveYarnAllocation notice:', err));
+    const supRes = await SupabaseSync.saveYarnAllocation(finalizedItem);
 
     // 3. Background Cold Archive: Google Sheets (non-blocking fire-and-forget mirror)
     GasClient.clearYarnCache();
-    executeKeepaliveMutation('yarn/save', { yarnAllocations: [item], replace: false }).catch(() => {});
+    executeKeepaliveMutation('yarn/save', { yarnAllocations: [finalizedItem], replace: false }).catch(() => {});
 
-    return { success: true };
+    return {
+      success: supRes.success,
+      message: supRes.success ? 'Yarn allocation saved live to Supabase' : `Saved locally (${supRes.error || 'offline'})`
+    };
   };
 
   const deleteYarnAllocation = async (id: string): Promise<{ success: boolean; message?: string }> => {
@@ -930,28 +941,33 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // --- Production Ledger (Powered by Supabase Cloud Database + Real-time WebSockets) ---
   const saveLedgerRecord = async (record: LedgerRecord) => {
-    if (record.id) deletedLedgerIdsRef.current.delete(record.id);
-    const dKey = normalizeDateKey(record.date);
-    const fKey = normalizeFloorKey(record.floor || record.unit || '');
+    const finalizedRecord: LedgerRecord = {
+      ...record,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (finalizedRecord.id) deletedLedgerIdsRef.current.delete(finalizedRecord.id);
+    const dKey = normalizeDateKey(finalizedRecord.date);
+    const fKey = normalizeFloorKey(finalizedRecord.floor || finalizedRecord.unit || '');
     if (dKey && fKey) deletedLedgerCompositeKeysRef.current.delete(`${dKey}_${fKey}`);
 
     // Register into pending mutations tracking
-    const mutKey = (dKey && fKey) ? `${dKey}_${fKey}` : (record.id || `mut-${Date.now()}`);
-    pendingLedgerMutationsRef.current.set(mutKey, { record, timestamp: Date.now() });
+    const mutKey = (dKey && fKey) ? `${dKey}_${fKey}` : (finalizedRecord.id || `mut-${Date.now()}`);
+    pendingLedgerMutationsRef.current.set(mutKey, { record: finalizedRecord, timestamp: Date.now() });
     lastMutationTimeRef.current = Date.now();
 
     // 1. Instant optimistic local React state update
     setLedger(prev => {
       // Find matching record by ID first, or by identical Date + Floor to prevent duplicate rows
-      const targetDateKey = normalizeDateKey(record.date);
-      const targetFloorKey = normalizeFloorKey(record.floor || record.unit || '');
+      const targetDateKey = normalizeDateKey(finalizedRecord.date);
+      const targetFloorKey = normalizeFloorKey(finalizedRecord.floor || finalizedRecord.unit || '');
       
       const idx = prev.findIndex(r => {
-        if (r.id === record.id) return true;
+        if (r.id === finalizedRecord.id) return true;
         return normalizeDateKey(r.date) === targetDateKey && normalizeFloorKey(r.floor || r.unit || '') === targetFloorKey;
       });
 
-      const next = idx >= 0 ? prev.map((r, i) => i === idx ? record : r) : [record, ...prev];
+      const next = idx >= 0 ? prev.map((r, i) => i === idx ? finalizedRecord : r) : [finalizedRecord, ...prev];
       setFloors(fl => recalculateFloorsFromLedger(fl, next));
       try {
         localStorage.setItem('cached_production_ledger', JSON.stringify(next));
@@ -960,10 +976,10 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
 
     // 2. Direct Supabase Cloud Save (Live across all devices in <50ms)
-    const supabaseResult = await SupabaseSync.saveProductionRecord(record);
+    const supabaseResult = await SupabaseSync.saveProductionRecord(finalizedRecord);
 
     // 3. Fallback background sync
-    executeKeepaliveMutation('ledger/save', { ledger: [record], replace: false }).catch(() => {});
+    executeKeepaliveMutation('ledger/save', { ledger: [finalizedRecord], replace: false }).catch(() => {});
 
     return {
       success: true,
