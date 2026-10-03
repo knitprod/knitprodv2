@@ -206,7 +206,7 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
       let predText = `⏱️ Completion Date Prediction • Order #${order.orderNo}\n`;
       predText += `Buyer: ${order.buyerName || 'Epyllion'} | Team Leader: ${order.teamLeader || 'Unassigned'}\n`;
       predText += `PMC Knit Dates: ${order.pmcKnitStartDate || 'N/A'} to ${order.pmcKnitEndDate || 'N/A'}\n`;
-      predText += `Actual Knit Dates: ${order.actualKnitStartDate || order.knitStartDate || 'N/A'} to ${order.actualKnitEndDate || order.knitEndDate || 'N/A'}\n\n`;
+      predText += `Actual Knit Dates: ${order.actualKnitStartDate || 'Not started'} to ${order.actualKnitEndDate || 'Not finished'}\n\n`;
       predText += `• Progress: ${pctDone}% (${totals.prod.toLocaleString()} kg produced / ${totals.grey.toLocaleString()} kg grey)\n`;
       predText += `• Remaining Balance: ${totals.bal.toLocaleString()} kg\n`;
       predText += `• Active Floor Run-Rate: ${activeDailyRate > 0 ? `${Math.ceil(activeDailyRate).toLocaleString()} kg/day` : '0 kg/day'}\n`;
@@ -224,7 +224,7 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
     let summaryText = `Sure! I found it. Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} is ${conditionText} (${order.buyerName || 'Epyllion'}):\n`;
     summaryText += `👤 Buyer: ${order.buyerName || 'Epyllion'} | 👔 Team Leader: ${order.teamLeader || 'Unassigned'}\n`;
     summaryText += `📅 PMC Knit Start: ${order.pmcKnitStartDate || '-'} | 📅 PMC Knit End: ${order.pmcKnitEndDate || '-'}\n`;
-    summaryText += `📅 Actual Knit Start: ${order.actualKnitStartDate || order.knitStartDate || '-'} | 📅 Actual Knit End: ${order.actualKnitEndDate || order.knitEndDate || '-'}\n\n`;
+    summaryText += `📅 Actual Knit Start: ${order.actualKnitStartDate || '-'} | 📅 Actual Knit End: ${order.actualKnitEndDate || '-'}\n\n`;
     if (activeMode !== 'allocation') {
       summaryText += `🏭 Production Data:\n`;
       summaryText += `Color | Fabric Type | GSM | Width | PMC Start | PMC End | Actual Start | Actual End | Req. QTY | Grey QTY | Production | Hold | Reject | Balance\n`;
@@ -232,7 +232,7 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
         const pText = Number(it.production || 0) > 0 ? `${Number(it.production).toLocaleString()} kg` : '0 kg';
         const hText = Number(it.hold || 0) > 0 ? `${Number(it.hold).toLocaleString()} kg` : '-';
         const rText = Number(it.reject || 0) > 0 ? `${Number(it.reject).toLocaleString()} kg` : '-';
-        summaryText += `${it.color} | ${it.fabType} | ${it.fgsm || '-'} | ${it.fWidth || '-'} | ${it.pmcKnitStartDate || '-'} | ${it.pmcKnitEndDate || '-'} | ${it.actualKnitStartDate || it.knitStartDate || '-'} | ${it.actualKnitEndDate || it.knitEndDate || '-'} | ${Number(it.reqQty || 0).toLocaleString()} kg | ${Number(it.greyQty || 0).toLocaleString()} kg | ${pText} | ${hText} | ${rText} | ${Number(it.knitBalance || 0).toLocaleString()} kg\n`;
+        summaryText += `${it.color} | ${it.fabType} | ${it.fgsm || '-'} | ${it.fWidth || '-'} | ${it.pmcKnitStartDate || '-'} | ${it.pmcKnitEndDate || '-'} | ${it.actualKnitStartDate || '-'} | ${it.actualKnitEndDate || '-'} | ${Number(it.reqQty || 0).toLocaleString()} kg | ${Number(it.greyQty || 0).toLocaleString()} kg | ${pText} | ${hText} | ${rText} | ${Number(it.knitBalance || 0).toLocaleString()} kg\n`;
       });
       summaryText += `Total | - | - | - | - | - | - | - | ${totals.req.toLocaleString()} kg | ${totals.grey.toLocaleString()} kg | ${totals.prod.toLocaleString()} kg | ${totals.hold > 0 ? `${totals.hold.toLocaleString()} kg` : '-'} | ${totals.reject > 0 ? `${totals.reject.toLocaleString()} kg` : '-'} | ${totals.bal.toLocaleString()} kg\n\n`;
       summaryText += `📊 Total Summary: Req: ${totals.req.toLocaleString()} kg | Grey: ${totals.grey.toLocaleString()} kg | Production: ${totals.prod.toLocaleString()} kg | Hold: ${totals.hold.toLocaleString()} kg | Reject: ${totals.reject.toLocaleString()} kg | Balance: ${totals.bal.toLocaleString()} kg\n`;
@@ -399,7 +399,7 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
             <Calendar className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             <span className="text-slate-500 font-semibold">ACT Knit Start:</span>
             <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-              {order.actualKnitStartDate || order.knitStartDate || '-'}
+              {order.actualKnitStartDate || '-'}
             </span>
           </div>
           <span className="text-slate-300 dark:text-slate-600 hidden sm:inline">•</span>
@@ -415,7 +415,7 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
             <Calendar className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             <span className="text-slate-500 font-semibold">ACT Knit End:</span>
             <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-              {order.actualKnitEndDate || order.knitEndDate || '-'}
+              {order.actualKnitEndDate || '-'}
             </span>
           </div>
         </div>
@@ -660,9 +660,12 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
                       const isEven = idx % 2 === 1;
 
                       const itemPmcStart = it.pmcKnitStartDate || order.pmcKnitStartDate || '';
-                      const itemActStart = it.actualKnitStartDate || it.knitStartDate || order.actualKnitStartDate || '';
+                      const hasItemActivity = prodNum > 0 || holdNum > 0;
+                      const itmGrey = Number(it.greyQty || 0);
+                      const isItmComplete = (it.knitBalance !== undefined && it.knitBalance < 3) || (prodNum > 0 && prodNum >= itmGrey);
+                      const itemActStart = hasItemActivity ? (it.actualKnitStartDate || '') : '';
                       const itemPmcEnd = it.pmcKnitEndDate || order.pmcKnitEndDate || '';
-                      const itemActEnd = it.actualKnitEndDate || it.knitEndDate || order.actualKnitEndDate || '';
+                      const itemActEnd = hasItemActivity ? (it.actualKnitEndDate || '') : '';
 
                       return (
                         <tr

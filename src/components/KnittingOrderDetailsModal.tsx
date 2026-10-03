@@ -341,7 +341,7 @@ export function KnittingOrderDetailsModal({ order, onClose }: KnittingOrderDetai
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Actual:</span>
-                    <span className="font-bold text-slate-900 dark:text-white">{order.actualKnitStartDate || order.knitStartDate || '-'}</span>
+                    <span className="font-bold text-slate-900 dark:text-white">{order.actualKnitStartDate || '-'}</span>
                   </div>
                 </div>
               </div>
@@ -375,7 +375,7 @@ export function KnittingOrderDetailsModal({ order, onClose }: KnittingOrderDetai
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Actual/End:</span>
-                    <span className="font-bold text-slate-900 dark:text-white">{order.actualKnitEndDate || order.knitEndDate || '-'}</span>
+                    <span className="font-bold text-slate-900 dark:text-white">{order.actualKnitEndDate || '-'}</span>
                   </div>
                 </div>
               </div>
@@ -467,13 +467,43 @@ export function KnittingOrderDetailsModal({ order, onClose }: KnittingOrderDetai
                         <td className="py-2 px-2.5 font-mono text-slate-600 dark:text-slate-400">{itm.fWidth || ''}</td>
                         <td className="py-2 px-2.5 text-slate-600 dark:text-slate-400">{itm.yarnCount || ''}</td>
                         <td className="py-2 px-2.5 text-slate-600 dark:text-slate-400">{itm.gaugeDia || ''}</td>
-                        {/* Knit Start Date: strictly empty if no production and no hold */}
-                        <td className="py-2 px-2.5 text-slate-600 dark:text-slate-400 font-mono">
-                          {(Number(itm.production || 0) > 0 || Number(itm.hold || 0) > 0) ? (itm.knitStartDate || '') : ''}
+                        {/* Knit Start Date (PMC vs ACT) */}
+                        <td className="py-2 px-2.5 font-mono text-[10.5px]">
+                          <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-1">
+                              <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">PMC:</span>
+                              <span className="text-slate-600 dark:text-slate-400 font-semibold">{itm.pmcKnitStartDate || order.pmcKnitStartDate || '-'}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">ACT:</span>
+                              <span className={`font-semibold ${(Number(itm.production || 0) > 0 || Number(itm.hold || 0) > 0) && itm.actualKnitStartDate ? 'text-slate-900 dark:text-white' : 'text-slate-400'}`}>
+                                {(Number(itm.production || 0) > 0 || Number(itm.hold || 0) > 0) ? (itm.actualKnitStartDate || '-') : '-'}
+                              </span>
+                            </div>
+                          </div>
                         </td>
-                        {/* Knit End Date: strictly empty if no production and no hold */}
-                        <td className="py-2 px-2.5 text-slate-600 dark:text-slate-400 font-mono">
-                          {(Number(itm.production || 0) > 0 || Number(itm.hold || 0) > 0) ? (itm.knitEndDate || '') : ''}
+                        {/* Knit End Date (PMC vs ACT) */}
+                        <td className="py-2 px-2.5 font-mono text-[10.5px]">
+                          <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-1">
+                              <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">PMC:</span>
+                              <span className="text-slate-600 dark:text-slate-400 font-semibold">{itm.pmcKnitEndDate || order.pmcKnitEndDate || '-'}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">ACT:</span>
+                              {(() => {
+                                const itmProd = Number(itm.production || 0);
+                                const itmGrey = Number(itm.greyQty || 0);
+                                const isDone = (itm.knitBalance !== undefined && itm.knitBalance < 3) || (itmProd > 0 && itmProd >= itmGrey);
+                                const actEnd = (itmProd > 0 && isDone) ? (itm.actualKnitEndDate || '-') : '-';
+                                return (
+                                  <span className={`font-semibold ${actEnd !== '-' ? 'text-slate-900 dark:text-white' : 'text-slate-400'}`}>
+                                    {actEnd}
+                                  </span>
+                                );
+                              })()}
+                            </div>
+                          </div>
                         </td>
                         <td className="py-2 px-2.5 text-right font-mono text-slate-700 dark:text-slate-300">
                           {itm.reqQty ? itm.reqQty.toLocaleString() : ''}

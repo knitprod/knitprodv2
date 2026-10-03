@@ -562,12 +562,13 @@ export function enrichKnittingOrderWithPlanData(
 
   const matchedPlan = matchedPlans[0];
 
+  const hasOrderProd = Number(order.production || 0) > 0;
+  const isComplete = (order.knitBalance !== undefined && order.knitBalance < 3) || (hasOrderProd && order.production >= order.greyQty);
   const pmcStart = order.pmcKnitStartDate || matchedPlan.knitStart || '';
   const pmcEnd = order.pmcKnitEndDate || matchedPlan.knitEnd || '';
-  const actualStart = order.actualKnitStartDate || order.knitStartDate || matchedPlan.aKnitStart || '';
-  const actualEnd = order.actualKnitEndDate || order.knitEndDate || (matchedPlan.lastProductionDate && matchedPlan.lastProductionDate !== '-' ? matchedPlan.lastProductionDate : '');
+  const actualStart = hasOrderProd ? (order.actualKnitStartDate || (matchedPlan.aKnitStart && matchedPlan.aKnitStart !== '-' ? matchedPlan.aKnitStart : '')) : '';
+  const actualEnd = hasOrderProd ? (order.actualKnitEndDate || (matchedPlan.lastProductionDate && matchedPlan.lastProductionDate !== '-' ? matchedPlan.lastProductionDate : '')) : '';
 
-  const isComplete = (order.knitBalance !== undefined && order.knitBalance < 3) || (order.production > 0 && order.production >= order.greyQty);
   const startOtd = calculateStartOtdStatus(pmcStart, actualStart, order.knitStartOtd || (matchedPlan.knitStartOtd !== 'Pending' ? matchedPlan.knitStartOtd : undefined));
   const endOtd = calculateEndOtdStatus(pmcEnd, actualEnd, isComplete, order.knitEndOtd || (matchedPlan.knitEndOtd !== 'Pending' ? matchedPlan.knitEndOtd : undefined));
   const overallOtd = calculateOverallOtdStatus(startOtd, endOtd);
@@ -577,12 +578,21 @@ export function enrichKnittingOrderWithPlanData(
     const itmColorNorm = normColorName(itm.color);
     const colorMatchedPlan = matchedPlans.find(p => normColorName(p.color) === itmColorNorm) || matchedPlan;
 
+    const itmProd = Number(itm.production || 0);
+    const itmHold = Number(itm.hold || 0);
+    const itmGrey = Number(itm.greyQty || 0);
+    const itmHasActivity = itmProd > 0 || itmHold > 0;
+    const itmIsComplete = (itm.knitBalance !== undefined && itm.knitBalance < 3) || (itmProd > 0 && itmProd >= itmGrey);
+
     const itmPmcStart = itm.pmcKnitStartDate || colorMatchedPlan?.knitStart || pmcStart;
     const itmPmcEnd = itm.pmcKnitEndDate || colorMatchedPlan?.knitEnd || pmcEnd;
-    const itmActStart = itm.actualKnitStartDate || itm.knitStartDate || colorMatchedPlan?.aKnitStart || actualStart;
-    const itmActEnd = itm.actualKnitEndDate || itm.knitEndDate || (colorMatchedPlan?.lastProductionDate && colorMatchedPlan.lastProductionDate !== '-' ? colorMatchedPlan.lastProductionDate : '') || actualEnd;
+    const itmActStart = itmHasActivity
+      ? (itm.actualKnitStartDate || (colorMatchedPlan?.aKnitStart && colorMatchedPlan.aKnitStart !== '-' ? colorMatchedPlan.aKnitStart : '') || actualStart)
+      : '';
+    const itmActEnd = itmHasActivity
+      ? (itm.actualKnitEndDate || (colorMatchedPlan?.lastProductionDate && colorMatchedPlan.lastProductionDate !== '-' ? colorMatchedPlan.lastProductionDate : '') || actualEnd)
+      : '';
 
-    const itmIsComplete = (itm.knitBalance !== undefined && itm.knitBalance < 3) || (Number(itm.production || 0) > 0 && Number(itm.production || 0) >= Number(itm.greyQty || 0));
     const itmStartOtd = calculateStartOtdStatus(itmPmcStart, itmActStart, itm.knitStartOtd || (colorMatchedPlan?.knitStartOtd !== 'Pending' ? colorMatchedPlan?.knitStartOtd : undefined));
     const itmEndOtd = calculateEndOtdStatus(itmPmcEnd, itmActEnd, itmIsComplete, itm.knitEndOtd || (colorMatchedPlan?.knitEndOtd !== 'Pending' ? colorMatchedPlan?.knitEndOtd : undefined));
     const itmOverallOtd = calculateOverallOtdStatus(itmStartOtd, itmEndOtd);
@@ -625,11 +635,11 @@ export function aggregateOrderValues(order: KnittingStatusOrder): KnittingStatus
   if (!order.items || order.items.length === 0) {
     const knitBalance = order.knitBalance !== undefined ? order.knitBalance : Math.max(0, (order.greyQty || 0) - (order.production || 0));
     const hasOrderActivity = (Number(order.production || 0) > 0);
-    const actStart = hasOrderActivity ? (order.actualKnitStartDate || order.knitStartDate || '') : (order.actualKnitStartDate || '');
-    const actEnd = hasOrderActivity ? (order.actualKnitEndDate || order.knitEndDate || '') : (order.actualKnitEndDate || '');
+    const isComplete = knitBalance < 3 || (hasOrderActivity && order.production >= (order.greyQty || 0));
+    const actStart = hasOrderActivity ? (order.actualKnitStartDate || '') : '';
+    const actEnd = hasOrderActivity ? (order.actualKnitEndDate || '') : '';
     const pmcStart = order.pmcKnitStartDate || '';
     const pmcEnd = order.pmcKnitEndDate || '';
-    const isComplete = knitBalance < 3 || (order.production > 0 && order.production >= (order.greyQty || 0));
     const startOtd = calculateStartOtdStatus(pmcStart, actStart, order.knitStartOtd);
     const endOtd = calculateEndOtdStatus(pmcEnd, actEnd, isComplete, order.knitEndOtd);
     const otdStatus = calculateOverallOtdStatus(startOtd, endOtd);
@@ -651,14 +661,18 @@ export function aggregateOrderValues(order: KnittingStatusOrder): KnittingStatus
 
   // Cleaned and normalized items for each color
   const cleanedItems = order.items.map(itm => {
-    const itmActStart = itm.actualKnitStartDate || itm.knitStartDate || order.actualKnitStartDate || '';
-    const itmActEnd = itm.actualKnitEndDate || itm.knitEndDate || order.actualKnitEndDate || '';
+    const itmProd = Number(itm.production || 0);
+    const itmHold = Number(itm.hold || 0);
+    const itmGrey = Number(itm.greyQty || 0);
+    const hasItemActivity = itmProd > 0 || itmHold > 0;
+    const itmIsComplete = (itm.knitBalance !== undefined && itm.knitBalance < 3) || (itmProd > 0 && itmProd >= itmGrey);
+    const itmActStart = hasItemActivity ? (itm.actualKnitStartDate || '') : '';
+    const itmActEnd = hasItemActivity ? (itm.actualKnitEndDate || '') : '';
     const itmPmcStart = itm.pmcKnitStartDate || order.pmcKnitStartDate || '';
     const itmPmcEnd = itm.pmcKnitEndDate || order.pmcKnitEndDate || '';
-    const itmIsComplete = (itm.knitBalance !== undefined && itm.knitBalance < 3) || (Number(itm.production || 0) > 0 && Number(itm.production || 0) >= Number(itm.greyQty || 0));
     const itmStartOtd = calculateStartOtdStatus(itmPmcStart, itmActStart, itm.knitStartOtd);
-    const itmEndOtd = calculateEndOtdStatus(itmPmcEnd, itmActEnd, itmIsComplete, itm.knitEndOtd);
-    const itmOverallOtd = calculateOverallOtdStatus(itmStartOtd, itmEndOtd);
+    const endOtd = calculateEndOtdStatus(itmPmcEnd, itmActEnd, itmIsComplete, itm.knitEndOtd);
+    const itmOverallOtd = calculateOverallOtdStatus(itmStartOtd, endOtd);
 
     return {
       ...itm,
@@ -669,7 +683,7 @@ export function aggregateOrderValues(order: KnittingStatusOrder): KnittingStatus
       pmcKnitStartDate: itmPmcStart,
       pmcKnitEndDate: itmPmcEnd,
       knitStartOtd: itmStartOtd,
-      knitEndOtd: itmEndOtd,
+      knitEndOtd: endOtd,
       otdStatus: itm.otdStatus || itmOverallOtd
     };
   });
@@ -681,18 +695,35 @@ export function aggregateOrderValues(order: KnittingStatusOrder): KnittingStatus
   const greyQty = sortedItems.reduce((sum, itm) => sum + (Number(itm.greyQty) || 0), 0);
   const production = sortedItems.reduce((sum, itm) => sum + (Number(itm.production) || 0), 0);
   const knitBalance = sortedItems.reduce((sum, itm) => sum + (Number(itm.knitBalance) || 0), 0);
+  const hasTotalProd = production > 0;
+  const orderIsComplete = knitBalance < 3 || (hasTotalProd && production >= greyQty);
 
   // USER DIRECTIVE:
   // 1st Layer Main Order Row:
   // Knit Start Date collects the Minimum date for PMC (from PMC K-START) and ACT (from A. Knit Star) from the Color List Below.
   const minPmcStart = getMinDateFromList(sortedItems.map(i => i.pmcKnitStartDate), order.pmcKnitStartDate || '');
-  const minActStart = getMinDateFromList(sortedItems.map(i => i.actualKnitStartDate || i.knitStartDate), order.actualKnitStartDate || order.knitStartDate || '');
+  
+  // Actual Knit Start: Only collect real actual start dates from items (or order) where actual date is explicitly provided and production exists
+  const actStartCandidates = sortedItems
+    .filter(i => Number(i.production || 0) > 0 || Number(i.hold || 0) > 0)
+    .map(i => i.actualKnitStartDate)
+    .filter(d => Boolean(d) && d !== '-' && d !== 'Pending' && d !== 'N/A');
+  const minActStart = hasTotalProd
+    ? (actStartCandidates.length > 0 ? getMinDateFromList(actStartCandidates, '') : (order.actualKnitStartDate && order.actualKnitStartDate !== '-' ? order.actualKnitStartDate : ''))
+    : '';
 
   // Knit End Date collects the Maximum date for PMC (from PMC K-END) and ACT (from Last Knit) from the Color List Below.
   const maxPmcEnd = getMaxDateFromList(sortedItems.map(i => i.pmcKnitEndDate), order.pmcKnitEndDate || '');
-  const maxActEnd = getMaxDateFromList(sortedItems.map(i => i.actualKnitEndDate || i.knitEndDate), order.actualKnitEndDate || order.knitEndDate || '');
+  
+  // Actual Knit End (Last Knit Date): Collects the Maximum date from items with production activity (from Last Knit column), or order level
+  const actEndCandidates = sortedItems
+    .filter(i => Number(i.production || 0) > 0 || Number(i.hold || 0) > 0)
+    .map(i => i.actualKnitEndDate)
+    .filter(d => Boolean(d) && d !== '-' && d !== 'Pending' && d !== 'N/A');
+  const maxActEnd = hasTotalProd
+    ? (actEndCandidates.length > 0 ? getMaxDateFromList(actEndCandidates, '') : (order.actualKnitEndDate && order.actualKnitEndDate !== '-' ? order.actualKnitEndDate : ''))
+    : '';
 
-  const orderIsComplete = knitBalance < 3 || (production > 0 && production >= greyQty);
   const orderStartOtd = calculateStartOtdStatus(minPmcStart, minActStart, order.knitStartOtd);
   const orderEndOtd = calculateEndOtdStatus(maxPmcEnd, maxActEnd, orderIsComplete, order.knitEndOtd);
   const orderOverallOtd = calculateOverallOtdStatus(orderStartOtd, orderEndOtd);
@@ -706,10 +737,10 @@ export function aggregateOrderValues(order: KnittingStatusOrder): KnittingStatus
     knitBalance: knitBalance !== undefined ? knitBalance : Math.max(0, greyQty - production),
     pmcKnitStartDate: minPmcStart,
     actualKnitStartDate: minActStart,
-    knitStartDate: minActStart,
+    knitStartDate: minActStart || minPmcStart,
     pmcKnitEndDate: maxPmcEnd,
     actualKnitEndDate: maxActEnd,
-    knitEndDate: maxActEnd,
+    knitEndDate: maxActEnd || maxPmcEnd,
     knitStartOtd: orderStartOtd,
     knitEndOtd: orderEndOtd,
     otdStatus: order.otdStatus || orderOverallOtd

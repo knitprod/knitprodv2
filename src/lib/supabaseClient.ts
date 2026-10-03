@@ -1912,15 +1912,30 @@ export class SupabaseSync {
 
     const pmcStart = raw.pmcKnitStartDate || row.pmc_knit_start_date || '';
     const pmcEnd = raw.pmcKnitEndDate || row.pmc_knit_end_date || '';
-    const actStart = raw.actualKnitStartDate || row.actual_knit_start_date || kStart || '';
-    const actEnd = raw.actualKnitEndDate || row.actual_knit_end_date || kEnd || '';
+    const totalProd = parseFloat(String(row.production ?? raw.production ?? 0)) || 0;
+    const greyQty = parseFloat(String(row.grey_qty ?? raw.greyQty ?? 0)) || 0;
+    const knitBal = parseFloat(String(row.knit_balance ?? raw.knitBalance ?? (greyQty - totalProd))) || 0;
+    const isComplete = knitBal < 3 || (totalProd > 0 && totalProd >= greyQty);
+
+    // If order has no production activity, it has not started yet -> no actual dates!
+    const actStart = (totalProd > 0)
+      ? (raw.actualKnitStartDate || row.actual_knit_start_date || (kStart && kStart !== pmcStart ? kStart : ''))
+      : '';
+    const actEnd = (totalProd > 0)
+      ? (raw.actualKnitEndDate || row.actual_knit_end_date || (kEnd && kEnd !== pmcEnd ? kEnd : ''))
+      : '';
     const otd = raw.otdStatus || row.otd_status || 'Pending';
     const sOtd = raw.knitStartOtd || row.knit_start_otd || 'Pending';
     const eOtd = raw.knitEndOtd || row.knit_end_otd || 'Pending';
 
     const rawItems: any[] = Array.isArray(row.items) ? row.items : (raw.items || []);
     const items = rawItems.map(itm => {
-      const hasAct = (Number(itm.production || 0) > 0) || (Number(itm.hold || 0) > 0);
+      const itmProd = Number(itm.production || 0);
+      const itmHold = Number(itm.hold || 0);
+      const itmGrey = Number(itm.greyQty || 0);
+      const hasAct = (itmProd > 0) || (itmHold > 0);
+      const itmBal = Number(itm.knitBalance ?? (itmGrey - itmProd));
+      const itmIsComplete = itmBal < 3 || (itmProd > 0 && itmProd >= itmGrey);
       let itmStart = itm.knitStartDate || '';
       let itmEnd = itm.knitEndDate || '';
       if (itmStart === '19-Sep-2026' || itmStart === '19-09-2026') itmStart = '20-Sep-2026';
@@ -1928,8 +1943,12 @@ export class SupabaseSync {
 
       const itmPmcStart = itm.pmcKnitStartDate || pmcStart;
       const itmPmcEnd = itm.pmcKnitEndDate || pmcEnd;
-      const itmActStart = itm.actualKnitStartDate || (hasAct ? itmStart : '') || actStart;
-      const itmActEnd = itm.actualKnitEndDate || (hasAct ? itmEnd : '') || actEnd;
+      const itmActStart = hasAct
+        ? (itm.actualKnitStartDate || (itmStart && itmStart !== itmPmcStart ? itmStart : actStart))
+        : '';
+      const itmActEnd = hasAct
+        ? (itm.actualKnitEndDate || (itmEnd && itmEnd !== itmPmcEnd ? itmEnd : actEnd))
+        : '';
 
       return {
         ...itm,
@@ -1937,8 +1956,8 @@ export class SupabaseSync {
         pmcKnitEndDate: itmPmcEnd,
         actualKnitStartDate: itmActStart,
         actualKnitEndDate: itmActEnd,
-        knitStartDate: itmActStart || (hasAct ? itmStart : ''),
-        knitEndDate: itmActEnd || (hasAct ? itmEnd : ''),
+        knitStartDate: itmActStart || itmPmcStart || (hasAct ? itmStart : ''),
+        knitEndDate: itmActEnd || itmPmcEnd || (hasAct ? itmEnd : ''),
         knitStartOtd: itm.knitStartOtd || sOtd,
         knitEndOtd: itm.knitEndOtd || eOtd,
         otdStatus: itm.otdStatus || otd
@@ -1954,8 +1973,8 @@ export class SupabaseSync {
       pmcKnitEndDate: pmcEnd,
       actualKnitStartDate: actStart,
       actualKnitEndDate: actEnd,
-      knitStartDate: kStart || actStart,
-      knitEndDate: kEnd || actEnd,
+      knitStartDate: actStart || pmcStart || kStart,
+      knitEndDate: actEnd || pmcEnd || kEnd,
       knitStartOtd: sOtd,
       knitEndOtd: eOtd,
       otdStatus: otd,

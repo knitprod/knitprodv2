@@ -1205,10 +1205,10 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
             'Buyer Name': o.buyerName,
             'Team Leader': o.teamLeader,
             'PMC Knit Start': o.pmcKnitStartDate || '',
-            'Actual Knit Start': o.actualKnitStartDate || o.knitStartDate || '',
+            'Actual Knit Start': o.actualKnitStartDate || '',
             'Start OTD': o.knitStartOtd || 'Pending',
             'PMC Knit End': o.pmcKnitEndDate || '',
-            'Actual Knit End': o.actualKnitEndDate || o.knitEndDate || '',
+            'Actual Knit End': o.actualKnitEndDate || '',
             'End OTD': o.knitEndOtd || 'Pending',
             'OTD Status': o.otdStatus || 'Pending',
             'Req. Qty (Kg)': o.reqQty,
@@ -1238,10 +1238,10 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
               'Yarn Count': itm.yarnCount,
               'Gauge & Dia': itm.gaugeDia,
               'PMC Knit Start': itm.pmcKnitStartDate || o.pmcKnitStartDate || '',
-              'Actual Knit Start': itemHasAct ? (itm.actualKnitStartDate || itm.knitStartDate || '') : '',
+              'Actual Knit Start': itemHasAct ? (itm.actualKnitStartDate || '') : '',
               'Start OTD': itm.knitStartOtd || 'Pending',
               'PMC Knit End': itm.pmcKnitEndDate || o.pmcKnitEndDate || '',
-              'Actual Knit End': itemHasAct ? (itm.actualKnitEndDate || itm.knitEndDate || '') : '',
+              'Actual Knit End': itemHasAct ? (itm.actualKnitEndDate || '') : '',
               'End OTD': itm.knitEndOtd || 'Pending',
               'OTD Status': itm.otdStatus || 'Pending',
               'Req. Qty': itm.reqQty,
@@ -1454,10 +1454,7 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
               'Actual Knit Start',
               'Actual Knit Start Date',
               'First Knit',
-              'First Knit Date',
-              'Knit Start Date',
-              'Knit Start',
-              'Start Date'
+              'First Knit Date'
             ])
           );
 
@@ -1482,11 +1479,7 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
               'A.Knit End',
               'A.Knit End Date',
               'Actual Knit End',
-              'Actual Knit End Date',
-              'Knit End Date',
-              'Knit End',
-              'KnitEnd',
-              'End Date'
+              'Actual Knit End Date'
             ])
           );
 
@@ -2600,7 +2593,7 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
                             </div>
                             <div className="flex items-center gap-2">
                               <span className="text-[10px] font-bold text-slate-400 uppercase w-8 shrink-0">ACT:</span>
-                              <span className="font-bold text-slate-900 dark:text-white">{order.actualKnitStartDate || order.knitStartDate || '-'}</span>
+                              <span className={`font-bold ${order.actualKnitStartDate ? 'text-slate-900 dark:text-white' : 'text-slate-400 font-normal'}`}>{order.actualKnitStartDate || '-'}</span>
                             </div>
                           </div>
                         </td>
@@ -2614,7 +2607,7 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
                             </div>
                             <div className="flex items-center gap-2">
                               <span className="text-[10px] font-bold text-slate-400 uppercase w-8 shrink-0">ACT:</span>
-                              <span className="font-bold text-slate-900 dark:text-white">{order.actualKnitEndDate || order.knitEndDate || '-'}</span>
+                              <span className={`font-bold ${order.actualKnitEndDate ? 'text-slate-900 dark:text-white' : 'text-slate-400 font-normal'}`}>{order.actualKnitEndDate || '-'}</span>
                             </div>
                           </div>
                         </td>
@@ -2820,13 +2813,16 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
                                                   <span className="text-slate-600 dark:text-slate-400 font-semibold">{itm.pmcKnitStartDate}</span>
                                                 </div>
                                               ) : null}
-                                              {(itm.actualKnitStartDate || itm.knitStartDate) ? (
+                                              {itm.actualKnitStartDate ? (
                                                 <div className="flex items-center gap-1">
                                                   <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">ACT:</span>
-                                                  <span className="font-bold text-slate-900 dark:text-white">{itm.actualKnitStartDate || itm.knitStartDate}</span>
+                                                  <span className="font-bold text-slate-900 dark:text-white">{itm.actualKnitStartDate}</span>
                                                 </div>
                                               ) : (
-                                                !itm.pmcKnitStartDate && <span className="text-slate-400">-</span>
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">ACT:</span>
+                                                  <span className="text-slate-400 font-normal">-</span>
+                                                </div>
                                               )}
                                             </div>
                                           </td>
@@ -2840,13 +2836,16 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
                                                   <span className="text-slate-600 dark:text-slate-400 font-semibold">{itm.pmcKnitEndDate}</span>
                                                 </div>
                                               ) : null}
-                                              {(itm.actualKnitEndDate || itm.knitEndDate) ? (
+                                              {itm.actualKnitEndDate ? (
                                                 <div className="flex items-center gap-1">
                                                   <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">ACT:</span>
-                                                  <span className="font-bold text-slate-900 dark:text-white">{itm.actualKnitEndDate || itm.knitEndDate}</span>
+                                                  <span className="font-bold text-slate-900 dark:text-white">{itm.actualKnitEndDate}</span>
                                                 </div>
                                               ) : (
-                                                !itm.pmcKnitEndDate && <span className="text-slate-400">-</span>
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">ACT:</span>
+                                                  <span className="text-slate-400 font-normal">-</span>
+                                                </div>
                                               )}
                                             </div>
                                           </td>

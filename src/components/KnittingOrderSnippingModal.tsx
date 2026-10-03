@@ -943,7 +943,7 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
                 <Calendar className="w-3.5 h-3.5 text-emerald-700" />
                 <span className="font-semibold text-slate-600">Actual Knit Start:</span>
                 <strong className="font-mono text-slate-900 font-bold" style={{ color: '#0f172a' }}>
-                  {order.actualKnitStartDate || order.knitStartDate || '-'}
+                  {order.actualKnitStartDate || '-'}
                 </strong>
               </div>
               <span>•</span>
@@ -959,7 +959,7 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
                 <Calendar className="w-3.5 h-3.5 text-emerald-700" />
                 <span className="font-semibold text-slate-600">Actual Knit End:</span>
                 <strong className="font-mono text-slate-900 font-bold" style={{ color: '#0f172a' }}>
-                  {order.actualKnitEndDate || order.knitEndDate || '-'}
+                  {order.actualKnitEndDate || '-'}
                 </strong>
               </div>
             </div>
@@ -1094,8 +1094,11 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
 
                             {/* Knit Start Date (PMC vs Actual) */}
                             {(() => {
+                              const itmProd = Number(itm.production || 0);
+                              const itmHold = Number(itm.hold || 0);
+                              const itmHasAct = itmProd > 0 || itmHold > 0;
                               const itmPmcStart = itm.pmcKnitStartDate || order.pmcKnitStartDate || '';
-                              const itmActStart = itm.actualKnitStartDate || itm.knitStartDate || order.actualKnitStartDate || '';
+                              const itmActStart = itmHasAct ? (itm.actualKnitStartDate || order.actualKnitStartDate || '') : '';
                               return (
                                 <td className="py-1.5 px-2 font-mono text-slate-700 whitespace-nowrap">
                                   <div className="flex flex-col gap-0.5 text-[10px]">
@@ -1111,7 +1114,10 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
                                         <span className="font-bold text-slate-900">{itmActStart}</span>
                                       </div>
                                     ) : (
-                                      !itmPmcStart && <span className="text-slate-400 text-center">-</span>
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">ACT:</span>
+                                        <span className="text-slate-400">-</span>
+                                      </div>
                                     )}
                                   </div>
                                 </td>
@@ -1120,8 +1126,12 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
 
                             {/* Knit End Date (PMC vs Actual) */}
                             {(() => {
+                              const itmProd = Number(itm.production || 0);
+                              const itmHold = Number(itm.hold || 0);
+                              const itmGrey = Number(itm.greyQty || 0);
+                              const itmHasAct = itmProd > 0 || itmHold > 0;
                               const itmPmcEnd = itm.pmcKnitEndDate || order.pmcKnitEndDate || '';
-                              const itmActEnd = itm.actualKnitEndDate || itm.knitEndDate || order.actualKnitEndDate || '';
+                              const itmActEnd = itmHasAct ? (itm.actualKnitEndDate || order.actualKnitEndDate || '') : '';
                               return (
                                 <td className="py-1.5 px-2 font-mono text-slate-700 whitespace-nowrap">
                                   <div className="flex flex-col gap-0.5 text-[10px]">
@@ -1137,7 +1147,10 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
                                         <span className="font-bold text-slate-900">{itmActEnd}</span>
                                       </div>
                                     ) : (
-                                      !itmPmcEnd && <span className="text-slate-400 text-center">-</span>
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-[8.5px] font-bold text-slate-400 uppercase w-6 shrink-0">ACT:</span>
+                                        <span className="text-slate-400">-</span>
+                                      </div>
                                     )}
                                   </div>
                                 </td>
