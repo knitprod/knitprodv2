@@ -38,15 +38,15 @@ const PAGE_TO_HASH: Record<string, string> = {
   'Floor Dashboard': 'floor-dashboard',
   'Management Dashboard': 'management-dashboard',
   'Reports': 'reports',
+  'Order OTD Status': 'order-otd-status',
   'Plan Order Followup': 'plan-order-followup',
   'Team Leader OTD Status': 'team-leader-otd',
   'Buyerwise OTD Status': 'buyerwise-otd',
   'Orderwise OTD Status': 'orderwise-otd',
-  'Buyer Plan vs Actual': 'buyer-plan-actual',
-  'Yarn Allocation': 'yarn-allocation',
-  'Delivery Schedule': 'delivery-schedule',
   'Knitting Status': 'knitting-status',
+  'Running Orders': 'running-orders',
   'Textile Close By PMC': 'textile-close-pmc',
+  'Yarn Allocation': 'yarn-allocation',
   'Admin Panel': 'admin-panel',
   'User Management': 'user-management',
   'Database Connection': 'database-connection',
@@ -62,7 +62,7 @@ interface SidebarProps {
   onNavigate: (page: string) => void;
   collapsed: boolean;
   setCollapsed: (collapsed: boolean) => void;
-  onLogout: () => void;
+  onLogout?: () => void;
   currentUser?: UserRecord | null;
 }
 
@@ -77,22 +77,23 @@ export default function Sidebar({
 
   // Group expand/collapse states
   const [productionUpdateOpen, setProductionUpdateOpen] = useState(true);
-  const [planOrderOpen, setPlanOrderOpen] = useState(true);
-  const [orderPlanSubOpen, setOrderPlanSubOpen] = useState(true);
+  const [orderOtdOpen, setOrderOtdOpen] = useState(true);
+  const [knittingStatusOpen, setKnittingStatusOpen] = useState(true);
   const [adminPanelOpen, setAdminPanelOpen] = useState(true);
 
   // Auto expand group if active page is inside it
   const productionItems = ['Production Ledger', 'Floor Dashboard', 'Management Dashboard', 'Reports'];
-  const planOrderItems = [
+  const orderOtdItems = [
+    'Order OTD Status',
     'Plan Order Followup',
     'Team Leader OTD Status',
     'Buyerwise OTD Status',
-    'Orderwise OTD Status',
+    'Orderwise OTD Status'
+  ];
+  const knittingStatusItems = [
     'Knitting Status',
-    'Textile Close By PMC',
-    'Buyer Plan vs Actual',
-    'Yarn Allocation',
-    'Delivery Schedule'
+    'Running Orders',
+    'Textile Close By PMC'
   ];
   const adminPanelItems = ['Admin Panel', 'User Management', 'Database Connection', 'Settings'];
 
@@ -115,11 +116,11 @@ export default function Sidebar({
     if (productionItems.includes(currentPage)) {
       setProductionUpdateOpen(true);
     }
-    if (planOrderItems.includes(currentPage)) {
-      setPlanOrderOpen(true);
-      if (['Plan Order Followup', 'Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status'].includes(currentPage)) {
-        setOrderPlanSubOpen(true);
-      }
+    if (orderOtdItems.includes(currentPage)) {
+      setOrderOtdOpen(true);
+    }
+    if (knittingStatusItems.includes(currentPage)) {
+      setKnittingStatusOpen(true);
     }
     if (adminPanelItems.includes(currentPage)) {
       setAdminPanelOpen(true);
@@ -135,8 +136,14 @@ export default function Sidebar({
     if (currentUser?.allowedTabs && currentUser.allowedTabs.length > 0) {
       if (currentUser.allowedTabs.includes(tabName)) return true;
       if (
-        ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order Plan & Status', 'Plan Order Followup', 'Knitting Status', 'Textile Close By PMC'].includes(tabName) &&
-        (currentUser.allowedTabs.includes('Plan Order Followup') || currentUser.allowedTabs.includes('Order Plan & Status') || currentUser.allowedTabs.includes('Knitting Status') || currentUser.allowedTabs.includes('Textile Close By PMC'))
+        ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order OTD Status', 'Plan Order Followup'].includes(tabName) &&
+        (currentUser.allowedTabs.includes('Plan Order Followup') || currentUser.allowedTabs.includes('Order Plan & Status') || currentUser.allowedTabs.includes('Order OTD Status') || currentUser.allowedTabs.includes('Team Leader OTD Status'))
+      ) {
+        return true;
+      }
+      if (
+        ['Knitting Status', 'Running Orders', 'Textile Close By PMC'].includes(tabName) &&
+        (currentUser.allowedTabs.includes('Knitting Status') || currentUser.allowedTabs.includes('Running Orders') || currentUser.allowedTabs.includes('Textile Close By PMC'))
       ) {
         return true;
       }
@@ -149,7 +156,9 @@ export default function Sidebar({
   };
 
   const isProductionGroupVisible = productionItems.some(item => isTabAllowed(item));
-  const isPlanOrderGroupVisible = planOrderItems.some(item => isTabAllowed(item));
+  const isOrderOtdGroupVisible = orderOtdItems.some(item => isTabAllowed(item));
+  const isKnittingStatusGroupVisible = knittingStatusItems.some(item => isTabAllowed(item));
+  const isYarnAllocationVisible = isTabAllowed('Yarn Allocation');
   const isAdminGroupVisible = adminPanelItems.some(item => isTabAllowed(item));
 
   return (
@@ -284,143 +293,182 @@ export default function Sidebar({
             </div>
           )}
 
-          {/* 3. "Plan Order Followup" Expand & Collapse Group */}
-          {isPlanOrderGroupVisible && (
+          {/* 3. "Order OTD Status" Expand & Collapse Group */}
+          {isOrderOtdGroupVisible && (
             <div className="space-y-1 pt-1">
               <button
                 onClick={() => {
                   if (collapsed) {
                     setCollapsed(false);
-                    setPlanOrderOpen(true);
+                    setOrderOtdOpen(true);
                   } else {
-                    setPlanOrderOpen(!planOrderOpen);
+                    setOrderOtdOpen(!orderOtdOpen);
                   }
                 }}
                 className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer ${
-                  planOrderItems.includes(currentPage)
-                    ? 'text-blue-600 dark:text-blue-400 bg-blue-50/40 dark:bg-blue-950/20'
+                  orderOtdItems.includes(currentPage)
+                    ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50/40 dark:bg-indigo-950/20'
                     : 'text-gray-400 dark:text-slate-500 hover:bg-gray-50 dark:hover:bg-slate-800/50 hover:text-gray-700 dark:hover:text-slate-300'
                 }`}
-                title={collapsed ? "Plan Order Followup" : undefined}
-                id="sidebar-group-plan-order-followup"
+                title={collapsed ? "Order OTD Status" : undefined}
+                id="sidebar-group-order-otd-status"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
                   <ClipboardList className="h-4 w-4 shrink-0 text-indigo-500" />
-                  {!collapsed && <span className="truncate">Plan Order Followup</span>}
+                  {!collapsed && <span className="truncate">Order OTD Status</span>}
                 </div>
                 {!collapsed && (
                   <span className="text-gray-400">
-                    {planOrderOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    {orderOtdOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                   </span>
                 )}
               </button>
 
               {/* Sub-items list */}
-              {(!collapsed && planOrderOpen) && (
-                <div className="ml-3 pl-2.5 border-l-2 border-slate-100 dark:border-slate-800 space-y-1 pt-0.5">
-                  {/* Order Plan & Status Expandable Header */}
-                  {isTabAllowed('Plan Order Followup') && (
-                    <div className="space-y-1">
-                      <button
-                        type="button"
-                        onClick={() => setOrderPlanSubOpen(!orderPlanSubOpen)}
-                        className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs font-bold transition-all cursor-pointer ${
-                          ['Plan Order Followup', 'Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status'].includes(currentPage)
-                            ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/30'
-                            : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <ClipboardList className="h-4 w-4 shrink-0 text-indigo-500" />
-                          <span className="truncate">Order Plan & Status</span>
-                        </div>
-                        <span className="text-slate-400">
-                          {orderPlanSubOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                        </span>
-                      </button>
-
-                      {/* Nested Sub-Menu under Order Plan & Status */}
-                      {orderPlanSubOpen && (
-                        <div className="ml-3 pl-2 border-l border-indigo-200 dark:border-indigo-900/60 space-y-0.5">
-                          {[
-                            { name: 'Team Leader OTD Status', icon: Users, label: '1. Team Leader OTD Status' },
-                            { name: 'Buyerwise OTD Status', icon: Building2, label: '2. Buyerwise OTD Status' },
-                            { name: 'Orderwise OTD Status', icon: FileSpreadsheet, label: '3. Orderwise OTD Status' },
-                          ].map((sub) => {
-                            const Icon = sub.icon;
-                            const isActive = currentPage === sub.name || (currentPage === 'Plan Order Followup' && sub.name === 'Team Leader OTD Status');
-                            return (
-                              <a
-                                key={sub.name}
-                                href={`#${getPageHash(sub.name)}`}
-                                onClick={(e) => handleNavClick(e, sub.name)}
-                                className={`group flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[11px] font-semibold transition-all cursor-pointer ${
-                                  isActive
-                                    ? 'bg-indigo-50/90 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-bold'
-                                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'
-                                }`}
-                                title={`Click to view ${sub.label}. Right-click or Ctrl+Click to open in a new tab.`}
-                              >
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
-                                  <span className="truncate">{sub.label}</span>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={(e) => openInNewTab(e, sub.name)}
-                                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-indigo-200/60 dark:hover:bg-indigo-900 text-slate-400 hover:text-indigo-700 dark:hover:text-indigo-200 transition-opacity"
-                                  title={`Open ${sub.label} in a new tab`}
-                                >
-                                  <ExternalLink className="h-2.5 w-2.5" />
-                                </button>
-                              </a>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Other Plan Order Followup Items */}
+              {(!collapsed && orderOtdOpen) && (
+                <div className="ml-3 pl-2.5 border-l-2 border-indigo-100 dark:border-indigo-900/60 space-y-0.5 pt-0.5">
                   {[
-                    { name: 'Knitting Status', icon: Activity, label: 'Knitting Status' },
-                    { name: 'Textile Close By PMC', icon: ShieldCheck, label: 'Textile Close By PMC' },
-                    { name: 'Buyer Plan vs Actual', icon: Target, label: 'Buyer Plan vs Actual' },
-                    { name: 'Yarn Allocation', icon: Layers, label: 'Yarn Allocation' },
-                    { name: 'Delivery Schedule', icon: CalendarCheck, label: 'Delivery Schedule' },
+                    { name: 'Team Leader OTD Status', icon: Users, label: '1. Team Leader OTD Status' },
+                    { name: 'Buyerwise OTD Status', icon: Building2, label: '2. Buyerwise OTD Status' },
+                    { name: 'Orderwise OTD Status', icon: FileSpreadsheet, label: '3. Orderwise OTD Status' },
                   ].map((sub) => {
                     if (!isTabAllowed(sub.name)) return null;
                     const Icon = sub.icon;
-                    const isActive = currentPage === sub.name;
+                    const isActive = currentPage === sub.name || (currentPage === 'Order OTD Status' && sub.name === 'Team Leader OTD Status') || (currentPage === 'Plan Order Followup' && sub.name === 'Team Leader OTD Status');
                     return (
                       <a
                         key={sub.name}
                         href={`#${getPageHash(sub.name)}`}
                         onClick={(e) => handleNavClick(e, sub.name)}
-                        className={`group flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-xs font-semibold transition-all cursor-pointer ${
-                          isActive 
-                            ? 'bg-blue-50/80 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 font-bold' 
+                        className={`group flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[11px] font-semibold transition-all cursor-pointer ${
+                          isActive
+                            ? 'bg-indigo-50/90 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-bold'
                             : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'
                         }`}
                         title={`Click to view ${sub.label}. Right-click or Ctrl+Click to open in a new tab.`}
                       >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`} />
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
                           <span className="truncate">{sub.label}</span>
                         </div>
                         <button
                           type="button"
                           onClick={(e) => openInNewTab(e, sub.name)}
-                          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-slate-200/60 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-opacity"
+                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-indigo-200/60 dark:hover:bg-indigo-900 text-slate-400 hover:text-indigo-700 dark:hover:text-indigo-200 transition-opacity"
                           title={`Open ${sub.label} in a new tab`}
                         >
-                          <ExternalLink className="h-3 w-3" />
+                          <ExternalLink className="h-2.5 w-2.5" />
                         </button>
                       </a>
                     );
                   })}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* 4. "Knitting Status" Expand & Collapse Group */}
+          {isKnittingStatusGroupVisible && (
+            <div className="space-y-1 pt-1">
+              <button
+                onClick={() => {
+                  if (collapsed) {
+                    setCollapsed(false);
+                    setKnittingStatusOpen(true);
+                  } else {
+                    setKnittingStatusOpen(!knittingStatusOpen);
+                  }
+                }}
+                className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer ${
+                  knittingStatusItems.includes(currentPage)
+                    ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50/40 dark:bg-indigo-950/20'
+                    : 'text-gray-400 dark:text-slate-500 hover:bg-gray-50 dark:hover:bg-slate-800/50 hover:text-gray-700 dark:hover:text-slate-300'
+                }`}
+                title={collapsed ? "Knitting Status" : undefined}
+                id="sidebar-group-knitting-status"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Activity className="h-4 w-4 shrink-0 text-indigo-500" />
+                  {!collapsed && <span className="truncate">Knitting Status</span>}
+                </div>
+                {!collapsed && (
+                  <span className="text-gray-400">
+                    {knittingStatusOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  </span>
+                )}
+              </button>
+
+              {/* Sub-items list */}
+              {(!collapsed && knittingStatusOpen) && (
+                <div className="ml-3 pl-2.5 border-l-2 border-indigo-100 dark:border-indigo-900/60 space-y-0.5 pt-0.5">
+                  {[
+                    { name: 'Running Orders', icon: Activity, label: 'Running Orders' },
+                    { name: 'Textile Close By PMC', icon: ShieldCheck, label: 'Textile Close By PMC' },
+                  ].map((sub) => {
+                    if (!isTabAllowed(sub.name)) return null;
+                    const Icon = sub.icon;
+                    const isActive = currentPage === sub.name || (sub.name === 'Running Orders' && currentPage === 'Knitting Status');
+                    return (
+                      <a
+                        key={sub.name}
+                        href={`#${getPageHash(sub.name)}`}
+                        onClick={(e) => handleNavClick(e, sub.name)}
+                        className={`group flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[11px] font-semibold transition-all cursor-pointer ${
+                          isActive
+                            ? 'bg-indigo-50/90 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-bold'
+                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                        title={`Click to view ${sub.label}. Right-click or Ctrl+Click to open in a new tab.`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
+                          <span className="truncate">{sub.label}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => openInNewTab(e, sub.name)}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-indigo-200/60 dark:hover:bg-indigo-900 text-slate-400 hover:text-indigo-700 dark:hover:text-indigo-200 transition-opacity"
+                          title={`Open ${sub.label} in a new tab`}
+                        >
+                          <ExternalLink className="h-2.5 w-2.5" />
+                        </button>
+                      </a>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 5. "Yarn Allocation" Direct Main Menu Item */}
+          {isYarnAllocationVisible && (
+            <div className="pt-1">
+              <a
+                href={`#${getPageHash('Yarn Allocation')}`}
+                onClick={(e) => handleNavClick(e, 'Yarn Allocation')}
+                className={`group flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-bold transition-all cursor-pointer ${
+                  currentPage === 'Yarn Allocation'
+                    ? 'bg-blue-50/80 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 font-bold'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title={collapsed ? "Yarn Allocation" : "Right-click or Ctrl+Click to open in a new tab"}
+                id="sidebar-nav-yarn-allocation"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Layers className={`h-4 w-4 shrink-0 ${currentPage === 'Yarn Allocation' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`} />
+                  {!collapsed && <span className="truncate uppercase tracking-wider">Yarn Allocation</span>}
+                </div>
+                {!collapsed && (
+                  <button
+                    type="button"
+                    onClick={(e) => openInNewTab(e, 'Yarn Allocation')}
+                    className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-slate-200/60 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-opacity"
+                    title="Open Yarn Allocation in a new tab"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                  </button>
+                )}
+              </a>
             </div>
           )}
 

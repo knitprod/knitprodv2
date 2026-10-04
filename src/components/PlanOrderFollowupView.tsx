@@ -375,7 +375,7 @@ function formatYarnQty(val: number): string {
 }
 
 interface PlanOrderFollowupViewProps {
-  initialSubTab?: 'team_leader' | 'buyer' | 'summary' | 'delivery';
+  initialSubTab?: 'team_leader' | 'buyer' | 'summary';
   currentUser?: UserRecord | null;
 }
 
@@ -482,7 +482,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       setOrders(deduplicated);
     }
   }, [globalOrders]);
-  const [activeSubTab, setActiveSubTab] = useState<'team_leader' | 'buyer' | 'summary' | 'delivery'>(
+  const [activeSubTab, setActiveSubTab] = useState<'team_leader' | 'buyer' | 'summary'>(
     initialSubTab || 'team_leader'
   );
 
@@ -2781,13 +2781,13 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
         <button
           onClick={() => setActiveSubTab('team_leader')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
-            activeSubTab === 'team_leader' || activeSubTab === 'delivery'
+            activeSubTab === 'team_leader'
               ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
               : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
           <Users className="h-4 w-4" />
-          <span>1. Team Leader OTD Status</span>
+          <span>Team Leader OTD Status</span>
         </button>
 
         <button
@@ -2799,7 +2799,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
           }`}
         >
           <Building2 className="h-4 w-4" />
-          <span>2. Buyerwise OTD Status</span>
+          <span>Buyerwise OTD Status</span>
         </button>
 
         <button
@@ -2811,12 +2811,12 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
           }`}
         >
           <FileSpreadsheet className="h-4 w-4" />
-          <span>3. Orderwise OTD Status</span>
+          <span>Orderwise OTD Status</span>
         </button>
       </div>
 
       {/* SUB-TAB 1: TEAM LEADER OTD STATUS */}
-      {(activeSubTab === 'team_leader' || activeSubTab === 'delivery') && (() => {
+      {activeSubTab === 'team_leader' && (() => {
         const displayTeamLeaders = teamLeaderFilter === 'All'
           ? teamLeadersList
           : teamLeadersList.filter(tl => tl === teamLeaderFilter);

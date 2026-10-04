@@ -1874,7 +1874,7 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
           }`}
         >
           <Activity className="w-4 h-4" />
-          <span>Knitting Status</span>
+          <span>Running Orders</span>
         </button>
 
         <button

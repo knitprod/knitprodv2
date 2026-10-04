@@ -58,8 +58,8 @@ export default function TopNavMenu({ currentPage, onNavigate, currentUser }: Top
     if (currentUser?.allowedTabs && currentUser.allowedTabs.length > 0) {
       if (currentUser.allowedTabs.includes(tabName)) return true;
       if (
-        ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order Plan & Status', 'Plan Order Followup', 'Knitting Status', 'Textile Close By PMC'].includes(tabName) &&
-        (currentUser.allowedTabs.includes('Plan Order Followup') || currentUser.allowedTabs.includes('Order Plan & Status') || currentUser.allowedTabs.includes('Knitting Status') || currentUser.allowedTabs.includes('Textile Close By PMC'))
+        ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order Plan & Status', 'Plan Order Followup', 'Knitting Status', 'Running Orders', 'Textile Close By PMC'].includes(tabName) &&
+        (currentUser.allowedTabs.includes('Plan Order Followup') || currentUser.allowedTabs.includes('Order Plan & Status') || currentUser.allowedTabs.includes('Order OTD Status') || currentUser.allowedTabs.includes('Team Leader OTD Status') || currentUser.allowedTabs.includes('Knitting Status') || currentUser.allowedTabs.includes('Running Orders') || currentUser.allowedTabs.includes('Textile Close By PMC'))
       ) {
         return true;
       }
@@ -78,16 +78,15 @@ export default function TopNavMenu({ currentPage, onNavigate, currentUser }: Top
     { name: 'Reports', icon: FileText, label: 'Reports' },
   ];
 
-  const planOrderItems = [
-    { name: 'Plan Order Followup', icon: ClipboardList, label: 'Order Plan & Status' },
+  const orderOtdItems = [
     { name: 'Team Leader OTD Status', icon: Users, label: 'Team Leader OTD Status' },
     { name: 'Buyerwise OTD Status', icon: Building2, label: 'Buyerwise OTD Status' },
     { name: 'Orderwise OTD Status', icon: FileSpreadsheet, label: 'Orderwise OTD Status' },
-    { name: 'Knitting Status', icon: Activity, label: 'Knitting Status' },
+  ];
+
+  const knittingStatusItems = [
+    { name: 'Running Orders', icon: Activity, label: 'Running Orders' },
     { name: 'Textile Close By PMC', icon: ShieldCheck, label: 'Textile Close By PMC' },
-    { name: 'Buyer Plan vs Actual', icon: Target, label: 'Buyer Plan vs Actual' },
-    { name: 'Yarn Allocation', icon: Layers, label: 'Yarn Allocation' },
-    { name: 'Delivery Schedule', icon: CalendarCheck, label: 'Delivery Schedule' },
   ];
 
   const adminPanelItems = [
@@ -97,11 +96,15 @@ export default function TopNavMenu({ currentPage, onNavigate, currentUser }: Top
   ];
 
   const isProductionAllowed = productionItems.some(i => isTabAllowed(i.name));
-  const isPlanOrderAllowed = planOrderItems.some(i => isTabAllowed(i.name));
+  const isOrderOtdAllowed = orderOtdItems.some(i => isTabAllowed(i.name));
+  const isKnittingStatusAllowed = knittingStatusItems.some(i => isTabAllowed(i.name));
+  const isYarnAllocationAllowed = isTabAllowed('Yarn Allocation');
   const isAdminPanelAllowed = adminPanelItems.some(i => isTabAllowed(i.name));
 
   const isProductionActive = productionItems.some(i => i.name === currentPage);
-  const isPlanOrderActive = planOrderItems.some(i => i.name === currentPage);
+  const isOrderOtdActive = orderOtdItems.some(i => i.name === currentPage) || currentPage === 'Order OTD Status' || currentPage === 'Plan Order Followup';
+  const isKnittingStatusActive = knittingStatusItems.some(i => i.name === currentPage) || currentPage === 'Knitting Status';
+  const isYarnAllocationActive = currentPage === 'Yarn Allocation';
   const isAdminPanelActive = adminPanelItems.some(i => i.name === currentPage);
 
   const toggleDropdown = (name: string) => {
@@ -177,93 +180,31 @@ export default function TopNavMenu({ currentPage, onNavigate, currentUser }: Top
         </div>
       )}
 
-      {/* 3. Plan Order Followup Dropdown */}
-      {isPlanOrderAllowed && (
+      {/* 3. Order OTD Status Dropdown */}
+      {isOrderOtdAllowed && (
         <div className="relative">
           <button
-            onClick={() => toggleDropdown('planOrder')}
+            onClick={() => toggleDropdown('orderOtd')}
             className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-extrabold transition-all cursor-pointer ${
-              isPlanOrderActive
+              isOrderOtdActive
                 ? 'bg-blue-600 text-white shadow-xs shadow-blue-500/30'
-                : openDropdown === 'planOrder'
+                : openDropdown === 'orderOtd'
                 ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
                 : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
-            id="topnav-group-planorder"
+            id="topnav-group-order-otd"
           >
-            <ClipboardList className={`h-4 w-4 ${isPlanOrderActive ? 'text-white' : 'text-indigo-500'}`} />
-            <span>Plan Order Followup</span>
-            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${openDropdown === 'planOrder' ? 'rotate-180' : ''}`} />
+            <ClipboardList className={`h-4 w-4 ${isOrderOtdActive ? 'text-white' : 'text-indigo-500'}`} />
+            <span>Order OTD Status</span>
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${openDropdown === 'orderOtd' ? 'rotate-180' : ''}`} />
           </button>
 
-          {openDropdown === 'planOrder' && (
+          {openDropdown === 'orderOtd' && (
             <div className="absolute left-0 mt-1.5 w-60 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-2 shadow-xl z-50 animate-fade-in space-y-1">
-              {/* Order Plan & Status Header and Sub-menu */}
-              {isTabAllowed('Plan Order Followup') && (
-                <div className="space-y-1">
-                  <button
-                    type="button"
-                    onClick={() => setOrderPlanSubOpen(!orderPlanSubOpen)}
-                    className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50/70 dark:hover:bg-indigo-950/50 transition-all cursor-pointer"
-                  >
-                    <div className="flex items-center gap-2">
-                      <ClipboardList className="h-4 w-4 shrink-0 text-indigo-500" />
-                      <span className="font-black uppercase tracking-wider text-[11px]">Order Plan & Status</span>
-                    </div>
-                    <span className="p-0.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-all">
-                      {orderPlanSubOpen ? (
-                        <ChevronUp className="h-3.5 w-3.5 text-indigo-500" />
-                      ) : (
-                        <ChevronDown className="h-3.5 w-3.5 text-indigo-500" />
-                      )}
-                    </span>
-                  </button>
-                  
-                  {orderPlanSubOpen && (
-                    <div className="pl-3 ml-2 border-l-2 border-indigo-100 dark:border-indigo-900/60 space-y-0.5">
-                      {[
-                        { name: 'Team Leader OTD Status', icon: Users, label: '1. Team Leader OTD Status' },
-                        { name: 'Buyerwise OTD Status', icon: Building2, label: '2. Buyerwise OTD Status' },
-                        { name: 'Orderwise OTD Status', icon: FileSpreadsheet, label: '3. Orderwise OTD Status' },
-                      ].map((sub) => {
-                        const Icon = sub.icon;
-                        const isActive = currentPage === sub.name || (currentPage === 'Plan Order Followup' && sub.name === 'Team Leader OTD Status');
-                        return (
-                          <button
-                            key={sub.name}
-                            onClick={() => {
-                              onNavigate(sub.name);
-                              setOpenDropdown(null);
-                            }}
-                            className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-semibold transition-all cursor-pointer ${
-                              isActive
-                                ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-extrabold'
-                                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80'
-                            }`}
-                          >
-                            <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
-                            <span className="truncate">{sub.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
-
-              {/* Other Plan Order Followup Items */}
-              {[
-                { name: 'Knitting Status', icon: Activity, label: 'Knitting Status' },
-                { name: 'Textile Close By PMC', icon: ShieldCheck, label: 'Textile Close By PMC' },
-                { name: 'Buyer Plan vs Actual', icon: Target, label: 'Buyer Plan vs Actual' },
-                { name: 'Yarn Allocation', icon: Layers, label: 'Yarn Allocation' },
-                { name: 'Delivery Schedule', icon: CalendarCheck, label: 'Delivery Schedule' },
-              ].map((sub) => {
+              {orderOtdItems.map((sub) => {
                 if (!isTabAllowed(sub.name)) return null;
                 const Icon = sub.icon;
-                const isActive = currentPage === sub.name;
+                const isActive = currentPage === sub.name || (currentPage === 'Order OTD Status' && sub.name === 'Team Leader OTD Status') || (currentPage === 'Plan Order Followup' && sub.name === 'Team Leader OTD Status');
                 return (
                   <button
                     key={sub.name}
@@ -285,6 +226,73 @@ export default function TopNavMenu({ currentPage, onNavigate, currentUser }: Top
             </div>
           )}
         </div>
+      )}
+
+      {/* 4. Knitting Status Dropdown */}
+      {isKnittingStatusAllowed && (
+        <div className="relative">
+          <button
+            onClick={() => toggleDropdown('knittingStatus')}
+            className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-extrabold transition-all cursor-pointer ${
+              isKnittingStatusActive
+                ? 'bg-blue-600 text-white shadow-xs shadow-blue-500/30'
+                : openDropdown === 'knittingStatus'
+                ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
+                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+            id="topnav-group-knitting-status"
+          >
+            <Activity className={`h-4 w-4 ${isKnittingStatusActive ? 'text-white' : 'text-indigo-500'}`} />
+            <span>Knitting Status</span>
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${openDropdown === 'knittingStatus' ? 'rotate-180' : ''}`} />
+          </button>
+
+          {openDropdown === 'knittingStatus' && (
+            <div className="absolute left-0 mt-1.5 w-60 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-2 shadow-xl z-50 animate-fade-in space-y-1">
+              {knittingStatusItems.map((sub) => {
+                if (!isTabAllowed(sub.name)) return null;
+                const Icon = sub.icon;
+                const isActive = currentPage === sub.name || (sub.name === 'Running Orders' && currentPage === 'Knitting Status');
+                return (
+                  <button
+                    key={sub.name}
+                    onClick={() => {
+                      onNavigate(sub.name);
+                      setOpenDropdown(null);
+                    }}
+                    className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-extrabold'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80'
+                    }`}
+                  >
+                    <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
+                    <span className="truncate">{sub.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 5. Yarn Allocation Direct Item */}
+      {isYarnAllocationAllowed && (
+        <button
+          onClick={() => {
+            onNavigate('Yarn Allocation');
+            setOpenDropdown(null);
+          }}
+          className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-extrabold transition-all cursor-pointer ${
+            isYarnAllocationActive
+              ? 'bg-blue-600 text-white shadow-xs shadow-blue-500/30'
+              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+          id="topnav-yarn-allocation"
+        >
+          <Layers className={`h-4 w-4 ${isYarnAllocationActive ? 'text-white' : 'text-slate-500 dark:text-slate-400'}`} />
+          <span>Yarn Allocation</span>
+        </button>
       )}
 
       {/* 4. Admin Panel Dropdown */}

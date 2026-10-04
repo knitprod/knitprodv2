@@ -30,7 +30,8 @@ import {
   ChevronUp,
   ShieldCheck,
   Database,
-  Loader2
+  Loader2,
+  Activity
 } from 'lucide-react';
 import { initBrandingSync, updateDocumentFavicon } from './lib/logoStore';
 import Header from './components/Header';
@@ -173,15 +174,15 @@ export const PAGE_TO_HASH: Record<string, string> = {
   'Floor Dashboard': 'floor-dashboard',
   'Management Dashboard': 'management-dashboard',
   'Reports': 'reports',
+  'Order OTD Status': 'order-otd-status',
   'Plan Order Followup': 'plan-order-followup',
   'Team Leader OTD Status': 'team-leader-otd',
   'Buyerwise OTD Status': 'buyerwise-otd',
   'Orderwise OTD Status': 'orderwise-otd',
-  'Buyer Plan vs Actual': 'buyer-plan-actual',
-  'Yarn Allocation': 'yarn-allocation',
-  'Delivery Schedule': 'delivery-schedule',
   'Knitting Status': 'knitting-status',
+  'Running Orders': 'running-orders',
   'Textile Close By PMC': 'textile-close-pmc',
+  'Yarn Allocation': 'yarn-allocation',
   'Admin Panel': 'admin-panel',
   'User Management': 'user-management',
   'Database Connection': 'database-connection',
@@ -207,8 +208,8 @@ export const isPageAllowedForUser = (user: UserRecord | null, tabName: string) =
   if (user.allowedTabs && user.allowedTabs.length > 0) {
     if (user.allowedTabs.includes(tabName)) return true;
     if (
-      ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Buyer Plan vs Actual', 'Delivery Schedule', 'Knitting Status', 'Textile Close By PMC', 'Order Plan & Status', 'Plan Order Followup'].includes(tabName) &&
-      (user.allowedTabs.includes('Plan Order Followup') || user.allowedTabs.includes('Order Plan & Status') || user.allowedTabs.includes('Knitting Status') || user.allowedTabs.includes('Textile Close By PMC'))
+      ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order OTD Status', 'Plan Order Followup', 'Knitting Status', 'Running Orders', 'Textile Close By PMC'].includes(tabName) &&
+      (user.allowedTabs.includes('Plan Order Followup') || user.allowedTabs.includes('Order Plan & Status') || user.allowedTabs.includes('Order OTD Status') || user.allowedTabs.includes('Team Leader OTD Status') || user.allowedTabs.includes('Knitting Status') || user.allowedTabs.includes('Running Orders') || user.allowedTabs.includes('Textile Close By PMC'))
     ) {
       return true;
     }
@@ -494,6 +495,17 @@ export default function App() {
   }, [selectedFloorId]);
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
+  const [mobileExpanded, setMobileExpanded] = useState<Record<string, boolean>>({
+    production: true,
+    orderOtd: true,
+    knittingStatus: true,
+    admin: false,
+  });
+
+  const toggleMobileExpanded = (key: string) => {
+    setMobileExpanded(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
   const [showLogoutConfirm, setShowLogoutConfirm] = useState<boolean>(false);
 
   // Dark mode state in React memory
@@ -1263,155 +1275,206 @@ export default function App() {
                       {/* Production Update Group */}
                       {['Production Ledger', 'Floor Dashboard', 'Management Dashboard', 'Reports'].some(isTabAllowed) && (
                         <div className="space-y-1">
-                          <div className="flex items-center gap-2 px-4 py-1.5 text-xs font-black uppercase text-blue-400 tracking-wider">
-                            <Factory className="h-4 w-4 shrink-0" />
-                            <span>Production Update</span>
-                          </div>
-                          <div className="pl-4 space-y-1 border-l-2 border-blue-900/50 ml-4">
-                            {[
-                              { name: 'Production Ledger', icon: Table, label: 'Production Ledger' },
-                              { name: 'Floor Dashboard', icon: LayoutGrid, label: 'Floor Dashboard' },
-                              { name: 'Management Dashboard', icon: TrendingUp, label: 'Management Dashboard' },
-                              { name: 'Reports', icon: FileText, label: 'Reports' },
-                            ].map((sub) => {
-                              if (!isTabAllowed(sub.name)) return null;
-                              const Icon = sub.icon;
-                              const isActive = currentPage === sub.name;
-                              return (
-                                <button
-                                  key={sub.name}
-                                  onClick={() => {
-                                    setCurrentPage(sub.name);
-                                    setMobileMenuOpen(false);
-                                  }}
-                                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-all cursor-pointer ${
-                                    isActive 
-                                      ? 'bg-blue-600/30 text-white font-bold border border-blue-500/30' 
-                                      : 'text-slate-300 hover:bg-white/10'
-                                  }`}
-                                >
-                                  <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-blue-400' : 'text-slate-400'}`} />
-                                  <span>{sub.label}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => toggleMobileExpanded('production')}
+                            className="flex w-full items-center justify-between px-3 py-2 text-xs font-black uppercase text-blue-400 tracking-wider hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <div className="flex items-center gap-2">
+                              <Factory className="h-4 w-4 shrink-0" />
+                              <span>Production Update</span>
+                            </div>
+                            <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${mobileExpanded.production ? 'rotate-180' : ''}`} />
+                          </button>
+                          {mobileExpanded.production && (
+                            <div className="pl-4 space-y-1 border-l-2 border-blue-900/50 ml-4 animate-fade-in">
+                              {[
+                                { name: 'Production Ledger', icon: Table, label: 'Production Ledger' },
+                                { name: 'Floor Dashboard', icon: LayoutGrid, label: 'Floor Dashboard' },
+                                { name: 'Management Dashboard', icon: TrendingUp, label: 'Management Dashboard' },
+                                { name: 'Reports', icon: FileText, label: 'Reports' },
+                              ].map((sub) => {
+                                if (!isTabAllowed(sub.name)) return null;
+                                const Icon = sub.icon;
+                                const isActive = currentPage === sub.name;
+                                return (
+                                  <button
+                                    key={sub.name}
+                                    onClick={() => {
+                                      setCurrentPage(sub.name);
+                                      setMobileMenuOpen(false);
+                                    }}
+                                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-all cursor-pointer ${
+                                      isActive 
+                                        ? 'bg-blue-600/30 text-white font-bold border border-blue-500/30' 
+                                        : 'text-slate-300 hover:bg-white/10'
+                                    }`}
+                                  >
+                                    <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-blue-400' : 'text-slate-400'}`} />
+                                    <span>{sub.label}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       )}
 
-                      {/* Plan Order Followup Group */}
-                      {['Plan Order Followup', 'Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Buyer Plan vs Actual', 'Yarn Allocation', 'Delivery Schedule'].some(isTabAllowed) && (
+                      {/* 1. Main Menu Order OTD Status Group */}
+                      {['Order OTD Status', 'Plan Order Followup', 'Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status'].some(isTabAllowed) && (
                         <div className="space-y-1 pt-1">
-                          <div className="flex items-center gap-2 px-4 py-1.5 text-xs font-black uppercase text-indigo-400 tracking-wider">
-                            <ClipboardList className="h-4 w-4 shrink-0" />
-                            <span>Plan Order Followup</span>
-                          </div>
-                          <div className="pl-4 space-y-1 border-l-2 border-indigo-900/50 ml-4">
-                            {/* Order Plan & Status Sub-Menu Group */}
-                            {isTabAllowed('Plan Order Followup') && (
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-2 px-2 py-1 text-xs font-bold text-slate-200">
-                                  <ClipboardList className="h-3.5 w-3.5 text-indigo-400" />
-                                  <span>Order Plan & Status</span>
-                                </div>
-                                <div className="pl-3 ml-2 border-l border-indigo-500/40 space-y-0.5">
-                                  {[
-                                    { name: 'Team Leader OTD Status', icon: Users, label: '1. Team Leader OTD Status' },
-                                    { name: 'Buyerwise OTD Status', icon: Building2, label: '2. Buyerwise OTD Status' },
-                                    { name: 'Orderwise OTD Status', icon: FileSpreadsheet, label: '3. Orderwise OTD Status' },
-                                  ].map((sub) => {
-                                    const Icon = sub.icon;
-                                    const isActive = currentPage === sub.name;
-                                    return (
-                                      <button
-                                        key={sub.name}
-                                        onClick={() => {
-                                          setCurrentPage(sub.name);
-                                          setMobileMenuOpen(false);
-                                        }}
-                                        className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs font-semibold transition-all cursor-pointer ${
-                                          isActive 
-                                            ? 'bg-indigo-600/40 text-white font-bold border border-indigo-500/40' 
-                                            : 'text-slate-300 hover:bg-white/10'
-                                        }`}
-                                      >
-                                        <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-indigo-400' : 'text-slate-400'}`} />
-                                        <span>{sub.label}</span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Other Items */}
-                            {[
-                              { name: 'Knitting Status', icon: Layers, label: 'Knitting Status' },
-                              { name: 'Textile Close By PMC', icon: Layers, label: 'Textile Close By PMC' },
-                              { name: 'Buyer Plan vs Actual', icon: Target, label: 'Buyer Plan vs Actual' },
-                              { name: 'Yarn Allocation', icon: Layers, label: 'Yarn Allocation' },
-                              { name: 'Delivery Schedule', icon: CalendarCheck, label: 'Delivery Schedule' },
-                            ].map((sub) => {
-                              if (!isTabAllowed(sub.name)) return null;
-                              const Icon = sub.icon;
-                              const isActive = currentPage === sub.name;
-                              return (
-                                <button
-                                  key={sub.name}
-                                  onClick={() => {
-                                    setCurrentPage(sub.name);
-                                    setMobileMenuOpen(false);
-                                  }}
-                                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-all cursor-pointer ${
-                                    isActive 
-                                      ? 'bg-indigo-600/30 text-white font-bold border border-indigo-500/30' 
-                                      : 'text-slate-300 hover:bg-white/10'
-                                  }`}
-                                >
-                                  <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-indigo-400' : 'text-slate-400'}`} />
-                                  <span>{sub.label}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => toggleMobileExpanded('orderOtd')}
+                            className="flex w-full items-center justify-between px-3 py-2 text-xs font-black uppercase text-indigo-400 tracking-wider hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <div className="flex items-center gap-2">
+                              <ClipboardList className="h-4 w-4 shrink-0" />
+                              <span>Order OTD Status</span>
+                            </div>
+                            <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${mobileExpanded.orderOtd ? 'rotate-180' : ''}`} />
+                          </button>
+                          {mobileExpanded.orderOtd && (
+                            <div className="pl-4 space-y-1 border-l-2 border-indigo-900/50 ml-4 animate-fade-in">
+                              {[
+                                { name: 'Team Leader OTD Status', icon: Users, label: 'Team Leader OTD Status' },
+                                { name: 'Buyerwise OTD Status', icon: Building2, label: 'Buyerwise OTD Status' },
+                                { name: 'Orderwise OTD Status', icon: FileSpreadsheet, label: 'Orderwise OTD Status' },
+                              ].map((sub) => {
+                                if (!isTabAllowed(sub.name)) return null;
+                                const Icon = sub.icon;
+                                const isActive = currentPage === sub.name || (currentPage === 'Order OTD Status' && sub.name === 'Team Leader OTD Status') || (currentPage === 'Plan Order Followup' && sub.name === 'Team Leader OTD Status');
+                                return (
+                                  <button
+                                    key={sub.name}
+                                    onClick={() => {
+                                      setCurrentPage(sub.name);
+                                      setMobileMenuOpen(false);
+                                    }}
+                                    className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs font-semibold transition-all cursor-pointer ${
+                                      isActive 
+                                        ? 'bg-indigo-600/40 text-white font-bold border border-indigo-500/40' 
+                                        : 'text-slate-300 hover:bg-white/10'
+                                    }`}
+                                  >
+                                    <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-indigo-400' : 'text-slate-400'}`} />
+                                    <span>{sub.label}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
+                      )}
+
+                      {/* 2. Main Menu Knitting Status Group */}
+                      {['Knitting Status', 'Running Orders', 'Textile Close By PMC'].some(isTabAllowed) && (
+                        <div className="space-y-1 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => toggleMobileExpanded('knittingStatus')}
+                            className="flex w-full items-center justify-between px-3 py-2 text-xs font-black uppercase text-indigo-400 tracking-wider hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <div className="flex items-center gap-2">
+                              <Activity className="h-4 w-4 shrink-0" />
+                              <span>Knitting Status</span>
+                            </div>
+                            <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${mobileExpanded.knittingStatus ? 'rotate-180' : ''}`} />
+                          </button>
+                          {mobileExpanded.knittingStatus && (
+                            <div className="pl-4 space-y-1 border-l-2 border-indigo-900/50 ml-4 animate-fade-in">
+                              {[
+                                { name: 'Running Orders', icon: Activity, label: 'Running Orders' },
+                                { name: 'Textile Close By PMC', icon: ShieldCheck, label: 'Textile Close By PMC' },
+                              ].map((sub) => {
+                                if (!isTabAllowed(sub.name)) return null;
+                                const Icon = sub.icon;
+                                const isActive = currentPage === sub.name || (sub.name === 'Running Orders' && currentPage === 'Knitting Status');
+                                return (
+                                  <button
+                                    key={sub.name}
+                                    onClick={() => {
+                                      setCurrentPage(sub.name);
+                                      setMobileMenuOpen(false);
+                                    }}
+                                    className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs font-semibold transition-all cursor-pointer ${
+                                      isActive 
+                                        ? 'bg-indigo-600/40 text-white font-bold border border-indigo-500/40' 
+                                        : 'text-slate-300 hover:bg-white/10'
+                                    }`}
+                                  >
+                                    <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-indigo-400' : 'text-slate-400'}`} />
+                                    <span>{sub.label}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* 3. Main Menu Yarn Allocation Direct Item */}
+                      {isTabAllowed('Yarn Allocation') && (
+                        <button
+                          onClick={() => {
+                            setCurrentPage('Yarn Allocation');
+                            setMobileMenuOpen(false);
+                          }}
+                          className={`flex w-full items-center gap-3.5 rounded-xl px-4 py-2.5 text-left text-sm font-bold transition-all duration-150 cursor-pointer ${
+                            currentPage === 'Yarn Allocation' 
+                              ? 'bg-[#0F4C81] text-white shadow-md ring-1 ring-blue-400/20' 
+                              : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          <Layers className="h-5 w-5 text-blue-400 shrink-0" />
+                          <span>Yarn Allocation</span>
+                        </button>
                       )}
 
                       {/* Admin Panel Group */}
                       {['User Management', 'Database Connection', 'Settings'].some(isTabAllowed) && (
                         <div className="space-y-1 pt-1">
-                          <div className="flex items-center gap-2 px-4 py-1.5 text-xs font-black uppercase text-blue-400 tracking-wider">
-                            <ShieldCheck className="h-4 w-4 shrink-0" />
-                            <span>Admin Panel</span>
-                          </div>
-                          <div className="pl-4 space-y-1 border-l-2 border-blue-900/50 ml-4">
-                            {[
-                              { name: 'User Management', icon: Users, label: 'User Management' },
-                              { name: 'Database Connection', icon: Database, label: 'Database Connection' },
-                              { name: 'Settings', icon: Settings, label: 'System Settings' },
-                            ].map((sub) => {
-                              if (!isTabAllowed(sub.name)) return null;
-                              const Icon = sub.icon;
-                              const isActive = currentPage === sub.name;
-                              return (
-                                <button
-                                  key={sub.name}
-                                  onClick={() => {
-                                    setCurrentPage(sub.name);
-                                    setMobileMenuOpen(false);
-                                  }}
-                                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-all cursor-pointer ${
-                                    isActive 
-                                      ? 'bg-blue-600/30 text-white font-bold border border-blue-500/30' 
-                                      : 'text-slate-300 hover:bg-white/10'
-                                  }`}
-                                >
-                                  <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-blue-400' : 'text-slate-400'}`} />
-                                  <span>{sub.label}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => toggleMobileExpanded('admin')}
+                            className="flex w-full items-center justify-between px-3 py-2 text-xs font-black uppercase text-blue-400 tracking-wider hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <div className="flex items-center gap-2">
+                              <ShieldCheck className="h-4 w-4 shrink-0" />
+                              <span>Admin Panel</span>
+                            </div>
+                            <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${mobileExpanded.admin ? 'rotate-180' : ''}`} />
+                          </button>
+                          {mobileExpanded.admin && (
+                            <div className="pl-4 space-y-1 border-l-2 border-blue-900/50 ml-4 animate-fade-in">
+                              {[
+                                { name: 'User Management', icon: Users, label: 'User Management' },
+                                { name: 'Database Connection', icon: Database, label: 'Database Connection' },
+                                { name: 'Settings', icon: Settings, label: 'System Settings' },
+                              ].map((sub) => {
+                                if (!isTabAllowed(sub.name)) return null;
+                                const Icon = sub.icon;
+                                const isActive = currentPage === sub.name;
+                                return (
+                                  <button
+                                    key={sub.name}
+                                    onClick={() => {
+                                      setCurrentPage(sub.name);
+                                      setMobileMenuOpen(false);
+                                    }}
+                                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-all cursor-pointer ${
+                                      isActive 
+                                        ? 'bg-blue-600/30 text-white font-bold border border-blue-500/30' 
+                                        : 'text-slate-300 hover:bg-white/10'
+                                    }`}
+                                  >
+                                    <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-blue-400' : 'text-slate-400'}`} />
+                                    <span>{sub.label}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       )}
                     </>
@@ -1552,20 +1615,18 @@ export default function App() {
 
             {(
               currentPage === 'Plan Order Followup' ||
+              currentPage === 'Order OTD Status' ||
               currentPage === 'Team Leader OTD Status' ||
               currentPage === 'Buyerwise OTD Status' ||
-              currentPage === 'Orderwise OTD Status' ||
-              currentPage === 'Buyer Plan vs Actual' ||
-              currentPage === 'Delivery Schedule'
+              currentPage === 'Orderwise OTD Status'
             ) && (
               <div className="animate-fade-in">
                 <PlanOrderFollowupView 
                   currentUser={currentUser}
                   initialSubTab={
-                    currentPage === 'Team Leader OTD Status' ? 'team_leader' :
-                    currentPage === 'Buyerwise OTD Status' || currentPage === 'Buyer Plan vs Actual' ? 'buyer' :
+                    currentPage === 'Buyerwise OTD Status' ? 'buyer' :
                     currentPage === 'Orderwise OTD Status' ? 'summary' :
-                    currentPage === 'Delivery Schedule' ? 'delivery' : 'team_leader'
+                    'team_leader'
                   } 
                 />
               </div>
@@ -1577,7 +1638,7 @@ export default function App() {
               </div>
             )}
 
-            {(currentPage === 'Knitting Status' || currentPage === 'Textile Close By PMC') && (
+            {(currentPage === 'Knitting Status' || currentPage === 'Running Orders' || currentPage === 'Textile Close By PMC') && (
               <div className="animate-fade-in">
                 <KnittingStatusView 
                   currentUser={currentUser} 

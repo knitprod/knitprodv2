@@ -72,15 +72,14 @@ export const ALL_TABS = [
   'Floor Dashboard',
   'Management Dashboard',
   'Reports',
-  'Plan Order Followup',
+  'Order OTD Status',
   'Team Leader OTD Status',
   'Buyerwise OTD Status',
   'Orderwise OTD Status',
   'Knitting Status',
+  'Running Orders',
   'Textile Close By PMC',
-  'Buyer Plan vs Actual',
   'Yarn Allocation',
-  'Delivery Schedule',
   'User Management',
   'Database Connection',
   'Settings'
@@ -93,15 +92,15 @@ export const getTabEmoji = (tabName: string): string => {
     case 'Floor Dashboard': return '🏭';
     case 'Management Dashboard': return '📈';
     case 'Reports': return '📑';
+    case 'Order OTD Status': return '📋';
     case 'Plan Order Followup': return '🎯';
     case 'Team Leader OTD Status': return '👥';
     case 'Buyerwise OTD Status': return '🏢';
     case 'Orderwise OTD Status': return '📄';
     case 'Knitting Status': return '🧵';
+    case 'Running Orders': return '⚡';
     case 'Textile Close By PMC': return '🛡️';
-    case 'Buyer Plan vs Actual': return '🛍️';
     case 'Yarn Allocation': return '🧶';
-    case 'Delivery Schedule': return '🚚';
     case 'User Management': return '👥';
     case 'Database Connection': return '⚡';
     case 'Settings': return '⚙️';
@@ -1969,12 +1968,15 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
                             case 'Floor Dashboard': return '🏭';
                             case 'Management Dashboard': return '📈';
                             case 'Reports': return '📈';
+                            case 'Order OTD Status': return '📋';
+                            case 'Team Leader OTD Status': return '👥';
+                            case 'Buyerwise OTD Status': return '🏢';
+                            case 'Orderwise OTD Status': return '📄';
                             case 'Plan Order Followup': return '📋';
                             case 'Knitting Status': return '🧵';
+                            case 'Running Orders': return '⚡';
                             case 'Textile Close By PMC': return '🛡️';
-                            case 'Buyer Plan vs Actual': return '🛍️';
                             case 'Yarn Allocation': return '🧶';
-                            case 'Delivery Schedule': return '🚚';
                             case 'User Management': return '👥';
                             case 'Database Connection': return '🗄️';
                             case 'Settings': return '⚙️';
