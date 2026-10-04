@@ -25,15 +25,79 @@ import {
   ArrowUpDown,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   ShieldCheck,
   CheckCircle,
-  Clock
+  Clock,
+  Eye,
+  ChevronsUpDown,
+  Scissors
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
-import { TextileCloseRecord } from '../types';
+import { TextileCloseRecord, KnittingStatusOrder } from '../types';
 import { TextileClosePMCStorage } from '../lib/textileClosePMCStore';
 import { SupabaseSync } from '../lib/supabaseClient';
 import { SyncProgressBar, SyncProgressState } from './SyncProgressBar';
+import { KnittingOrderSnippingModal } from './KnittingOrderSnippingModal';
+
+export interface TextileCloseOrderGroup {
+  orderNo: string;
+  status: string;
+  buyerName: string;
+  teamLeader: string;
+  totalReqQty: number;
+  totalGreyQty: number;
+  totalProduction: number;
+  totalKnitBal: number;
+  items: TextileCloseRecord[];
+}
+
+/**
+ * Converts a Textile Close Order Group into KnittingStatusOrder format
+ * for seamless integration with the official HD Snipping Tool Modal
+ */
+export function convertTextileGroupToKnittingOrder(group: TextileCloseOrderGroup): KnittingStatusOrder {
+  return {
+    id: `tc-${group.orderNo}`,
+    orderNo: group.orderNo,
+    buyerName: group.buyerName || '',
+    teamLeader: group.teamLeader || '',
+    fabrication: group.items[0]?.fabType || '',
+    knitStartDate: '-',
+    knitEndDate: '-',
+    pmcKnitStartDate: '-',
+    actualKnitStartDate: '-',
+    pmcKnitEndDate: '-',
+    actualKnitEndDate: '-',
+    reqQty: group.totalReqQty,
+    greyQty: group.totalGreyQty,
+    production: group.totalProduction,
+    knitBalance: group.totalKnitBal,
+    remarks: `Textile Close By PMC (${group.status || 'COMPLETE'})`,
+    items: group.items.map((itm, idx) => ({
+      id: itm.id || `tc-itm-${group.orderNo}-${idx}`,
+      color: itm.color || '—',
+      mcType: 'Circular Knit',
+      fabType: itm.fabType || '—',
+      fabrication: itm.fabType || '',
+      fgsm: itm.fgsm !== undefined && itm.fgsm !== '' ? itm.fgsm : '—',
+      fWidth: itm.fWidth || '—',
+      yarnCount: '—',
+      gaugeDia: '—',
+      knitStartDate: '-',
+      knitEndDate: '-',
+      reqQty: Number(itm.reqQty) || 0,
+      greyQty: Number(itm.greyQty) || 0,
+      production: Number(itm.production) || 0,
+      hold: 0,
+      reject: 0,
+      itmQty: 0,
+      knitBalance: Number(itm.knitBal) || 0,
+      productionUnit: 'Textile Unit',
+      avgProdPerDay: 0,
+    }))
+  };
+}
 
 interface TextileClosePMCViewProps {
   currentUser?: UserRecord | null;
@@ -52,9 +116,23 @@ export default function TextileClosePMCView({ currentUser }: TextileClosePMCView
   const [teamLeaderFilter, setTeamLeaderFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<string>('All');
 
-  // Pagination
+  // Expanded Order Numbers for 2-layer view
+  const [expandedOrderNos, setExpandedOrderNos] = useState<Set<string>>(() => {
+    const initial = new Set<string>();
+    const all = TextileClosePMCStorage.getRecords();
+    if (all && all.length > 0 && all[0].orderNo) {
+      initial.add(all[0].orderNo);
+    }
+    return initial;
+  });
+
+  // Modal for Viewing Order Details & Snipping Tool
+  const [viewingOrder, setViewingOrder] = useState<TextileCloseOrderGroup | null>(null);
+  const [snipOrder, setSnipOrder] = useState<KnittingStatusOrder | null>(null);
+
+  // Pagination (by Orders)
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 50;
+  const pageSize = 25;
 
   // Modals & Feedback
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -488,12 +566,68 @@ export default function TextileClosePMCView({ currentUser }: TextileClosePMCView
     };
   }, [filteredRecords]);
 
-  // Pagination Math
-  const totalPages = Math.max(1, Math.ceil(filteredRecords.length / pageSize));
-  const paginatedRecords = useMemo(() => {
+  // Group Filtered Records into Order Groups (Merged by Order No. like Knitting Status)
+  const orderGroups = useMemo(() => {
+    const map = new Map<string, TextileCloseOrderGroup>();
+
+    filteredRecords.forEach(record => {
+      const ordKey = (record.orderNo || 'Unknown').trim();
+      let group = map.get(ordKey);
+      if (!group) {
+        group = {
+          orderNo: ordKey,
+          status: record.status || 'COMPLETE',
+          buyerName: record.buyerName || '',
+          teamLeader: record.teamLeader || '',
+          totalReqQty: 0,
+          totalGreyQty: 0,
+          totalProduction: 0,
+          totalKnitBal: 0,
+          items: []
+        };
+        map.set(ordKey, group);
+      }
+
+      if (!group.buyerName && record.buyerName) group.buyerName = record.buyerName;
+      if (!group.teamLeader && record.teamLeader) group.teamLeader = record.teamLeader;
+
+      group.totalReqQty += Number(record.reqQty) || 0;
+      group.totalGreyQty += Number(record.greyQty) || 0;
+      group.totalProduction += Number(record.production) || 0;
+      group.totalKnitBal += Number(record.knitBal) || 0;
+      group.items.push(record);
+    });
+
+    return Array.from(map.values());
+  }, [filteredRecords]);
+
+  // Expand / Collapse Handlers
+  const toggleOrderExpand = (orderNo: string) => {
+    setExpandedOrderNos(prev => {
+      const next = new Set(prev);
+      if (next.has(orderNo)) {
+        next.delete(orderNo);
+      } else {
+        next.add(orderNo);
+      }
+      return next;
+    });
+  };
+
+  const expandAll = () => {
+    setExpandedOrderNos(new Set(orderGroups.map(g => g.orderNo)));
+  };
+
+  const collapseAll = () => {
+    setExpandedOrderNos(new Set());
+  };
+
+  // Pagination Math (by Orders)
+  const totalPages = Math.max(1, Math.ceil(orderGroups.length / pageSize));
+  const paginatedOrderGroups = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
-    return filteredRecords.slice(start, start + pageSize);
-  }, [filteredRecords, currentPage, pageSize]);
+    return orderGroups.slice(start, start + pageSize);
+  }, [orderGroups, currentPage, pageSize]);
 
   return (
     <div className="space-y-6">
@@ -753,42 +887,73 @@ export default function TextileClosePMCView({ currentUser }: TextileClosePMCView
         )}
       </div>
 
-      {/* Main Table Container (Exact 12 headers, No manual edit buttons) */}
+      {/* Main Table Container (Merged like Knitting Status with 2 Layers) */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
+        {/* Table Top Controls: Expand All / Collapse All & Summary */}
+        <div className="p-3.5 sm:px-4 sm:py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-850/50 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-slate-800 dark:text-slate-200">
+              Orders Summary:
+            </span>
+            <span className="px-2 py-0.5 rounded-md font-mono text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60">
+              {orderGroups.length} {orderGroups.length === 1 ? 'Order' : 'Orders'} ({filteredRecords.length} Fabric Specifications)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={expandAll}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors cursor-pointer"
+              title="Expand all orders"
+            >
+              <ChevronDown className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>Expand All</span>
+            </button>
+            <button
+              type="button"
+              onClick={collapseAll}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors cursor-pointer"
+              title="Collapse all orders"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+              <span>Collapse All</span>
+            </button>
+          </div>
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left border-collapse">
             <thead>
               <tr className="bg-slate-100/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200 dark:border-slate-700 select-none">
-                {/* 1. Status */}
-                <th className="py-3 px-3 min-w-[150px] whitespace-nowrap">Status</th>
-                {/* 2. Order No. */}
-                <th className="py-3 px-3 min-w-[110px] whitespace-nowrap">Order No.</th>
-                {/* 3. Buyer Name */}
-                <th className="py-3 px-3 min-w-[140px] whitespace-nowrap">Buyer Name</th>
-                {/* 4. Team Leader */}
+                {/* 1. Expand and Collapse Button */}
+                <th className="py-3 px-3 w-10 text-center">
+                  <span className="sr-only">Expand/Collapse</span>
+                </th>
+                {/* 2. Status */}
+                <th className="py-3 px-3 min-w-[130px] whitespace-nowrap">Status</th>
+                {/* 3. Order No. */}
+                <th className="py-3 px-3 min-w-[120px] whitespace-nowrap">Order No.</th>
+                {/* 4. Buyer Name */}
+                <th className="py-3 px-3 min-w-[130px] whitespace-nowrap">Buyer Name</th>
+                {/* 5. Team Leader */}
                 <th className="py-3 px-3 min-w-[140px] whitespace-nowrap">Team Leader</th>
-                {/* 5. FGSM */}
-                <th className="py-3 px-3 min-w-[80px] whitespace-nowrap text-center">FGSM</th>
-                {/* 6. F. Width */}
-                <th className="py-3 px-3 min-w-[95px] whitespace-nowrap">F. Width</th>
-                {/* 7. Color */}
-                <th className="py-3 px-3 min-w-[130px] whitespace-nowrap">Color</th>
-                {/* 8. Fab. Type */}
-                <th className="py-3 px-3 min-w-[160px] whitespace-nowrap">Fab. Type</th>
-                {/* 9. Req QTY */}
-                <th className="py-3 px-3 min-w-[95px] whitespace-nowrap text-right">Req QTY</th>
-                {/* 10. Grey QTY */}
-                <th className="py-3 px-3 min-w-[95px] whitespace-nowrap text-right">Grey QTY</th>
-                {/* 11. Production */}
-                <th className="py-3 px-3 min-w-[95px] whitespace-nowrap text-right text-emerald-600 dark:text-emerald-400">Production</th>
-                {/* 12. Knit Bal */}
-                <th className="py-3 px-3 min-w-[95px] whitespace-nowrap text-right text-amber-600 dark:text-amber-400">Knit Bal</th>
+                {/* 6. Total Req QTY */}
+                <th className="py-3 px-3 min-w-[110px] whitespace-nowrap text-right">Total Req QTY</th>
+                {/* 7. Total Grey QTY */}
+                <th className="py-3 px-3 min-w-[110px] whitespace-nowrap text-right">Total Grey QTY</th>
+                {/* 8. Total Production */}
+                <th className="py-3 px-3 min-w-[120px] whitespace-nowrap text-right text-emerald-600 dark:text-emerald-400">Total Production</th>
+                {/* 9. Total Knit Balance */}
+                <th className="py-3 px-3 min-w-[120px] whitespace-nowrap text-right text-amber-600 dark:text-amber-400">Total Knit Balance</th>
+                {/* 10. Actions: View & Snip */}
+                <th className="py-3 px-3 min-w-[140px] whitespace-nowrap text-center">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {paginatedRecords.length === 0 ? (
+              {paginatedOrderGroups.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="py-16 text-center text-slate-400">
+                  <td colSpan={10} className="py-16 text-center text-slate-400">
                     <ShieldCheck className="w-10 h-10 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
                     <p className="text-sm font-semibold">No Textile Close records found</p>
                     <p className="text-xs text-slate-400 mt-1">
@@ -797,115 +962,288 @@ export default function TextileClosePMCView({ currentUser }: TextileClosePMCView
                   </td>
                 </tr>
               ) : (
-                paginatedRecords.map((item, idx) => (
-                  <tr
-                    key={item.id || `${item.orderNo}-${idx}`}
-                    className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors"
-                  >
-                    {/* 1. Status */}
-                    <td className="py-2.5 px-3 whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60">
-                        <CheckCircle className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                        {item.status || 'Textile Close By PMC'}
-                      </span>
-                    </td>
+                paginatedOrderGroups.map((group, idx) => {
+                  const isExpanded = expandedOrderNos.has(group.orderNo);
 
-                    {/* 2. Order No. */}
-                    <td className="py-2.5 px-3 font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
-                      {item.orderNo}
-                    </td>
-
-                    {/* 3. Buyer Name */}
-                    <td className="py-2.5 px-3 font-medium text-slate-800 dark:text-slate-200 whitespace-nowrap">
-                      {item.buyerName || '—'}
-                    </td>
-
-                    {/* 4. Team Leader */}
-                    <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                      {item.teamLeader || '—'}
-                    </td>
-
-                    {/* 5. FGSM */}
-                    <td className="py-2.5 px-3 font-mono text-center text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                      {item.fgsm !== '' && item.fgsm !== undefined ? item.fgsm : '—'}
-                    </td>
-
-                    {/* 6. F. Width */}
-                    <td className="py-2.5 px-3 font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                      {item.fWidth || '—'}
-                    </td>
-
-                    {/* 7. Color */}
-                    <td className="py-2.5 px-3 whitespace-nowrap">
-                      <span className="font-semibold text-slate-800 dark:text-slate-200">
-                        {item.color || '—'}
-                      </span>
-                    </td>
-
-                    {/* 8. Fab. Type */}
-                    <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400 max-w-[220px] truncate" title={item.fabType}>
-                      {item.fabType || '—'}
-                    </td>
-
-                    {/* 9. Req QTY */}
-                    <td className="py-2.5 px-3 text-right font-mono font-medium text-slate-700 dark:text-slate-300">
-                      {item.reqQty ? item.reqQty.toLocaleString() : '0'}
-                    </td>
-
-                    {/* 10. Grey QTY */}
-                    <td className="py-2.5 px-3 text-right font-mono font-medium text-slate-700 dark:text-slate-300">
-                      {item.greyQty ? item.greyQty.toLocaleString() : '0'}
-                    </td>
-
-                    {/* 11. Production */}
-                    <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                      {item.production ? item.production.toLocaleString() : '0'}
-                    </td>
-
-                    {/* 12. Knit Bal */}
-                    <td className="py-2.5 px-3 text-right font-mono font-bold">
-                      <span
-                        className={
-                          item.knitBal <= 0
-                            ? 'text-emerald-600 dark:text-emerald-400'
-                            : item.knitBal < 3
-                            ? 'text-emerald-500'
-                            : 'text-amber-600 dark:text-amber-400'
-                        }
+                  return (
+                    <React.Fragment key={`tc-ord-grp-${group.orderNo}-${idx}`}>
+                      {/* Main Layer: Parent Row */}
+                      <tr
+                        className={`transition-colors hover:bg-slate-50/90 dark:hover:bg-slate-800/60 cursor-pointer ${
+                          isExpanded ? 'bg-emerald-50/25 dark:bg-emerald-950/20 font-medium' : ''
+                        }`}
+                        onClick={() => toggleOrderExpand(group.orderNo)}
                       >
-                        {item.knitBal !== undefined ? item.knitBal.toLocaleString() : '0'}
-                      </span>
-                    </td>
-                  </tr>
-                ))
+                        {/* 1. Expand and Collapse Button */}
+                        <td className="py-3 px-3 text-center" onClick={e => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => toggleOrderExpand(group.orderNo)}
+                            className="p-1 rounded-md text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                            aria-label={isExpanded ? 'Collapse order items' : 'Expand order items'}
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4" />
+                            )}
+                          </button>
+                        </td>
+
+                        {/* 2. Status */}
+                        <td className="py-3 px-3 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60 shadow-2xs">
+                            <CheckCircle className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                            {group.status || 'COMPLETE'}
+                          </span>
+                        </td>
+
+                        {/* 3. Order No. */}
+                        <td className="py-3 px-3 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-slate-900 dark:text-white text-sm">
+                              {group.orderNo}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                              {group.items.length} {group.items.length === 1 ? 'item' : 'items'}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* 4. Buyer Name */}
+                        <td className="py-3 px-3 font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                          {group.buyerName || '—'}
+                        </td>
+
+                        {/* 5. Team Leader */}
+                        <td className="py-3 px-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                          {group.teamLeader || '—'}
+                        </td>
+
+                        {/* 6. Total Req QTY */}
+                        <td className="py-3 px-3 text-right font-mono font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                          {group.totalReqQty ? group.totalReqQty.toLocaleString() : '0'}
+                        </td>
+
+                        {/* 7. Total Grey QTY */}
+                        <td className="py-3 px-3 text-right font-mono font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                          {group.totalGreyQty ? group.totalGreyQty.toLocaleString() : '0'}
+                        </td>
+
+                        {/* 8. Total Production */}
+                        <td className="py-3 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                          {group.totalProduction ? group.totalProduction.toLocaleString() : '0'}
+                        </td>
+
+                        {/* 9. Total Knit Balance */}
+                        <td className="py-3 px-3 text-right font-mono font-bold whitespace-nowrap">
+                          <span
+                            className={
+                              group.totalKnitBal <= 0
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : group.totalKnitBal < 3
+                                ? 'text-emerald-500'
+                                : 'text-amber-600 dark:text-amber-400'
+                            }
+                          >
+                            {group.totalKnitBal !== undefined ? group.totalKnitBal.toLocaleString() : '0'}
+                          </span>
+                        </td>
+
+                        {/* 10. Actions: View & Snip */}
+                        <td className="py-3 px-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setViewingOrder(group)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-600 hover:text-white dark:hover:bg-emerald-600 dark:hover:text-white transition-all shadow-2xs cursor-pointer active:scale-95"
+                              title={`View full details for Order ${group.orderNo}`}
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>View</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSnipOrder(convertTextileGroupToKnittingOrder(group))}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600 dark:hover:text-white transition-all shadow-2xs cursor-pointer active:scale-95"
+                              title={`Take snapshot / Open Snipping Tool for Order ${group.orderNo}`}
+                              id={`snip-order-main-btn-${group.orderNo}`}
+                            >
+                              <Scissors className="w-3.5 h-3.5" />
+                              <span>Snip</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+
+                      {/* Second Layer: Sub-table under expand and collapse button */}
+                      {isExpanded && (
+                        <tr className="bg-slate-50/60 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 animate-fade-in">
+                          <td colSpan={10} className="p-0">
+                            <div className="pl-6 sm:pl-10 pr-4 py-3.5 bg-slate-50/80 dark:bg-slate-850/60 border-l-4 border-emerald-500 space-y-2.5">
+                              {/* Sub-table Header */}
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <Layers className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-900 dark:text-emerald-200">
+                                    Color-Wise Fabric &amp; Knitting Specifications for Order {group.orderNo}
+                                  </span>
+                                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                                    ({group.items.length} {group.items.length === 1 ? 'color specification' : 'color specifications'})
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSnipOrder(convertTextileGroupToKnittingOrder(group))}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-600 hover:text-white transition-colors cursor-pointer"
+                                    title="Open Snipping Tool for this order"
+                                    id={`snip-order-subtable-btn-${group.orderNo}`}
+                                  >
+                                    <Scissors className="w-3 h-3" />
+                                    <span>Snipping Tool</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setViewingOrder(group)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 border border-slate-200 dark:border-slate-700 hover:bg-emerald-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                                    title="View full order details modal"
+                                  >
+                                    <Eye className="w-3 h-3" />
+                                    <span>Full Details View</span>
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Second Layer Items Table */}
+                              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs">
+                                <table className="w-full text-left text-[11px] border-collapse">
+                                  <thead>
+                                    <tr className="bg-slate-100/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                                      <th className="py-2.5 px-3">Color</th>
+                                      <th className="py-2.5 px-3">Fab. Type</th>
+                                      <th className="py-2.5 px-3 text-center">FGSM</th>
+                                      <th className="py-2.5 px-3">F.Width</th>
+                                      <th className="py-2.5 px-3 text-right">Req QTY</th>
+                                      <th className="py-2.5 px-3 text-right">Grey QTY</th>
+                                      <th className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400">Production</th>
+                                      <th className="py-2.5 px-3 text-right text-amber-600 dark:text-amber-400">Knit Balance</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                                    {group.items.map((itm, itmIdx) => (
+                                      <tr
+                                        key={itm.id || `itm-${group.orderNo}-${itmIdx}`}
+                                        className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors"
+                                      >
+                                        {/* Color */}
+                                        <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-white">
+                                          {itm.color || '—'}
+                                        </td>
+
+                                        {/* Fab. Type */}
+                                        <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300 max-w-[240px] truncate" title={itm.fabType}>
+                                          {itm.fabType || '—'}
+                                        </td>
+
+                                        {/* FGSM */}
+                                        <td className="py-2.5 px-3 font-mono text-center text-slate-700 dark:text-slate-300">
+                                          {itm.fgsm !== '' && itm.fgsm !== undefined ? itm.fgsm : '—'}
+                                        </td>
+
+                                        {/* F.Width */}
+                                        <td className="py-2.5 px-3 font-mono text-slate-700 dark:text-slate-300">
+                                          {itm.fWidth || '—'}
+                                        </td>
+
+                                        {/* Req QTY */}
+                                        <td className="py-2.5 px-3 text-right font-mono text-slate-700 dark:text-slate-300">
+                                          {itm.reqQty ? itm.reqQty.toLocaleString() : '0'}
+                                        </td>
+
+                                        {/* Grey QTY */}
+                                        <td className="py-2.5 px-3 text-right font-mono text-slate-700 dark:text-slate-300">
+                                          {itm.greyQty ? itm.greyQty.toLocaleString() : '0'}
+                                        </td>
+
+                                        {/* Production */}
+                                        <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                                          {itm.production ? itm.production.toLocaleString() : '0'}
+                                        </td>
+
+                                        {/* Knit Balance */}
+                                        <td className="py-2.5 px-3 text-right font-mono font-bold">
+                                          <span
+                                            className={
+                                              itm.knitBal <= 0
+                                                ? 'text-emerald-600 dark:text-emerald-400'
+                                                : itm.knitBal < 3
+                                                ? 'text-emerald-500'
+                                                : 'text-amber-600 dark:text-amber-400'
+                                            }
+                                          >
+                                            {itm.knitBal !== undefined ? itm.knitBal.toLocaleString() : '0'}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                  {group.items.length > 1 && (
+                                    <tfoot>
+                                      <tr className="bg-slate-50/90 dark:bg-slate-800/70 font-bold border-t border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200">
+                                        <td colSpan={4} className="py-2 px-3 text-right uppercase tracking-wider text-[10px] text-slate-500 dark:text-slate-400">
+                                          Order {group.orderNo} Total:
+                                        </td>
+                                        <td className="py-2 px-3 text-right font-mono">{group.totalReqQty.toLocaleString()}</td>
+                                        <td className="py-2 px-3 text-right font-mono">{group.totalGreyQty.toLocaleString()}</td>
+                                        <td className="py-2 px-3 text-right font-mono text-emerald-600 dark:text-emerald-400">{group.totalProduction.toLocaleString()}</td>
+                                        <td className="py-2 px-3 text-right font-mono">
+                                          <span className={group.totalKnitBal <= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}>
+                                            {group.totalKnitBal.toLocaleString()}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    </tfoot>
+                                  )}
+                                </table>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })
               )}
             </tbody>
 
-            {/* Table Footer: Totals Row across the 12 columns */}
-            {filteredRecords.length > 0 && (
+            {/* Table Footer: Totals Row for Main Layer */}
+            {orderGroups.length > 0 && (
               <tfoot>
                 <tr className="bg-slate-100/90 dark:bg-slate-800/90 font-black text-slate-900 dark:text-white border-t-2 border-slate-300 dark:border-slate-700">
-                  <td colSpan={8} className="py-3 px-3 text-right uppercase tracking-wider text-[11px]">
-                    Total ({filteredRecords.length} items):
+                  <td colSpan={5} className="py-3 px-3 text-right uppercase tracking-wider text-[11px]">
+                    Total ({orderGroups.length} Orders, {metrics.totalItems} Items):
                   </td>
                   <td className="py-3 px-3 text-right font-mono">{metrics.totalReq.toLocaleString()}</td>
                   <td className="py-3 px-3 text-right font-mono">{metrics.totalGrey.toLocaleString()}</td>
                   <td className="py-3 px-3 text-right font-mono text-emerald-600 dark:text-emerald-400">{metrics.totalProd.toLocaleString()}</td>
                   <td className="py-3 px-3 text-right font-mono text-amber-600 dark:text-amber-400">{metrics.totalBal.toLocaleString()}</td>
+                  <td className="py-3 px-3 text-center">-</td>
                 </tr>
               </tfoot>
             )}
           </table>
         </div>
 
-        {/* Pagination Controls */}
+        {/* Pagination Controls (Showing Orders) */}
         <div className="p-3.5 sm:p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-850/50 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
           <div className="text-slate-500">
             Showing <span className="font-bold text-slate-800 dark:text-slate-200">
-              {filteredRecords.length > 0 ? (currentPage - 1) * pageSize + 1 : 0}
+              {orderGroups.length > 0 ? (currentPage - 1) * pageSize + 1 : 0}
             </span> to <span className="font-bold text-slate-800 dark:text-slate-200">
-              {Math.min(currentPage * pageSize, filteredRecords.length)}
-            </span> of <span className="font-bold text-slate-800 dark:text-slate-200">{filteredRecords.length}</span> records
+              {Math.min(currentPage * pageSize, orderGroups.length)}
+            </span> of <span className="font-bold text-slate-800 dark:text-slate-200">{orderGroups.length}</span> orders ({filteredRecords.length} items total)
           </div>
 
           <div className="flex items-center gap-1">
@@ -929,6 +1267,150 @@ export default function TextileClosePMCView({ currentUser }: TextileClosePMCView
           </div>
         </div>
       </div>
+
+      {/* View Modal: Detailed Order Specification Breakdown */}
+      {viewingOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-fade-in">
+          <div className="relative w-full max-w-4xl bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6 overflow-hidden max-h-[90vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                  <ShieldCheck className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-black text-slate-900 dark:text-white font-mono">
+                      Order #{viewingOrder.orderNo}
+                    </h2>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                      <CheckCircle className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                      {viewingOrder.status}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Buyer: <span className="font-semibold text-slate-700 dark:text-slate-300">{viewingOrder.buyerName || '—'}</span> • Team Leader: <span className="font-semibold text-slate-700 dark:text-slate-300">{viewingOrder.teamLeader || '—'}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSnipOrder(convertTextileGroupToKnittingOrder(viewingOrder))}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-600 hover:text-white transition-all shadow-2xs cursor-pointer active:scale-95"
+                  title="Open in Snipping Tool (HD Snapshot)"
+                  id={`snip-view-modal-btn-${viewingOrder.orderNo}`}
+                >
+                  <Scissors className="w-3.5 h-3.5" />
+                  <span>Snipping Tool</span>
+                </button>
+
+                <button
+                  onClick={() => setViewingOrder(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* KPI Summary Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4">
+              <div className="bg-slate-50 dark:bg-slate-850 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] font-bold uppercase text-slate-400">Total Req QTY</span>
+                <div className="text-lg font-bold font-mono text-slate-900 dark:text-white mt-0.5">
+                  {viewingOrder.totalReqQty.toLocaleString()} <span className="text-xs font-normal text-slate-400">Kg</span>
+                </div>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-850 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] font-bold uppercase text-slate-400">Total Grey QTY</span>
+                <div className="text-lg font-bold font-mono text-slate-900 dark:text-white mt-0.5">
+                  {viewingOrder.totalGreyQty.toLocaleString()} <span className="text-xs font-normal text-slate-400">Kg</span>
+                </div>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-850 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] font-bold uppercase text-emerald-600 dark:text-emerald-400">Total Production</span>
+                <div className="text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
+                  {viewingOrder.totalProduction.toLocaleString()} <span className="text-xs font-normal text-slate-400">Kg</span>
+                </div>
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-850 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] font-bold uppercase text-amber-600 dark:text-amber-400">Total Knit Balance</span>
+                <div className="text-lg font-bold font-mono text-amber-600 dark:text-amber-400 mt-0.5">
+                  {viewingOrder.totalKnitBal.toLocaleString()} <span className="text-xs font-normal text-slate-400">Kg</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Child Items Table */}
+            <div className="overflow-y-auto flex-1 rounded-xl border border-slate-200 dark:border-slate-800">
+              <table className="w-full text-xs text-left border-collapse">
+                <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold sticky top-0">
+                  <tr>
+                    <th className="py-2.5 px-3">Color</th>
+                    <th className="py-2.5 px-3">Fab. Type</th>
+                    <th className="py-2.5 px-3 text-center">FGSM</th>
+                    <th className="py-2.5 px-3">F.Width</th>
+                    <th className="py-2.5 px-3 text-right">Req QTY</th>
+                    <th className="py-2.5 px-3 text-right">Grey QTY</th>
+                    <th className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400">Production</th>
+                    <th className="py-2.5 px-3 text-right text-amber-600 dark:text-amber-400">Knit Balance</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                  {viewingOrder.items.map((itm, itmIdx) => (
+                    <tr key={itm.id || `modal-itm-${itmIdx}`} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                      <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-white">{itm.color || '—'}</td>
+                      <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300">{itm.fabType || '—'}</td>
+                      <td className="py-2.5 px-3 font-mono text-center text-slate-700 dark:text-slate-300">{itm.fgsm !== '' && itm.fgsm !== undefined ? itm.fgsm : '—'}</td>
+                      <td className="py-2.5 px-3 font-mono text-slate-700 dark:text-slate-300">{itm.fWidth || '—'}</td>
+                      <td className="py-2.5 px-3 text-right font-mono">{itm.reqQty?.toLocaleString() || '0'}</td>
+                      <td className="py-2.5 px-3 text-right font-mono">{itm.greyQty?.toLocaleString() || '0'}</td>
+                      <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">{itm.production?.toLocaleString() || '0'}</td>
+                      <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-600 dark:text-amber-400">{itm.knitBal !== undefined ? itm.knitBal.toLocaleString() : '0'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between pt-4 mt-4 border-t border-slate-200 dark:border-slate-800">
+              <span className="text-xs text-slate-400">
+                Total {viewingOrder.items.length} fabric {viewingOrder.items.length === 1 ? 'item' : 'items'} in this order
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSnipOrder(convertTextileGroupToKnittingOrder(viewingOrder))}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition-all shadow-xs cursor-pointer active:scale-95"
+                  title="Open in Snipping Tool (HD Snapshot)"
+                >
+                  <Scissors className="w-3.5 h-3.5" />
+                  <span>Open Snipping Tool</span>
+                </button>
+                <button
+                  onClick={() => setViewingOrder(null)}
+                  className="px-4 py-2 text-xs font-bold rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Official HD Snipping Tool for Order Details */}
+      {snipOrder && (
+        <KnittingOrderSnippingModal
+          order={snipOrder}
+          isOpen={Boolean(snipOrder)}
+          onClose={() => setSnipOrder(null)}
+          includeAllocation={false}
+        />
+      )}
 
       {/* Upload Excel Modal with Explicit Replace-on-Upload Notice */}
       {isUploadModalOpen && (

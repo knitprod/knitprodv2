@@ -56,7 +56,10 @@ import {
   Sparkles,
   History,
   ListChecks,
+  Scissors
 } from 'lucide-react';
+import { KnittingStatusOrder } from '../types';
+import { KnittingOrderSnippingModal } from './KnittingOrderSnippingModal';
 import { 
   formatExcelDate, 
   isDateOrTimestampString, 
@@ -118,6 +121,70 @@ export interface OrderPlan {
   knitStartRemarks: string;
   knitEndRemarks: string;
   knitTeamLeaders: string;
+}
+
+/**
+ * Converts an OrderPlan (and its sibling items for the same EWO) into a KnittingStatusOrder
+ * for full support in the official HD Snipping Tool Modal
+ */
+export function convertOrderPlanToKnittingOrder(ord: OrderPlan, allPlans: OrderPlan[]): KnittingStatusOrder {
+  const ordNum = normOrderNum(ord.ewo);
+  const siblings = allPlans.filter(p => normOrderNum(p.ewo) === ordNum);
+  const planItems = siblings.length > 0 ? siblings : [ord];
+
+  const totalReq = planItems.reduce((acc, p) => acc + (Number(p.target) || Number(p.greyReq) || 0), 0);
+  const totalGrey = planItems.reduce((acc, p) => acc + (Number(p.greyReq) || 0), 0);
+  const totalProd = planItems.reduce((acc, p) => acc + (Number(p.knitPro) || 0), 0);
+  const totalBal = planItems.reduce((acc, p) => acc + (Number(p.knitBal) || 0), 0);
+
+  return {
+    id: `plan-ord-${ord.ewo}`,
+    orderNo: ord.ewo,
+    buyerName: ord.buyer,
+    teamLeader: ord.knitTeamLeaders || '—',
+    fabrication: 'Single Jersey',
+    knitStartDate: ord.knitStart,
+    knitEndDate: ord.knitEnd,
+    pmcKnitStartDate: ord.knitStart,
+    actualKnitStartDate: ord.aKnitStart,
+    pmcKnitEndDate: ord.knitEnd,
+    actualKnitEndDate: ord.lastProductionDate,
+    knitStartOtd: ord.knitStartOtd,
+    knitEndOtd: ord.knitEndOtd,
+    reqQty: totalReq,
+    greyQty: totalGrey,
+    production: totalProd,
+    knitBalance: totalBal,
+    remarks: `Order OTD Plan: Start OTD ${ord.knitStartOtd || '-'}, End OTD ${ord.knitEndOtd || '-'}`,
+    items: planItems.map((p, idx) => ({
+      id: p.id || `plan-itm-${p.ewo}-${idx}`,
+      color: p.color || '—',
+      mcType: 'Circular Knit',
+      fabType: 'Single Jersey',
+      fabrication: '100% Cotton Single Jersey',
+      fgsm: '—',
+      fWidth: '—',
+      yarnCount: '—',
+      gaugeDia: '—',
+      knitStartDate: p.knitStart,
+      knitEndDate: p.knitEnd,
+      pmcKnitStartDate: p.knitStart,
+      actualKnitStartDate: p.aKnitStart,
+      pmcKnitEndDate: p.knitEnd,
+      actualKnitEndDate: p.lastProductionDate,
+      knitStartOtd: p.knitStartOtd,
+      knitEndOtd: p.knitEndOtd,
+      reqQty: Number(p.target) || Number(p.greyReq) || 0,
+      greyQty: Number(p.greyReq) || 0,
+      production: Number(p.knitPro) || 0,
+      hold: 0,
+      reject: 0,
+      itmQty: 0,
+      knitBalance: Number(p.knitBal) || 0,
+      productionUnit: 'Knitting Unit',
+      avgProdPerDay: Math.ceil(p.avgProdDay || 0),
+    }))
+  };
 }
 
 // Field Diff & Change Summary Types for Upload
@@ -511,6 +578,9 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
   const [formTarget, setFormTarget] = useState('1000');
   const [formAllocatedQty, setFormAllocatedQty] = useState('1000');
   const [formGreyReq, setFormGreyReq] = useState('1000');
+
+  // Snipping Tool State
+  const [snipOrder, setSnipOrder] = useState<KnittingStatusOrder | null>(null);
 
   // Edit state for editing an existing row
   const [showEditModal, setShowEditModal] = useState(false);
@@ -3990,6 +4060,15 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                           {isColVisible('action') && (
                             <td style={{ width: `${getColWidth('action')}px`, minWidth: `${getColWidth('action')}px`, maxWidth: `${getColWidth('action')}px` }} className="px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/60 whitespace-nowrap text-center">
                             <div className="flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setSnipOrder(convertOrderPlanToKnittingOrder(ord, orders))}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors cursor-pointer active:scale-95"
+                                title={`Take snapshot / Open Snipping Tool for Order ${ord.ewo}`}
+                                id={`snip-order-plan-btn-${ord.ewo}`}
+                              >
+                                <Scissors className="h-4 w-4" />
+                              </button>
                               {!(ord.knitStartOtd === 'Passed' && ord.knitEndOtd === 'Passed') && (
                                 <button
                                   onClick={() => handleOpenEditModal(ord)}
@@ -6013,6 +6092,16 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
             </form>
           </div>
         </div>
+      )}
+
+      {/* Modal: Official HD Snipping Tool for Order Details */}
+      {snipOrder && (
+        <KnittingOrderSnippingModal
+          order={snipOrder}
+          isOpen={Boolean(snipOrder)}
+          onClose={() => setSnipOrder(null)}
+          includeAllocation={false}
+        />
       )}
     </div>
   );
