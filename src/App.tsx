@@ -31,7 +31,8 @@ import {
   ShieldCheck,
   Database,
   Loader2,
-  Activity
+  Activity,
+  Boxes
 } from 'lucide-react';
 import { initBrandingSync, updateDocumentFavicon } from './lib/logoStore';
 import Header from './components/Header';
@@ -52,6 +53,7 @@ import ProductionLedgerView from './components/ProductionLedgerView';
 import PlanOrderFollowupView from './components/PlanOrderFollowupView';
 import YarnAllocationView from './components/YarnAllocationView';
 import KnittingStatusView from './components/KnittingStatusView';
+import GreyStockSummaryView from './components/GreyStockSummaryView';
 import DashboardFilterToolbar, { FilterState } from './components/DashboardFilterToolbar';
 import DashboardUnitwiseCards from './components/DashboardUnitwiseCards';
 import DashboardQualityLossCards from './components/DashboardQualityLossCards';
@@ -1368,7 +1370,7 @@ export default function App() {
                       )}
 
                       {/* 2. Main Menu Knitting Status Group */}
-                      {['Knitting Status', 'Running Orders', 'Textile Close By PMC'].some(isTabAllowed) && (
+                      {['Knitting Status', 'Running Orders', 'Textile Close By PMC', 'Grey Stock Summary'].some(isTabAllowed) && (
                         <div className="space-y-1 pt-1">
                           <button
                             type="button"
@@ -1386,6 +1388,7 @@ export default function App() {
                               {[
                                 { name: 'Running Orders', icon: Activity, label: 'Running Orders' },
                                 { name: 'Textile Close By PMC', icon: ShieldCheck, label: 'Textile Close By PMC' },
+                                { name: 'Grey Stock Summary', icon: Boxes, label: 'Grey Stock Summary' },
                               ].map((sub) => {
                                 if (!isTabAllowed(sub.name)) return null;
                                 const Icon = sub.icon;
@@ -1644,6 +1647,12 @@ export default function App() {
                   currentUser={currentUser} 
                   initialTab={currentPage === 'Textile Close By PMC' ? 'textile_close_pmc' : 'knitting_status'}
                 />
+              </div>
+            )}
+
+            {currentPage === 'Grey Stock Summary' && (
+              <div className="animate-fade-in">
+                <GreyStockSummaryView currentUser={currentUser} />
               </div>
             )}
 

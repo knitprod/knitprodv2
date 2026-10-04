@@ -1074,6 +1074,143 @@ async function getProductionLedgerRecords(clientContext?: any): Promise<any[]> {
   return cachedLedgerData;
 }
 
+// Build clean executive Monthly Production Update Unit by Unit report table & analytics for server
+function buildServerMonthlyUnitTable(monthName: string, rows: any[]): string {
+  const distinctDates = Array.from(new Set(rows.map((r: any) => r.date).filter(Boolean))).sort();
+  const totalDays = distinctDates.length;
+
+  const uniqueFloors = Array.from(new Set([...STANDARD_FACTORY_FLOORS, ...rows.map(r => r.floor).filter(Boolean)]));
+
+  interface ServerUnitStats {
+    floor: string;
+    type: string;
+    prod: number;
+    target: number;
+    eff: number;
+    daysLogged: number;
+    avgDaily: number;
+    shiftA: number;
+    shiftB: number;
+    shiftC: number;
+    status: string;
+  }
+
+  const unitStatsList: ServerUnitStats[] = [];
+
+  let inHouseProd = 0;
+  let inHouseTarget = 0;
+  let inHouseShiftA = 0;
+  let inHouseShiftB = 0;
+  let inHouseShiftC = 0;
+
+  let subContactProd = 0;
+  let subContactTarget = 0;
+  let subContactShiftA = 0;
+  let subContactShiftB = 0;
+  let subContactShiftC = 0;
+
+  let grandProd = 0;
+  let grandTarget = 0;
+  let grandShiftA = 0;
+  let grandShiftB = 0;
+  let grandShiftC = 0;
+
+  for (const floor of uniqueFloors) {
+    const fRows = rows.filter((r: any) => String(r.floor || '').trim().toLowerCase() === floor.toLowerCase());
+    if (fRows.length === 0) continue;
+
+    const prod = fRows.reduce((sum, r) => sum + Number(r.total_production || r.totalProduction || 0), 0);
+    const target = fRows.reduce((sum, r) => sum + Number(r.target || 0), 0);
+    const eff = target > 0 ? Number(((prod / target) * 100).toFixed(1)) : (prod > 0 ? 100 : 0);
+    const daysLogged = new Set(fRows.filter(r => Number(r.total_production || r.totalProduction || 0) > 0).map(r => r.date)).size;
+    const avgDaily = daysLogged > 0 ? Math.round(prod / daysLogged) : (totalDays > 0 ? Math.round(prod / totalDays) : 0);
+    const shiftA = fRows.reduce((sum, r) => sum + Number(r.shift_a || r.shiftA || 0), 0);
+    const shiftB = fRows.reduce((sum, r) => sum + Number(r.shift_b || r.shiftB || 0), 0);
+    const shiftC = fRows.reduce((sum, r) => sum + Number(r.shift_c || r.shiftC || 0), 0);
+    const isSub = floor === 'Sub-Contact' || fRows.some(r => String(r.unit || '').toLowerCase().includes('sub'));
+    const type = isSub ? 'Sub-Contact' : 'In-House';
+
+    const status = eff >= 100 ? '🟢 On Target' : (eff >= 80 ? '🟡 Running' : '🔴 Needs Attention');
+
+    unitStatsList.push({
+      floor,
+      type,
+      prod,
+      target,
+      eff,
+      daysLogged,
+      avgDaily,
+      shiftA,
+      shiftB,
+      shiftC,
+      status
+    });
+
+    if (isSub) {
+      subContactProd += prod;
+      subContactTarget += target;
+      subContactShiftA += shiftA;
+      subContactShiftB += shiftB;
+      subContactShiftC += shiftC;
+    } else {
+      inHouseProd += prod;
+      inHouseTarget += target;
+      inHouseShiftA += shiftA;
+      inHouseShiftB += shiftB;
+      inHouseShiftC += shiftC;
+    }
+
+    grandProd += prod;
+    grandTarget += target;
+    grandShiftA += shiftA;
+    grandShiftB += shiftB;
+    grandShiftC += shiftC;
+  }
+
+  const inHouseEff = inHouseTarget > 0 ? ((inHouseProd / inHouseTarget) * 100).toFixed(1) : 'N/A';
+  const subContactEff = subContactTarget > 0 ? ((subContactProd / subContactTarget) * 100).toFixed(1) : 'N/A';
+  const grandEff = grandTarget > 0 ? ((grandProd / grandTarget) * 100).toFixed(1) : 'N/A';
+
+  const inHouseAvg = totalDays > 0 ? Math.round(inHouseProd / totalDays) : 0;
+  const subContactAvg = totalDays > 0 ? Math.round(subContactProd / totalDays) : 0;
+  const grandAvg = totalDays > 0 ? Math.round(grandProd / totalDays) : 0;
+
+  let out = `| Unit / Floor | Unit Type | Total Production (kg) | Target (kg) | Efficiency | Days Logged | Avg. Output (kg/day) | Shifts (A / B / C) | Status |\n`;
+  out += `| :--- | :--- | ---: | ---: | :---: | :---: | ---: | :--- | :---: |\n`;
+
+  for (const u of unitStatsList) {
+    const shiftsStr = `${u.shiftA.toLocaleString()} / ${u.shiftB.toLocaleString()} / ${u.shiftC.toLocaleString()}`;
+    out += `| **${u.floor}** | ${u.type} | **${u.prod.toLocaleString()} kg** | ${u.target.toLocaleString()} kg | **${u.eff}%** | ${u.daysLogged} / ${totalDays} days | ${u.avgDaily.toLocaleString()} kg/d | ${shiftsStr} | ${u.status} |\n`;
+  }
+
+  const inHouseShiftsStr = `${inHouseShiftA.toLocaleString()} / ${inHouseShiftB.toLocaleString()} / ${inHouseShiftC.toLocaleString()}`;
+  const subShiftsStr = `${subContactShiftA.toLocaleString()} / ${subContactShiftB.toLocaleString()} / ${subContactShiftC.toLocaleString()}`;
+  const grandShiftsStr = `${grandShiftA.toLocaleString()} / ${grandShiftB.toLocaleString()} / ${grandShiftC.toLocaleString()}`;
+
+  out += `| **In-House Subtotal** | In-House | **${inHouseProd.toLocaleString()} kg** | **${inHouseTarget.toLocaleString()} kg** | **${inHouseEff}%** | ${totalDays} days | **${inHouseAvg.toLocaleString()} kg/d** | ${inHouseShiftsStr} | 🟢 Active |\n`;
+  if (subContactProd > 0) {
+    out += `| **Sub-Contact Subtotal** | Sub-Contact | **${subContactProd.toLocaleString()} kg** | **${subContactTarget.toLocaleString()} kg** | **${subContactEff}%** | ${totalDays} days | **${subContactAvg.toLocaleString()} kg/d** | ${subShiftsStr} | 🟢 Active |\n`;
+  }
+  out += `| **Grand Total** | Factory-Wide | **${grandProd.toLocaleString()} kg** | **${grandTarget.toLocaleString()} kg** | **${grandEff}%** | ${totalDays} days | **${grandAvg.toLocaleString()} kg/d** | ${grandShiftsStr} | 🟢 On Target |\n\n`;
+
+  const topUnit = [...unitStatsList].sort((a, b) => b.prod - a.prod)[0];
+  const dateRangeStr = totalDays > 0 ? `${formatHumanDate(distinctDates[0])} to ${formatHumanDate(distinctDates[distinctDates.length - 1])}` : '';
+
+  out += `📊 **Monthly Production Analytics (${monthName} 2026):**\n` +
+    `• **Total Factory Production**: **${grandProd.toLocaleString()} kg** (Monthly Target: **${grandTarget.toLocaleString()} kg** | Overall Efficiency: **${grandEff}%**)\n` +
+    `• **In-House Production**: **${inHouseProd.toLocaleString()} kg** (${grandProd > 0 ? ((inHouseProd / grandProd) * 100).toFixed(1) : 0}% of total volume across ${unitStatsList.filter(u => u.type === 'In-House').length} units)\n` +
+    `• **Sub-Contact Output**: **${subContactProd.toLocaleString()} kg** (${grandProd > 0 ? ((subContactProd / grandProd) * 100).toFixed(1) : 0}% of total volume)\n`;
+
+  if (topUnit) {
+    out += `• **Top Producing Unit**: **${topUnit.floor}** (**${topUnit.prod.toLocaleString()} kg** produced | **${topUnit.eff}% Efficiency**)\n`;
+  }
+
+  out += `• **Active Production Period**: **${totalDays} production days logged** (${dateRangeStr})\n` +
+    `• **Factory Daily Average Output**: **${grandAvg.toLocaleString()} kg/day**`;
+
+  return out;
+}
+
 // Handle all analytical & real-time production queries
 async function handleProductionLedgerQuery(trimmedMsg: string, clientContext: any): Promise<{ handled: boolean; reply?: string; ledgerData?: any[] }> {
   const lowerMsg = trimmedMsg.toLowerCase();
@@ -1375,6 +1512,83 @@ async function handleProductionLedgerQuery(trimmedMsg: string, clientContext: an
         ledgerData: ledger
       };
     }
+  }
+
+  // 0.5 QUERY: Monthly Production Update Unit by Unit (e.g. "September Production Update", "September production update unit by unit")
+  const MONTH_NAMES = [
+    { name: 'January', match: /\b(?:jan|january)\b/i, num: 1 },
+    { name: 'February', match: /\b(?:feb|february)\b/i, num: 2 },
+    { name: 'March', match: /\b(?:mar|march)\b/i, num: 3 },
+    { name: 'April', match: /\b(?:apr|april)\b/i, num: 4 },
+    { name: 'May', match: /\bmay\b/i, num: 5 },
+    { name: 'June', match: /\b(?:jun|june)\b/i, num: 6 },
+    { name: 'July', match: /\b(?:jul|july)\b/i, num: 7 },
+    { name: 'August', match: /\b(?:aug|august)\b/i, num: 8 },
+    { name: 'September', match: /\b(?:sep|sept|september)\b/i, num: 9 },
+    { name: 'October', match: /\b(?:oct|october)\b/i, num: 10 },
+    { name: 'November', match: /\b(?:nov|november)\b/i, num: 11 },
+    { name: 'December', match: /\b(?:dec|december)\b/i, num: 12 }
+  ];
+
+  const matchedMonth = MONTH_NAMES.find(m => m.match.test(lowerMsg));
+  const isMonthlyGeneric = lowerMsg.includes('monthly') || lowerMsg.includes('this month') || lowerMsg.includes('current month');
+  const isUnitByUnitGeneric = lowerMsg.includes('unit by unit') || lowerMsg.includes('unit-by-unit') || lowerMsg.includes('unit wise') || lowerMsg.includes('unitwise') || lowerMsg.includes('floor by floor') || lowerMsg.includes('floor-by-floor');
+  const hasProdKeywordsMonthly = lowerMsg.includes('production') || lowerMsg.includes('update') || lowerMsg.includes('output') || lowerMsg.includes('summary') || lowerMsg.includes('report') || lowerMsg.includes('ledger') || lowerMsg.includes('status') || lowerMsg.includes('knit') || lowerMsg.includes('unit') || lowerMsg.includes('floor') || lowerMsg.includes('breakdown');
+
+  const hasSpecificDate = /\b\d{1,2}[-\/.]\d{1,2}[-\/.]\d{2,4}\b/.test(trimmedMsg) || /\b\d{4}-\d{2}-\d{2}\b/.test(trimmedMsg);
+
+  const isMonthlyUnitQuery = 
+    !lowerMsg.includes('missing') && !lowerMsg.includes('missed') &&
+    ((Boolean(matchedMonth) && hasProdKeywordsMonthly) ||
+    (isMonthlyGeneric && hasProdKeywordsMonthly) ||
+    (isUnitByUnitGeneric && hasProdKeywordsMonthly && !lowerMsg.includes('today') && !lowerMsg.includes('yesterday') && !hasSpecificDate));
+
+  if (isMonthlyUnitQuery) {
+    let targetMonthName = matchedMonth?.name || 'September';
+    let targetMonthNum = matchedMonth?.num || 9;
+    const targetMonthNumStr = String(targetMonthNum).padStart(2, '0');
+
+    const targetMonthRows = ledger.filter((r: any) => {
+      const m = String(r.month || '').toLowerCase();
+      const d = String(r.date || '');
+      if (m === targetMonthName.toLowerCase()) return true;
+      const parts = d.split('-');
+      if (parts.length === 3 && parts[1] === targetMonthNumStr) return true;
+      return false;
+    });
+
+    if (targetMonthRows.length === 0) {
+      const activeMonthName = 'September';
+      const fallbackRows = ledger.filter((r: any) => {
+        const m = String(r.month || '').toLowerCase();
+        const d = String(r.date || '');
+        if (m === activeMonthName.toLowerCase()) return true;
+        const parts = d.split('-');
+        return parts.length === 3 && parts[1] === '09';
+      });
+
+      let emptyReply = `As per the verified production ledger records, there is **no production recorded for ${targetMonthName} 2026** in the system.\n\n` +
+        `• **Active Ledger Coverage**: The internal production ledger currently holds active records for **${activeMonthName} 2026** (${new Set(fallbackRows.map(r => r.date)).size} production days logged).\n` +
+        `• No production entries or shifts were scheduled or logged in the ledger for **${targetMonthName} 2026**.\n\n`;
+
+      if (fallbackRows.length > 0) {
+        emptyReply += `For your immediate review, here is the active **${activeMonthName} 2026 Production Update Unit by Unit**:\n\n` +
+          buildServerMonthlyUnitTable(activeMonthName, fallbackRows);
+      }
+
+      return {
+        handled: true,
+        reply: emptyReply,
+        ledgerData: ledger
+      };
+    }
+
+    const tableAndSummary = buildServerMonthlyUnitTable(targetMonthName, targetMonthRows);
+    return {
+      handled: true,
+      reply: `Here is the verified **${targetMonthName} 2026 Production Update Unit by Unit** from the internal Production Ledger:\n\n` + tableAndSummary,
+      ledgerData: ledger
+    };
   }
 
   // 1. QUERY: "Which floor did not updated today" / "not updated today" / "missing floors"
@@ -1759,7 +1973,8 @@ async function searchInternalERP(queryStr: string, clientContext: any, explicitO
       const matchesNum = numMatches.some(n => recOrd.includes(n));
       const matchesBuyer = rec.buyerName && lowerQ.includes(String(rec.buyerName).toLowerCase());
       const recColor = String(rec.color || '').toLowerCase();
-      const matchesColor = recColor && lowerQ.split(/\s+/).some(w => w.length > 2 && recColor.includes(w));
+      const STOP_WORDS = new Set(['update', 'status', 'month', 'daily', 'floor', 'today', 'check', 'give', 'show', 'unit', 'ledger', 'production', 'data', 'summary']);
+      const matchesColor = recColor && lowerQ.split(/\s+/).some(w => w.length > 2 && !STOP_WORDS.has(w) && recColor.includes(w));
       const matchesExplicit = Boolean(explicitOrderNum && recOrd.includes(explicitOrderNum));
 
       if (matchesNum || matchesBuyer || matchesColor || matchesExplicit) {
@@ -2576,17 +2791,51 @@ app.post('/api/chat/raihan', async (req, res) => {
     }
 
     // Step 1: Detect active order number (from current message or multi-turn history/context)
-    let numMatches = trimmedMsg.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || [];
+    let numMatches = (trimmedMsg.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || []).filter(n => n !== '2024' && n !== '2025' && n !== '2026');
     let isFollowUp = false;
     let activeOrderNum: string | null = numMatches[0] || null;
 
-    // Multi-turn context memory: If no number in current query, check previous history & context
-    if (!activeOrderNum && !isTotalKnittingQuery) {
+    const isMonthlyOrFloorQuery = 
+      lowerMsg.includes('september') ||
+      lowerMsg.includes('august') ||
+      lowerMsg.includes('october') ||
+      lowerMsg.includes('monthly') ||
+      lowerMsg.includes('month') ||
+      lowerMsg.includes('floor') ||
+      lowerMsg.includes('today') ||
+      lowerMsg.includes('yesterday') ||
+      lowerMsg.includes('unit by unit') ||
+      lowerMsg.includes('missing');
+
+    const ORDER_FOLLOWUP_COLORS = [
+      'french navy', 'black', 'white', 'grey', 'gray', 'slate grey', 'heather grey', 'charcoal',
+      'navy', 'olive', 'red', 'green', 'blue', 'yellow', 'maroon', 'orange', 'pink', 'purple',
+      'rib', 'fleece'
+    ];
+
+    const isOrderFollowUpIntent = !numMatches.length && !isMonthlyOrFloorQuery && (
+      lowerMsg === 'production' ||
+      lowerMsg === 'prod' ||
+      lowerMsg === 'allocation' ||
+      lowerMsg === 'alloc' ||
+      lowerMsg === 'yarn' ||
+      lowerMsg === 'balance' ||
+      lowerMsg === 'predict completion' ||
+      lowerMsg.startsWith('order ') ||
+      lowerMsg.includes('fabric') ||
+      lowerMsg.includes('fgsm') ||
+      lowerMsg.includes('knit bal') ||
+      ORDER_FOLLOWUP_COLORS.some(c => lowerMsg === c || lowerMsg.startsWith(c))
+    );
+
+    // Multi-turn context memory: ONLY if the user is asking an intentional order follow-up
+    if (!activeOrderNum && isOrderFollowUpIntent && !isTotalKnittingQuery) {
       if (context?.activeOrderNo) {
         activeOrderNum = String(context.activeOrderNo);
         isFollowUp = true;
       } else if (Array.isArray(history) && history.length > 0) {
         for (let i = history.length - 1; i >= 0; i--) {
+          if (history[i]?.role !== 'user') continue;
           const histText = String(history[i]?.text || '');
           const histMatches = histText.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g);
           if (histMatches && histMatches.length > 0) {
@@ -2763,6 +3012,11 @@ STRICT SECRECY (NO CODE OR SECRETS):
 FACTUAL RECORD CITATION:
 - Use the provided website context (Knitting Status, Textile Close By PMC, Production Ledger, Yarn, Plan Orders) to give exact figures for Order No., Buyer Name, Team Leader, FGSM, Finished Width, Fabric Type, Required Quantity, Grey Quantity, Production, and Knit Balance.
 
+MONTHLY & FLOOR PRODUCTION QUERIES:
+- If the user asks for a monthly production update (e.g. "September Production Update", "October Production Update", or any month production update unit by unit), ALWAYS provide the unit-by-unit production update report for that month from the Production Ledger.
+- NEVER display Order 272277 or any order summary unless the user explicitly requested that specific order number or fabric/balance for that order.
+- If you don't recognize or know a command, politely state that you didn't find that command in the ERP system and suggest valid commands (like "September Production Update", "Yesterday floor by floor", "Which floor did not update today?", "Order [Number]").
+
 FORMATTING:
 - Keep answers clear, concise, and professional with bold highlights on key figures. Do not write programming code.`;
 
@@ -2841,33 +3095,26 @@ FORMATTING:
     }
 
     // Step 5: Intelligent local ERP synthesizer fallback (resilient against Gemini rate limits/429)
-    if (activeOrderNum) {
+    if (activeOrderNum && (numMatches.length > 0 || isFollowUp)) {
       const activeReport = handleConversationalFollowUp(trimmedMsg, activeOrderNum, erpSearchResults, context) ||
-        formatOrderResponse(activeOrderNum, erpSearchResults, trimmedMsg);
-      return res.json({
-        success: true,
-        reply: sanitizeRaihanOutput(activeReport)
-      });
-    }
-
-    if (foundKnittingOrders.length > 0 || foundOrderPlans.length > 0) {
-      const topOrd = foundKnittingOrders[0] || foundOrderPlans[0];
-      const topNum = topOrd.order_no || topOrd.orderNo || topOrd.ewo;
-      if (topNum) {
+        (isFollowUp ? null : formatOrderResponse(activeOrderNum, erpSearchResults, trimmedMsg));
+      if (activeReport) {
         return res.json({
           success: true,
-          reply: sanitizeRaihanOutput(formatOrderResponse(topNum, erpSearchResults, trimmedMsg))
+          reply: sanitizeRaihanOutput(activeReport)
         });
       }
     }
 
-    // Default fallback response
-    const fallbackReply = `Hello! I am **Raihan**, your internal Epyllion Knitex ERP assistant.\n` +
-      `I answer questions directly from the operational data within this website (Knitting Status, Order Plans, Textile Close By PMC, and Production Records).\n\n` +
-      `Try asking me:\n` +
-      `• *"What is the information for 272277?"*\n` +
-      `• *"Show fabric details and knitting balance for Order [Number]"*\n` +
-      `• *"Give me a summary of total balance and production"*`;
+    // Default fallback response when a command is not recognized or found
+    const fallbackReply = `Hmm, I didn't recognize that command or couldn't find relevant ERP records for it. 😊\n\n` +
+      `Here are a few things you can ask me:\n` +
+      `• **"September Production Update"** (or any month unit-by-unit production report)\n` +
+      `• **"Yesterday's production floor by floor"**\n` +
+      `• **"Which floor did not update today?"**\n` +
+      `• **"Order [Number]"** (e.g. *"Order 1001"*)\n` +
+      `• **"What is the total knitting balance?"**\n` +
+      `• **"Datewise production update missing unit by unit"**`;
 
     return res.json({
       success: true,

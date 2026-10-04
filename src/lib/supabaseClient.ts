@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { UserRecord, LedgerRecord, YarnAllocationRecord, OrderPlan, KnittingStatusOrder, TextileCloseRecord } from '../types';
+import { UserRecord, LedgerRecord, YarnAllocationRecord, OrderPlan, KnittingStatusOrder, TextileCloseRecord, GreyStockItem } from '../types';
 import { getOrderPlanCanonicalId, deduplicateOrderPlans } from './knittingStatusStore';
 
 /**
@@ -2438,6 +2438,249 @@ export class SupabaseSync {
       console.warn('Supabase subscribeToTextileCloseRecords error:', err);
       return () => {};
     }
+  }
+
+  // =========================================================================
+  // GREY STOCK SUMMARY CLOUD SYNCHRONIZATION
+  // =========================================================================
+
+  static mapRowToGreyStockItem(row: Record<string, any>): GreyStockItem {
+    const raw = row.raw_data || {};
+    return {
+      id: String(row.id || raw.id || `gs-item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`),
+      status: String(row.status || raw.status || 'Running'),
+      orderNo: String(row.order_no || raw.orderNo || ''),
+      colour: String(row.colour || raw.colour || row.color || ''),
+      fabStyle: String(row.fab_style || raw.fabStyle || ''),
+      fabType: String(row.fab_type || raw.fabType || ''),
+      ownerUnit: String(row.owner_unit || raw.ownerUnit || 'EKL'),
+      netReceivedQty: parseFloat(String(row.net_received_qty ?? raw.netReceivedQty ?? 0)) || 0,
+      netIssuedQty: parseFloat(String(row.net_issued_qty ?? raw.netIssuedQty ?? 0)) || 0,
+      stockQty: parseFloat(String(row.stock_qty ?? raw.stockQty ?? 0)) || 0,
+      matchedGreyQty: row.matched_grey_qty !== undefined && row.matched_grey_qty !== null ? parseFloat(String(row.matched_grey_qty)) : undefined,
+      updatedAt: row.updated_at || raw.updatedAt || new Date().toISOString()
+    };
+  }
+
+  static mapGreyStockItemToRow(item: GreyStockItem): Record<string, any> {
+    const rawId = String(item.id || `gs-${item.orderNo}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`);
+    return {
+      id: rawId,
+      status: String(item.status || 'Running'),
+      order_no: String(item.orderNo || ''),
+      colour: String(item.colour || ''),
+      fab_style: String(item.fabStyle || ''),
+      fab_type: String(item.fabType || ''),
+      owner_unit: String(item.ownerUnit || 'EKL'),
+      net_received_qty: parseFloat(String(item.netReceivedQty || 0)) || 0,
+      net_issued_qty: parseFloat(String(item.netIssuedQty || 0)) || 0,
+      stock_qty: parseFloat(String(item.stockQty || 0)) || 0,
+      matched_grey_qty: item.matchedGreyQty !== undefined ? parseFloat(String(item.matchedGreyQty)) : null,
+      raw_data: item,
+      updated_at: new Date().toISOString()
+    };
+  }
+
+  static async fetchGreyStockRecords(
+    onProgress?: (loaded: number, total: number, percent: number) => void
+  ): Promise<GreyStockItem[]> {
+    const client = this.getClient();
+    if (!client) return [];
+
+    try {
+      let totalCount = 0;
+      try {
+        const { count, error: countErr } = await client
+          .from('grey_stock_summary')
+          .select('*', { count: 'exact', head: true });
+        if (!countErr && typeof count === 'number') {
+          totalCount = count;
+        }
+      } catch (cntErr) {
+        console.warn('Supabase grey_stock_summary count error:', cntErr);
+      }
+
+      const allRows: any[] = [];
+      const BATCH_SIZE = 1000;
+      let from = 0;
+
+      while (true) {
+        const to = from + BATCH_SIZE - 1;
+        const { data, error } = await client
+          .from('grey_stock_summary')
+          .select('*')
+          .order('order_no', { ascending: true })
+          .range(from, to);
+
+        if (error) {
+          console.warn('Supabase fetchGreyStockRecords range error:', error.message);
+          break;
+        }
+
+        if (!data || !Array.isArray(data) || data.length === 0) {
+          break;
+        }
+
+        allRows.push(...data);
+        const percent = totalCount > 0 ? Math.min(100, Math.round((allRows.length / totalCount) * 100)) : 100;
+        if (onProgress) {
+          onProgress(allRows.length, totalCount || allRows.length, percent);
+        }
+
+        if (data.length < BATCH_SIZE || (totalCount > 0 && allRows.length >= totalCount)) {
+          break;
+        }
+
+        from += BATCH_SIZE;
+      }
+
+      return allRows.map(row => this.mapRowToGreyStockItem(row));
+    } catch {
+      return [];
+    }
+  }
+
+  static async bulkSaveGreyStockRecords(
+    items: GreyStockItem[],
+    replace: boolean = false,
+    onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void
+  ): Promise<{ success: boolean; count: number; error?: string }> {
+    const client = this.getClient();
+    if (!client) return { success: false, count: 0, error: 'Supabase client is not initialized.' };
+
+    try {
+      if (replace) {
+        if (onProgress) {
+          onProgress(0, items.length, 5, 'Purging previous records from Supabase cloud...');
+        }
+        await client.from('grey_stock_summary').delete().neq('id', '___PURGE___');
+      }
+
+      if (!items || items.length === 0) return { success: true, count: 0 };
+
+      const rows = items.map(r => this.sanitizeRowForSupabase(this.mapGreyStockItemToRow(r)));
+      const CHUNK_SIZE = 200;
+      let insertedCount = 0;
+
+      for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        const chunk = rows.slice(i, i + CHUNK_SIZE);
+        const { error } = await client.from('grey_stock_summary').upsert(chunk, { onConflict: 'id' });
+        if (error) {
+          console.warn('Supabase bulkSaveGreyStockRecords chunk error:', error.message);
+          return { success: false, count: insertedCount, error: error.message };
+        }
+        insertedCount += chunk.length;
+        if (onProgress) {
+          const pct = Math.round((insertedCount / rows.length) * 100);
+          onProgress(insertedCount, rows.length, pct, `Uploading Grey Stock records (${insertedCount}/${rows.length})...`);
+        }
+      }
+
+      return { success: true, count: insertedCount };
+    } catch (err: any) {
+      return { success: false, count: 0, error: err.message || String(err) };
+    }
+  }
+
+  static async deleteGreyStockRecord(id: string): Promise<{ success: boolean; error?: string }> {
+    const client = this.getClient();
+    if (!client) return { success: false, error: 'Supabase client not initialized.' };
+    try {
+      const { error } = await client.from('grey_stock_summary').delete().eq('id', id);
+      if (error) return { success: false, error: error.message };
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || String(err) };
+    }
+  }
+
+  static subscribeToGreyStockRecords(
+    onRecordChange: (change: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: GreyStockItem; id: string }) => void
+  ): () => void {
+    const client = this.getClient();
+    if (!client) return () => {};
+
+    try {
+      const channel = client
+        .channel('realtime:grey_stock_summary')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'grey_stock_summary' },
+          (payload: any) => {
+            const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE';
+            const row = payload.new || payload.old;
+            if (row) {
+              const record = SupabaseSync.mapRowToGreyStockItem(row);
+              onRecordChange({
+                eventType,
+                record,
+                id: String(row.id || (payload.old && payload.old.id) || '')
+              });
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        try {
+          client.removeChannel(channel);
+        } catch {}
+      };
+    } catch (err) {
+      console.warn('Supabase subscribeToGreyStockRecords error:', err);
+      return () => {};
+    }
+  }
+
+  static getGreyStockSchemaSQL(): string {
+    return `-- =========================================================================
+-- EPYLLION KNITEX ERP: GREY STOCK SUMMARY TABLE & REAL-TIME SETUP
+-- Execute this script in your Supabase SQL Editor:
+-- =========================================================================
+
+CREATE TABLE IF NOT EXISTS public.grey_stock_summary (
+  id TEXT PRIMARY KEY,
+  status TEXT DEFAULT 'Running',
+  order_no TEXT NOT NULL,
+  colour TEXT,
+  fab_style TEXT,
+  fab_type TEXT,
+  owner_unit TEXT DEFAULT 'EKL',
+  net_received_qty NUMERIC DEFAULT 0,
+  net_issued_qty NUMERIC DEFAULT 0,
+  stock_qty NUMERIC DEFAULT 0,
+  matched_grey_qty NUMERIC DEFAULT 0,
+  raw_data JSONB,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Performance Indexes
+CREATE INDEX IF NOT EXISTS idx_grey_stock_order_no ON public.grey_stock_summary(order_no);
+CREATE INDEX IF NOT EXISTS idx_grey_stock_colour ON public.grey_stock_summary(colour);
+CREATE INDEX IF NOT EXISTS idx_grey_stock_fab_type ON public.grey_stock_summary(fab_type);
+CREATE INDEX IF NOT EXISTS idx_grey_stock_owner_unit ON public.grey_stock_summary(owner_unit);
+CREATE INDEX IF NOT EXISTS idx_grey_stock_status ON public.grey_stock_summary(status);
+
+-- Row Level Security (RLS)
+ALTER TABLE public.grey_stock_summary ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public full access to grey_stock_summary" ON public.grey_stock_summary;
+CREATE POLICY "Allow public full access to grey_stock_summary" ON public.grey_stock_summary FOR ALL USING (true) WITH CHECK (true);
+
+-- Enable Real-Time WebSocket Replication
+DO $$ 
+BEGIN 
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+    AND schemaname = 'public' 
+    AND tablename = 'grey_stock_summary'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.grey_stock_summary;
+  END IF;
+EXCEPTION WHEN OTHERS THEN 
+  NULL;
+END $$;
+`;
   }
 
   /**

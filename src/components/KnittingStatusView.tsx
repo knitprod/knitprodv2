@@ -37,7 +37,8 @@ import {
   ShieldCheck,
   Database,
   Lock,
-  Scissors
+  Scissors,
+  Boxes
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
 import { KnittingStatusOrder, KnittingStatusItem } from '../types';
@@ -59,11 +60,12 @@ import { KnittingOrderDetailsModal } from './KnittingOrderDetailsModal';
 import { KnittingOrderSnippingModal } from './KnittingOrderSnippingModal';
 import { SupabaseSync } from '../lib/supabaseClient';
 import TextileClosePMCView from './TextileClosePMCView';
+import GreyStockSummaryView from './GreyStockSummaryView';
 import { SyncProgressBar, SyncProgressState } from './SyncProgressBar';
 
 interface KnittingStatusViewProps {
   currentUser?: UserRecord | null;
-  initialTab?: 'knitting_status' | 'textile_close_pmc';
+  initialTab?: 'knitting_status' | 'textile_close_pmc' | 'grey_stock_summary';
 }
 
 export interface SearchableFilterOption {
@@ -335,8 +337,8 @@ function SearchableFilterDropdown({
 }
 
 export default function KnittingStatusView({ currentUser, initialTab }: KnittingStatusViewProps) {
-  // Active Sub-Tab: Knitting Status vs Textile Close By PMC
-  const [activeSubTab, setActiveSubTab] = useState<'knitting_status' | 'textile_close_pmc'>(
+  // Active Sub-Tab: Knitting Status vs Textile Close By PMC vs Grey Stock Summary
+  const [activeSubTab, setActiveSubTab] = useState<'knitting_status' | 'textile_close_pmc' | 'grey_stock_summary'>(
     initialTab || 'knitting_status'
   );
 
@@ -1889,10 +1891,25 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
           <ShieldCheck className="w-4 h-4" />
           <span>Textile Close By PMC</span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('grey_stock_summary')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+            activeSubTab === 'grey_stock_summary'
+              ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-500/20'
+              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <Boxes className="w-4 h-4" />
+          <span>Grey Stock Summary</span>
+        </button>
       </div>
 
       {activeSubTab === 'textile_close_pmc' ? (
         <TextileClosePMCView currentUser={currentUser} />
+      ) : activeSubTab === 'grey_stock_summary' ? (
+        <GreyStockSummaryView currentUser={currentUser} />
       ) : (
         <>
       {/* Header Banner */}

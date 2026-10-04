@@ -28,11 +28,13 @@ import {
   Key,
   Globe,
   ArrowRight,
-  Zap
+  Zap,
+  Boxes
 } from 'lucide-react';
 import { GasClient } from '../lib/gasClient';
 import { SupabaseSync } from '../lib/supabaseClient';
 import { TextileClosePMCStorage } from '../lib/textileClosePMCStore';
+import { GreyStockStorage } from '../lib/greyStockStore';
 import { SyncConflictLog } from '../types';
 import { useGlobalData } from '../context/GlobalDataContext';
 import gasScriptContent from '../../google-apps-script/Code.gs?raw';
@@ -83,6 +85,12 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
   const [migrateTextileCloseStatus, setMigrateTextileCloseStatus] = useState<string | null>(null);
   const [copiedTextileCloseSql, setCopiedTextileCloseSql] = useState(false);
   const [showTextileCloseSql, setShowTextileCloseSql] = useState(false);
+
+  // Grey Stock Summary to Supabase Migration State
+  const [isMigratingGreyStock, setIsMigratingGreyStock] = useState(false);
+  const [migrateGreyStockStatus, setMigrateGreyStockStatus] = useState<string | null>(null);
+  const [copiedGreyStockSql, setCopiedGreyStockSql] = useState(false);
+  const [showGreyStockSql, setShowGreyStockSql] = useState(false);
 
   // Two-Way Synchronization states
   const [isSyncing, setIsSyncing] = useState(false);
@@ -232,6 +240,44 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
       setTimeout(() => setCopiedTextileCloseSql(false), 2500);
     } catch (err) {
       console.error('Failed to copy Textile Close SQL:', err);
+    }
+  };
+
+  const handleMigrateGreyStockToSupabase = async () => {
+    if (!SupabaseSync.isConfigured()) {
+      if (onSuccessNotice) onSuccessNotice("Please enter and save your Supabase credentials first.");
+      return;
+    }
+    setIsMigratingGreyStock(true);
+    setMigrateGreyStockStatus("Migrating Grey Stock Summary records to Supabase...");
+    try {
+      const records = GreyStockStorage.getRecords();
+      const res = await SupabaseSync.bulkSaveGreyStockRecords(records, true);
+      if (res.success) {
+        setMigrateGreyStockStatus(`Successfully migrated and replaced ${res.count} records in Supabase! Live WebSockets active.`);
+        if (onSuccessNotice) onSuccessNotice(`Transferred ${res.count} Grey Stock Summary records to Supabase!`);
+      } else {
+        if (res.error?.includes('grey_stock_summary') || res.error?.includes('schema cache') || res.error?.includes('PGRST205')) {
+          setShowGreyStockSql(true);
+          setMigrateGreyStockStatus("Table 'public.grey_stock_summary' does not exist in Supabase yet. Please copy the SQL script below, run it in your Supabase SQL Editor, and then click Migration.");
+        } else {
+          setMigrateGreyStockStatus(`Error transferring records: ${res.error || 'Check Supabase SQL Editor and table structure.'}`);
+        }
+      }
+    } catch (err: any) {
+      setMigrateGreyStockStatus(`Migration notice: ${err.message || String(err)}`);
+    } finally {
+      setIsMigratingGreyStock(false);
+    }
+  };
+
+  const handleCopyGreyStockSql = async () => {
+    try {
+      await navigator.clipboard.writeText(SupabaseSync.getGreyStockSchemaSQL());
+      setCopiedGreyStockSql(true);
+      setTimeout(() => setCopiedGreyStockSql(false), 2500);
+    } catch (err) {
+      console.error('Failed to copy Grey Stock SQL:', err);
     }
   };
 
@@ -895,6 +941,108 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
                 : 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800'
             }`}>
               {migrateTextileCloseStatus}
+            </div>
+          )}
+        </div>
+
+        {/* Grey Stock Summary Supabase Transfer & Real-time Status Card */}
+        <div className="rounded-xl border border-sky-200 dark:border-sky-900 bg-white/80 dark:bg-slate-900/80 p-4 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                <Boxes className="h-4 w-4 text-sky-600 dark:text-sky-400" />
+                <span className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">
+                  Grey Stock Summary Real-Time Cloud Engine (Supabase WebSockets)
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-300">
+                  Daily Replace-On-Upload Live
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Daily Grey Stock records (Main Order Layer + Second Detailed Layer) synchronize through Supabase PostgreSQL table <code className="px-1 py-0.5 rounded bg-sky-50 dark:bg-sky-950 font-mono text-[10px] text-sky-700 dark:text-sky-300">public.grey_stock_summary</code> with automatic replace-on-upload and live multi-user WebSocket updates.
+              </p>
+              <p className="text-[11px] font-medium text-sky-700 dark:text-sky-300">
+                ⚡ <strong>Setup Requirement:</strong> Execute the Grey Stock SQL script in your Supabase SQL Editor once before migrating.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleCopyGreyStockSql}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-sky-300 dark:border-sky-700 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950 dark:hover:bg-sky-900 text-sky-800 dark:text-sky-200 text-xs font-bold transition-all cursor-pointer shadow-2xs whitespace-nowrap"
+                title="Copy the SQL script to create the grey_stock_summary table in Supabase"
+              >
+                {copiedGreyStockSql ? (
+                  <>
+                    <Check className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />
+                    <span>Copied Grey Stock SQL!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />
+                    <span>Copy Grey Stock SQL</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowGreyStockSql(!showGreyStockSql)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-all cursor-pointer shadow-2xs whitespace-nowrap"
+              >
+                <Code className="h-3.5 w-3.5 text-slate-500" />
+                <span>{showGreyStockSql ? 'Hide SQL' : 'View SQL'}</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isMigratingGreyStock || !isSupabaseActive}
+                onClick={handleMigrateGreyStockToSupabase}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-xs whitespace-nowrap"
+                title="Seed and upload your existing Grey Stock records into Supabase"
+              >
+                {isMigratingGreyStock ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Uploading Records...</span>
+                  </>
+                ) : (
+                  <>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                    <span>One-Time Initial Migration ({GreyStockStorage.getRecords().length} records)</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {showGreyStockSql && (
+            <div className="rounded-xl border border-sky-200 dark:border-sky-800 bg-slate-950 p-3.5 space-y-2 text-slate-200 animate-fade-in font-mono text-[11px]">
+              <div className="flex items-center justify-between text-xs pb-1 border-b border-slate-800">
+                <span className="text-sky-400 font-bold">SQL Editor Script (Grey Stock Summary Table & Realtime)</span>
+                <button
+                  type="button"
+                  onClick={handleCopyGreyStockSql}
+                  className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 font-semibold cursor-pointer"
+                >
+                  {copiedGreyStockSql ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                  {copiedGreyStockSql ? 'Copied' : 'Copy Query'}
+                </button>
+              </div>
+              <pre className="overflow-x-auto max-h-48 text-[11px] leading-relaxed text-slate-300 selection:bg-sky-800">
+                {SupabaseSync.getGreyStockSchemaSQL()}
+              </pre>
+            </div>
+          )}
+
+          {migrateGreyStockStatus && (
+            <div className={`text-xs font-semibold px-3 py-2 rounded-lg border animate-fade-in ${
+              migrateGreyStockStatus.includes('Successfully')
+                ? 'bg-sky-50 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 border-sky-200 dark:border-sky-800'
+                : 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+            }`}>
+              {migrateGreyStockStatus}
             </div>
           )}
         </div>

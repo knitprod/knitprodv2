@@ -79,6 +79,7 @@ export const ALL_TABS = [
   'Knitting Status',
   'Running Orders',
   'Textile Close By PMC',
+  'Grey Stock Summary',
   'Yarn Allocation',
   'User Management',
   'Database Connection',
@@ -100,6 +101,7 @@ export const getTabEmoji = (tabName: string): string => {
     case 'Knitting Status': return '🧵';
     case 'Running Orders': return '⚡';
     case 'Textile Close By PMC': return '🛡️';
+    case 'Grey Stock Summary': return '📦';
     case 'Yarn Allocation': return '🧶';
     case 'User Management': return '👥';
     case 'Database Connection': return '⚡';
@@ -1976,6 +1978,7 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
                             case 'Knitting Status': return '🧵';
                             case 'Running Orders': return '⚡';
                             case 'Textile Close By PMC': return '🛡️';
+                            case 'Grey Stock Summary': return '📦';
                             case 'Yarn Allocation': return '🧶';
                             case 'User Management': return '👥';
                             case 'Database Connection': return '🗄️';

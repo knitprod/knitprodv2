@@ -24,7 +24,8 @@ import {
   FileSpreadsheet,
   ShieldCheck,
   Database,
-  Activity
+  Activity,
+  Boxes
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
 
@@ -58,8 +59,8 @@ export default function TopNavMenu({ currentPage, onNavigate, currentUser }: Top
     if (currentUser?.allowedTabs && currentUser.allowedTabs.length > 0) {
       if (currentUser.allowedTabs.includes(tabName)) return true;
       if (
-        ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order Plan & Status', 'Plan Order Followup', 'Knitting Status', 'Running Orders', 'Textile Close By PMC'].includes(tabName) &&
-        (currentUser.allowedTabs.includes('Plan Order Followup') || currentUser.allowedTabs.includes('Order Plan & Status') || currentUser.allowedTabs.includes('Order OTD Status') || currentUser.allowedTabs.includes('Team Leader OTD Status') || currentUser.allowedTabs.includes('Knitting Status') || currentUser.allowedTabs.includes('Running Orders') || currentUser.allowedTabs.includes('Textile Close By PMC'))
+        ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order Plan & Status', 'Plan Order Followup', 'Knitting Status', 'Running Orders', 'Textile Close By PMC', 'Grey Stock Summary'].includes(tabName) &&
+        (currentUser.allowedTabs.includes('Plan Order Followup') || currentUser.allowedTabs.includes('Order Plan & Status') || currentUser.allowedTabs.includes('Order OTD Status') || currentUser.allowedTabs.includes('Team Leader OTD Status') || currentUser.allowedTabs.includes('Knitting Status') || currentUser.allowedTabs.includes('Running Orders') || currentUser.allowedTabs.includes('Textile Close By PMC') || currentUser.allowedTabs.includes('Grey Stock Summary'))
       ) {
         return true;
       }
@@ -87,6 +88,7 @@ export default function TopNavMenu({ currentPage, onNavigate, currentUser }: Top
   const knittingStatusItems = [
     { name: 'Running Orders', icon: Activity, label: 'Running Orders' },
     { name: 'Textile Close By PMC', icon: ShieldCheck, label: 'Textile Close By PMC' },
+    { name: 'Grey Stock Summary', icon: Boxes, label: 'Grey Stock Summary' },
   ];
 
   const adminPanelItems = [

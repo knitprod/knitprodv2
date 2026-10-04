@@ -333,15 +333,50 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
     }
 
     // 3. Check order queries (order number, color, fabric, balance)
-    let activeOrderNum: string | null = numMatches[0] || null;
+    const isMonthlyOrFloorInSynth = 
+      lowerQ.includes('september') ||
+      lowerQ.includes('august') ||
+      lowerQ.includes('october') ||
+      lowerQ.includes('monthly') ||
+      lowerQ.includes('month') ||
+      lowerQ.includes('floor') ||
+      lowerQ.includes('today') ||
+      lowerQ.includes('yesterday') ||
+      lowerQ.includes('unit by unit') ||
+      lowerQ.includes('missing');
+
+    const ORDER_FOLLOWUP_COLORS = [
+      'french navy', 'black', 'white', 'grey', 'gray', 'slate grey', 'heather grey', 'charcoal',
+      'navy', 'olive', 'red', 'green', 'blue', 'yellow', 'maroon', 'orange', 'pink', 'purple',
+      'rib', 'fleece'
+    ];
+
+    const isOrderFollowUpIntent = !numMatches.length && !isMonthlyOrFloorInSynth && (
+      lowerQ === 'production' ||
+      lowerQ === 'prod' ||
+      lowerQ === 'allocation' ||
+      lowerQ === 'alloc' ||
+      lowerQ === 'yarn' ||
+      lowerQ === 'balance' ||
+      lowerQ === 'predict completion' ||
+      lowerQ.startsWith('order ') ||
+      lowerQ.includes('fabric') ||
+      lowerQ.includes('fgsm') ||
+      lowerQ.includes('knit bal') ||
+      ORDER_FOLLOWUP_COLORS.some(c => lowerQ === c || lowerQ.startsWith(c))
+    );
+
+    let activeOrderNum: string | null = (numMatches.length > 0 && numMatches[0] !== '2024' && numMatches[0] !== '2025' && numMatches[0] !== '2026') ? numMatches[0] : null;
     let isFollowUp = false;
 
-    if (!activeOrderNum && !isTotalKnittingQuery) {
+    if (!activeOrderNum && isOrderFollowUpIntent && !isTotalKnittingQuery) {
       if (context?.activeOrderNo) {
         activeOrderNum = String(context.activeOrderNo);
         isFollowUp = true;
       } else {
-        for (let i = history.length - 1; i >= 0; i--) {
+        // ONLY check user messages in history, NEVER check model welcome greeting!
+        for (let i = history.length - 1; i > 0; i--) {
+          if (history[i]?.role !== 'user') continue;
           const histMatches = String(history[i]?.text || '').match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g);
           if (histMatches && histMatches.length > 0) {
             const candidate = histMatches[0];
@@ -354,18 +389,20 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
       }
     }
 
-    const orderResult = handleSmartOrderQuery(
-      query,
-      activeOrderNum,
-      isFollowUp,
-      numMatches,
-      knittingOrders,
-      orderPlans,
-      textileRecords,
-      yarnAllocationsList
-    );
-    if (orderResult.handled && orderResult.reply) {
-      return orderResult.reply;
+    if (activeOrderNum && (numMatches.length > 0 || isFollowUp)) {
+      const orderResult = handleSmartOrderQuery(
+        query,
+        activeOrderNum,
+        isFollowUp,
+        numMatches,
+        knittingOrders,
+        orderPlans,
+        textileRecords,
+        yarnAllocationsList
+      );
+      if (orderResult.handled && orderResult.reply) {
+        return orderResult.reply;
+      }
     }
 
     // 3. Summary query
@@ -389,13 +426,12 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
     }
 
     // 6. Default friendly colleague guided response
-    return `Sure! 😊 I'm here to help with any information in the system.\n\n` +
+    return `Hmm, I didn't recognize that command or couldn't find relevant ERP records for it. 😊\n\n` +
       `Here are a few things you can ask me:\n` +
+      `• *"September Production Update"* (or any month unit-by-unit production report)\n` +
       `• *"Yesterday's production floor by floor"*\n` +
       `• *"Which floor did not update today?"*\n` +
-      `• *"Last 7 days production of EFL"*\n` +
-      `• *"Predict tomorrow's production"*\n` +
-      `• *"What is the information for Order 272277?"*\n` +
+      `• *"Order [Number]"* (e.g. *"Order 1001"*)\n` +
       `• *"What is the total knitting balance?"*`;
   };
 
@@ -451,9 +487,43 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         (lowerQ.includes('knitting balance') && !numberMatches.length) ||
         (lowerQ.includes('total balance') && !numberMatches.length));
 
-      let activeOrderNo: string | null = numberMatches[0] || null;
-      if (!activeOrderNo && !isTotalKnittingQuery) {
-        for (let i = messages.length - 1; i >= 0; i--) {
+      const isMonthlyOrFloorQuery = 
+        lowerQ.includes('september') ||
+        lowerQ.includes('august') ||
+        lowerQ.includes('october') ||
+        lowerQ.includes('monthly') ||
+        lowerQ.includes('month') ||
+        lowerQ.includes('floor') ||
+        lowerQ.includes('today') ||
+        lowerQ.includes('yesterday') ||
+        lowerQ.includes('unit by unit') ||
+        lowerQ.includes('missing');
+
+      const ORDER_FOLLOWUP_COLORS = [
+        'french navy', 'black', 'white', 'grey', 'gray', 'slate grey', 'heather grey', 'charcoal',
+        'navy', 'olive', 'red', 'green', 'blue', 'yellow', 'maroon', 'orange', 'pink', 'purple',
+        'rib', 'fleece'
+      ];
+
+      const isOrderFollowUpIntent = !numberMatches.length && !isMonthlyOrFloorQuery && (
+        lowerQ === 'production' ||
+        lowerQ === 'prod' ||
+        lowerQ === 'allocation' ||
+        lowerQ === 'alloc' ||
+        lowerQ === 'yarn' ||
+        lowerQ === 'balance' ||
+        lowerQ === 'predict completion' ||
+        lowerQ.startsWith('order ') ||
+        lowerQ.includes('fabric') ||
+        lowerQ.includes('fgsm') ||
+        lowerQ.includes('knit bal') ||
+        ORDER_FOLLOWUP_COLORS.some(c => lowerQ === c || lowerQ.startsWith(c))
+      );
+
+      let activeOrderNo: string | null = (numberMatches.length > 0 && numberMatches[0] !== '2024' && numberMatches[0] !== '2025' && numberMatches[0] !== '2026') ? numberMatches[0] : null;
+      if (!activeOrderNo && isOrderFollowUpIntent && !isTotalKnittingQuery) {
+        for (let i = messages.length - 1; i > 0; i--) {
+          if (messages[i]?.role !== 'user') continue;
           const histMatches = String(messages[i]?.text || '').match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g);
           if (histMatches && histMatches.length > 0) {
             const candidate = histMatches[0];
@@ -466,14 +536,15 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
 
       // Filter relevant records if specific numbers or buyers mentioned
       const matchedOrders: any[] = [];
+      const STOP_WORDS = new Set(['update', 'status', 'month', 'daily', 'floor', 'today', 'check', 'give', 'show', 'unit', 'ledger', 'production', 'data', 'summary']);
 
       // 1. Check Knitting Status
       for (const ord of knittingOrders) {
         const matchesNum = numberMatches.some(n => ord.orderNo?.includes(n));
-        const matchesActive = Boolean(activeOrderNo && ord.orderNo?.includes(activeOrderNo));
+        const matchesActive = Boolean(activeOrderNo && isOrderFollowUpIntent && ord.orderNo?.includes(activeOrderNo));
         const matchesBuyer = ord.buyerName && lowerQ.includes(ord.buyerName.toLowerCase());
         const fabricStr = ord.items?.map(it => it.fabType).join(' ').toLowerCase() || '';
-        const matchesFabric = fabricStr && lowerQ.split(/\s+/).some(w => w.length > 3 && fabricStr.includes(w));
+        const matchesFabric = fabricStr && lowerQ.split(/\s+/).some(w => w.length > 3 && !STOP_WORDS.has(w) && fabricStr.includes(w));
 
         if (matchesNum || matchesActive || matchesBuyer || matchesFabric) {
           const firstItem = ord.items?.[0];
@@ -499,7 +570,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
       // 2. Check Order Plans
       for (const plan of orderPlans) {
         const matchesNum = numberMatches.some(n => String(plan.ewo || '').includes(n));
-        const matchesActive = Boolean(activeOrderNo && String(plan.ewo || '').includes(activeOrderNo));
+        const matchesActive = Boolean(activeOrderNo && isOrderFollowUpIntent && String(plan.ewo || '').includes(activeOrderNo));
         const matchesBuyer = plan.buyer && lowerQ.includes(String(plan.buyer).toLowerCase());
         if (matchesNum || matchesActive || matchesBuyer) {
           matchedOrders.push({
@@ -522,7 +593,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
       // 3. Check Textile Close PMC
       for (const rec of textileRecords) {
         const matchesNum = numberMatches.some(n => rec.orderNo?.includes(n));
-        const matchesActive = Boolean(activeOrderNo && rec.orderNo?.includes(activeOrderNo));
+        const matchesActive = Boolean(activeOrderNo && isOrderFollowUpIntent && rec.orderNo?.includes(activeOrderNo));
         const matchesBuyer = rec.buyerName && lowerQ.includes(rec.buyerName.toLowerCase());
 
         if (matchesNum || matchesActive || matchesBuyer) {
@@ -664,21 +735,37 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
       const lowerQ = query.toLowerCase().trim();
 
       let lastActiveOrderNum: string | null = null;
-      for (let i = messages.length - 1; i >= 0; i--) {
+      // Search conversation backwards for an explicitly discussed order.
+      // NOTE: NEVER check messages[0] (the initial welcome banner) which contains example numbers!
+      for (let i = messages.length - 1; i > 0; i--) {
         const m = messages[i];
         if (m.orderData?.orderNo) {
           lastActiveOrderNum = String(m.orderData.orderNo).trim();
           break;
         }
-        const textMatches = String(m.text || '').match(/\b\d{5,8}\b/g);
-        if (textMatches && textMatches.length > 0) {
-          const cand = textMatches[0];
-          if (cand !== '2024' && cand !== '2025' && cand !== '2026') {
-            lastActiveOrderNum = cand;
-            break;
+        if (m.role === 'user') {
+          const userMatches = String(m.text || '').match(/\b\d{5,8}\b/g);
+          if (userMatches && userMatches.length > 0) {
+            const cand = userMatches[0];
+            if (cand !== '2024' && cand !== '2025' && cand !== '2026') {
+              lastActiveOrderNum = cand;
+              break;
+            }
           }
         }
       }
+
+      const isMonthlyOrFloorQuery = 
+        lowerQ.includes('september') ||
+        lowerQ.includes('august') ||
+        lowerQ.includes('october') ||
+        lowerQ.includes('monthly') ||
+        lowerQ.includes('month') ||
+        lowerQ.includes('floor') ||
+        lowerQ.includes('today') ||
+        lowerQ.includes('yesterday') ||
+        lowerQ.includes('unit by unit') ||
+        lowerQ.includes('missing');
 
       const ORDER_FOLLOWUP_COLORS = [
         'french navy', 'black', 'white', 'grey', 'gray', 'slate grey', 'heather grey', 'charcoal',
@@ -686,57 +773,21 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         'rib', 'fleece'
       ];
 
-      // Check if this query is a follow-up referring to the last active order (e.g. "Production", "Allocation", "Predict Completion Date", "French Navy", "Black")
-      const isOrderFollowUp = Boolean(lastActiveOrderNum) && !numMatches.length && (
+      // Check if this query is a genuine follow-up referring to the last active order
+      const isOrderFollowUp = Boolean(lastActiveOrderNum) && !numMatches.length && !isMonthlyOrFloorQuery && (
         lowerQ === 'production' ||
         lowerQ === 'prod' ||
         lowerQ === 'allocation' ||
         lowerQ === 'alloc' ||
         lowerQ === 'yarn' ||
-        lowerQ.includes('production') ||
-        lowerQ.includes('allocation') ||
-        lowerQ.includes('predict') ||
-        lowerQ.includes('completion') ||
-        lowerQ.includes('finish') ||
-        lowerQ.includes('forecast') ||
-        lowerQ.includes('when will') ||
-        lowerQ.includes('delay') ||
-        ORDER_FOLLOWUP_COLORS.some(c => lowerQ.includes(c))
+        lowerQ === 'balance' ||
+        lowerQ === 'predict completion' ||
+        lowerQ.startsWith('order ') ||
+        ORDER_FOLLOWUP_COLORS.some(c => lowerQ === c || lowerQ.startsWith(c))
       );
 
       let activeOrderNum: string | null = numMatches[0] || (isOrderFollowUp ? lastActiveOrderNum : null);
       let isFollowUp = isOrderFollowUp;
-
-      if (!activeOrderNum) {
-        for (let i = messages.length - 1; i >= 0; i--) {
-          const histMatches = String(messages[i]?.text || '').match(/\b\d{5,8}\b/g);
-          if (histMatches && histMatches.length > 0) {
-            const candidate = histMatches[0];
-            if (candidate === '2024' || candidate === '2025' || candidate === '2026') continue;
-            activeOrderNum = candidate;
-            isFollowUp = true;
-            break;
-          }
-        }
-      }
-
-      // If still no active order, and the query is asking about completion prediction:
-      if (!activeOrderNum && (
-        lowerQ.includes('completion') ||
-        (lowerQ.includes('predict') && !lowerQ.includes('tomorrow')) ||
-        lowerQ.includes('finish date') ||
-        lowerQ.includes('delivery date')
-      )) {
-        const runningOrder = knittingOrders.find(o => {
-          const g = Number(o.greyQty || 0);
-          const b = Number(o.knitBalance || 0);
-          return b > 0 && b < g;
-        }) || knittingOrders.find(o => String(o.orderNo || '').includes('272767')) || knittingOrders[0];
-        if (runningOrder) {
-          activeOrderNum = String(runningOrder.orderNo || '272767');
-          isFollowUp = true;
-        }
-      }
 
       const isTotalAllocationQuery = 
         !isOrderFollowUp &&
@@ -802,33 +853,35 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         }
       }
 
-      const orderResult = handleSmartOrderQuery(
-        query,
-        activeOrderNum,
-        isFollowUp,
-        numMatches,
-        knittingOrders,
-        orderPlans,
-        currentTextileRecords,
-        yarnAllocations
-      );
-      if (orderResult.handled && orderResult.reply) {
-        await new Promise(r => setTimeout(r, 120));
-        setMessages(prev => [
-          ...prev,
-          {
-            id: `msg-${Date.now() + 1}`,
-            role: 'model',
-            text: orderResult.reply!,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            orderData: orderResult.orderData || null,
-            yarnAllocations: orderResult.yarnAllocations || [],
-            viewMode: orderResult.viewMode || 'all',
-            filterColor: orderResult.filterColor
-          }
-        ]);
-        setIsLoading(false);
-        return;
+      if (activeOrderNum && (numMatches.length > 0 || isFollowUp)) {
+        const orderResult = handleSmartOrderQuery(
+          query,
+          activeOrderNum,
+          isFollowUp,
+          numMatches,
+          knittingOrders,
+          orderPlans,
+          currentTextileRecords,
+          yarnAllocations
+        );
+        if (orderResult.handled && orderResult.reply) {
+          await new Promise(r => setTimeout(r, 120));
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `msg-${Date.now() + 1}`,
+              role: 'model',
+              text: orderResult.reply!,
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              orderData: orderResult.orderData || null,
+              yarnAllocations: orderResult.yarnAllocations || [],
+              viewMode: orderResult.viewMode || 'all',
+              filterColor: orderResult.filterColor
+            }
+          ]);
+          setIsLoading(false);
+          return;
+        }
       }
 
       // C. High-Level ERP Summary Check

@@ -297,5 +297,31 @@ export interface TextileCloseRecord {
   updatedAt?: string;
 }
 
+export interface GreyStockItem extends SyncMetadata {
+  id: string;
+  status: string;         // Status from file (e.g. "Running", "Complete")
+  orderNo: string;        // Order No.
+  colour: string;         // Colour
+  fabStyle: string;       // Fab Style
+  fabType: string;        // Fab Type
+  ownerUnit: string;      // Owner Unit (e.g. "EKL", "EFL", "Sub-Contact")
+  netReceivedQty: number; // Net Received QTY
+  netIssuedQty: number;   // Net Issued QTY
+  stockQty: number;       // Stock QTY
+  matchedGreyQty?: number;// Matched Grey QTY from Knitting Status
+}
+
+export interface GreyStockOrderGroup {
+  orderNo: string;
+  status: string;
+  buyerName: string;
+  greyRequired: number;
+  totalNetReceived: number;
+  totalNetIssued: number;
+  totalGreyStock: number;
+  items: GreyStockItem[];
+}
+
+
 
 
