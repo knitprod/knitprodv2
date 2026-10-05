@@ -811,213 +811,222 @@ export function parseGreyStockExcel(
 
       const uint8 = new Uint8Array(arrayBuffer);
       const workbook = XLSX.read(uint8, { type: 'array', cellDates: true });
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      if (!worksheet) {
-        throw new Error('No valid sheet found in uploaded Excel file.');
+
+      if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+        throw new Error('The uploaded Excel workbook contains no sheets.');
       }
 
-        const rawRows: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
-        if (!rawRows || rawRows.length === 0) {
-          throw new Error('Uploaded sheet contains no data rows.');
+      if (onProgress) {
+        onProgress({
+          percent: 35,
+          message: 'Scanning workbook sheets for Grey Stock headers...',
+          stage: 'parsing'
+        });
+      }
+
+      // Find the best worksheet and header row by scoring candidate rows across sheets
+      let targetSheetName = workbook.SheetNames[0];
+      let bestAoa: any[][] = [];
+      let bestHeaderRowIdx = 0;
+      let highestHeaderScore = -1;
+
+      for (let s = 0; s < workbook.SheetNames.length; s++) {
+        const sName = workbook.SheetNames[s];
+        const ws = workbook.Sheets[sName];
+        if (!ws) continue;
+
+        const candidateAoa: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        if (!candidateAoa || candidateAoa.length === 0) continue;
+
+        for (let r = 0; r < Math.min(candidateAoa.length, 30); r++) {
+          const row = candidateAoa[r] || [];
+          let score = 0;
+          for (let c = 0; c < row.length; c++) {
+            const cellNorm = norm(row[c]);
+            if (!cellNorm) continue;
+            if (cellNorm.startsWith('order') || cellNorm.includes('orderno')) score += 5;
+            if (cellNorm.includes('colour') || cellNorm.includes('color')) score += 4;
+            if (cellNorm.includes('fabric') || cellNorm.includes('fabrics') || cellNorm.includes('fabtype')) score += 4;
+            if (cellNorm.includes('received') || cellNorm.includes('recieved')) score += 4;
+            if (cellNorm.includes('issued')) score += 4;
+            if (cellNorm.includes('stock')) score += 3;
+            if (cellNorm.includes('buyer')) score += 3;
+            if (cellNorm.includes('unit')) score += 2;
+          }
+
+          if (score > highestHeaderScore) {
+            highestHeaderScore = score;
+            bestHeaderRowIdx = r;
+            bestAoa = candidateAoa;
+            targetSheetName = sName;
+          }
+        }
+      }
+
+      if (bestAoa.length === 0) {
+        throw new Error('Uploaded sheet contains no readable data.');
+      }
+
+      const headerRow = bestAoa[bestHeaderRowIdx] || [];
+
+      if (onProgress) {
+        onProgress({
+          percent: 55,
+          message: `Identified headers on row ${bestHeaderRowIdx + 1} of sheet "${targetSheetName}"...`,
+          stage: 'mapping',
+          totalRows: bestAoa.length - bestHeaderRowIdx - 1
+        });
+      }
+
+      // Map column positions accurately from detected header row
+      let colOrderNo = -1;
+      let colStatus = -1;
+      let colBuyer = -1;
+      let colColour = -1;
+      let colFabType = -1;
+      let colFabStyle = -1;
+      let colOwnerUnit = -1;
+      let colNetReceived = -1;
+      let colNetIssued = -1;
+      let colStock = -1;
+
+      for (let c = 0; c < headerRow.length; c++) {
+        const hNorm = norm(headerRow[c]);
+        if (!hNorm) continue;
+
+        // 1. Order No.
+        if (colOrderNo === -1 && (hNorm.includes('order') || hNorm === 'jobno' || hNorm === 'ewo' || hNorm === 'ewono')) {
+          colOrderNo = c;
+        }
+        // 2. Status
+        else if (colStatus === -1 && (hNorm === 'status' || hNorm === 'orderstatus' || hNorm === 'itemstatus')) {
+          colStatus = c;
+        }
+        // 3. Buyer Name / Buyer
+        else if (colBuyer === -1 && (hNorm.includes('buyer') || hNorm.includes('customer'))) {
+          colBuyer = c;
+        }
+        // 4. Colour / Color
+        else if (colColour === -1 && (hNorm.includes('colour') || hNorm.includes('color') || hNorm.includes('shade'))) {
+          colColour = c;
+        }
+        // 5. Net Received Qty.-Kg -> Net Received
+        else if (colNetReceived === -1 && (hNorm.includes('received') || hNorm.includes('recieved') || hNorm.includes('netrec'))) {
+          colNetReceived = c;
+        }
+        // 6. Net Issued Qty.-Kg -> Net Issued
+        else if (colNetIssued === -1 && (hNorm.includes('issued') || hNorm.includes('netiss'))) {
+          colNetIssued = c;
+        }
+        // 7. Stock Qty. Kg -> Stock QTY
+        else if (colStock === -1 && (hNorm.includes('stock') || hNorm.includes('balance'))) {
+          colStock = c;
+        }
+        // 8. Fabrics Type -> Fab. Type (check fabrics type before fabric style)
+        else if (colFabType === -1 && (hNorm.includes('fabricstype') || hNorm.includes('fabrictype') || hNorm.includes('fabtype') || hNorm.includes('fabrication') || hNorm === 'fabrics' || hNorm === 'fabric')) {
+          colFabType = c;
+        }
+        // 9. Fabric Style -> Fab Style
+        else if (colFabStyle === -1 && (hNorm.includes('style') || hNorm.includes('fabricstyle') || hNorm.includes('fabstyle'))) {
+          colFabStyle = c;
+        }
+        // 10. Owner Unit
+        else if (colOwnerUnit === -1 && (hNorm.includes('owner') || hNorm.includes('unit') || hNorm === 'plant' || hNorm === 'factory')) {
+          colOwnerUnit = c;
+        }
+      }
+
+      const parsedItems: GreyStockItem[] = [];
+      const nowTs = Date.now();
+      const dataRows = bestAoa.slice(bestHeaderRowIdx + 1);
+      const totalCount = dataRows.length;
+      let lastSeenOrderNo = '';
+
+      for (let idx = 0; idx < totalCount; idx++) {
+        const row = dataRows[idx] || [];
+
+        const rawOrder = colOrderNo >= 0 ? String(row[colOrderNo] || '').trim() : '';
+        const orderLower = rawOrder.toLowerCase();
+
+        // Skip summary or title rows
+        if (orderLower.includes('total') || orderLower.includes('summary') || orderLower.includes('grand total')) {
+          continue;
         }
 
-        if (onProgress) {
+        const colour = colColour >= 0 ? String(row[colColour] || '').trim() : '';
+        if (colour.toLowerCase().includes('total')) {
+          continue;
+        }
+
+        // Support merged order numbers across rows
+        if (rawOrder) {
+          lastSeenOrderNo = rawOrder;
+        }
+        const orderNo = rawOrder || lastSeenOrderNo;
+
+        const buyerFromFile = colBuyer >= 0 ? String(row[colBuyer] || '').trim() : '';
+        const fabType = colFabType >= 0 ? String(row[colFabType] || '').trim() : '';
+        const fabStyle = colFabStyle >= 0 ? String(row[colFabStyle] || '').trim() : '';
+        const ownerUnit = colOwnerUnit >= 0 ? String(row[colOwnerUnit] || '').trim() || 'EKL' : 'EKL';
+        const status = colStatus >= 0 ? String(row[colStatus] || '').trim() || 'Running' : 'Running';
+
+        const netReceived = colNetReceived >= 0 ? parseNumericValue(row[colNetReceived]) : 0;
+        const netIssued = colNetIssued >= 0 ? parseNumericValue(row[colNetIssued]) : 0;
+        const stock = (colStock >= 0 && row[colStock] !== '' && row[colStock] !== undefined)
+          ? parseNumericValue(row[colStock])
+          : Math.max(0, netReceived - netIssued);
+
+        // Skip completely empty rows
+        if (!orderNo && !colour && !fabType && netReceived === 0 && netIssued === 0 && stock === 0) {
+          continue;
+        }
+
+        parsedItems.push({
+          id: `gs-upload-${orderNo || 'ord'}-${idx + 1}-${nowTs}`,
+          status: status || 'Running',
+          orderNo: orderNo || 'Unknown',
+          buyerName: buyerFromFile || undefined,
+          colour: colour || '—',
+          fabStyle: fabStyle || '—',
+          fabType: fabType || '—',
+          ownerUnit: ownerUnit,
+          netReceivedQty: netReceived,
+          netIssuedQty: netIssued,
+          stockQty: stock
+        });
+
+        // Periodic progress update
+        if (onProgress && (idx % 250 === 0 || idx === totalCount - 1)) {
+          const pct = 60 + Math.round(((idx + 1) / totalCount) * 38);
           onProgress({
-            percent: 50,
-            message: `Analyzing headers across ${rawRows.length.toLocaleString()} rows...`,
+            percent: pct,
+            message: `Mapped ${idx + 1} of ${totalCount.toLocaleString()} rows...`,
             stage: 'mapping',
-            totalRows: rawRows.length
-          });
-        }
-
-        // Pre-resolve header column keys from available keys across rows
-        const allKeys = new Set<string>();
-        for (let i = 0; i < Math.min(rawRows.length, 30); i++) {
-          Object.keys(rawRows[i] || {}).forEach(k => {
-            if (k && String(k).trim()) allKeys.add(String(k).trim());
-          });
-        }
-        const keyList = Array.from(allKeys);
-
-        /**
-         * Multi-tier header finder with exact, contains, and fuzzy token matching
-         */
-        const findMatchedKey = (...aliases: string[]): string | undefined => {
-          // Tier 1: Exact normalized equality
-          for (let a = 0; a < aliases.length; a++) {
-            const aNorm = norm(aliases[a]);
-            const found = keyList.find(k => norm(k) === aNorm);
-            if (found) return found;
-          }
-
-          // Tier 2: Normalized substring containment (handles -Kg, (Kg), symbols, spaces)
-          for (let a = 0; a < aliases.length; a++) {
-            const aNorm = norm(aliases[a]);
-            if (!aNorm || aNorm.length < 3) continue;
-            const found = keyList.find(k => {
-              const kNorm = norm(k);
-              return kNorm.includes(aNorm) || aNorm.includes(kNorm);
-            });
-            if (found) return found;
-          }
-
-          // Tier 3: Word token overlap
-          for (let a = 0; a < aliases.length; a++) {
-            const tokens = aliases[a]
-              .toLowerCase()
-              .replace(/[^a-z0-9]/g, ' ')
-              .split(/\s+/)
-              .filter(t => t.length > 2 && t !== 'qty' && t !== 'the');
-            if (tokens.length > 0) {
-              const found = keyList.find(k => {
-                const kLower = k.toLowerCase();
-                return tokens.every(tok => kLower.includes(tok));
-              });
-              if (found) return found;
-            }
-          }
-
-          return undefined;
-        };
-
-        // Re-routed Header Aliases
-        const statusKey = findMatchedKey('Status', 'Order Status', 'Item Status');
-        const orderNoKey = findMatchedKey('Order No.', 'Order No', 'Order Number', 'Order', 'EWO', 'EWO No.', 'Job No.');
-        const buyerKey = findMatchedKey('Buyer Name', 'Buyer', 'Customer Name', 'Customer', 'Buyer / Customer');
-        const colourKey = findMatchedKey('Colour', 'Color', 'Shade', 'Fabric Color', 'Color Name');
-        const fabStyleKey = findMatchedKey('Fab Style', 'Fabric Style', 'Style', 'Style No', 'Style Name', 'Fab. Style');
-        
-        // Fabrics Type -> Fab. Type re-routing
-        const fabTypeKey = findMatchedKey(
-          'Fabrics Type',
-          'Fabric Type',
-          'Fab. Type',
-          'Fab Type',
-          'Fabrication',
-          'Fabrics',
-          'Fabric'
-        );
-
-        const ownerUnitKey = findMatchedKey('Owner Unit', 'Unit', 'Owner', 'Factory Unit', 'Production Unit', 'Plant');
-        
-        // Net Received Qty.-Kg -> Net Received re-routing
-        const netRecKey = findMatchedKey(
-          'Net Received Qty.-Kg',
-          'Net Received Qty-Kg',
-          'Net Received Qty - Kg',
-          'Net Received Qty. - Kg',
-          'Net Received Qty (Kg)',
-          'Net Received Qty(Kg)',
-          'Net Received Qty',
-          'Net Received QTY',
-          'Net Received',
-          'Received Qty',
-          'Received QTY',
-          'Received'
-        );
-
-        // Net Issued Qty.-Kg -> Net Issued re-routing
-        const netIssKey = findMatchedKey(
-          'Net Issued Qty.-Kg',
-          'Net Issued Qty-Kg',
-          'Net Issued Qty - Kg',
-          'Net Issued Qty. - Kg',
-          'Net Issued Qty (Kg)',
-          'Net Issued Qty(Kg)',
-          'Net Issued Qty',
-          'Net Issued QTY',
-          'Net Issued',
-          'Issued Qty',
-          'Issued QTY',
-          'Issued'
-        );
-
-        // Stock Qty. Kg -> Stock QTY re-routing
-        const stockKey = findMatchedKey(
-          'Stock Qty. Kg',
-          'Stock Qty Kg',
-          'Stock Qty-Kg',
-          'Stock Qty - Kg',
-          'Stock Qty. - Kg',
-          'Stock Qty (Kg)',
-          'Stock Qty(Kg)',
-          'Stock Qty',
-          'Stock QTY',
-          'Stock',
-          'Grey Stock',
-          'Balance Stock',
-          'Balance'
-        );
-
-        const parsedItems: GreyStockItem[] = [];
-        const nowTs = Date.now();
-        const totalCount = rawRows.length;
-
-        for (let idx = 0; idx < totalCount; idx++) {
-          const row = rawRows[idx];
-
-          const status = String((statusKey ? row[statusKey] : '') || 'Running').trim();
-          const orderNo = String((orderNoKey ? row[orderNoKey] : '') || '').trim();
-          const buyerFromFile = String((buyerKey ? row[buyerKey] : '') || '').trim();
-          const colour = String((colourKey ? row[colourKey] : '') || '').trim();
-          const fabStyle = String((fabStyleKey ? row[fabStyleKey] : '') || '').trim();
-          const fabType = String((fabTypeKey ? row[fabTypeKey] : '') || '').trim();
-          const ownerUnit = String((ownerUnitKey ? row[ownerUnitKey] : '') || '').trim() || 'EKL';
-
-          const netReceived = parseNumericValue(netRecKey ? row[netRecKey] : 0);
-          const netIssued = parseNumericValue(netIssKey ? row[netIssKey] : 0);
-          const stock = (stockKey && row[stockKey] !== '' && row[stockKey] !== undefined)
-            ? parseNumericValue(row[stockKey])
-            : (netReceived - netIssued);
-
-          // Skip completely empty rows
-          if (!orderNo && !colour && !fabType && netReceived === 0 && netIssued === 0) {
-            continue;
-          }
-
-          parsedItems.push({
-            id: `gs-upload-${orderNo || 'ord'}-${idx + 1}-${nowTs}`,
-            status: status || 'Running',
-            orderNo: orderNo || 'Unknown',
-            buyerName: buyerFromFile || undefined,
-            colour: colour || '—',
-            fabStyle: fabStyle || '—',
-            fabType: fabType || '—',
-            ownerUnit: ownerUnit,
-            netReceivedQty: netReceived,
-            netIssuedQty: netIssued,
-            stockQty: stock
-          });
-
-          // Periodic progress update
-          if (onProgress && (idx % 250 === 0 || idx === totalCount - 1)) {
-            const pct = 50 + Math.round(((idx + 1) / totalCount) * 45);
-            onProgress({
-              percent: pct,
-              message: `Processed ${idx + 1} of ${totalCount.toLocaleString()} rows...`,
-              stage: 'mapping',
-              totalRows: totalCount,
-              processedRows: idx + 1
-            });
-          }
-        }
-
-        if (parsedItems.length === 0) {
-          throw new Error('Could not find any valid Grey Stock rows with the required headers in the file.');
-        }
-
-        if (onProgress) {
-          onProgress({
-            percent: 100,
-            message: `Completed! Successfully mapped ${parsedItems.length.toLocaleString()} rows.`,
-            stage: 'completed',
             totalRows: totalCount,
-            processedRows: parsedItems.length
+            processedRows: idx + 1
           });
         }
+      }
 
-        resolve(parsedItems);
+      if (parsedItems.length === 0) {
+        throw new Error(
+          `Could not identify any valid data rows under the header row (found headers: ${
+            headerRow.filter(Boolean).slice(0, 6).join(', ')
+          }...). Please ensure your Excel file contains valid order records.`
+        );
+      }
+
+      if (onProgress) {
+        onProgress({
+          percent: 100,
+          message: `Completed! Successfully loaded ${parsedItems.length.toLocaleString()} Grey Stock records.`,
+          stage: 'completed',
+          totalRows: totalCount,
+          processedRows: parsedItems.length
+        });
+      }
+
+      resolve(parsedItems);
     } catch (err: any) {
       reject(err);
     }

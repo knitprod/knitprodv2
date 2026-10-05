@@ -171,6 +171,7 @@ export default function GreyStockSummaryView({ currentUser }: GreyStockSummaryVi
   const [isUploading, setIsUploading] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [copiedOrderNo, setCopiedOrderNo] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Upload & Download Progress States
   const [uploadProgress, setUploadProgress] = useState<{
@@ -566,6 +567,7 @@ export default function GreyStockSummaryView({ currentUser }: GreyStockSummaryVi
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setUploadError(null);
     setIsUploading(true);
     setUploadProgress({
       percent: 5,
@@ -623,6 +625,7 @@ export default function GreyStockSummaryView({ currentUser }: GreyStockSummaryVi
       setTimeout(() => {
         setIsUploadModalOpen(false);
         setUploadProgress(null);
+        setUploadError(null);
       }, 1200);
 
       showToast(`Successfully replaced dataset: ${parsed.length.toLocaleString()} rows uploaded across ${uniqueOrders} orders.`);
@@ -643,7 +646,9 @@ export default function GreyStockSummaryView({ currentUser }: GreyStockSummaryVi
       }
     } catch (err: any) {
       setUploadProgress(null);
-      alert(`File Upload Error: ${err.message || 'Failed to parse file. Please verify required headers.'}`);
+      const msg = err.message || 'Failed to parse file. Please verify required headers.';
+      setUploadError(msg);
+      showToast(`Upload error: ${msg}`);
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) {
@@ -890,7 +895,7 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
       showToast(`Exported ${exportRows.length.toLocaleString()} rows to Excel (${onlyFiltered ? 'Filtered View' : 'Full Dataset'}).`);
     } catch (err: any) {
       setDownloadProgress(null);
-      alert('Failed to export Excel file: ' + err.message);
+      showToast(`Failed to export Excel file: ${err.message || 'Export error'}`);
     }
   };
 
@@ -2090,6 +2095,26 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
             </div>
 
             <div className="space-y-4">
+              {/* Upload Error Banner */}
+              {uploadError && (
+                <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-xs text-rose-800 dark:text-rose-200 space-y-1.5 animate-fade-in">
+                  <div className="flex items-center justify-between font-bold text-rose-900 dark:text-rose-100">
+                    <span className="flex items-center gap-1.5">
+                      <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                      <span>Upload Notice</span>
+                    </span>
+                    <button 
+                      type="button" 
+                      onClick={() => setUploadError(null)}
+                      className="text-rose-400 hover:text-rose-700 dark:hover:text-rose-200 cursor-pointer p-0.5"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <p className="text-[11px] leading-relaxed">{uploadError}</p>
+                </div>
+              )}
+
               {/* Upload Progress Bar (when file is processing) */}
               {uploadProgress ? (
                 <div className="p-4 rounded-xl bg-blue-50/80 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 space-y-3 animate-fade-in">
@@ -2135,10 +2160,10 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                 <div className="flex items-center justify-between">
                   <p className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-blue-500" />
-                    <span>Auto Header Re-Routing & Mapping:</span>
+                    <span>Auto Header Re-Routing &amp; Mapping:</span>
                   </p>
                   <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
-                    Live
+                    Active
                   </span>
                 </div>
 
