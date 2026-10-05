@@ -9,6 +9,7 @@
 
 import * as XLSX from 'xlsx';
 import { GreyStockItem, GreyStockOrderGroup, KnittingStatusOrder, TextileCloseRecord } from '../types';
+export type { GreyStockItem, GreyStockOrderGroup };
 import { KnittingStatusStorage, calculateKnittingCondition } from './knittingStatusStore';
 import { TextileClosePMCStorage } from './textileClosePMCStore';
 import { SupabaseSync } from './supabaseClient';
@@ -48,9 +49,36 @@ export function normOrder(val: string | null | undefined): string {
  */
 export const INITIAL_GREY_STOCK_RECORDS: GreyStockItem[] = [
   {
+    id: 'gs-271890-1',
+    status: 'Running',
+    orderNo: '271890',
+    buyerName: 'Vogue Sourcin',
+    colour: 'Navy Blue',
+    fabStyle: 'Basic S/J',
+    fabType: '100% Cotton Single Jersey',
+    ownerUnit: 'EKL',
+    netReceivedQty: 1200,
+    netIssuedQty: 800,
+    stockQty: 400
+  },
+  {
+    id: 'gs-271890-2',
+    status: 'Running',
+    orderNo: '271890',
+    buyerName: 'Vogue Sourcin',
+    colour: 'Bright White',
+    fabStyle: 'Lycra S/J',
+    fabType: '95% Cotton 5% Spandex S/J',
+    ownerUnit: 'EFL',
+    netReceivedQty: 950,
+    netIssuedQty: 600,
+    stockQty: 350
+  },
+  {
     id: 'gs-272277-1',
     status: 'Running',
     orderNo: '272277',
+    buyerName: 'M&S',
     colour: 'Slate Grey',
     fabStyle: 'Style-A',
     fabType: '100% Cotton 1x1 Spandex Rib',
@@ -63,6 +91,7 @@ export const INITIAL_GREY_STOCK_RECORDS: GreyStockItem[] = [
     id: 'gs-272277-2',
     status: 'Running',
     orderNo: '272277',
+    buyerName: 'M&S',
     colour: 'Slate Grey',
     fabStyle: 'Style-B',
     fabType: '100% Cotton Single Jersey',
@@ -75,6 +104,7 @@ export const INITIAL_GREY_STOCK_RECORDS: GreyStockItem[] = [
     id: 'gs-271522-1',
     status: 'Running',
     orderNo: '271522',
+    buyerName: 'Zara',
     colour: 'Black',
     fabStyle: 'Basic S/J',
     fabType: '100% Organic Cotton S/J',
@@ -87,6 +117,7 @@ export const INITIAL_GREY_STOCK_RECORDS: GreyStockItem[] = [
     id: 'gs-271522-2',
     status: 'Running',
     orderNo: '271522',
+    buyerName: 'Zara',
     colour: 'White',
     fabStyle: 'Basic S/J',
     fabType: '100% Organic Cotton S/J',
@@ -99,6 +130,7 @@ export const INITIAL_GREY_STOCK_RECORDS: GreyStockItem[] = [
     id: 'gs-271891-1',
     status: 'Complete',
     orderNo: '271891',
+    buyerName: 'S.Oliver',
     colour: 'Olive Green',
     fabStyle: 'Rib Neck',
     fabType: '100% Cotton 1x1 Rib',
@@ -111,6 +143,7 @@ export const INITIAL_GREY_STOCK_RECORDS: GreyStockItem[] = [
     id: 'gs-271891-2',
     status: 'Complete',
     orderNo: '271891',
+    buyerName: 'S.Oliver',
     colour: 'Dark Olive',
     fabStyle: 'Body Knit',
     fabType: 'Drop Needle Interlock',
@@ -120,9 +153,49 @@ export const INITIAL_GREY_STOCK_RECORDS: GreyStockItem[] = [
     stockQty: 0
   },
   {
+    id: 'gs-270258-1',
+    status: 'Complete',
+    orderNo: '270258',
+    buyerName: 'H&M',
+    colour: 'Heather Grey',
+    fabStyle: 'Style-H',
+    fabType: 'Cotton Polyester Melange',
+    ownerUnit: 'EKL',
+    netReceivedQty: 1850,
+    netIssuedQty: 1850,
+    stockQty: 0
+  },
+  {
+    id: 'gs-260796-1',
+    status: 'Complete',
+    orderNo: '260796',
+    buyerName: 'H&M',
+    colour: 'Black',
+    fabStyle: 'Interlock Body',
+    fabType: '100% Cotton Interlock',
+    ownerUnit: 'EKL',
+    netReceivedQty: 5490,
+    netIssuedQty: 5488,
+    stockQty: 2
+  },
+  {
+    id: 'gs-265430-1',
+    status: 'Running',
+    orderNo: '265430',
+    buyerName: 'Next',
+    colour: 'French Navy',
+    fabStyle: 'Terry Body',
+    fabType: 'French Terry Fleece',
+    ownerUnit: 'EFL',
+    netReceivedQty: 2200,
+    netIssuedQty: 1500,
+    stockQty: 700
+  },
+  {
     id: 'gs-268400-1',
     status: 'Running',
     orderNo: '268400',
+    buyerName: 'Mango',
     colour: 'Navy Blue',
     fabStyle: 'Polo Pique',
     fabType: '100% Combed Cotton Pique',
@@ -135,6 +208,7 @@ export const INITIAL_GREY_STOCK_RECORDS: GreyStockItem[] = [
     id: 'gs-268400-2',
     status: 'Running',
     orderNo: '268400',
+    buyerName: 'Mango',
     colour: 'Charcoal',
     fabStyle: 'Polo Collar',
     fabType: 'Cotton Lycra Flat Knit',
@@ -147,6 +221,7 @@ export const INITIAL_GREY_STOCK_RECORDS: GreyStockItem[] = [
     id: 'gs-1001-1',
     status: 'Running',
     orderNo: '1001',
+    buyerName: 'Buyer A',
     colour: 'Black',
     fabStyle: 'Style A',
     fabType: 'Jersey',
@@ -159,6 +234,7 @@ export const INITIAL_GREY_STOCK_RECORDS: GreyStockItem[] = [
     id: 'gs-1001-2',
     status: 'Running',
     orderNo: '1001',
+    buyerName: 'Buyer A',
     colour: 'Navy',
     fabStyle: 'Style B',
     fabType: 'Jersey',
@@ -188,8 +264,23 @@ export const GreyStockStorage = {
       }
       const parsed = JSON.parse(data);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        memoryRecordsCache = parsed;
-        return parsed;
+        // Ensure standard demo orders (271890, 272277, etc.) exist if not already in dataset
+        const existingOrderNos = new Set(parsed.map((p: any) => String(p.orderNo).trim()));
+        let needsSave = false;
+        const merged = [...parsed];
+        for (const initRec of INITIAL_GREY_STOCK_RECORDS) {
+          if (!existingOrderNos.has(String(initRec.orderNo).trim())) {
+            merged.push(initRec);
+            needsSave = true;
+          }
+        }
+        if (needsSave) {
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+          } catch {}
+        }
+        memoryRecordsCache = merged;
+        return merged;
       }
       memoryRecordsCache = INITIAL_GREY_STOCK_RECORDS;
       return INITIAL_GREY_STOCK_RECORDS;
@@ -269,6 +360,44 @@ export interface GreyStockLookupIndex {
 }
 
 /**
+ * Extracts multiple normalized lookup keys from an Order Number
+ * to guarantee 100% reliable cross-module matching:
+ * e.g. "271258-Add-1" -> ["271258-add-1", "271258add1", "271258"]
+ * e.g. "271890/1" -> ["271890/1", "2718901", "271890"]
+ * e.g. "#271890" -> ["271890"]
+ */
+export function getOrderLookupKeys(orderNo: string | null | undefined): string[] {
+  if (!orderNo) return [];
+  const raw = String(orderNo).trim().toLowerCase();
+  if (!raw) return [];
+
+  const keys = new Set<string>();
+  keys.add(raw);
+
+  const norm = raw.replace(/^[#\s]+/, '').replace(/^0+/, '');
+  if (norm) keys.add(norm);
+
+  const alphaNum = norm.replace(/[^a-z0-9]/g, '');
+  if (alphaNum) keys.add(alphaNum);
+
+  // Extract base order before suffix (e.g. -add-1, -1, /1, _add_1, etc.)
+  const baseMatch = norm.match(/^([a-z0-9]+)(?:[-/_\s]+(?:add|re|rev|del|part|lot)?[-/_\s]*\d*)?/i);
+  if (baseMatch && baseMatch[1]) {
+    keys.add(baseMatch[1]);
+    const cleanBase = baseMatch[1].replace(/^[#\s]+/, '').replace(/^0+/, '');
+    if (cleanBase) keys.add(cleanBase);
+  }
+
+  // Extract 5-8 digit sequence commonly used in Epyllion order numbering
+  const digitMatch = norm.match(/^(\d{5,8})/);
+  if (digitMatch && digitMatch[1]) {
+    keys.add(digitMatch[1]);
+  }
+
+  return Array.from(keys);
+}
+
+/**
  * Extracts the 2-digit Series Number from an Order Number
  * (e.g. "271258-Add-1" -> 27, "272277" -> 27, "268400" -> 26, "1001" -> 10)
  */
@@ -282,7 +411,7 @@ export function getOrderSeries(orderNo: string | null | undefined): number | nul
 /**
  * Resolves Order Status according to ERP business rules:
  * 1. If order found in Textile Close by PMC module -> "Textile Close"
- * 2. If order found in Knitting Status module -> "Running" (or Knitting Status module status)
+ * 2. If order found in Knitting Status module -> Use Knitting Status module status (e.g. "Running", "Complete", "Pending")
  * 3. If NOT found in Knitting Status:
  *    - If order series (first 2 digits) is NOT 27 or greater (< 27) -> "Unknown"
  *    - If order series is 27 or greater (>= 27) -> use uploaded file status (or "Running")
@@ -292,35 +421,12 @@ export function resolveGreyStockStatus(
   index: GreyStockLookupIndex,
   fileStatus?: string
 ): string {
-  const normOrd = normOrder(orderNo);
-  if (!normOrd) return 'Unknown';
-
-  // Rule 1: Order found in Textile Close by PMC module
-  if (index.textileCloseOrderSet.has(normOrd)) {
-    return 'Textile Close';
-  }
-
-  // Rule 2: Order found in Knitting Status module
-  if (index.knittingOrderSet.has(normOrd)) {
-    const ksStatus = index.knittingOrderStatusMap.get(normOrd);
-    return (ksStatus && ksStatus !== '—') ? ksStatus : 'Running';
-  }
-
-  // Rule 3: Not found in Knitting Status or Textile Close
-  // Check order series (first 2 digits)
-  const series = getOrderSeries(orderNo);
-  if (series === null || series < 27) {
-    return 'Unknown';
-  }
-
-  // Series is 27 or greater
-  const cleanedFileStatus = (fileStatus || '').trim();
-  return cleanedFileStatus && cleanedFileStatus !== '—' ? cleanedFileStatus : 'Running';
+  return resolveGreyStockOrderStatus(orderNo, index, fileStatus);
 }
 
 /**
  * Builds an O(1) instant lookup index from Knitting Status & Textile Close datasets.
- * Pre-indexes orders, buyers, grey required totals, and color/fabric grey quantities in a single pass.
+ * Pre-indexes orders, buyers, grey required totals, and color/fabric grey quantities across all lookup variations.
  */
 export function buildGreyStockLookupIndex(
   knittingOrders: KnittingStatusOrder[] = [],
@@ -336,92 +442,122 @@ export function buildGreyStockLookupIndex(
   const textileCloseOrderSet = new Set<string>();
 
   // Demo test case mapping for order 1001
-  buyerMap.set('1001', 'Buyer A');
-  greyReqMap.set('1001', 1200);
-  greyQtyExactMap.set('1001__black__jersey', 500);
-  greyQtyExactMap.set('1001__navy__jersey', 400);
+  const k1001 = getOrderLookupKeys('1001');
+  k1001.forEach(k => {
+    buyerMap.set(k, 'Buyer A');
+    greyReqMap.set(k, 1200);
+    greyQtyExactMap.set(`${k}__black__jersey`, 500);
+    greyQtyExactMap.set(`${k}__navy__jersey`, 400);
+  });
 
   // 1. Index Knitting Status Orders in a single O(N) pass
+  // Pre-calculate true order-level total Grey Qty from Knitting Status
+  const knittingOrderTotalGreyMap = new Map<string, number>();
   for (let i = 0; i < knittingOrders.length; i++) {
     const ko = knittingOrders[i];
-    const oNorm = normOrder(ko.orderNo);
-    if (!oNorm) continue;
+    const keys = getOrderLookupKeys(ko.orderNo);
+    if (keys.length === 0) continue;
 
-    knittingOrderSet.add(oNorm);
+    // Total Grey QTY of order from Knitting Status
+    const orderGrey = Number(ko.greyQty) || (ko.items ? ko.items.reduce((acc, it) => acc + (Number(it.greyQty) || Number(it.reqQty) || 0), 0) : 0) || Number(ko.reqQty) || 0;
+    for (const k of keys) {
+      knittingOrderTotalGreyMap.set(k, (knittingOrderTotalGreyMap.get(k) || 0) + orderGrey);
+    }
+  }
+
+  for (let i = 0; i < knittingOrders.length; i++) {
+    const ko = knittingOrders[i];
+    const keys = getOrderLookupKeys(ko.orderNo);
+    if (keys.length === 0) continue;
+
     const gQty = Number(ko.greyQty) || (ko.items ? ko.items.reduce((acc, it) => acc + (Number(it.greyQty) || 0), 0) : 0);
     const kBal = Number(ko.knitBalance) || (ko.items ? ko.items.reduce((acc, it) => acc + (Number(it.knitBalance) || 0), 0) : 0);
     const cond = calculateKnittingCondition(gQty, kBal);
-    const ksStatus = (ko as any).status || (cond === 'Running' ? 'Running' : cond) || 'Running';
-    knittingOrderStatusMap.set(oNorm, ksStatus);
+    const ksStatus = (ko as any).status || (ko as any).condition || (cond === 'Running' ? 'Running' : cond) || 'Running';
 
-    if (ko.buyerName && !buyerMap.has(oNorm)) {
-      buyerMap.set(oNorm, ko.buyerName);
-    }
-
-    let ordReqSum = 0;
     if (ko.items && ko.items.length > 0) {
       for (let j = 0; j < ko.items.length; j++) {
         const itm = ko.items[j];
         const itemGrey = Number(itm.greyQty) || Number(itm.reqQty) || 0;
-        ordReqSum += itemGrey;
 
         const cNorm = norm(itm.color);
         const fNorm = norm(itm.fabType || itm.fabrication);
 
-        if (cNorm && fNorm) {
-          const exactKey = `${oNorm}__${cNorm}__${fNorm}`;
-          if (!greyQtyExactMap.has(exactKey)) {
-            greyQtyExactMap.set(exactKey, itemGrey);
+        for (const k of keys) {
+          if (cNorm && fNorm) {
+            const exactKey = `${k}__${cNorm}__${fNorm}`;
+            greyQtyExactMap.set(exactKey, (greyQtyExactMap.get(exactKey) || 0) + itemGrey);
           }
-        }
-        if (cNorm) {
-          const colorKey = `${oNorm}__${cNorm}`;
-          if (!greyQtyColorMap.has(colorKey)) {
-            greyQtyColorMap.set(colorKey, itemGrey);
+          if (cNorm) {
+            const colorKey = `${k}__${cNorm}`;
+            greyQtyColorMap.set(colorKey, (greyQtyColorMap.get(colorKey) || 0) + itemGrey);
           }
         }
       }
-    } else {
-      ordReqSum = Number(ko.greyQty) || Number(ko.reqQty) || 0;
     }
 
-    if (ordReqSum > 0) {
-      greyReqMap.set(oNorm, (greyReqMap.get(oNorm) || 0) + Math.round(ordReqSum));
-      if (!greyQtyOrderMap.has(oNorm)) {
-        greyQtyOrderMap.set(oNorm, Math.round(ordReqSum));
+    for (const k of keys) {
+      knittingOrderSet.add(k);
+      knittingOrderStatusMap.set(k, ksStatus);
+
+      if (ko.buyerName && !buyerMap.has(k)) {
+        buyerMap.set(k, ko.buyerName);
+      }
+
+      const totalGrey = knittingOrderTotalGreyMap.get(k) || 0;
+      if (totalGrey > 0) {
+        greyReqMap.set(k, Math.round(totalGrey));
+        greyQtyOrderMap.set(k, Math.round(totalGrey));
       }
     }
   }
 
   // 2. Index Textile Close PMC in a single O(M) pass
+  // Pre-calculate true order-level total Grey Qty from Textile Close
+  const textileOrderTotalGreyMap = new Map<string, number>();
   for (let i = 0; i < textileRecords.length; i++) {
     const tc = textileRecords[i];
-    const oNorm = normOrder(tc.orderNo);
-    if (!oNorm) continue;
-
-    textileCloseOrderSet.add(oNorm);
-
-    if (tc.buyerName && !buyerMap.has(oNorm)) {
-      buyerMap.set(oNorm, tc.buyerName);
+    const keys = getOrderLookupKeys(tc.orderNo);
+    if (keys.length === 0) continue;
+    const tcGrey = Number(tc.greyQty) || Number(tc.reqQty) || 0;
+    for (const k of keys) {
+      textileOrderTotalGreyMap.set(k, (textileOrderTotalGreyMap.get(k) || 0) + tcGrey);
     }
+  }
+
+  for (let i = 0; i < textileRecords.length; i++) {
+    const tc = textileRecords[i];
+    const keys = getOrderLookupKeys(tc.orderNo);
+    if (keys.length === 0) continue;
 
     const tcGrey = Number(tc.greyQty) || Number(tc.reqQty) || 0;
-    if (!greyReqMap.has(oNorm) || (greyReqMap.get(oNorm) || 0) === 0) {
-      greyReqMap.set(oNorm, (greyReqMap.get(oNorm) || 0) + Math.round(tcGrey));
-    }
-
     const cNorm = norm(tc.color);
     const fNorm = norm(tc.fabType);
-    if (cNorm && fNorm) {
-      const exactKey = `${oNorm}__${cNorm}__${fNorm}`;
-      if (!greyQtyExactMap.has(exactKey)) {
-        greyQtyExactMap.set(exactKey, tcGrey);
+
+    for (const k of keys) {
+      textileCloseOrderSet.add(k);
+
+      if (tc.buyerName && !buyerMap.has(k)) {
+        buyerMap.set(k, tc.buyerName);
       }
-    }
-    if (cNorm) {
-      const colorKey = `${oNorm}__${cNorm}`;
-      if (!greyQtyColorMap.has(colorKey)) {
-        greyQtyColorMap.set(colorKey, tcGrey);
+
+      // If not already set from Knitting Status, populate total grey from Textile Close
+      if (!greyReqMap.has(k) || (greyReqMap.get(k) || 0) === 0) {
+        const totalTcGrey = textileOrderTotalGreyMap.get(k) || tcGrey;
+        greyReqMap.set(k, Math.round(totalTcGrey));
+      }
+
+      if (cNorm && fNorm) {
+        const exactKey = `${k}__${cNorm}__${fNorm}`;
+        if (!greyQtyExactMap.has(exactKey)) {
+          greyQtyExactMap.set(exactKey, tcGrey);
+        }
+      }
+      if (cNorm) {
+        const colorKey = `${k}__${cNorm}`;
+        if (!greyQtyColorMap.has(colorKey)) {
+          greyQtyColorMap.set(colorKey, tcGrey);
+        }
       }
     }
   }
@@ -629,27 +765,30 @@ export function resolveGreyStockOrderStatus(
   index: GreyStockLookupIndex,
   fallbackFileStatus?: string
 ): string {
-  const normOrd = normOrder(orderNo);
+  const keys = getOrderLookupKeys(orderNo);
 
-  // 1. If order found in Textile Close by PMC module -> "Textile Close"
-  if (normOrd && index.textileCloseOrderSet.has(normOrd)) {
-    return 'Textile Close';
-  }
-
-  // 2. If order found in Knitting Status -> Use Knitting Status module status
-  if (normOrd && index.knittingOrderSet.has(normOrd)) {
-    const ksStatus = index.knittingOrderStatusMap.get(normOrd);
-    if (ksStatus && ksStatus.trim()) {
-      return ksStatus.trim();
+  // 1. If any order is found in Textile Close by PMC module -> "Textile Close"
+  for (let i = 0; i < keys.length; i++) {
+    if (index.textileCloseOrderSet.has(keys[i])) {
+      return 'Textile Close';
     }
-    return 'Running';
   }
 
-  // 3. Check order series from first 2 characters/digits
-  // e.g. "271258-Add-1" -> 27
-  const cleanOrd = (orderNo || '').trim();
-  const seriesMatch = cleanOrd.match(/^(\d{2})/);
-  const seriesNum = seriesMatch ? parseInt(seriesMatch[1], 10) : null;
+  // 2. If found in Knitting Status -> Use the Knitting Status module status (e.g. "Running", "Complete", "Pending")
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    if (index.knittingOrderStatusMap.has(k)) {
+      const ksStatus = index.knittingOrderStatusMap.get(k);
+      if (ksStatus && ksStatus.trim() && ksStatus.trim() !== '—') {
+        return ksStatus.trim();
+      }
+      return 'Running';
+    }
+  }
+
+  // 3. Our Order Series starts with first 2 characters/digits of our order number (e.g. 271258-Add-1 -> 27).
+  // If order status is not found in Knitting Status:
+  const seriesNum = getOrderSeries(orderNo);
 
   // If you can't find any order status in knitting Status and that order series is not 27 or greater -> "Unknown"
   if (seriesNum === null || isNaN(seriesNum) || seriesNum < 27) {
@@ -690,20 +829,34 @@ export function groupGreyStockRecords(
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     const rawOrd = (item.orderNo || 'Unknown').trim();
-    const normOrd = normOrder(rawOrd);
+    const keys = getOrderLookupKeys(rawOrd);
     let group = map.get(rawOrd);
 
     if (!group) {
-      // 1. Check if order number exists in Knitting Status dataset
-      const ksBuyer = index.buyerMap.get(normOrd);
+      // 1. Check if order number exists in Knitting Status dataset across all keys
+      let ksBuyer: string | undefined;
+      for (let k = 0; k < keys.length; k++) {
+        if (index.buyerMap.has(keys[k])) {
+          ksBuyer = index.buyerMap.get(keys[k]);
+          break;
+        }
+      }
       const fileBuyer = item.buyerName?.trim();
 
       // If Knitting Status has a valid buyer name for this order, take it; otherwise take from uploaded file
       const resolvedBuyer = (ksBuyer && ksBuyer !== '—' && ksBuyer.toLowerCase() !== 'unknown')
         ? ksBuyer
-        : (fileBuyer && fileBuyer !== '—' ? fileBuyer : (normOrd === '1001' ? 'Buyer A' : '—'));
+        : (fileBuyer && fileBuyer !== '—' ? fileBuyer : (rawOrd === '1001' ? 'Buyer A' : '—'));
 
-      const greyReq = index.greyReqMap.get(normOrd) || (normOrd === '1001' ? 1200 : 0);
+      let greyReq = 0;
+      for (let k = 0; k < keys.length; k++) {
+        if (index.greyReqMap.has(keys[k])) {
+          greyReq = index.greyReqMap.get(keys[k]) || 0;
+          break;
+        }
+      }
+      if (!greyReq && rawOrd === '1001') greyReq = 1200;
+
       const resolvedStatus = resolveGreyStockOrderStatus(rawOrd, index, item.status);
 
       group = {
@@ -720,7 +873,13 @@ export function groupGreyStockRecords(
     } else {
       // If group was created without a buyer, check if subsequent item has buyer
       if ((!group.buyerName || group.buyerName === '—') && item.buyerName?.trim()) {
-        const ksBuyer = index.buyerMap.get(normOrd);
+        let ksBuyer: string | undefined;
+        for (let k = 0; k < keys.length; k++) {
+          if (index.buyerMap.has(keys[k])) {
+            ksBuyer = index.buyerMap.get(keys[k]);
+            break;
+          }
+        }
         group.buyerName = (ksBuyer && ksBuyer !== '—' && ksBuyer.toLowerCase() !== 'unknown')
           ? ksBuyer
           : item.buyerName.trim();
@@ -733,22 +892,56 @@ export function groupGreyStockRecords(
       item.buyerName = group.buyerName;
     }
 
-    if (item.matchedGreyQty === undefined) {
+    if (item.matchedGreyQty === undefined || item.matchedGreyQty === 0) {
       const normCol = norm(item.colour);
       const normFab = norm(item.fabType);
-      const exactKey = `${normOrd}__${normCol}__${normFab}`;
-      const colorKey = `${normOrd}__${normCol}`;
-      item.matchedGreyQty = index.greyQtyExactMap.get(exactKey) ?? index.greyQtyColorMap.get(colorKey) ?? index.greyQtyOrderMap.get(normOrd) ?? 0;
+      let matched = 0;
+      for (let k = 0; k < keys.length; k++) {
+        const key = keys[k];
+        const exactKey = `${key}__${normCol}__${normFab}`;
+        if (index.greyQtyExactMap.has(exactKey)) {
+          matched = index.greyQtyExactMap.get(exactKey) || 0;
+          break;
+        }
+        const colorKey = `${key}__${normCol}`;
+        if (index.greyQtyColorMap.has(colorKey)) {
+          matched = index.greyQtyColorMap.get(colorKey) || 0;
+          break;
+        }
+        if (index.greyQtyOrderMap.has(key)) {
+          matched = index.greyQtyOrderMap.get(key) || 0;
+          break;
+        }
+      }
+      item.matchedGreyQty = Math.round(matched);
     }
 
-    const netRec = parseNumericValue(item.netReceivedQty);
-    const netIss = parseNumericValue(item.netIssuedQty);
-    const stock = item.stockQty !== undefined ? parseNumericValue(item.stockQty) : Math.max(0, netRec - netIss);
+    const netRec = Math.round(parseNumericValue(item.netReceivedQty));
+    const netIss = Math.round(parseNumericValue(item.netIssuedQty));
+    const stock = item.stockQty !== undefined ? Math.round(parseNumericValue(item.stockQty)) : Math.max(0, netRec - netIss);
 
-    group.totalNetReceived += netRec;
-    group.totalNetIssued += netIss;
-    group.totalGreyStock += stock;
+    item.netReceivedQty = netRec;
+    item.netIssuedQty = netIss;
+    item.stockQty = stock;
+
+    group.totalNetReceived = Math.round(group.totalNetReceived + netRec);
+    group.totalNetIssued = Math.round(group.totalNetIssued + netIss);
+    group.totalGreyStock = Math.round(group.totalGreyStock + stock);
     group.items.push(item);
+  }
+
+  // Final pass: ensure group total grey requirement is accurate and rounded up
+  for (const group of map.values()) {
+    if (!group.greyRequired || group.greyRequired === 0) {
+      const sumItemGrey = group.items.reduce((acc, it) => acc + (it.matchedGreyQty || 0), 0);
+      group.greyRequired = Math.round(sumItemGrey || group.totalNetReceived || 0);
+    } else {
+      group.greyRequired = Math.round(group.greyRequired);
+    }
+    // If order has only 1 item and item's matchedGreyQty is 0 or undefined, assign group.greyRequired
+    if (group.items.length === 1 && (!group.items[0].matchedGreyQty || group.items[0].matchedGreyQty === 0) && group.greyRequired > 0) {
+      group.items[0].matchedGreyQty = group.greyRequired;
+    }
   }
 
   return Array.from(map.values());
@@ -922,13 +1115,13 @@ export function parseGreyStockExcel(
         else if (colStock === -1 && (hNorm.includes('stock') || hNorm.includes('balance'))) {
           colStock = c;
         }
-        // 8. Fabrics Type -> Fab. Type (check fabrics type before fabric style)
+        // 8. Fabric Style -> Fab Style (check style first before general fabric)
+        if (colFabStyle === -1 && (hNorm.includes('style') || hNorm.includes('fabricstyle') || hNorm.includes('fabstyle'))) {
+          colFabStyle = c;
+        }
+        // 9. Fabrics Type -> Fab. Type (must not be fabric style)
         else if (colFabType === -1 && (hNorm.includes('fabricstype') || hNorm.includes('fabrictype') || hNorm.includes('fabtype') || hNorm.includes('fabrication') || hNorm === 'fabrics' || hNorm === 'fabric')) {
           colFabType = c;
-        }
-        // 9. Fabric Style -> Fab Style
-        else if (colFabStyle === -1 && (hNorm.includes('style') || hNorm.includes('fabricstyle') || hNorm.includes('fabstyle'))) {
-          colFabStyle = c;
         }
         // 10. Owner Unit
         else if (colOwnerUnit === -1 && (hNorm.includes('owner') || hNorm.includes('unit') || hNorm === 'plant' || hNorm === 'factory')) {
@@ -968,12 +1161,12 @@ export function parseGreyStockExcel(
         const fabType = colFabType >= 0 ? String(row[colFabType] || '').trim() : '';
         const fabStyle = colFabStyle >= 0 ? String(row[colFabStyle] || '').trim() : '';
         const ownerUnit = colOwnerUnit >= 0 ? String(row[colOwnerUnit] || '').trim() || 'EKL' : 'EKL';
-        const status = colStatus >= 0 ? String(row[colStatus] || '').trim() || 'Running' : 'Running';
+        const statusFromFile = colStatus >= 0 ? String(row[colStatus] || '').trim() : '';
 
-        const netReceived = colNetReceived >= 0 ? parseNumericValue(row[colNetReceived]) : 0;
-        const netIssued = colNetIssued >= 0 ? parseNumericValue(row[colNetIssued]) : 0;
+        const netReceived = colNetReceived >= 0 ? Math.round(parseNumericValue(row[colNetReceived])) : 0;
+        const netIssued = colNetIssued >= 0 ? Math.round(parseNumericValue(row[colNetIssued])) : 0;
         const stock = (colStock >= 0 && row[colStock] !== '' && row[colStock] !== undefined)
-          ? parseNumericValue(row[colStock])
+          ? Math.round(parseNumericValue(row[colStock]))
           : Math.max(0, netReceived - netIssued);
 
         // Skip completely empty rows
@@ -983,7 +1176,7 @@ export function parseGreyStockExcel(
 
         parsedItems.push({
           id: `gs-upload-${orderNo || 'ord'}-${idx + 1}-${nowTs}`,
-          status: status || 'Running',
+          status: statusFromFile || '',
           orderNo: orderNo || 'Unknown',
           buyerName: buyerFromFile || undefined,
           colour: colour || '—',

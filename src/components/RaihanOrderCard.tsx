@@ -17,6 +17,7 @@ import {
 import { KnittingStatusOrder } from '../types';
 import { calculateKnittingCondition } from '../lib/knittingStatusStore';
 import { getCompanyLogo } from '../lib/logoStore';
+import { GreyStockStorage, getOrderLookupKeys, GreyStockItem } from '../lib/greyStockStore';
 
 function parseDateString(str?: string): Date | null {
   if (!str || str === '-' || str.toLowerCase() === 'pending' || str.toLowerCase() === 'not set') return null;
@@ -54,22 +55,26 @@ function addDays(d: Date, days: number): Date {
 interface RaihanOrderCardProps {
   order: KnittingStatusOrder;
   allocations?: any[];
+  greyStockItems?: GreyStockItem[];
   onOpenSnippingTool?: (order: KnittingStatusOrder) => void;
+  onOpenGreyStockSnippingTool?: (group: any) => void;
   className?: string;
-  viewMode?: 'all' | 'production' | 'allocation' | 'prediction';
+  viewMode?: 'all' | 'production' | 'allocation' | 'prediction' | 'grey_stock';
   filterColor?: string;
 }
 
 export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
   order,
   allocations = [],
+  greyStockItems = [],
   onOpenSnippingTool,
+  onOpenGreyStockSnippingTool,
   className = '',
   viewMode = 'all',
   filterColor
 }) => {
   const [copied, setCopied] = useState(false);
-  const [activeMode, setActiveMode] = useState<'all' | 'production' | 'allocation' | 'prediction'>(viewMode || 'all');
+  const [activeMode, setActiveMode] = useState<'all' | 'production' | 'allocation' | 'prediction' | 'grey_stock'>(viewMode || 'all');
   const customLogo = getCompanyLogo();
 
   useEffect(() => {
@@ -201,7 +206,51 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
   const totalAllocatedQty = sortedAllocations.reduce((sum, a) => sum + a.allocatedQty, 0);
   const conditionText = condition === 'Running' ? 'currently running' : condition.toLowerCase();
 
+  const resolvedGreyItems = React.useMemo(() => {
+    let list = Array.isArray(greyStockItems) && greyStockItems.length > 0 ? greyStockItems : [];
+    if (list.length === 0) {
+      const all = GreyStockStorage.getRecords();
+      const keys = getOrderLookupKeys(order.orderNo);
+      list = all.filter(g => {
+        const rawG = String(g.orderNo || '').trim().toLowerCase();
+        return keys.some(k => rawG === k || rawG.includes(k) || k.includes(rawG));
+      });
+    }
+    if (filterColor && list.length > 0) {
+      const fc = filterColor.toLowerCase().trim();
+      const filtered = list.filter(g => {
+        const c = String(g.colour || '').toLowerCase().trim();
+        return c.includes(fc) || fc.includes(c);
+      });
+      if (filtered.length > 0) return filtered;
+    }
+    return list;
+  }, [greyStockItems, order.orderNo, filterColor]);
+
+  const totalGreyNetReceived = resolvedGreyItems.reduce((acc, it) => acc + (Number(it.netReceivedQty) || 0), 0);
+  const totalGreyNetIssued = resolvedGreyItems.reduce((acc, it) => acc + (Number(it.netIssuedQty) || 0), 0);
+  const totalGreyStock = resolvedGreyItems.reduce((acc, it) => acc + (it.stockQty !== undefined ? Number(it.stockQty) : Math.max(0, (Number(it.netReceivedQty) || 0) - (Number(it.netIssuedQty) || 0))), 0);
+  const orderGreyTotal = totals.grey || Number(order.greyQty) || resolvedGreyItems.reduce((acc, it) => acc + (Number(it.matchedGreyQty) || 0), 0);
+
   const handleCopySummary = () => {
+    if (activeMode === 'grey_stock') {
+      let gsText = `📦 Grey Stock Summary • Order #${order.orderNo}\n`;
+      gsText += `Buyer: ${order.buyerName || 'Epyllion'} | Status: ${(order as any).status || 'Running'}\n`;
+      gsText += `Total Grey QTY: ${Math.round(orderGreyTotal).toLocaleString()} kg | Net Received: ${Math.round(totalGreyNetReceived).toLocaleString()} kg | Net Issued: ${Math.round(totalGreyNetIssued).toLocaleString()} kg | Stock: ${Math.round(totalGreyStock).toLocaleString()} kg\n\n`;
+      gsText += `Order No. | Colour | Fabric Style | Fabrics Type | Buyer | Owner Unit | Total Grey QTY | Net Received Qty.-Kg | Net Issued Qty.-Kg | Stock Qty. Kg\n`;
+      resolvedGreyItems.forEach(it => {
+        const g = it.matchedGreyQty || (resolvedGreyItems.length === 1 ? orderGreyTotal : 0);
+        const r = it.netReceivedQty || 0;
+        const i = it.netIssuedQty || 0;
+        const s = it.stockQty !== undefined ? it.stockQty : Math.max(0, r - i);
+        gsText += `${order.orderNo} | ${it.colour || '-'} | ${it.fabStyle || '-'} | ${it.fabType || '-'} | ${it.buyerName || order.buyerName || '-'} | ${it.ownerUnit || 'EKL'} | ${Math.round(g)} kg | ${Math.round(r)} kg | ${Math.round(i)} kg | ${Math.round(s)} kg\n`;
+      });
+      navigator.clipboard.writeText(gsText.trim());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      return;
+    }
+
     if (activeMode === 'prediction') {
       let predText = `⏱️ Completion Date Prediction • Order #${order.orderNo}\n`;
       predText += `Buyer: ${order.buyerName || 'Epyllion'} | Team Leader: ${order.teamLeader || 'Unassigned'}\n`;
@@ -340,6 +389,17 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
           </button>
           <button
             type="button"
+            onClick={() => setActiveMode('grey_stock')}
+            className={`px-2.5 py-1 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
+              activeMode === 'grey_stock'
+                ? 'bg-teal-600 text-white shadow-2xs'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            📦 Grey Stock
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveMode('prediction')}
             className={`px-2.5 py-1 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
               activeMode === 'prediction'
@@ -428,7 +488,9 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
               ? `Sure! I found it. Here is the allocated yarn for Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} (${order.buyerName || 'Stanley Stella'}):`
               : activeMode === 'production'
                 ? `Sure! I found it. Here is the production data for Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} (${order.buyerName || 'Stanley Stella'}):`
-                : `Sure! I found it. Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} is ${conditionText} (${order.buyerName || 'Stanley Stella'}):`
+                : activeMode === 'grey_stock'
+                  ? `Sure! I found it. Here is the Grey Stock data for Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} (${order.buyerName || 'Stanley Stella'}):`
+                  : `Sure! I found it. Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} is ${conditionText} (${order.buyerName || 'Stanley Stella'}):`
           }
         </p>
 
@@ -613,7 +675,7 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
         )}
 
         {/* Section: Production Data (Shown when activeMode is 'all' or 'production') */}
-        {activeMode !== 'allocation' && activeMode !== 'prediction' && (
+        {activeMode !== 'allocation' && activeMode !== 'prediction' && activeMode !== 'grey_stock' && (
           <div>
             <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5 mb-2">
               <span>🏭</span>
@@ -769,7 +831,7 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
         )}
 
         {/* Section: Allocated Yarn Details (Shown when activeMode is 'all' or 'allocation') */}
-        {activeMode !== 'production' && activeMode !== 'prediction' && sortedAllocations.length > 0 && (
+        {activeMode !== 'production' && activeMode !== 'prediction' && activeMode !== 'grey_stock' && sortedAllocations.length > 0 && (
           <div className="pt-2">
             <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white flex items-center justify-between mb-2">
               <span className="flex items-center gap-1.5">
@@ -815,6 +877,107 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
                   </tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* Section: Grey Stock Details (Shown when activeMode is 'all' or 'grey_stock') */}
+        {activeMode !== 'production' && activeMode !== 'prediction' && activeMode !== 'allocation' && resolvedGreyItems.length > 0 && (
+          <div className="pt-2">
+            <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white flex items-center justify-between mb-2">
+              <span className="flex items-center gap-1.5">
+                <span>📦</span>
+                <span>Grey Stock Summary: {filterColor ? `(${filterColor})` : ''}</span>
+              </span>
+              <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
+                Stock: {Math.round(totalGreyStock).toLocaleString()} kg
+              </span>
+            </h4>
+
+            {/* KPI Cards Strip */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-2.5">
+              <div className="p-2.5 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800">
+                <span className="text-[10px] font-bold uppercase text-indigo-700 dark:text-indigo-400">Total Grey QTY</span>
+                <div className="text-base font-black font-mono text-indigo-950 dark:text-indigo-200 mt-0.5">
+                  {Math.round(orderGreyTotal).toLocaleString()} kg
+                </div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800">
+                <span className="text-[10px] font-bold uppercase text-emerald-700 dark:text-emerald-400">Net Received</span>
+                <div className="text-base font-black font-mono text-emerald-950 dark:text-emerald-200 mt-0.5">
+                  {Math.round(totalGreyNetReceived).toLocaleString()} kg
+                </div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800">
+                <span className="text-[10px] font-bold uppercase text-blue-700 dark:text-blue-400">Net Issued</span>
+                <div className="text-base font-black font-mono text-blue-950 dark:text-blue-200 mt-0.5">
+                  {Math.round(totalGreyNetIssued).toLocaleString()} kg
+                </div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800">
+                <span className="text-[10px] font-bold uppercase text-amber-700 dark:text-amber-400">Stock Qty. Kg</span>
+                <div className="text-base font-black font-mono text-amber-950 dark:text-amber-200 mt-0.5">
+                  {Math.round(totalGreyStock).toLocaleString()} kg
+                </div>
+              </div>
+            </div>
+
+            {/* 10-Column Grey Stock Table matching user headers */}
+            <div className="rounded-xl border border-indigo-200/80 dark:border-indigo-900/60 overflow-x-auto bg-indigo-50/10 dark:bg-indigo-950/10 shadow-2xs">
+              <table className="w-full text-xs text-left border-collapse table-auto min-w-[720px]">
+                <thead>
+                  <tr className="bg-indigo-100/70 dark:bg-indigo-950/60 text-indigo-950 dark:text-indigo-200 font-bold border-b border-indigo-200 dark:border-indigo-900/60">
+                    <th className="px-3 py-2">Order No.</th>
+                    <th className="px-3 py-2">Colour</th>
+                    <th className="px-3 py-2">Fabric Style</th>
+                    <th className="px-3 py-2">Fabrics Type</th>
+                    <th className="px-3 py-2">Buyer</th>
+                    <th className="px-3 py-2 text-center">Owner Unit</th>
+                    <th className="px-3 py-2 text-right text-indigo-700 dark:text-indigo-300">Total Grey QTY</th>
+                    <th className="px-3 py-2 text-right text-emerald-700 dark:text-emerald-300">Net Received Qty.-Kg</th>
+                    <th className="px-3 py-2 text-right text-blue-700 dark:text-blue-300">Net Issued Qty.-Kg</th>
+                    <th className="px-3 py-2 text-right text-amber-800 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-950/30">Stock Qty. Kg</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-indigo-100/60 dark:divide-indigo-900/40">
+                  {resolvedGreyItems.map((itm, i) => {
+                    let gQty = Math.round(Number(itm.matchedGreyQty || 0));
+                    if (gQty === 0 && resolvedGreyItems.length === 1 && orderGreyTotal) {
+                      gQty = Math.round(orderGreyTotal);
+                    }
+                    const rQty = Math.round(Number(itm.netReceivedQty || 0));
+                    const iQty = Math.round(Number(itm.netIssuedQty || 0));
+                    const sQty = itm.stockQty !== undefined ? Math.round(Number(itm.stockQty)) : Math.max(0, rQty - iQty);
+
+                    return (
+                      <tr key={itm.id || i} className="hover:bg-indigo-50/50 dark:hover:bg-indigo-900/20">
+                        <td className="px-3 py-2 font-mono font-bold">{order.orderNo}</td>
+                        <td className="px-3 py-2 font-bold">{itm.colour || '—'}</td>
+                        <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{itm.fabStyle || '—'}</td>
+                        <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{itm.fabType || '—'}</td>
+                        <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{itm.buyerName || order.buyerName || '—'}</td>
+                        <td className="px-3 py-2 text-center font-mono text-[11px] font-bold">{itm.ownerUnit || 'EKL'}</td>
+                        <td className="px-3 py-2 text-right font-mono font-bold text-indigo-700 dark:text-indigo-300">{gQty.toLocaleString()} kg</td>
+                        <td className="px-3 py-2 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300">{rQty.toLocaleString()} kg</td>
+                        <td className="px-3 py-2 text-right font-mono font-bold text-blue-700 dark:text-blue-300">{iQty.toLocaleString()} kg</td>
+                        <td className="px-3 py-2 text-right font-mono font-black text-amber-900 dark:text-amber-200 bg-amber-50/40 dark:bg-amber-950/20">{sQty.toLocaleString()} kg</td>
+                      </tr>
+                    );
+                  })}
+                  <tr className="bg-indigo-100/90 dark:bg-indigo-950/80 font-black text-indigo-950 dark:text-indigo-100 border-t-2 border-indigo-300 dark:border-indigo-800">
+                    <td colSpan={6} className="px-3 py-2.5 uppercase tracking-wider text-xs">Total Order Sum</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-indigo-800 dark:text-indigo-200">{Math.round(orderGreyTotal).toLocaleString()} kg</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-emerald-800 dark:text-emerald-200">{Math.round(totalGreyNetReceived).toLocaleString()} kg</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-blue-800 dark:text-blue-200">{Math.round(totalGreyNetIssued).toLocaleString()} kg</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-amber-900 dark:text-amber-200 bg-amber-100/60 dark:bg-amber-900/40">{Math.round(totalGreyStock).toLocaleString()} kg</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Total Summary Row */}
+            <div className="text-xs sm:text-[12.5px] font-bold text-slate-800 dark:text-slate-200 leading-relaxed pt-2">
+              <span>📦 Total Grey Stock Summary:</span> Grey Req: <strong className="text-indigo-600 dark:text-indigo-400">{Math.round(orderGreyTotal).toLocaleString()} kg</strong> | Received: <strong className="text-emerald-600 dark:text-emerald-400">{Math.round(totalGreyNetReceived).toLocaleString()} kg</strong> | Issued: <strong className="text-blue-600 dark:text-blue-400">{Math.round(totalGreyNetIssued).toLocaleString()} kg</strong> | Stock: <strong className="text-amber-600 dark:text-amber-400">{Math.round(totalGreyStock).toLocaleString()} kg</strong>
             </div>
           </div>
         )}

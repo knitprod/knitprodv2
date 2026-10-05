@@ -59,6 +59,7 @@ import { useGlobalData } from '../context/GlobalDataContext';
 import { KnittingOrderDetailsModal } from './KnittingOrderDetailsModal';
 import { KnittingOrderSnippingModal } from './KnittingOrderSnippingModal';
 import { SupabaseSync } from '../lib/supabaseClient';
+import { GreyStockStorage } from '../lib/greyStockStore';
 import TextileClosePMCView from './TextileClosePMCView';
 import GreyStockSummaryView from './GreyStockSummaryView';
 import { SyncProgressBar, SyncProgressState } from './SyncProgressBar';
@@ -381,6 +382,13 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
   useEffect(() => {
     if (!SupabaseSync.isConfigured()) return;
     
+    // Pre-hydrate Grey Stock inventory records so cross-module queries and snaps are always populated
+    SupabaseSync.fetchGreyStockRecords().then(remoteGrey => {
+      if (Array.isArray(remoteGrey) && remoteGrey.length > 0) {
+        GreyStockStorage.saveRecords(remoteGrey);
+      }
+    }).catch(() => {});
+
     // Fetch initial from Supabase
     SupabaseSync.fetchKnittingOrders().then(remoteOrders => {
       if (Array.isArray(remoteOrders) && remoteOrders.length > 0) {

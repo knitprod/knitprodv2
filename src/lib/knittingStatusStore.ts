@@ -1284,6 +1284,14 @@ export class KnittingStatusStorage {
             };
           });
 
+          const existingOrderNos = new Set(cleaned.map(o => String(o.orderNo).trim().toLowerCase()));
+          for (const initOrd of INITIAL_KNITTING_STATUS_ORDERS) {
+            if (!existingOrderNos.has(String(initOrd.orderNo).trim().toLowerCase())) {
+              cleaned.push(initOrd);
+              hasHealedChanges = true;
+            }
+          }
+
           const result = cleaned.map(aggregateOrderValues);
           if (hasHealedChanges) {
             this.saveOrders(result);
@@ -1302,6 +1310,7 @@ export class KnittingStatusStorage {
     try {
       const sanitized = orders.map(aggregateOrderValues);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+      window.dispatchEvent(new CustomEvent('epyllion_knitting_status_updated', { detail: { count: sanitized.length } }));
     } catch (e) {
       console.warn('Could not save knitting status to localStorage', e);
     }

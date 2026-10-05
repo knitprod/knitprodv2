@@ -184,6 +184,7 @@ export const PAGE_TO_HASH: Record<string, string> = {
   'Knitting Status': 'knitting-status',
   'Running Orders': 'running-orders',
   'Textile Close By PMC': 'textile-close-pmc',
+  'Grey Stock Summary': 'grey-stock-summary',
   'Yarn Allocation': 'yarn-allocation',
   'Admin Panel': 'admin-panel',
   'User Management': 'user-management',
@@ -210,8 +211,8 @@ export const isPageAllowedForUser = (user: UserRecord | null, tabName: string) =
   if (user.allowedTabs && user.allowedTabs.length > 0) {
     if (user.allowedTabs.includes(tabName)) return true;
     if (
-      ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order OTD Status', 'Plan Order Followup', 'Knitting Status', 'Running Orders', 'Textile Close By PMC'].includes(tabName) &&
-      (user.allowedTabs.includes('Plan Order Followup') || user.allowedTabs.includes('Order Plan & Status') || user.allowedTabs.includes('Order OTD Status') || user.allowedTabs.includes('Team Leader OTD Status') || user.allowedTabs.includes('Knitting Status') || user.allowedTabs.includes('Running Orders') || user.allowedTabs.includes('Textile Close By PMC'))
+      ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order OTD Status', 'Plan Order Followup', 'Knitting Status', 'Running Orders', 'Textile Close By PMC', 'Grey Stock Summary'].includes(tabName) &&
+      (user.allowedTabs.includes('Plan Order Followup') || user.allowedTabs.includes('Order Plan & Status') || user.allowedTabs.includes('Order OTD Status') || user.allowedTabs.includes('Team Leader OTD Status') || user.allowedTabs.includes('Knitting Status') || user.allowedTabs.includes('Running Orders') || user.allowedTabs.includes('Textile Close By PMC') || user.allowedTabs.includes('Grey Stock Summary'))
     ) {
       return true;
     }
@@ -1241,8 +1242,8 @@ export default function App() {
                     if (currentUser?.allowedTabs && currentUser.allowedTabs.length > 0) {
                       if (currentUser.allowedTabs.includes(tabName)) return true;
                       if (
-                        ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order Plan & Status', 'Plan Order Followup'].includes(tabName) &&
-                        (currentUser.allowedTabs.includes('Plan Order Followup') || currentUser.allowedTabs.includes('Order Plan & Status'))
+                        ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order Plan & Status', 'Plan Order Followup', 'Knitting Status', 'Running Orders', 'Textile Close By PMC', 'Grey Stock Summary'].includes(tabName) &&
+                        (currentUser.allowedTabs.includes('Plan Order Followup') || currentUser.allowedTabs.includes('Order Plan & Status') || currentUser.allowedTabs.includes('Order OTD Status') || currentUser.allowedTabs.includes('Team Leader OTD Status') || currentUser.allowedTabs.includes('Knitting Status') || currentUser.allowedTabs.includes('Running Orders') || currentUser.allowedTabs.includes('Textile Close By PMC') || currentUser.allowedTabs.includes('Grey Stock Summary'))
                       ) {
                         return true;
                       }
@@ -1641,18 +1642,16 @@ export default function App() {
               </div>
             )}
 
-            {(currentPage === 'Knitting Status' || currentPage === 'Running Orders' || currentPage === 'Textile Close By PMC') && (
+            {(currentPage === 'Knitting Status' || currentPage === 'Running Orders' || currentPage === 'Textile Close By PMC' || currentPage === 'Grey Stock Summary') && (
               <div className="animate-fade-in">
                 <KnittingStatusView 
                   currentUser={currentUser} 
-                  initialTab={currentPage === 'Textile Close By PMC' ? 'textile_close_pmc' : 'knitting_status'}
+                  initialTab={
+                    currentPage === 'Textile Close By PMC' ? 'textile_close_pmc' :
+                    currentPage === 'Grey Stock Summary' ? 'grey_stock_summary' :
+                    'knitting_status'
+                  }
                 />
-              </div>
-            )}
-
-            {currentPage === 'Grey Stock Summary' && (
-              <div className="animate-fade-in">
-                <GreyStockSummaryView currentUser={currentUser} />
               </div>
             )}
 

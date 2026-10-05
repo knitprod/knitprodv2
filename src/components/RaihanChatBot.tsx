@@ -34,7 +34,7 @@ import { generateInitialLedger } from './ProductionLedgerView';
 import { RaihanSnippingModal } from './RaihanSnippingModal';
 import { KnittingOrderSnippingModal } from './KnittingOrderSnippingModal';
 import { RaihanOrderCard } from './RaihanOrderCard';
-import { KnittingStatusOrder } from '../types';
+import { KnittingStatusOrder, GreyStockItem } from '../types';
 import { 
   handleSmartProductionLedgerQuery, 
   handleSmartOrderQuery, 
@@ -50,7 +50,8 @@ interface ChatMessage {
   timestamp: string;
   orderData?: KnittingStatusOrder | null;
   yarnAllocations?: any[];
-  viewMode?: 'all' | 'production' | 'allocation' | 'prediction';
+  greyStockItems?: GreyStockItem[];
+  viewMode?: 'all' | 'production' | 'allocation' | 'prediction' | 'grey_stock';
   filterColor?: string;
 }
 
@@ -875,6 +876,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
               timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               orderData: orderResult.orderData || null,
               yarnAllocations: orderResult.yarnAllocations || [],
+              greyStockItems: orderResult.greyStockItems || [],
               viewMode: orderResult.viewMode || 'all',
               filterColor: orderResult.filterColor
             }
@@ -894,7 +896,8 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
             id: `msg-${Date.now() + 1}`,
             role: 'model',
             text: summaryResult.reply!,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            greyStockItems: summaryResult.greyStockItems || []
           }
         ]);
         setIsLoading(false);
@@ -1431,6 +1434,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
                         <RaihanOrderCard
                           order={cardOrder}
                           allocations={msg.yarnAllocations || yarnAllocations}
+                          greyStockItems={msg.greyStockItems}
                           onOpenSnippingTool={(ord) => setSnipOrder(ord)}
                           viewMode={currentViewMode}
                           filterColor={currentColor}

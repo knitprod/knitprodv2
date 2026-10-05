@@ -16,14 +16,16 @@ interface SyncProgressBarProps {
   progress: SyncProgressState;
   onDismiss?: () => void;
   accentColor?: 'indigo' | 'emerald';
+  alwaysVisible?: boolean;
 }
 
 export const SyncProgressBar: React.FC<SyncProgressBarProps> = ({
   progress,
   onDismiss,
-  accentColor = 'emerald'
+  accentColor = 'emerald',
+  alwaysVisible = false
 }) => {
-  if (!progress.isActive && !progress.error) return null;
+  if (!alwaysVisible && !progress.isActive && !progress.error) return null;
 
   const isComplete = progress.percent >= 100;
   const isIndigo = accentColor === 'indigo';

@@ -28,6 +28,7 @@ import {
   ShieldCheck,
   Database,
   Activity,
+  Boxes,
   ExternalLink
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
@@ -46,6 +47,7 @@ const PAGE_TO_HASH: Record<string, string> = {
   'Knitting Status': 'knitting-status',
   'Running Orders': 'running-orders',
   'Textile Close By PMC': 'textile-close-pmc',
+  'Grey Stock Summary': 'grey-stock-summary',
   'Yarn Allocation': 'yarn-allocation',
   'Admin Panel': 'admin-panel',
   'User Management': 'user-management',
@@ -93,7 +95,8 @@ export default function Sidebar({
   const knittingStatusItems = [
     'Knitting Status',
     'Running Orders',
-    'Textile Close By PMC'
+    'Textile Close By PMC',
+    'Grey Stock Summary'
   ];
   const adminPanelItems = ['Admin Panel', 'User Management', 'Database Connection', 'Settings'];
 
@@ -142,8 +145,8 @@ export default function Sidebar({
         return true;
       }
       if (
-        ['Knitting Status', 'Running Orders', 'Textile Close By PMC'].includes(tabName) &&
-        (currentUser.allowedTabs.includes('Knitting Status') || currentUser.allowedTabs.includes('Running Orders') || currentUser.allowedTabs.includes('Textile Close By PMC'))
+        ['Knitting Status', 'Running Orders', 'Textile Close By PMC', 'Grey Stock Summary'].includes(tabName) &&
+        (currentUser.allowedTabs.includes('Knitting Status') || currentUser.allowedTabs.includes('Running Orders') || currentUser.allowedTabs.includes('Textile Close By PMC') || currentUser.allowedTabs.includes('Grey Stock Summary'))
       ) {
         return true;
       }
@@ -404,6 +407,7 @@ export default function Sidebar({
                   {[
                     { name: 'Running Orders', icon: Activity, label: 'Running Orders' },
                     { name: 'Textile Close By PMC', icon: ShieldCheck, label: 'Textile Close By PMC' },
+                    { name: 'Grey Stock Summary', icon: Boxes, label: 'Grey Stock Summary' },
                   ].map((sub) => {
                     if (!isTabAllowed(sub.name)) return null;
                     const Icon = sub.icon;

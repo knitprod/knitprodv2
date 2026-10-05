@@ -65,7 +65,8 @@ import {
 import { KnittingStatusStorage } from '../lib/knittingStatusStore';
 import { TextileClosePMCStorage } from '../lib/textileClosePMCStore';
 import { SupabaseSync } from '../lib/supabaseClient';
-import { KnittingOrderSnippingModal } from './KnittingOrderSnippingModal';
+import { GreyStockSnippingModal } from './GreyStockSnippingModal';
+import { SyncProgressBar, SyncProgressState } from './SyncProgressBar';
 
 interface GreyStockSummaryViewProps {
   currentUser?: UserRecord | null;
@@ -74,52 +75,6 @@ interface GreyStockSummaryViewProps {
 export type StockStatusFilter = 'all' | 'active_stock' | 'high_stock' | 'zero_stock' | 'deficit';
 export type SortField = 'stock' | 'orderNo' | 'buyer' | 'required' | 'received' | 'issued' | 'status';
 export type SortDirection = 'asc' | 'desc';
-
-/**
- * Converts a GreyStockOrderGroup to KnittingStatusOrder for official HD Snipping Tool
- */
-export function convertGreyStockGroupToKnittingOrder(group: GreyStockOrderGroup): KnittingStatusOrder {
-  return {
-    id: `gs-order-${group.orderNo}`,
-    orderNo: group.orderNo,
-    buyerName: group.buyerName || '',
-    teamLeader: 'Knitting Performance Unit',
-    fabrication: group.items[0]?.fabType || 'Single Jersey',
-    knitStartDate: '-',
-    knitEndDate: '-',
-    pmcKnitStartDate: '-',
-    actualKnitStartDate: '-',
-    pmcKnitEndDate: '-',
-    actualKnitEndDate: '-',
-    reqQty: group.greyRequired || group.totalNetReceived,
-    greyQty: group.greyRequired || group.totalNetReceived,
-    production: group.totalNetReceived,
-    knitBalance: group.totalGreyStock,
-    remarks: `Grey Stock Summary: Net Rec ${group.totalNetReceived.toLocaleString()} kg, Issued ${group.totalNetIssued.toLocaleString()} kg, Stock ${group.totalGreyStock.toLocaleString()} kg`,
-    items: group.items.map((itm, idx) => ({
-      id: itm.id || `gs-itm-${group.orderNo}-${idx}`,
-      color: itm.colour || '—',
-      mcType: 'Circular Knit',
-      fabType: itm.fabType || '—',
-      fabrication: `${itm.fabType || ''} (${itm.fabStyle || ''})`,
-      fgsm: '—',
-      fWidth: '—',
-      yarnCount: '—',
-      gaugeDia: '—',
-      knitStartDate: '-',
-      knitEndDate: '-',
-      reqQty: itm.matchedGreyQty || itm.netReceivedQty,
-      greyQty: itm.matchedGreyQty || itm.netReceivedQty,
-      production: Number(itm.netReceivedQty) || 0,
-      hold: 0,
-      reject: 0,
-      itmQty: 0,
-      knitBalance: Number(itm.stockQty) || 0,
-      productionUnit: itm.ownerUnit || 'EKL',
-      avgProdPerDay: 0,
-    }))
-  };
-}
 
 export default function GreyStockSummaryView({ currentUser }: GreyStockSummaryViewProps) {
   const isAdmin = currentUser?.userType === 'Admin';
@@ -166,12 +121,21 @@ export default function GreyStockSummaryView({ currentUser }: GreyStockSummaryVi
 
   // Modal States
   const [viewingOrder, setViewingOrder] = useState<GreyStockOrderGroup | null>(null);
-  const [snipOrder, setSnipOrder] = useState<KnittingStatusOrder | null>(null);
+  const [snipGroup, setSnipGroup] = useState<GreyStockOrderGroup | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [copiedOrderNo, setCopiedOrderNo] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Top Sync & Upload/Download Progress Bar State (stays permanently visible in Grey Stock)
+  const [syncProgress, setSyncProgress] = useState<SyncProgressState>({
+    isActive: true,
+    type: 'sync',
+    title: 'Grey Stock & Knitting Status Synchronized',
+    percent: 100,
+    stage: 'Real-time database connected. Live inventory synchronized.'
+  });
 
   // Upload & Download Progress States
   const [uploadProgress, setUploadProgress] = useState<{
@@ -265,14 +229,36 @@ export default function GreyStockSummaryView({ currentUser }: GreyStockSummaryVi
         setUploadMeta(GreyStockStorage.getUploadMeta());
       }
     };
-    window.addEventListener('epyllion_grey_stock_updated', handleStorageUpdate);
 
-    // Refresh connected data sources
+    const handleKnittingUpdate = () => {
+      setKnittingOrders(KnittingStatusStorage.getOrders());
+    };
+
+    const handleTextileCloseUpdate = () => {
+      setTextileRecords(TextileClosePMCStorage.getRecords());
+    };
+
+    const handleWindowFocus = () => {
+      setKnittingOrders(KnittingStatusStorage.getOrders());
+      setTextileRecords(TextileClosePMCStorage.getRecords());
+    };
+
+    window.addEventListener('epyllion_grey_stock_updated', handleStorageUpdate);
+    window.addEventListener('epyllion_knitting_status_updated', handleKnittingUpdate);
+    window.addEventListener('epyllion_tc_pmc_updated', handleTextileCloseUpdate);
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleWindowFocus);
+
+    // Initial sync of connected data sources
     setKnittingOrders(KnittingStatusStorage.getOrders());
     setTextileRecords(TextileClosePMCStorage.getRecords());
 
     return () => {
       window.removeEventListener('epyllion_grey_stock_updated', handleStorageUpdate);
+      window.removeEventListener('epyllion_knitting_status_updated', handleKnittingUpdate);
+      window.removeEventListener('epyllion_tc_pmc_updated', handleTextileCloseUpdate);
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleWindowFocus);
     };
   }, []);
 
@@ -574,10 +560,26 @@ export default function GreyStockSummaryView({ currentUser }: GreyStockSummaryVi
       message: `Selected file: ${file.name} (${Math.round(file.size / 1024)} KB)...`,
       stage: 'reading'
     });
+    setSyncProgress({
+      isActive: true,
+      type: 'upload',
+      title: 'Uploading Daily Grey Stock Excel File',
+      percent: 5,
+      stage: `Reading ${file.name} (${Math.round(file.size / 1024)} KB)...`
+    });
 
     try {
       const parsed = await parseGreyStockExcel(file, (prog) => {
         setUploadProgress(prog);
+        setSyncProgress({
+          isActive: true,
+          type: 'upload',
+          title: 'Uploading Daily Grey Stock Excel File',
+          percent: prog.percent,
+          stage: prog.message,
+          current: prog.processedRows,
+          total: prog.totalRows
+        });
       });
 
       if (!parsed || parsed.length === 0) {
@@ -590,6 +592,15 @@ export default function GreyStockSummaryView({ currentUser }: GreyStockSummaryVi
         stage: 'completed',
         totalRows: parsed.length,
         processedRows: parsed.length
+      });
+      setSyncProgress({
+        isActive: true,
+        type: 'upload',
+        title: 'Updating Inventory Dataset',
+        percent: 92,
+        stage: 'Linking orders with Knitting Status and calculating stock...',
+        total: parsed.length,
+        current: parsed.length
       });
 
       // Replaces previous dataset completely
@@ -621,6 +632,15 @@ export default function GreyStockSummaryView({ currentUser }: GreyStockSummaryVi
         totalRows: parsed.length,
         processedRows: parsed.length
       });
+      setSyncProgress({
+        isActive: true,
+        type: 'upload',
+        title: 'Daily File Upload Complete',
+        percent: 100,
+        stage: `Successfully loaded and replaced ${parsed.length.toLocaleString()} records across ${uniqueOrders} orders.`,
+        current: parsed.length,
+        total: parsed.length
+      });
 
       setTimeout(() => {
         setIsUploadModalOpen(false);
@@ -648,6 +668,14 @@ export default function GreyStockSummaryView({ currentUser }: GreyStockSummaryVi
       setUploadProgress(null);
       const msg = err.message || 'Failed to parse file. Please verify required headers.';
       setUploadError(msg);
+      setSyncProgress({
+        isActive: true,
+        type: 'upload',
+        title: 'Upload Failed',
+        percent: 100,
+        stage: msg,
+        error: msg
+      });
       showToast(`Upload error: ${msg}`);
     } finally {
       setIsUploading(false);
@@ -664,16 +692,54 @@ export default function GreyStockSummaryView({ currentUser }: GreyStockSummaryVi
       return;
     }
     setIsSyncingCloud(true);
+    setSyncProgress({
+      isActive: true,
+      type: 'sync',
+      title: 'Synchronizing Grey Stock with Supabase Cloud',
+      percent: 25,
+      stage: 'Connecting to Supabase cloud...'
+    });
     try {
       const remote = await SupabaseSync.fetchGreyStockRecords();
+      setSyncProgress({
+        isActive: true,
+        type: 'sync',
+        title: 'Synchronizing Grey Stock with Supabase Cloud',
+        percent: 75,
+        stage: 'Processing remote records...'
+      });
       if (Array.isArray(remote) && remote.length > 0) {
         setRecords(remote);
         GreyStockStorage.saveRecords(remote);
+        setSyncProgress({
+          isActive: true,
+          type: 'sync',
+          title: 'Cloud Sync Complete',
+          percent: 100,
+          stage: `Successfully synchronized ${remote.length.toLocaleString()} records from Supabase Cloud.`,
+          current: remote.length,
+          total: remote.length
+        });
         showToast(`Synced ${remote.length} records from Supabase Cloud.`);
       } else {
+        setSyncProgress({
+          isActive: true,
+          type: 'sync',
+          title: 'Cloud Sync Complete',
+          percent: 100,
+          stage: 'Supabase table is currently empty.'
+        });
         showToast('Supabase table is empty. Click "Upload to Supabase" in the modal to seed.');
       }
     } catch (err: any) {
+      setSyncProgress({
+        isActive: true,
+        type: 'sync',
+        title: 'Cloud Sync Error',
+        percent: 100,
+        stage: err.message || 'Cloud sync failed',
+        error: err.message || 'Failed to sync with Supabase Cloud'
+      });
       showToast(`Cloud Sync error: ${err.message || String(err)}`);
     } finally {
       setIsSyncingCloud(false);
@@ -832,6 +898,13 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
         percent: 15,
         message: `Preparing ${targetGroups.length} orders for export...`
       });
+      setSyncProgress({
+        isActive: true,
+        type: 'download',
+        title: 'Exporting Grey Stock Report to Excel',
+        percent: 20,
+        stage: `Preparing ${targetGroups.length} orders for export...`
+      });
 
       await new Promise(r => setTimeout(r, 120));
 
@@ -841,20 +914,19 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
           exportRows.push({
             'Order No.': g.orderNo,
             'Status': g.status,
-            'Buyer Name': g.buyerName || itm.buyerName || '—',
+            'Buyer': g.buyerName || itm.buyerName || '—',
+            'Colour': itm.colour,
+            'Fabric Style': itm.fabStyle,
+            'Fabrics Type': itm.fabType,
+            'Owner Unit': itm.ownerUnit,
             'Grey Required (Kg)': g.greyRequired,
+            'Net Received Qty.-Kg': itm.netReceivedQty,
+            'Net Issued Qty.-Kg': itm.netIssuedQty,
+            'Stock Qty. Kg': itm.stockQty,
             'Order Net Received (Kg)': g.totalNetReceived,
             'Order Net Issued (Kg)': g.totalNetIssued,
             'Order Grey Stock (Kg)': g.totalGreyStock,
-            'Issued %': g.totalNetReceived > 0 ? `${Math.round((g.totalNetIssued / g.totalNetReceived) * 100)}%` : '0%',
-            'Colour': itm.colour,
-            'Fab. Type': itm.fabType,
-            'Fab. Style': itm.fabStyle,
-            'Owner Unit': itm.ownerUnit,
-            'Matched Grey QTY': itm.matchedGreyQty || 0,
-            'Item Net Received': itm.netReceivedQty,
-            'Item Net Issued': itm.netIssuedQty,
-            'Item Stock QTY': itm.stockQty
+            'Issued %': g.totalNetReceived > 0 ? `${Math.round((g.totalNetIssued / g.totalNetReceived) * 100)}%` : '0%'
           });
         });
       });
@@ -863,6 +935,13 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
         isDownloading: true,
         percent: 55,
         message: `Formatting ${exportRows.length.toLocaleString()} rows into Excel worksheets...`
+      });
+      setSyncProgress({
+        isActive: true,
+        type: 'download',
+        title: 'Exporting Grey Stock Report to Excel',
+        percent: 60,
+        stage: `Formatting ${exportRows.length.toLocaleString()} rows into Excel worksheets...`
       });
 
       await new Promise(r => setTimeout(r, 150));
@@ -877,6 +956,13 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
         percent: 85,
         message: 'Packaging XLSX workbook file for download...'
       });
+      setSyncProgress({
+        isActive: true,
+        type: 'download',
+        title: 'Exporting Grey Stock Report to Excel',
+        percent: 85,
+        stage: 'Packaging XLSX workbook file for download...'
+      });
 
       await new Promise(r => setTimeout(r, 120));
 
@@ -887,6 +973,13 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
         percent: 100,
         message: `Downloaded ${exportRows.length.toLocaleString()} rows successfully!`
       });
+      setSyncProgress({
+        isActive: true,
+        type: 'download',
+        title: 'Excel Export Complete',
+        percent: 100,
+        stage: `Successfully exported ${exportRows.length.toLocaleString()} rows (${onlyFiltered ? 'Filtered View' : 'Full Dataset'}).`
+      });
 
       setTimeout(() => {
         setDownloadProgress(null);
@@ -895,6 +988,14 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
       showToast(`Exported ${exportRows.length.toLocaleString()} rows to Excel (${onlyFiltered ? 'Filtered View' : 'Full Dataset'}).`);
     } catch (err: any) {
       setDownloadProgress(null);
+      setSyncProgress({
+        isActive: true,
+        type: 'download',
+        title: 'Excel Export Error',
+        percent: 100,
+        stage: err.message || 'Export error',
+        error: err.message || 'Failed to export Excel file'
+      });
       showToast(`Failed to export Excel file: ${err.message || 'Export error'}`);
     }
   };
@@ -1063,6 +1164,20 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
         </div>
       </div>
 
+      {/* Sync & Upload/Download Progress Bar Banner (stays permanently visible showing live status) */}
+      <SyncProgressBar
+        progress={syncProgress}
+        onDismiss={() => setSyncProgress({
+          isActive: true,
+          type: 'sync',
+          title: 'Grey Stock & Knitting Status Synchronized',
+          percent: 100,
+          stage: 'Real-time database connected. Live inventory synchronized.'
+        })}
+        alwaysVisible={true}
+        accentColor="indigo"
+      />
+
       {/* KPI Summary Cards - Interactive with 1-Click Filtering */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
         {/* Total Orders Card */}
@@ -1093,14 +1208,14 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
           </div>
         </div>
 
-        {/* Grey Required Card */}
+        {/* Total Grey QTY Card */}
         <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Grey Required</span>
+            <span className="text-[11px] font-bold uppercase tracking-wider">Total Grey QTY</span>
             <Package className="w-4 h-4 text-indigo-500" />
           </div>
           <div className="text-xl font-black font-mono text-indigo-600 dark:text-indigo-400">
-            {overallMetrics.totalReq.toLocaleString()} <span className="text-xs font-normal">Kg</span>
+            {Math.round(overallMetrics.totalReq).toLocaleString()} <span className="text-xs font-normal">Kg</span>
           </div>
           <div className="text-[11px] text-slate-400 mt-0.5">
             Knitting Status / PMC Total
@@ -1512,13 +1627,13 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                   </div>
                 </th>
 
-                {/* 5. Grey Required */}
+                {/* 5. Total Grey QTY */}
                 <th 
                   onClick={() => handleSort('required')}
-                  className="py-2.5 px-3 min-w-[120px] whitespace-nowrap text-right text-indigo-700 dark:text-indigo-300 cursor-pointer hover:bg-slate-200/60 dark:hover:bg-slate-750 transition-colors"
+                  className="py-2.5 px-3 min-w-[130px] whitespace-nowrap text-right text-indigo-700 dark:text-indigo-300 cursor-pointer hover:bg-slate-200/60 dark:hover:bg-slate-750 transition-colors"
                 >
                   <div className="flex items-center justify-end gap-1.5">
-                    <span>Grey Required</span>
+                    <span>Total Grey QTY</span>
                     {sortField === 'required' ? (
                       sortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-indigo-600" /> : <ArrowDown className="w-3.5 h-3.5 text-indigo-600" />
                     ) : (
@@ -1668,20 +1783,20 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                           {group.buyerName || '—'}
                         </td>
 
-                        {/* 5. Grey Required */}
+                        {/* 5. Total Grey QTY */}
                         <td className={`${pyClass} px-3 text-right font-mono font-bold text-indigo-700 dark:text-indigo-300 whitespace-nowrap`}>
-                          {group.greyRequired ? group.greyRequired.toLocaleString() : '0'}
+                          {group.greyRequired ? Math.round(group.greyRequired).toLocaleString() : '0'}
                         </td>
 
                         {/* 6. Net Received */}
                         <td className={`${pyClass} px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap`}>
-                          {group.totalNetReceived ? group.totalNetReceived.toLocaleString() : '0'}
+                          {group.totalNetReceived ? Math.round(group.totalNetReceived).toLocaleString() : '0'}
                         </td>
 
                         {/* 7. Net Issued with Progress Indicator */}
                         <td className={`${pyClass} px-3 text-right whitespace-nowrap`}>
                           <div className="font-mono font-bold text-blue-600 dark:text-blue-400">
-                            {group.totalNetIssued ? group.totalNetIssued.toLocaleString() : '0'}
+                            {group.totalNetIssued ? Math.round(group.totalNetIssued).toLocaleString() : '0'}
                           </div>
                           {group.totalNetReceived > 0 && (
                             <div className="flex items-center justify-end gap-1 mt-0.5">
@@ -1705,7 +1820,7 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                                 : 'text-amber-700 dark:text-amber-400 font-extrabold'
                             }`}>
                               {isHighStock && <AlertCircle className="w-3 h-3 text-amber-600" />}
-                              <span>{group.totalGreyStock.toLocaleString()} kg</span>
+                              <span>{Math.round(group.totalGreyStock).toLocaleString()} kg</span>
                             </span>
                           ) : (
                             <span className="text-slate-400 text-[11px] font-normal">
@@ -1728,9 +1843,9 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                             </button>
                             <button
                               type="button"
-                              onClick={() => setSnipOrder(convertGreyStockGroupToKnittingOrder(group))}
+                              onClick={() => setSnipGroup(group)}
                               className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-600 hover:text-white transition-all shadow-2xs cursor-pointer active:scale-95"
-                              title={`Open Snipping Tool for Order ${group.orderNo}`}
+                              title={`Open Grey Stock Snipping Tool for Order ${group.orderNo}`}
                               id={`snip-gs-btn-${group.orderNo}`}
                             >
                               <Scissors className="w-3 h-3" />
@@ -1768,9 +1883,9 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                                 <div className="flex items-center gap-1.5">
                                   <button
                                     type="button"
-                                    onClick={() => setSnipOrder(convertGreyStockGroupToKnittingOrder(group))}
+                                    onClick={() => setSnipGroup(group)}
                                     className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-600 hover:text-white transition-colors cursor-pointer"
-                                    title="Open Snipping Tool for this order"
+                                    title="Open Grey Stock Snipping Tool for this order"
                                     id={`snip-gs-subtable-btn-${group.orderNo}`}
                                   >
                                     <Scissors className="w-3 h-3" />
@@ -1793,21 +1908,23 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                                 <table className="w-full text-left text-[11px] border-collapse">
                                   <thead>
                                     <tr className="bg-slate-100/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                                      <th className="py-2 px-3">Order No.</th>
                                       <th className="py-2 px-3">Colour</th>
-                                      <th className="py-2 px-3">Fab. Type</th>
-                                      <th className="py-2 px-3">Fab. Style</th>
+                                      <th className="py-2 px-3">Fabric Style</th>
+                                      <th className="py-2 px-3">Fabrics Type</th>
+                                      <th className="py-2 px-3">Buyer</th>
                                       <th className="py-2 px-3 text-center">Owner Unit</th>
                                       <th className="py-2 px-3 text-right text-indigo-600 dark:text-indigo-400">
-                                        Grey QTY
+                                        Total Grey QTY
                                       </th>
                                       <th className="py-2 px-3 text-right text-emerald-600 dark:text-emerald-400">
-                                        Net Received
+                                        Net Received Qty.-Kg
                                       </th>
                                       <th className="py-2 px-3 text-right text-blue-600 dark:text-blue-400">
-                                        Net Issued
+                                        Net Issued Qty.-Kg
                                       </th>
                                       <th className="py-2 px-3 text-right text-amber-600 dark:text-amber-400">
-                                        Stock QTY
+                                        Stock Qty. Kg
                                       </th>
                                     </tr>
                                   </thead>
@@ -1817,6 +1934,7 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                                       const matchesFabric = fabricFilter === 'All' || (itm.fabType && itm.fabType.trim().toLowerCase() === fabricFilter.toLowerCase());
                                       const matchesColor = colorFilter === 'All' || (itm.colour && itm.colour.trim().toLowerCase() === colorFilter.toLowerCase());
                                       const isMatchedItem = matchesFabric && matchesColor;
+                                      const itemStock = itm.stockQty !== undefined ? itm.stockQty : Math.max(0, (itm.netReceivedQty || 0) - (itm.netIssuedQty || 0));
 
                                       return (
                                         <tr
@@ -1829,14 +1947,20 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                                               : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/40'
                                           }`}
                                         >
+                                          <td className="py-2 px-3 font-mono font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                                            {group.orderNo}
+                                          </td>
                                           <td className="py-2 px-3 font-semibold text-slate-900 dark:text-white whitespace-nowrap">
                                             {itm.colour || '—'}
                                           </td>
                                           <td className="py-2 px-3 text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                                            {itm.fabType || '—'}
+                                            {itm.fabStyle || '—'}
                                           </td>
                                           <td className="py-2 px-3 text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                                            {itm.fabStyle || '—'}
+                                            {itm.fabType || '—'}
+                                          </td>
+                                          <td className="py-2 px-3 text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                                            {itm.buyerName || group.buyerName || '—'}
                                           </td>
                                           <td className="py-2 px-3 text-center whitespace-nowrap">
                                             <span className="px-1.5 py-0.5 rounded-md font-mono text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
@@ -1844,21 +1968,40 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                                             </span>
                                           </td>
                                           <td className="py-2 px-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
-                                            {itm.matchedGreyQty ? itm.matchedGreyQty.toLocaleString() : '0'}
+                                            {Math.round(itm.matchedGreyQty || (group.items.length === 1 ? group.greyRequired : 0) || 0).toLocaleString()}
                                           </td>
                                           <td className="py-2 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                                            {itm.netReceivedQty ? itm.netReceivedQty.toLocaleString() : '0'}
+                                            {Math.round(itm.netReceivedQty || 0).toLocaleString()}
                                           </td>
                                           <td className="py-2 px-3 text-right font-mono font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                                            {itm.netIssuedQty ? itm.netIssuedQty.toLocaleString() : '0'}
+                                            {Math.round(itm.netIssuedQty || 0).toLocaleString()}
                                           </td>
                                           <td className="py-2 px-3 text-right font-mono font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
-                                            {itm.stockQty ? itm.stockQty.toLocaleString() : '0'}
+                                            {Math.round(itemStock).toLocaleString()}
                                           </td>
                                         </tr>
                                       );
                                     })}
                                   </tbody>
+                                  <tfoot>
+                                    <tr className="bg-slate-100/90 dark:bg-slate-800/90 font-black text-slate-900 dark:text-white border-t border-slate-300 dark:border-slate-700">
+                                      <td colSpan={6} className="py-2.5 px-3 uppercase tracking-wider text-slate-700 dark:text-slate-300 text-[10px]">
+                                        Total Order Sum ({group.items.length} {group.items.length === 1 ? 'specification' : 'specifications'})
+                                      </td>
+                                      <td className="py-2.5 px-3 text-right font-mono font-bold text-indigo-700 dark:text-indigo-300 whitespace-nowrap">
+                                        {Math.round(group.greyRequired || 0).toLocaleString()}
+                                      </td>
+                                      <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300 whitespace-nowrap">
+                                        {Math.round(group.totalNetReceived || 0).toLocaleString()}
+                                      </td>
+                                      <td className="py-2.5 px-3 text-right font-mono font-bold text-blue-700 dark:text-blue-300 whitespace-nowrap">
+                                        {Math.round(group.totalNetIssued || 0).toLocaleString()}
+                                      </td>
+                                      <td className="py-2.5 px-3 text-right font-mono font-black text-amber-900 dark:text-amber-300 whitespace-nowrap bg-amber-50/40 dark:bg-amber-950/20">
+                                        {Math.round(group.totalGreyStock || 0).toLocaleString()}
+                                      </td>
+                                    </tr>
+                                  </tfoot>
                                 </table>
                               </div>
                             </div>
@@ -1958,9 +2101,9 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setSnipOrder(convertGreyStockGroupToKnittingOrder(viewingOrder))}
+                  onClick={() => setSnipGroup(viewingOrder)}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-600 hover:text-white transition-all shadow-2xs cursor-pointer active:scale-95"
-                  title="Open in Snipping Tool (HD Snapshot)"
+                  title="Open in Grey Stock Snipping Tool (HD Snapshot)"
                 >
                   <Scissors className="w-3.5 h-3.5" />
                   <span>Snipping Tool</span>
@@ -1978,27 +2121,27 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
             {/* KPI Summary Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4">
               <div className="bg-slate-50 dark:bg-slate-850 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
-                <span className="text-[10px] font-bold uppercase text-indigo-600 dark:text-indigo-400">Grey Required</span>
+                <span className="text-[10px] font-bold uppercase text-indigo-600 dark:text-indigo-400">Total Grey QTY</span>
                 <div className="text-lg font-bold font-mono text-indigo-600 dark:text-indigo-400 mt-0.5">
-                  {viewingOrder.greyRequired.toLocaleString()} <span className="text-xs font-normal text-slate-400">Kg</span>
+                  {Math.round(viewingOrder.greyRequired).toLocaleString()} <span className="text-xs font-normal text-slate-400">Kg</span>
                 </div>
               </div>
               <div className="bg-slate-50 dark:bg-slate-850 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
                 <span className="text-[10px] font-bold uppercase text-emerald-600 dark:text-emerald-400">Net Received</span>
                 <div className="text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
-                  {viewingOrder.totalNetReceived.toLocaleString()} <span className="text-xs font-normal text-slate-400">Kg</span>
+                  {Math.round(viewingOrder.totalNetReceived).toLocaleString()} <span className="text-xs font-normal text-slate-400">Kg</span>
                 </div>
               </div>
               <div className="bg-slate-50 dark:bg-slate-850 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
                 <span className="text-[10px] font-bold uppercase text-blue-600 dark:text-blue-400">Net Issued</span>
                 <div className="text-lg font-bold font-mono text-blue-600 dark:text-blue-400 mt-0.5">
-                  {viewingOrder.totalNetIssued.toLocaleString()} <span className="text-xs font-normal text-slate-400">Kg</span>
+                  {Math.round(viewingOrder.totalNetIssued).toLocaleString()} <span className="text-xs font-normal text-slate-400">Kg</span>
                 </div>
               </div>
               <div className="bg-slate-50 dark:bg-slate-850 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
                 <span className="text-[10px] font-bold uppercase text-amber-600 dark:text-amber-400">Grey Stock</span>
                 <div className="text-lg font-bold font-mono text-amber-600 dark:text-amber-400 mt-0.5">
-                  {viewingOrder.totalGreyStock.toLocaleString()} <span className="text-xs font-normal text-slate-400">Kg</span>
+                  {Math.round(viewingOrder.totalGreyStock).toLocaleString()} <span className="text-xs font-normal text-slate-400">Kg</span>
                 </div>
               </div>
             </div>
@@ -2008,27 +2151,31 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
               <table className="w-full text-xs text-left border-collapse">
                 <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold sticky top-0">
                   <tr>
+                    <th className="py-2.5 px-3">Order No.</th>
                     <th className="py-2.5 px-3">Colour</th>
-                    <th className="py-2.5 px-3">Fab. Type</th>
-                    <th className="py-2.5 px-3">Fab. Style</th>
+                    <th className="py-2.5 px-3">Fabric Style</th>
+                    <th className="py-2.5 px-3">Fabrics Type</th>
+                    <th className="py-2.5 px-3">Buyer</th>
                     <th className="py-2.5 px-3 text-center">Owner Unit</th>
-                    <th className="py-2.5 px-3 text-right text-indigo-600 dark:text-indigo-400">Grey QTY</th>
-                    <th className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400">Net Received</th>
-                    <th className="py-2.5 px-3 text-right text-blue-600 dark:text-blue-400">Net Issued</th>
-                    <th className="py-2.5 px-3 text-right text-amber-600 dark:text-amber-400">Stock QTY</th>
+                    <th className="py-2.5 px-3 text-right text-indigo-600 dark:text-indigo-400">Total Grey QTY</th>
+                    <th className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400">Net Received Qty.-Kg</th>
+                    <th className="py-2.5 px-3 text-right text-blue-600 dark:text-blue-400">Net Issued Qty.-Kg</th>
+                    <th className="py-2.5 px-3 text-right text-amber-600 dark:text-amber-400">Stock Qty. Kg</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
                   {viewingOrder.items.map((itm, itmIdx) => (
                     <tr key={itm.id || `modal-itm-${itmIdx}`} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                      <td className="py-2.5 px-3 font-mono font-bold text-slate-800 dark:text-slate-200">{viewingOrder.orderNo}</td>
                       <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-white">{itm.colour || '—'}</td>
-                      <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300">{itm.fabType || '—'}</td>
-                      <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">{itm.fabStyle || '—'}</td>
+                      <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300">{itm.fabStyle || '—'}</td>
+                      <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">{itm.fabType || '—'}</td>
+                      <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300">{itm.buyerName || viewingOrder.buyerName || '—'}</td>
                       <td className="py-2.5 px-3 text-center font-mono">{itm.ownerUnit || 'EKL'}</td>
-                      <td className="py-2.5 px-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400">{itm.matchedGreyQty?.toLocaleString() || '0'}</td>
-                      <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">{itm.netReceivedQty?.toLocaleString() || '0'}</td>
-                      <td className="py-2.5 px-3 text-right font-mono font-bold text-blue-600 dark:text-blue-400">{itm.netIssuedQty?.toLocaleString() || '0'}</td>
-                      <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-600 dark:text-amber-400">{itm.stockQty?.toLocaleString() || '0'}</td>
+                      <td className="py-2.5 px-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400">{Math.round(itm.matchedGreyQty || (viewingOrder.items.length === 1 ? viewingOrder.greyRequired : 0) || 0).toLocaleString()}</td>
+                      <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">{Math.round(itm.netReceivedQty || 0).toLocaleString()}</td>
+                      <td className="py-2.5 px-3 text-right font-mono font-bold text-blue-600 dark:text-blue-400">{Math.round(itm.netIssuedQty || 0).toLocaleString()}</td>
+                      <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-600 dark:text-amber-400">{Math.round(itm.stockQty !== undefined ? itm.stockQty : Math.max(0, (itm.netReceivedQty || 0) - (itm.netIssuedQty || 0))).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -2043,9 +2190,9 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setSnipOrder(convertGreyStockGroupToKnittingOrder(viewingOrder))}
+                  onClick={() => setSnipGroup(viewingOrder)}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition-all shadow-xs cursor-pointer active:scale-95"
-                  title="Open in Snipping Tool (HD Snapshot)"
+                  title="Open in Grey Stock Snipping Tool (HD Snapshot)"
                 >
                   <Scissors className="w-3.5 h-3.5" />
                   <span>Open Snipping Tool</span>
@@ -2062,13 +2209,12 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
         </div>
       )}
 
-      {/* Modal: Official HD Snipping Tool for Order Details */}
-      {snipOrder && (
-        <KnittingOrderSnippingModal
-          order={snipOrder}
-          isOpen={Boolean(snipOrder)}
-          onClose={() => setSnipOrder(null)}
-          includeAllocation={false}
+      {/* Modal: Official HD Snipping Tool for Grey Stock (Shows ONLY Grey Stock Data) */}
+      {snipGroup && (
+        <GreyStockSnippingModal
+          orderGroup={snipGroup}
+          isOpen={Boolean(snipGroup)}
+          onClose={() => setSnipGroup(null)}
         />
       )}
 

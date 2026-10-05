@@ -14,11 +14,14 @@ import {
   Layers,
   Calendar,
   Smartphone,
-  MoveHorizontal
+  MoveHorizontal,
+  Boxes
 } from 'lucide-react';
 import { toPng } from 'html-to-image';
-import { KnittingStatusOrder } from '../types';
+import { KnittingStatusOrder, GreyStockItem } from '../types';
 import { calculateKnittingCondition, sortKnittingItems } from '../lib/knittingStatusStore';
+import { GreyStockStorage, getOrderLookupKeys, normOrder } from '../lib/greyStockStore';
+import { SupabaseSync } from '../lib/supabaseClient';
 import { getCompanyLogo } from '../lib/logoStore';
 import { useGlobalData } from '../context/GlobalDataContext';
 
@@ -200,7 +203,7 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
 
       return () => clearTimeout(timer);
     }
-  }, [isOpen, order, showAllocations]);
+  }, [isOpen, order, showAllocations, greyRecords.length, greyStockData.totalGreyStock]);
 
   if (!isOpen || !order) return null;
 
@@ -288,18 +291,69 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
 
   const totalAllocatedQty = sortedAllocations.reduce((sum, a) => sum + a.allocatedQty, 0);
 
-  const handleDownload = async () => {
-    let url = imageDataUrl;
-    if (!url) {
-      setIsGenerating(true);
-      const res = await captureCard();
-      setIsGenerating(false);
-      if (res) {
-        url = res.dataUrl;
-        setImageDataUrl(res.dataUrl);
-        setImageBlob(res.blob);
-      }
+  // Live Grey Stock Records State (persisted from local storage & Supabase Cloud)
+  const [greyRecords, setGreyRecords] = React.useState<GreyStockItem[]>(() => GreyStockStorage.getRecords());
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    // 1. Immediately read from local storage
+    const current = GreyStockStorage.getRecords();
+    if (current && current.length > 0) {
+      setGreyRecords(current);
     }
+
+    // 2. Fetch latest from Supabase cloud
+    if (SupabaseSync.isConfigured()) {
+      SupabaseSync.fetchGreyStockRecords().then(remote => {
+        if (Array.isArray(remote) && remote.length > 0) {
+          GreyStockStorage.saveRecords(remote);
+          setGreyRecords(remote);
+        }
+      }).catch(() => {});
+    }
+  }, [order?.orderNo, isOpen]);
+
+  const greyStockData = React.useMemo(() => {
+    if (!order?.orderNo) return { totalGreyStock: 0, totalNetRec: 0, totalNetIss: 0, hasRecord: false };
+    const all = greyRecords && greyRecords.length > 0 ? greyRecords : GreyStockStorage.getRecords();
+    const keys = getOrderLookupKeys(order.orderNo);
+    const normTarget = normOrder(order.orderNo);
+    const rawTarget = String(order.orderNo || '').trim().toLowerCase();
+
+    const matched = all.filter(g => {
+      const rawG = String(g.orderNo || '').trim().toLowerCase();
+      const normG = normOrder(g.orderNo);
+      return (
+        normG === normTarget ||
+        rawG === rawTarget ||
+        keys.some(k => rawG === k || rawG.includes(k) || k.includes(rawG) || normG === k || normG.includes(k) || k.includes(normG))
+      );
+    });
+
+    if (matched.length === 0) {
+      return { totalGreyStock: 0, totalNetRec: 0, totalNetIss: 0, hasRecord: false };
+    }
+    const rec = matched.reduce((acc, it) => acc + (Number(it.netReceivedQty) || 0), 0);
+    const iss = matched.reduce((acc, it) => acc + (Number(it.netIssuedQty) || 0), 0);
+    const stk = matched.reduce((acc, it) => {
+      const s = it.stockQty !== undefined && it.stockQty !== null && !isNaN(Number(it.stockQty))
+        ? Number(it.stockQty)
+        : Math.max(0, (Number(it.netReceivedQty) || 0) - (Number(it.netIssuedQty) || 0));
+      return acc + s;
+    }, 0);
+    return {
+      totalGreyStock: Math.round(stk > 0 ? stk : Math.max(0, rec - iss)),
+      totalNetRec: Math.round(rec),
+      totalNetIss: Math.round(iss),
+      hasRecord: true
+    };
+  }, [order?.orderNo, greyRecords]);
+
+  const handleDownload = async () => {
+    setIsGenerating(true);
+    const res = await captureCard();
+    setIsGenerating(false);
+    const url = res?.dataUrl || imageDataUrl;
 
     if (url) {
       const link = document.createElement('a');
@@ -314,17 +368,10 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
   };
 
   const handleCopyImage = async () => {
-    let blob = imageBlob;
-    if (!blob) {
-      setIsGenerating(true);
-      const res = await captureCard();
-      setIsGenerating(false);
-      if (res) {
-        blob = res.blob;
-        setImageDataUrl(res.dataUrl);
-        setImageBlob(res.blob);
-      }
-    }
+    setIsGenerating(true);
+    const res = await captureCard();
+    setIsGenerating(false);
+    const blob = res?.blob || imageBlob;
 
     if (!blob) {
       handleDownload();
@@ -962,6 +1009,14 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
                   {order.actualKnitEndDate || '-'}
                 </strong>
               </div>
+              <span>•</span>
+              <div className="flex items-center gap-1.5">
+                <Boxes className="w-3.5 h-3.5 text-amber-700" />
+                <span className="font-semibold text-slate-600">Total Grey Stock:</span>
+                <strong className="font-mono text-amber-900 font-bold" style={{ color: '#78350f' }}>
+                  {greyStockData.totalGreyStock.toLocaleString()} kg
+                </strong>
+              </div>
             </div>
 
             {/* Layer 1: Quantities Summary Cards */}
@@ -969,43 +1024,43 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
               <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2" style={{ color: '#64748b' }}>
                 Layer 1: Order Quantities &amp; Progress Summary
               </div>
-              <div className="grid grid-cols-7 gap-2.5 text-center">
-                <div className="p-2.5 rounded-lg border border-slate-200 bg-slate-50" style={{ backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }}>
+              <div className="grid grid-cols-8 gap-2 text-center">
+                <div className="p-2 rounded-lg border border-slate-200 bg-slate-50" style={{ backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }}>
                   <div className="text-[10px] font-bold uppercase text-slate-500">Req. Qty</div>
                   <div className="text-sm font-black text-slate-800 mt-0.5 font-mono">
                     {order.reqQty ? order.reqQty.toLocaleString() : '0'} <span className="text-[10px] font-normal">kg</span>
                   </div>
                 </div>
 
-                <div className="p-2.5 rounded-lg border border-slate-200 bg-slate-50" style={{ backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }}>
+                <div className="p-2 rounded-lg border border-slate-200 bg-slate-50" style={{ backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }}>
                   <div className="text-[10px] font-bold uppercase text-slate-500">Grey Qty</div>
                   <div className="text-sm font-black text-slate-800 mt-0.5 font-mono">
                     {order.greyQty ? order.greyQty.toLocaleString() : '0'} <span className="text-[10px] font-normal">kg</span>
                   </div>
                 </div>
 
-                <div className="p-2.5 rounded-lg border border-emerald-200 bg-emerald-50/60" style={{ backgroundColor: '#ecfdf5', borderColor: '#a7f3d0' }}>
+                <div className="p-2 rounded-lg border border-emerald-200 bg-emerald-50/60" style={{ backgroundColor: '#ecfdf5', borderColor: '#a7f3d0' }}>
                   <div className="text-[10px] font-bold uppercase text-emerald-700">Production</div>
                   <div className="text-sm font-black text-emerald-700 mt-0.5 font-mono">
                     {order.production ? order.production.toLocaleString() : '0'} <span className="text-[10px] font-normal">kg</span>
                   </div>
                 </div>
 
-                <div className="p-2.5 rounded-lg border border-amber-200 bg-amber-50/60" style={{ backgroundColor: '#fffbeb', borderColor: '#fde68a' }}>
+                <div className="p-2 rounded-lg border border-amber-200 bg-amber-50/60" style={{ backgroundColor: '#fffbeb', borderColor: '#fde68a' }}>
                   <div className="text-[10px] font-bold uppercase text-amber-700">Knit Balance</div>
                   <div className="text-sm font-black text-amber-800 mt-0.5 font-mono">
                     {order.knitBalance ? order.knitBalance.toLocaleString() : '0'} <span className="text-[10px] font-normal">kg</span>
                   </div>
                 </div>
 
-                <div className="p-2.5 rounded-lg border border-slate-200 bg-slate-50" style={{ backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }}>
+                <div className="p-2 rounded-lg border border-slate-200 bg-slate-50" style={{ backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }}>
                   <div className="text-[10px] font-bold uppercase text-amber-600">Hold</div>
                   <div className="text-sm font-black text-amber-700 mt-0.5 font-mono">
                     {totals.hold ? totals.hold.toLocaleString() : '0'} <span className="text-[10px] font-normal">kg</span>
                   </div>
                 </div>
 
-                <div className="p-2.5 rounded-lg border border-slate-200 bg-slate-50" style={{ backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }}>
+                <div className="p-2 rounded-lg border border-slate-200 bg-slate-50" style={{ backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }}>
                   <div className="text-[10px] font-bold uppercase text-red-600">Reject</div>
                   <div className="text-sm font-black text-red-600 mt-0.5 font-mono">
                     {totals.reject ? totals.reject.toLocaleString() : '0'} <span className="text-[10px] font-normal">kg</span>
@@ -1013,10 +1068,18 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
                 </div>
 
                 {/* Avg Prod/Day: Rounded Up cleanly to next integer without decimals */}
-                <div className="p-2.5 rounded-lg border border-blue-200 bg-blue-50/60" style={{ backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }}>
+                <div className="p-2 rounded-lg border border-blue-200 bg-blue-50/60" style={{ backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }}>
                   <div className="text-[10px] font-bold uppercase text-blue-700">Avg Prod/Day</div>
                   <div className="text-sm font-black text-blue-800 mt-0.5 font-mono">
                     {roundUpAvg(totals.avgProdPerDay).toLocaleString()} <span className="text-[10px] font-normal">kg</span>
+                  </div>
+                </div>
+
+                {/* Total Grey Stock Qty */}
+                <div className="p-2 rounded-lg border border-amber-300 bg-amber-50/80 shadow-2xs" style={{ backgroundColor: '#fffbeb', borderColor: '#fcd34d' }}>
+                  <div className="text-[10px] font-extrabold uppercase text-amber-900 tracking-tight">Total Grey Stock Qty</div>
+                  <div className="text-sm font-black text-amber-950 mt-0.5 font-mono">
+                    {greyStockData.totalGreyStock.toLocaleString()} <span className="text-[10px] font-normal text-amber-800">kg</span>
                   </div>
                 </div>
               </div>
