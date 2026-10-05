@@ -301,6 +301,7 @@ export interface GreyStockItem extends SyncMetadata {
   id: string;
   status: string;         // Status from file (e.g. "Running", "Complete")
   orderNo: string;        // Order No.
+  buyerName?: string;     // Buyer Name from file or matched from Knitting Status
   colour: string;         // Colour
   fabStyle: string;       // Fab Style
   fabType: string;        // Fab Type
