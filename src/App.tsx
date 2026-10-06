@@ -67,6 +67,7 @@ import { SupabaseSync } from './lib/supabaseClient';
 import { getTargetKgForUnit, getTotalMachinesForUnit, saveUnitConfigs, getUnitConfigs } from './lib/unitStore';
 import { calculateLedgerEfficiency, calculateLedgerCapacityUtilization, calculateEffectiveDays, isSubContactRecord } from './lib/productionMetrics';
 import { saveBuyers } from './lib/buyerStore';
+import { isPageAllowedForUser, isAntuSuperAdmin } from './lib/userPermissions';
 
 import { FactoryFloor, ProductionEntry, ActivityLog } from './types';
 import { INITIAL_FLOORS, INITIAL_KPIS, INITIAL_ACTIVITY_LOGS } from './data';
@@ -205,25 +206,7 @@ export const getPageFromHash = (hash: string): string | null => {
   return null;
 };
 
-// Helper permission checker to ensure users aren't incorrectly redirected away from allowed sub-tabs
-export const isPageAllowedForUser = (user: UserRecord | null, tabName: string) => {
-  if (!user) return true;
-  if (user.userType === 'Admin') return true;
-  if (user.allowedTabs && user.allowedTabs.length > 0) {
-    if (user.allowedTabs.includes(tabName)) return true;
-    if (
-      ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order OTD Status', 'Plan Order Followup', 'Knitting Status', 'Running Orders', 'Textile Close By PMC', 'Grey Stock Summary'].includes(tabName) &&
-      (user.allowedTabs.includes('Plan Order Followup') || user.allowedTabs.includes('Order Plan & Status') || user.allowedTabs.includes('Order OTD Status') || user.allowedTabs.includes('Team Leader OTD Status') || user.allowedTabs.includes('Knitting Status') || user.allowedTabs.includes('Running Orders') || user.allowedTabs.includes('Textile Close By PMC') || user.allowedTabs.includes('Grey Stock Summary'))
-    ) {
-      return true;
-    }
-    return false;
-  }
-  if (tabName === 'User Management' || tabName === 'Database Connection' || tabName === 'Admin Panel') {
-    return false;
-  }
-  return true;
-};
+export { isPageAllowedForUser, isAntuSuperAdmin };
 
 export default function App() {
   const [inactivityNotice, setInactivityNotice] = useState<string | null>(null);
@@ -524,13 +507,16 @@ export default function App() {
     }
   }, [isDark]);
 
-  // Redirect to first allowed tab only if current page is genuinely forbidden
+  // Redirect to first allowed tab if current page is not permitted for the user
   useEffect(() => {
-    if (currentUser && currentUser.userType !== 'Admin' && currentUser.allowedTabs && currentUser.allowedTabs.length > 0) {
+    if (currentUser) {
+      if (isAntuSuperAdmin(currentUser)) return;
       const isAllowed = isPageAllowedForUser(currentUser, currentPage);
 
       if (!isAllowed) {
-        const firstAllowed = currentUser.allowedTabs[0] || 'Dashboard';
+        const firstAllowed = (currentUser.allowedTabs && currentUser.allowedTabs.length > 0)
+          ? currentUser.allowedTabs[0]
+          : 'Dashboard';
         setCurrentPage(firstAllowed);
       }
     }
@@ -1242,23 +1228,7 @@ export default function App() {
               <nav className="space-y-2">
                 {/* Helper permission checker */}
                 {(() => {
-                  const isTabAllowed = (tabName: string) => {
-                    if (currentUser?.userType === 'Admin') return true;
-                    if (currentUser?.allowedTabs && currentUser.allowedTabs.length > 0) {
-                      if (currentUser.allowedTabs.includes(tabName)) return true;
-                      if (
-                        ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order Plan & Status', 'Plan Order Followup', 'Knitting Status', 'Running Orders', 'Textile Close By PMC', 'Grey Stock Summary'].includes(tabName) &&
-                        (currentUser.allowedTabs.includes('Plan Order Followup') || currentUser.allowedTabs.includes('Order Plan & Status') || currentUser.allowedTabs.includes('Order OTD Status') || currentUser.allowedTabs.includes('Team Leader OTD Status') || currentUser.allowedTabs.includes('Knitting Status') || currentUser.allowedTabs.includes('Running Orders') || currentUser.allowedTabs.includes('Textile Close By PMC') || currentUser.allowedTabs.includes('Grey Stock Summary'))
-                      ) {
-                        return true;
-                      }
-                      return false;
-                    }
-                    if (tabName === 'User Management' || tabName === 'Database Connection' || tabName === 'Admin Panel') {
-                      return false;
-                    }
-                    return true;
-                  };
+                  const isTabAllowed = (tabName: string) => isPageAllowedForUser(currentUser, tabName);
 
                   return (
                     <>

@@ -62,7 +62,8 @@ import {
   hasUserWritePermissionForTab,
   findDuplicateProductionRecord,
   normalizeFloorKey,
-  normalizeDateKey
+  normalizeDateKey,
+  isAntuSuperAdmin
 } from '../lib/userPermissions';
 import { 
   getTargetKgForUnit, 
@@ -740,6 +741,7 @@ const PRODUCTION_LEDGER_COLUMNS: ColumnDef[] = [
 ];
 
 export default function ProductionLedgerView({ currentUser }: ProductionLedgerViewProps = {}) {
+  const isSuperAdmin = isAntuSuperAdmin(currentUser);
   const isAdmin = currentUser?.userType === 'Admin';
 
   const {
@@ -1436,10 +1438,11 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   const allowedEntryFloors = useMemo(() => {
     return getUserAllowedFloorsForEntry(currentUser);
   }, [currentUser]);
-  const canUserEnterRecords = isAdmin || hasUserWritePermissionForTab(currentUser, 'Production Ledger') || (currentUser?.permission === 'Read / Write') || allowedEntryFloors.length > 0;
+  const hasWritePermission = isSuperAdmin || hasUserWritePermissionForTab(currentUser, 'Production Ledger');
+  const canUserEnterRecords = hasWritePermission && allowedEntryFloors.length > 0;
 
-  // Role check - Only Admin users can delete records
-  const userHasDeletePermission = isAdmin;
+  // Role check - Only Super-Admin or Admin with write permission can delete records
+  const userHasDeletePermission = isSuperAdmin || (isAdmin && hasWritePermission);
 
   // ----------------------------------------------------
   // FILTER BEHAVIOR & ROW QUERY COMPUTATION

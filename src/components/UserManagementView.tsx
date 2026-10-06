@@ -3,6 +3,7 @@ import { GasClient } from '../lib/gasClient';
 import { SupabaseSync } from '../lib/supabaseClient';
 import { getBuyers, saveBuyers } from '../lib/buyerStore';
 import { getUnitConfigs, UnitThresholdConfig } from '../lib/unitStore';
+import { isAntuSuperAdmin } from '../lib/userPermissions';
 import { 
   Users, 
   UserPlus, 
@@ -172,7 +173,9 @@ export const INITIAL_USERS: UserRecord[] = [
     assignedBuyers: [...DEFAULT_INITIAL_BUYERS],
     permission: 'Read / Write',
     status: 'Active',
-    lastUpdated: '2026-07-15 10:30 AM'
+    lastUpdated: '2026-07-15 10:30 AM',
+    allowedTabs: [...ALL_TABS],
+    tabPermissions: ALL_TABS.reduce((acc, t) => ({ ...acc, [t]: 'Full Access' }), {})
   },
   {
     id: 'usr-2',
@@ -186,7 +189,44 @@ export const INITIAL_USERS: UserRecord[] = [
     assignedBuyers: [...DEFAULT_INITIAL_BUYERS],
     permission: 'Read / Write',
     status: 'Active',
-    lastUpdated: '2026-07-15 11:45 AM'
+    lastUpdated: '2026-07-15 11:45 AM',
+    allowedTabs: [
+      'Dashboard',
+      'Production Ledger',
+      'Floor Dashboard',
+      'Management Dashboard',
+      'Reports',
+      'Plan Order Followup',
+      'Order OTD Status',
+      'Team Leader OTD Status',
+      'Buyerwise OTD Status',
+      'Orderwise OTD Status',
+      'Knitting Status',
+      'Running Orders',
+      'Textile Close By PMC',
+      'Grey Stock Summary',
+      'Yarn Allocation'
+    ],
+    tabPermissions: {
+      'Dashboard': 'Full Access',
+      'Production Ledger': 'Full Access',
+      'Floor Dashboard': 'Full Access',
+      'Management Dashboard': 'Full Access',
+      'Reports': 'Full Access',
+      'Plan Order Followup': 'Full Access',
+      'Order OTD Status': 'Full Access',
+      'Team Leader OTD Status': 'Full Access',
+      'Buyerwise OTD Status': 'Full Access',
+      'Orderwise OTD Status': 'Full Access',
+      'Knitting Status': 'Full Access',
+      'Running Orders': 'Full Access',
+      'Textile Close By PMC': 'Full Access',
+      'Grey Stock Summary': 'Full Access',
+      'Yarn Allocation': 'Full Access',
+      'User Management': 'No Access',
+      'Database Connection': 'No Access',
+      'Settings': 'No Access'
+    }
   },
   {
     id: 'usr-3',
@@ -200,7 +240,25 @@ export const INITIAL_USERS: UserRecord[] = [
     assignedBuyers: ['Marks & Spencer', 'H&M', 'C&A', 'PUMA'],
     permission: 'Read',
     status: 'Active',
-    lastUpdated: '2026-07-14 02:15 PM'
+    lastUpdated: '2026-07-14 02:15 PM',
+    allowedTabs: [
+      'Dashboard',
+      'Production Ledger',
+      'Floor Dashboard',
+      'Plan Order Followup',
+      'Team Leader OTD Status',
+      'Knitting Status',
+      'Running Orders'
+    ],
+    tabPermissions: {
+      'Dashboard': 'View Only',
+      'Production Ledger': 'View Only',
+      'Floor Dashboard': 'View Only',
+      'Plan Order Followup': 'View Only',
+      'Team Leader OTD Status': 'View Only',
+      'Knitting Status': 'View Only',
+      'Running Orders': 'View Only'
+    }
   },
   {
     id: 'usr-4',
@@ -214,7 +272,19 @@ export const INITIAL_USERS: UserRecord[] = [
     assignedBuyers: ['Zara', 'Next', 'Target', 'Uniqlo'],
     permission: 'Read',
     status: 'Active',
-    lastUpdated: '2026-07-13 09:10 AM'
+    lastUpdated: '2026-07-13 09:10 AM',
+    allowedTabs: [
+      'Dashboard',
+      'Production Ledger',
+      'Reports',
+      'Running Orders'
+    ],
+    tabPermissions: {
+      'Dashboard': 'View Only',
+      'Production Ledger': 'View Only',
+      'Reports': 'View Only',
+      'Running Orders': 'View Only'
+    }
   },
   {
     id: 'usr-5',
@@ -228,7 +298,17 @@ export const INITIAL_USERS: UserRecord[] = [
     assignedBuyers: ['G-Star', 'Express', 'Decathlon'],
     permission: 'Read / Write',
     status: 'Inactive',
-    lastUpdated: '2026-07-12 04:30 PM'
+    lastUpdated: '2026-07-12 04:30 PM',
+    allowedTabs: [
+      'Dashboard',
+      'Production Ledger',
+      'Floor Dashboard'
+    ],
+    tabPermissions: {
+      'Dashboard': 'View Only',
+      'Production Ledger': 'Full Access',
+      'Floor Dashboard': 'View Only'
+    }
   },
   {
     id: 'usr-6',
@@ -242,7 +322,17 @@ export const INITIAL_USERS: UserRecord[] = [
     assignedBuyers: ['Wal-Mart', 'PUMA', 'H&M'],
     permission: 'Read',
     status: 'Active',
-    lastUpdated: '2026-07-11 11:00 AM'
+    lastUpdated: '2026-07-11 11:00 AM',
+    allowedTabs: [
+      'Dashboard',
+      'Production Ledger',
+      'Running Orders'
+    ],
+    tabPermissions: {
+      'Dashboard': 'View Only',
+      'Production Ledger': 'View Only',
+      'Running Orders': 'View Only'
+    }
   },
   {
     id: 'usr-7',
@@ -256,7 +346,13 @@ export const INITIAL_USERS: UserRecord[] = [
     assignedBuyers: ['Marks & Spencer', 'Zara'],
     permission: 'Hide',
     status: 'Inactive',
-    lastUpdated: '2026-07-10 03:22 PM'
+    lastUpdated: '2026-07-10 03:22 PM',
+    allowedTabs: [
+      'Dashboard'
+    ],
+    tabPermissions: {
+      'Dashboard': 'View Only'
+    }
   },
   {
     id: 'usr-8',
@@ -557,6 +653,10 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
   const handleToggleStatus = async (userId: string) => {
     const targetUser = users.find(u => u.id === userId);
     if (!targetUser) return;
+    if (isAntuSuperAdmin(targetUser)) {
+      showToast("Access Denied: Master Super-Admin account cannot be deactivated.", "error");
+      return;
+    }
     const nextStatus = targetUser.status === 'Active' ? 'Inactive' : 'Active';
     const updatedUser: UserRecord = {
       ...targetUser,
@@ -652,7 +752,7 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
     setFormAssignedUnits([...user.assignedUnits]);
     setFormAssignedBuyers(user.assignedBuyers ? [...user.assignedBuyers] : [...buyersList]);
     setFormPermission(user.permission);
-    const initialAllowed = user.allowedTabs || (user.userType === 'Admin' ? ALL_TABS : ALL_TABS.filter(t => t !== 'User Management'));
+    const initialAllowed = user.allowedTabs || (isAntuSuperAdmin(user) ? ALL_TABS : (user.userType === 'Admin' ? ALL_TABS.filter(t => !['User Management', 'Database Connection', 'Settings'].includes(t)) : ALL_TABS.filter(t => t !== 'User Management')));
     setFormAllowedTabs(Array.from(new Set(initialAllowed)));
 
     const initialEditPerms: Record<string, 'View Only' | 'Full Access' | 'No Access'> = {};
@@ -768,10 +868,11 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
 
     const timestamp = getFormattedDateTime();
 
-    // Determine computed permission: Admin is always Read / Write; if any tab (such as Production Ledger) is granted Full Access, user has Read / Write access
+    // Determine computed permission: Antu is always Read / Write; otherwise if full access is granted, Read / Write, else formPermission
+    const isAntuUser = formName.toLowerCase().includes('antu') || formUid.toUpperCase() === 'EKL001';
     const hasFullAccess = Object.values(formTabPermissions).some(p => p === 'Full Access') || formTabPermissions['Production Ledger'] === 'Full Access';
-    const computedPermission = formType === 'Admin' ? 'Read / Write' : (hasFullAccess ? 'Read / Write' : formPermission);
-    const effectiveUnits = formAssignedUnits.length > 0 ? [...formAssignedUnits] : (formType === 'Admin' ? [...unitsList] : [...unitsList]);
+    const computedPermission = isAntuUser ? 'Read / Write' : (hasFullAccess ? 'Read / Write' : formPermission);
+    const effectiveUnits = formAssignedUnits.length > 0 ? [...formAssignedUnits] : (isAntuUser ? [...unitsList] : (formType === 'Admin' ? [...unitsList] : [...unitsList]));
 
     if (popupMode === 'add') {
       const newUser: UserRecord = {
@@ -847,6 +948,11 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
   const executeDelete = async () => {
     if (!deletingUserId) return;
     const targetUser = users.find(u => u.id === deletingUserId);
+    if (targetUser && isAntuSuperAdmin(targetUser)) {
+      showToast("Access Denied: Master Super-Admin (Md. Raihan Hossain Antu) account cannot be deleted.", "error");
+      setDeletingUserId(null);
+      return;
+    }
     if (targetUser) {
       setUsers(prev => prev.filter(u => u.id !== deletingUserId));
 
@@ -1900,6 +2006,18 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
 
                   {/* Select tabs and set permission levels (Matching User Screenshot Layout) */}
                   <div className="space-y-3 pt-2">
+                    {/* Notice for Admin / Role Assignment */}
+                    <div className="p-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 rounded-xl flex items-start gap-2.5">
+                      <Shield className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                      <div className="text-[11px] text-blue-800 dark:text-blue-300 space-y-0.5">
+                        <p className="font-bold">Role-Based Access Control Notice:</p>
+                        <p className="text-blue-700/80 dark:text-blue-400">
+                          Even if a user is set as Admin, they will <strong>ONLY</strong> be shown modules that are explicitly checked below.
+                          Only <strong>Md. Raihan Hossain Antu</strong> can visit or modify all sections. Without Antu, no admin can access any unassigned module or field.
+                        </p>
+                      </div>
+                    </div>
+
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300 font-medium text-xs">
                         <Info className="h-4 w-4 text-slate-500 shrink-0" />
@@ -2613,18 +2731,20 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
                   <span>Edit Button</span>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    const targetId = viewingDetailUser.id;
-                    setViewingDetailUser(null);
-                    handleConfirmDelete(targetId);
-                  }}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-red-200 dark:border-red-900 bg-white dark:bg-slate-900 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  <span>Delete Button</span>
-                </button>
+                {!isAntuSuperAdmin(viewingDetailUser) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetId = viewingDetailUser.id;
+                      setViewingDetailUser(null);
+                      handleConfirmDelete(targetId);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-red-200 dark:border-red-900 bg-white dark:bg-slate-900 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Delete Button</span>
+                  </button>
+                )}
               </div>
 
               <button

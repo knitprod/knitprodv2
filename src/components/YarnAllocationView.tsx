@@ -30,6 +30,7 @@ import { GasClient } from '../lib/gasClient';
 import { useGlobalData } from '../context/GlobalDataContext';
 import { SupabaseSync } from '../lib/supabaseClient';
 import { formatDateDisplay } from '../lib/knittingStatusStore';
+import { isAntuSuperAdmin } from '../lib/userPermissions';
 
 export interface MasterUploadInfo {
   lastUploadedAt: string | null;
@@ -776,9 +777,9 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     return () => { isMounted = false; };
   }, [fetchAllocationsFromSupabase, globalYarn]);
 
-  // User-based Buyer Access Restriction (Only restrict if non-admin and assigned buyers explicitly configured)
+  // User-based Buyer Access Restriction (Only Antu has universal buyer access; other admins follow assigned buyers if configured)
   const userAssignedBuyers = useMemo(() => {
-    if (!currentUser || currentUser.userType === 'Admin') return null;
+    if (!currentUser || isAntuSuperAdmin(currentUser)) return null;
     if (currentUser.assignedBuyers && Array.isArray(currentUser.assignedBuyers) && currentUser.assignedBuyers.length > 0) {
       const trimmed = currentUser.assignedBuyers.map(b => String(b || '').trim().toLowerCase()).filter(Boolean);
       if (trimmed.includes('all') || trimmed.length === 0) return null;

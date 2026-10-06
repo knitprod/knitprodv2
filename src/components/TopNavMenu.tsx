@@ -28,6 +28,7 @@ import {
   Boxes
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
+import { isPageAllowedForUser } from '../lib/userPermissions';
 
 interface TopNavMenuProps {
   currentPage: string;
@@ -51,26 +52,8 @@ export default function TopNavMenu({ currentPage, onNavigate, currentUser }: Top
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Helper permission checker
-  const isTabAllowed = (tabName: string) => {
-    if (currentUser?.userType === 'Admin') {
-      return true;
-    }
-    if (currentUser?.allowedTabs && currentUser.allowedTabs.length > 0) {
-      if (currentUser.allowedTabs.includes(tabName)) return true;
-      if (
-        ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order Plan & Status', 'Plan Order Followup', 'Knitting Status', 'Running Orders', 'Textile Close By PMC', 'Grey Stock Summary'].includes(tabName) &&
-        (currentUser.allowedTabs.includes('Plan Order Followup') || currentUser.allowedTabs.includes('Order Plan & Status') || currentUser.allowedTabs.includes('Order OTD Status') || currentUser.allowedTabs.includes('Team Leader OTD Status') || currentUser.allowedTabs.includes('Knitting Status') || currentUser.allowedTabs.includes('Running Orders') || currentUser.allowedTabs.includes('Textile Close By PMC') || currentUser.allowedTabs.includes('Grey Stock Summary'))
-      ) {
-        return true;
-      }
-      return false;
-    }
-    if (tabName === 'User Management' || tabName === 'Database Connection' || tabName === 'Admin Panel') {
-      return false;
-    }
-    return true;
-  };
+  // Helper permission checker strictly enforcing module assignments
+  const isTabAllowed = (tabName: string) => isPageAllowedForUser(currentUser, tabName);
 
   const productionItems = [
     { name: 'Production Ledger', icon: Table, label: 'Production Ledger' },

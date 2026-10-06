@@ -41,6 +41,7 @@ import {
   Boxes
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
+import { isPageAllowedForUser, isAntuSuperAdmin, hasUserWritePermissionForTab } from '../lib/userPermissions';
 import { KnittingStatusOrder, KnittingStatusItem } from '../types';
 import {
   KnittingStatusStorage,
@@ -462,8 +463,10 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
   const [pmcEndFrom, setPmcEndFrom] = useState<string>('');
   const [pmcEndTo, setPmcEndTo] = useState<string>('');
 
-  // Admin status
+  // Admin status and write permission
+  const isSuperAdmin = isAntuSuperAdmin(currentUser);
   const isAdmin = currentUser?.userType === 'Admin';
+  const canUpload = isSuperAdmin || (isAdmin && hasUserWritePermissionForTab(currentUser, 'Knitting Status'));
 
   // Modal States
   const [viewingOrder, setViewingOrder] = useState<KnittingStatusOrder | null>(null);
@@ -1873,55 +1876,61 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
         </div>
       )}
 
-      {/* Sub-View Switcher: Knitting Status vs Textile Close By PMC */}
+      {/* Sub-View Switcher: Knitting Status vs Textile Close By PMC vs Grey Stock Summary */}
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
-        <button
-          type="button"
-          onClick={() => {
-            setActiveSubTab('knitting_status');
-            if (onNavigateTab) onNavigateTab('Running Orders');
-          }}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
-            activeSubTab === 'knitting_status'
-              ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-500/20'
-              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
-          }`}
-        >
-          <Activity className="w-4 h-4" />
-          <span>Running Orders</span>
-        </button>
+        {isPageAllowedForUser(currentUser, 'Running Orders') && (
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSubTab('knitting_status');
+              if (onNavigateTab) onNavigateTab('Running Orders');
+            }}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+              activeSubTab === 'knitting_status'
+                ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-500/20'
+                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+            }`}
+          >
+            <Activity className="w-4 h-4" />
+            <span>Running Orders</span>
+          </button>
+        )}
 
-        <button
-          type="button"
-          onClick={() => {
-            setActiveSubTab('textile_close_pmc');
-            if (onNavigateTab) onNavigateTab('Textile Close By PMC');
-          }}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
-            activeSubTab === 'textile_close_pmc'
-              ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-500/20'
-              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
-          }`}
-        >
-          <ShieldCheck className="w-4 h-4" />
-          <span>Textile Close By PMC</span>
-        </button>
+        {isPageAllowedForUser(currentUser, 'Textile Close By PMC') && (
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSubTab('textile_close_pmc');
+              if (onNavigateTab) onNavigateTab('Textile Close By PMC');
+            }}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+              activeSubTab === 'textile_close_pmc'
+                ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-500/20'
+                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>Textile Close By PMC</span>
+          </button>
+        )}
 
-        <button
-          type="button"
-          onClick={() => {
-            setActiveSubTab('grey_stock_summary');
-            if (onNavigateTab) onNavigateTab('Grey Stock Summary');
-          }}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
-            activeSubTab === 'grey_stock_summary'
-              ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-500/20'
-              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
-          }`}
-        >
-          <Boxes className="w-4 h-4" />
-          <span>Grey Stock Summary</span>
-        </button>
+        {isPageAllowedForUser(currentUser, 'Grey Stock Summary') && (
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSubTab('grey_stock_summary');
+              if (onNavigateTab) onNavigateTab('Grey Stock Summary');
+            }}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+              activeSubTab === 'grey_stock_summary'
+                ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-500/20'
+                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+            }`}
+          >
+            <Boxes className="w-4 h-4" />
+            <span>Grey Stock Summary</span>
+          </button>
+        )}
       </div>
 
       {activeSubTab === 'textile_close_pmc' ? (
@@ -1974,8 +1983,8 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
             <span>{isSyncing ? 'Syncing...' : 'Sync Cloud'}</span>
           </button>
 
-          {/* Upload Excel Button - Admin Only */}
-          {isAdmin && (
+          {/* Upload Excel Button - Admin Only with Write Permission */}
+          {canUpload && (
             <button
               id="upload-knitting-status-btn"
               type="button"

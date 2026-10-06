@@ -29,7 +29,7 @@ import {
   UnitThresholdConfig
 } from '../lib/unitStore';
 import { UserRecord } from './UserManagementView';
-import { ALL_FACTORY_FLOORS, normalizeFloorKey } from '../lib/userPermissions';
+import { ALL_FACTORY_FLOORS, normalizeFloorKey, isAntuSuperAdmin } from '../lib/userPermissions';
 import { ShieldCheck, Lock } from 'lucide-react';
 
 interface AddProductionRecordModalProps {
@@ -134,11 +134,12 @@ export default function AddProductionRecordModal({
   }, []);
 
   const allFloors = ALL_FACTORY_FLOORS;
+  const isSuperAdmin = isAntuSuperAdmin(currentUser);
   const isAdmin = currentUser?.userType === 'Admin';
   
-  // Calculate allowed floors safely for current user
+  // Calculate allowed floors safely for current user (only Antu has all floors unconditionally)
   const floors = React.useMemo(() => {
-    if (isAdmin) return allFloors;
+    if (isSuperAdmin) return allFloors;
 
     const userUnits = (allowedFloors && allowedFloors.length > 0)
       ? allowedFloors
@@ -167,7 +168,7 @@ export default function AddProductionRecordModal({
     }
 
     return allFloors;
-  }, [isAdmin, allowedFloors, currentUser?.assignedUnits, record?.floor]);
+  }, [isSuperAdmin, allowedFloors, currentUser?.assignedUnits, record?.floor]);
 
   // Keep record.floor in sync with valid options
   React.useEffect(() => {
@@ -453,9 +454,14 @@ export default function AddProductionRecordModal({
                       <ShieldCheck className="h-2.5 w-2.5" /> Assigned
                     </span>
                   )}
-                  {isAdmin && (
+                  {isSuperAdmin && (
                     <span className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded">
-                      Admin
+                      Master Admin
+                    </span>
+                  )}
+                  {!isSuperAdmin && isAdmin && (
+                    <span className="inline-flex items-center gap-1 text-[9px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded">
+                      Assigned Floors
                     </span>
                   )}
                 </div>
@@ -476,7 +482,7 @@ export default function AddProductionRecordModal({
                     <option key={fl} value={fl}>{fl}</option>
                   ))}
                 </select>
-                {floors.length === 1 && !isAdmin && (
+                {floors.length === 1 && !isSuperAdmin && (
                   <p className="text-[9px] text-gray-500 dark:text-slate-400 italic">
                     Restricted to your assigned floor: {floors[0]}
                   </p>

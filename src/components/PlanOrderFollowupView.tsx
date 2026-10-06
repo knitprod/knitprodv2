@@ -59,6 +59,7 @@ import {
   Scissors
 } from 'lucide-react';
 import { KnittingStatusOrder } from '../types';
+import { isAntuSuperAdmin, isPageAllowedForUser, hasUserWritePermissionForTab } from '../lib/userPermissions';
 import { KnittingOrderSnippingModal } from './KnittingOrderSnippingModal';
 import { 
   formatExcelDate, 
@@ -478,7 +479,9 @@ const PLAN_ORDER_COLUMNS: ColumnDef[] = [
 ];
 
 export default function PlanOrderFollowupView({ initialSubTab = 'summary', currentUser }: PlanOrderFollowupViewProps) {
+  const isSuperAdmin = isAntuSuperAdmin(currentUser);
   const isAdmin = currentUser?.userType === 'Admin';
+  const hasWritePermission = isSuperAdmin || hasUserWritePermissionForTab(currentUser, 'Plan Order Followup');
 
   const {
     hiddenColumns,
@@ -2013,9 +2016,9 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     }
   };
 
-  // Admin: Overwrite entire database with staged file data
+  // Admin: Overwrite entire database with staged file data (Antu Super-Admin Only)
   const handleAdminOverwriteWithStaged = async () => {
-    if (!stagedUpload || !isAdmin) return;
+    if (!stagedUpload || !isSuperAdmin) return;
     const confirmMsg = `Admin Overwrite Confirmation:\n\nAre you sure you want to completely PURGE all ${orders.length} current orders in the database and replace them with the ${stagedUpload.mergedOrders.length} orders from "${stagedUpload.fileName}"?\n\nThis action cannot be undone.`;
     if (!window.confirm(confirmMsg)) return;
 
@@ -2162,8 +2165,8 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!isAdmin) {
-      alert("Access Denied: Only administrators are authorized to overwrite the database.");
+    if (!isSuperAdmin) {
+      alert("Access Denied: Only Md. Raihan Hossain Antu is authorized to overwrite the master database.");
       if (e.target) e.target.value = '';
       return;
     }
@@ -2848,41 +2851,47 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
 
       {/* Sub-Navigation Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 overflow-x-auto pb-1">
-        <button
-          onClick={() => setActiveSubTab('team_leader')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
-            activeSubTab === 'team_leader'
-              ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <Users className="h-4 w-4" />
-          <span>Team Leader OTD Status</span>
-        </button>
+        {isPageAllowedForUser(currentUser, 'Team Leader OTD Status') && (
+          <button
+            onClick={() => setActiveSubTab('team_leader')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+              activeSubTab === 'team_leader'
+                ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <Users className="h-4 w-4" />
+            <span>Team Leader OTD Status</span>
+          </button>
+        )}
 
-        <button
-          onClick={() => setActiveSubTab('buyer')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
-            activeSubTab === 'buyer'
-              ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <Building2 className="h-4 w-4" />
-          <span>Buyerwise OTD Status</span>
-        </button>
+        {isPageAllowedForUser(currentUser, 'Buyerwise OTD Status') && (
+          <button
+            onClick={() => setActiveSubTab('buyer')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+              activeSubTab === 'buyer'
+                ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <Building2 className="h-4 w-4" />
+            <span>Buyerwise OTD Status</span>
+          </button>
+        )}
 
-        <button
-          onClick={() => setActiveSubTab('summary')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
-            activeSubTab === 'summary'
-              ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <FileSpreadsheet className="h-4 w-4" />
-          <span>Orderwise OTD Status</span>
-        </button>
+        {(isPageAllowedForUser(currentUser, 'Orderwise OTD Status') || isPageAllowedForUser(currentUser, 'Plan Order Followup') || isPageAllowedForUser(currentUser, 'Order OTD Status')) && (
+          <button
+            onClick={() => setActiveSubTab('summary')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+              activeSubTab === 'summary'
+                ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <FileSpreadsheet className="h-4 w-4" />
+            <span>Orderwise OTD Status</span>
+          </button>
+        )}
       </div>
 
       {/* SUB-TAB 1: TEAM LEADER OTD STATUS */}
@@ -4078,7 +4087,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                                   <Edit className="h-4 w-4" />
                                 </button>
                               )}
-                              {isAdmin && (
+                              {(isSuperAdmin || (isAdmin && hasWritePermission)) && (
                                 <button
                                   onClick={() => handleDeleteOrder(ord.id)}
                                   className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
@@ -4912,16 +4921,16 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
                 </button>
 
                 <div className="flex items-center gap-2">
-                  {isAdmin && (
+                  {isSuperAdmin && (
                     <button
                       type="button"
                       onClick={handleAdminOverwriteWithStaged}
                       disabled={isSavingStaged}
                       className="px-3.5 py-2 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
-                      title="Admin: Purge existing records and overwrite completely with this file"
+                      title="Super-Admin: Purge existing records and overwrite completely with this file"
                     >
                       <Database className="h-3.5 w-3.5" />
-                      <span>Overwrite All (Admin)</span>
+                      <span>Overwrite All (Super-Admin)</span>
                     </button>
                   )}
 

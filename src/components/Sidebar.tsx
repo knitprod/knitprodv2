@@ -32,6 +32,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
+import { isPageAllowedForUser } from '../lib/userPermissions';
 
 const PAGE_TO_HASH: Record<string, string> = {
   'Dashboard': 'dashboard',
@@ -130,33 +131,8 @@ export default function Sidebar({
     }
   }, [currentPage]);
 
-  // Helper permission checker
-  const isTabAllowed = (tabName: string) => {
-    // Admin user is ALWAYS allowed all tabs!
-    if (currentUser?.userType === 'Admin') {
-      return true;
-    }
-    if (currentUser?.allowedTabs && currentUser.allowedTabs.length > 0) {
-      if (currentUser.allowedTabs.includes(tabName)) return true;
-      if (
-        ['Team Leader OTD Status', 'Buyerwise OTD Status', 'Orderwise OTD Status', 'Order OTD Status', 'Plan Order Followup'].includes(tabName) &&
-        (currentUser.allowedTabs.includes('Plan Order Followup') || currentUser.allowedTabs.includes('Order Plan & Status') || currentUser.allowedTabs.includes('Order OTD Status') || currentUser.allowedTabs.includes('Team Leader OTD Status'))
-      ) {
-        return true;
-      }
-      if (
-        ['Knitting Status', 'Running Orders', 'Textile Close By PMC', 'Grey Stock Summary'].includes(tabName) &&
-        (currentUser.allowedTabs.includes('Knitting Status') || currentUser.allowedTabs.includes('Running Orders') || currentUser.allowedTabs.includes('Textile Close By PMC') || currentUser.allowedTabs.includes('Grey Stock Summary'))
-      ) {
-        return true;
-      }
-      return false;
-    }
-    if (tabName === 'User Management' || tabName === 'Database Connection' || tabName === 'Admin Panel') {
-      return false;
-    }
-    return true;
-  };
+  // Helper permission checker strictly enforcing module assignments
+  const isTabAllowed = (tabName: string) => isPageAllowedForUser(currentUser, tabName);
 
   const isProductionGroupVisible = productionItems.some(item => isTabAllowed(item));
   const isOrderOtdGroupVisible = orderOtdItems.some(item => isTabAllowed(item));

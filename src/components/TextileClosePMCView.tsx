@@ -36,6 +36,7 @@ import {
   Boxes
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
+import { isAntuSuperAdmin, hasUserWritePermissionForTab } from '../lib/userPermissions';
 import { TextileCloseRecord, KnittingStatusOrder } from '../types';
 import { TextileClosePMCStorage } from '../lib/textileClosePMCStore';
 import { SupabaseSync } from '../lib/supabaseClient';
@@ -108,7 +109,9 @@ interface TextileClosePMCViewProps {
 
 export default function TextileClosePMCView({ currentUser, onNavigateTab }: TextileClosePMCViewProps) {
   // Admin permissions
+  const isSuperAdmin = isAntuSuperAdmin(currentUser);
   const isAdmin = currentUser?.userType === 'Admin';
+  const canUpload = isSuperAdmin || (isAdmin && hasUserWritePermissionForTab(currentUser, 'Textile Close By PMC'));
 
   // Records State
   const [records, setRecords] = useState<TextileCloseRecord[]>(() => TextileClosePMCStorage.getRecords());
@@ -720,8 +723,8 @@ export default function TextileClosePMCView({ currentUser, onNavigateTab }: Text
             <span>{isSyncing ? 'Syncing...' : 'Sync Cloud'}</span>
           </button>
 
-          {/* Upload Excel Button - Admin Only */}
-          {isAdmin && (
+          {/* Upload Excel Button - Admin Only with Write Permission */}
+          {canUpload && (
             <button
               id="upload-textile-close-btn"
               type="button"

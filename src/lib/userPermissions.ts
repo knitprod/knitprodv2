@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { UserRecord } from '../components/UserManagementView';
+import { UserRecord } from '../types';
 
 export const ALL_FACTORY_FLOORS: string[] = [
   'EKL',
@@ -39,26 +39,104 @@ export const normalizeFloorKey = (floor: string): string => {
 };
 
 /**
- * Checks if a user has full write/edit access for a specific tab
+ * Super-Admin Check: ONLY Md. Raihan Hossain Antu is the master super-admin.
+ * Raihan Hossain Antu can visit or modify all sections without restriction.
+ * Without Antu, no admin user can access any module or field that is not explicitly assigned to them.
+ */
+export const isAntuSuperAdmin = (user: UserRecord | null | undefined): boolean => {
+  if (!user) return false;
+  const uid = (user.uid || '').trim().toLowerCase();
+  const name = (user.userName || '').trim().toLowerCase();
+  const email = (user.email || '').trim().toLowerCase();
+  return (
+    uid === 'raihan' ||
+    uid === 'ekl001' ||
+    name.includes('raihan') ||
+    name.includes('antu') ||
+    email.includes('raihan') ||
+    email.includes('antu')
+  );
+};
+
+/**
+ * Checks whether a specific module or sub-tab is permitted to be viewed or visited by the user.
+ * - Raihan Hossain Antu can visit all modules and sections unconditionally.
+ * - Any other user (including Admin users): if that module is not assigned in allowedTabs,
+ *   do not show that module and do not allow them to visit it.
+ */
+export const isPageAllowedForUser = (user: UserRecord | null | undefined, tabName: string): boolean => {
+  if (!user) return false;
+  if (isAntuSuperAdmin(user)) return true;
+
+  // If user has specific allowedTabs configured:
+  if (user.allowedTabs && Array.isArray(user.allowedTabs) && user.allowedTabs.length > 0) {
+    if (user.allowedTabs.includes(tabName)) return true;
+
+    // Parent group aliases when navigating to grouped views:
+    if (
+      (tabName === 'Order OTD Status' || tabName === 'Plan Order Followup') &&
+      (user.allowedTabs.includes('Team Leader OTD Status') ||
+       user.allowedTabs.includes('Buyerwise OTD Status') ||
+       user.allowedTabs.includes('Orderwise OTD Status') ||
+       user.allowedTabs.includes('Order OTD Status') ||
+       user.allowedTabs.includes('Plan Order Followup'))
+    ) {
+      return true;
+    }
+
+    if (
+      tabName === 'Knitting Status' &&
+      (user.allowedTabs.includes('Running Orders') ||
+       user.allowedTabs.includes('Textile Close By PMC') ||
+       user.allowedTabs.includes('Grey Stock Summary') ||
+       user.allowedTabs.includes('Knitting Status'))
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  // If allowedTabs is not defined or empty on non-Antu user:
+  // Admin-level system tabs are strictly forbidden without explicit assignment:
+  if (
+    tabName === 'User Management' ||
+    tabName === 'Database Connection' ||
+    tabName === 'Admin Panel' ||
+    tabName === 'Settings'
+  ) {
+    return false;
+  }
+
+  return false;
+};
+
+/**
+ * Checks if a user has full write/edit access for a specific tab.
+ * - Only Raihan Hossain Antu has universal write access.
+ * - For other users (even Admins), tabPermissions or general permission must grant write access.
  */
 export const hasUserWritePermissionForTab = (user: UserRecord | null | undefined, tabName: string): boolean => {
-  if (!user) return true;
-  if (user.userType === 'Admin') return true;
-  if (user.tabPermissions && user.tabPermissions[tabName] === 'Full Access') return true;
-  if (user.tabPermissions && user.tabPermissions[tabName] === 'View Only') return false;
-  if (user.tabPermissions && user.tabPermissions[tabName] === 'No Access') return false;
+  if (!user) return false;
+  if (isAntuSuperAdmin(user)) return true;
+
+  if (user.tabPermissions && user.tabPermissions[tabName]) {
+    if (user.tabPermissions[tabName] === 'Full Access') return true;
+    if (user.tabPermissions[tabName] === 'View Only') return false;
+    if (user.tabPermissions[tabName] === 'No Access') return false;
+  }
+
   return user.permission === 'Read / Write';
 };
 
 /**
  * Returns the list of floor names a user is permitted to enter or modify data for.
- * - Admin users have access to ALL factory floors.
- * - If assignedUnits is specified, they have access to those assigned units (normalized).
- * - If assignedUnits is empty/unrestricted, they have access to all factory floors.
+ * - Only Raihan Hossain Antu has universal access to ALL factory floors.
+ * - For any other user (including Admin), assigned units from the app are strictly enforced.
  */
 export const getUserAllowedFloorsForEntry = (user: UserRecord | null | undefined): string[] => {
-  if (!user) return [...ALL_FACTORY_FLOORS];
-  if (user.userType === 'Admin') {
+  if (!user) return [];
+  if (isAntuSuperAdmin(user)) {
     return [...ALL_FACTORY_FLOORS];
   }
   
@@ -81,18 +159,20 @@ export const getUserAllowedFloorsForEntry = (user: UserRecord | null | undefined
     if (result.length > 0) return result;
   }
   
-  return [...ALL_FACTORY_FLOORS];
+  return [];
 };
 
 /**
  * Checks if a user is authorized to enter or modify data for a specific floor.
+ * - Only Raihan Hossain Antu is authorized for all floors unconditionally.
+ * - Other users (including Admin) must have the floor in their assigned units.
  */
 export const isUserAuthorizedForFloor = (user: UserRecord | null | undefined, floor: string): boolean => {
-  if (!user) return true;
-  if (user.userType === 'Admin') return true;
+  if (!user) return false;
+  if (isAntuSuperAdmin(user)) return true;
   
   const allowed = getUserAllowedFloorsForEntry(user);
-  if (!allowed || allowed.length === 0) return true;
+  if (!allowed || allowed.length === 0) return false;
   
   const targetNorm = normalizeFloorKey(floor);
   return allowed.some(f => normalizeFloorKey(f) === targetNorm);
