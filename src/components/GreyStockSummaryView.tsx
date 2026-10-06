@@ -34,6 +34,7 @@ import {
   Clock,
   Eye,
   Scissors,
+  Activity,
   Package,
   Boxes,
   Truck,
@@ -70,13 +71,14 @@ import { SyncProgressBar, SyncProgressState } from './SyncProgressBar';
 
 interface GreyStockSummaryViewProps {
   currentUser?: UserRecord | null;
+  onNavigateTab?: (tab: string) => void;
 }
 
 export type StockStatusFilter = 'all' | 'active_stock' | 'high_stock' | 'zero_stock' | 'deficit';
 export type SortField = 'stock' | 'orderNo' | 'buyer' | 'required' | 'received' | 'issued' | 'status';
 export type SortDirection = 'asc' | 'desc';
 
-export default function GreyStockSummaryView({ currentUser }: GreyStockSummaryViewProps) {
+export default function GreyStockSummaryView({ currentUser, onNavigateTab }: GreyStockSummaryViewProps) {
   const isAdmin = currentUser?.userType === 'Admin';
 
   // Primary dataset (daily uploaded records, replaced on each upload)
@@ -124,6 +126,12 @@ export default function GreyStockSummaryView({ currentUser }: GreyStockSummaryVi
   const [snipGroup, setSnipGroup] = useState<GreyStockOrderGroup | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+
+  const handleCloseUploadModal = () => {
+    setIsUploadModalOpen(false);
+    setUploadProgress(null);
+    setUploadError(null);
+  };
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [copiedOrderNo, setCopiedOrderNo] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -643,9 +651,7 @@ export default function GreyStockSummaryView({ currentUser }: GreyStockSummaryVi
       });
 
       setTimeout(() => {
-        setIsUploadModalOpen(false);
-        setUploadProgress(null);
-        setUploadError(null);
+        handleCloseUploadModal();
       }, 1200);
 
       showToast(`Successfully replaced dataset: ${parsed.length.toLocaleString()} rows uploaded across ${uniqueOrders} orders.`);
@@ -1081,6 +1087,35 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
           </button>
         </div>
       )}
+
+      {/* Sub-View Switcher: Knitting Status vs Textile Close By PMC vs Grey Stock Summary */}
+      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+        <button
+          type="button"
+          onClick={() => onNavigateTab && onNavigateTab('Running Orders')}
+          className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800"
+        >
+          <Activity className="w-4 h-4 text-indigo-500" />
+          <span>Running Orders</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onNavigateTab && onNavigateTab('Textile Close By PMC')}
+          className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800"
+        >
+          <ShieldCheck className="w-4 h-4 text-emerald-500" />
+          <span>Textile Close By PMC</span>
+        </button>
+
+        <button
+          type="button"
+          className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer bg-blue-600 text-white shadow-sm ring-2 ring-blue-500/20"
+        >
+          <Boxes className="w-4 h-4" />
+          <span>Grey Stock Summary</span>
+        </button>
+      </div>
 
       {/* Header Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
@@ -2233,7 +2268,7 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                 </div>
               </div>
               <button
-                onClick={() => setIsUploadModalOpen(false)}
+                onClick={handleCloseUploadModal}
                 className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -2381,7 +2416,7 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                 </button>
                 <button
                   type="button"
-                  onClick={() => setIsUploadModalOpen(false)}
+                  onClick={handleCloseUploadModal}
                   disabled={isUploading}
                   className="px-4 py-2 font-semibold rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 cursor-pointer disabled:opacity-50"
                 >

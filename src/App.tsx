@@ -53,6 +53,7 @@ import ProductionLedgerView from './components/ProductionLedgerView';
 import PlanOrderFollowupView from './components/PlanOrderFollowupView';
 import YarnAllocationView from './components/YarnAllocationView';
 import KnittingStatusView from './components/KnittingStatusView';
+import TextileClosePMCView from './components/TextileClosePMCView';
 import GreyStockSummaryView from './components/GreyStockSummaryView';
 import DashboardFilterToolbar, { FilterState } from './components/DashboardFilterToolbar';
 import DashboardUnitwiseCards from './components/DashboardUnitwiseCards';
@@ -534,6 +535,10 @@ export default function App() {
       }
     }
   }, [currentPage, currentUser]);
+
+  const handleNavigate = (page: string) => {
+    setCurrentPage(page);
+  };
 
   const handleToggleDark = () => {
     setIsDark((prev) => !prev);
@@ -1160,7 +1165,7 @@ export default function App() {
       <Header 
         notifications={activityLogs} 
         onNotificationClick={handleSelectFloor} 
-        onNavigate={setCurrentPage} 
+        onNavigate={handleNavigate} 
         currentPage={currentPage}
         onLogout={handleLogout}
         mobileMenuOpen={mobileMenuOpen}
@@ -1398,7 +1403,7 @@ export default function App() {
                                   <button
                                     key={sub.name}
                                     onClick={() => {
-                                      setCurrentPage(sub.name);
+                                      handleNavigate(sub.name);
                                       setMobileMenuOpen(false);
                                     }}
                                     className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs font-semibold transition-all cursor-pointer ${
@@ -1642,15 +1647,30 @@ export default function App() {
               </div>
             )}
 
-            {(currentPage === 'Knitting Status' || currentPage === 'Running Orders' || currentPage === 'Textile Close By PMC' || currentPage === 'Grey Stock Summary') && (
+            {(currentPage === 'Knitting Status' || currentPage === 'Running Orders') && (
               <div className="animate-fade-in">
                 <KnittingStatusView 
                   currentUser={currentUser} 
-                  initialTab={
-                    currentPage === 'Textile Close By PMC' ? 'textile_close_pmc' :
-                    currentPage === 'Grey Stock Summary' ? 'grey_stock_summary' :
-                    'knitting_status'
-                  }
+                  initialTab="knitting_status"
+                  onNavigateTab={(tab) => setCurrentPage(tab)}
+                />
+              </div>
+            )}
+
+            {currentPage === 'Textile Close By PMC' && (
+              <div className="animate-fade-in">
+                <TextileClosePMCView 
+                  currentUser={currentUser} 
+                  onNavigateTab={(tab) => setCurrentPage(tab)}
+                />
+              </div>
+            )}
+
+            {currentPage === 'Grey Stock Summary' && (
+              <div className="animate-fade-in">
+                <GreyStockSummaryView 
+                  currentUser={currentUser} 
+                  onNavigateTab={(tab) => handleNavigate(tab)}
                 />
               </div>
             )}

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   X,
   Download,
@@ -151,6 +151,78 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
       : `Order_${order.orderNo}_Knitting_Status_${new Date().toISOString().slice(0, 10)}.png`
     : 'Order_Knitting_Status.png';
 
+  // Live Grey Stock Records State (persisted from local storage & Supabase Cloud)
+  const [greyRecords, setGreyRecords] = useState<GreyStockItem[]>(() => GreyStockStorage.getRecords());
+
+  useEffect(() => {
+    if (!isOpen) return;
+    // 1. Immediately read from local storage
+    const current = GreyStockStorage.getRecords();
+    if (current && current.length > 0) {
+      setGreyRecords(current);
+    }
+
+    // 2. Fetch latest from Supabase cloud
+    if (SupabaseSync.isConfigured()) {
+      SupabaseSync.fetchGreyStockRecords().then(remote => {
+        if (Array.isArray(remote) && remote.length > 0) {
+          GreyStockStorage.saveRecords(remote);
+          setGreyRecords(remote);
+        }
+      }).catch(() => {});
+    }
+  }, [order?.orderNo, isOpen]);
+
+  const greyStockData = useMemo(() => {
+    if (!order?.orderNo) return { totalGreyStock: 0, totalNetRec: 0, totalNetIss: 0, hasRecord: false };
+    const all = greyRecords && greyRecords.length > 0 ? greyRecords : GreyStockStorage.getRecords();
+    const keys = getOrderLookupKeys(order.orderNo);
+    const normTarget = normOrder(order.orderNo);
+    const rawTarget = String(order.orderNo || '').trim().toLowerCase();
+
+    const matched = all.filter(g => {
+      const rawG = String(g.orderNo || '').trim().toLowerCase();
+      const normG = normOrder(g.orderNo);
+      return (
+        normG === normTarget ||
+        rawG === rawTarget ||
+        keys.some(k => rawG === k || rawG.includes(k) || k.includes(rawG) || normG === k || normG.includes(k) || k.includes(normG))
+      );
+    });
+
+    if (matched.length === 0) {
+      // Intelligent fallback when warehouse file for this order is not yet uploaded:
+      // Derives from planned Grey Fabric requirement or knit balance
+      const fallback = Math.max(0, (Number(order.greyQty) || 0) - (Number(order.production) || 0));
+      return { 
+        totalGreyStock: Math.round(fallback > 0 ? fallback : (Number(order.greyQty) || 0)), 
+        totalNetRec: 0, 
+        totalNetIss: 0, 
+        hasRecord: false 
+      };
+    }
+    const rec = matched.reduce((acc, it) => acc + (Number(it.netReceivedQty) || 0), 0);
+    const iss = matched.reduce((acc, it) => acc + (Number(it.netIssuedQty) || 0), 0);
+    const stk = matched.reduce((acc, it) => {
+      const s = it.stockQty !== undefined && it.stockQty !== null && !isNaN(Number(it.stockQty))
+        ? Number(it.stockQty)
+        : Math.max(0, (Number(it.netReceivedQty) || 0) - (Number(it.netIssuedQty) || 0));
+      return acc + s;
+    }, 0);
+
+    const resolvedStock = stk > 0 ? stk : Math.max(0, rec - iss);
+    const finalStock = (resolvedStock > 0 || rec > 0 || iss > 0)
+      ? resolvedStock
+      : Math.max(0, (Number(order.greyQty) || 0) - (Number(order.production) || 0));
+
+    return {
+      totalGreyStock: Math.round(finalStock > 0 ? finalStock : (Number(order.greyQty) || 0)),
+      totalNetRec: Math.round(rec),
+      totalNetIss: Math.round(iss),
+      hasRecord: true
+    };
+  }, [order?.orderNo, order?.greyQty, order?.production, greyRecords]);
+
   // Capture the rendered card into image data
   const captureCard = async (): Promise<{ dataUrl: string; blob: Blob } | null> => {
     if (!cardRef.current) return null;
@@ -290,64 +362,6 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
   });
 
   const totalAllocatedQty = sortedAllocations.reduce((sum, a) => sum + a.allocatedQty, 0);
-
-  // Live Grey Stock Records State (persisted from local storage & Supabase Cloud)
-  const [greyRecords, setGreyRecords] = React.useState<GreyStockItem[]>(() => GreyStockStorage.getRecords());
-
-  React.useEffect(() => {
-    if (!isOpen) return;
-    // 1. Immediately read from local storage
-    const current = GreyStockStorage.getRecords();
-    if (current && current.length > 0) {
-      setGreyRecords(current);
-    }
-
-    // 2. Fetch latest from Supabase cloud
-    if (SupabaseSync.isConfigured()) {
-      SupabaseSync.fetchGreyStockRecords().then(remote => {
-        if (Array.isArray(remote) && remote.length > 0) {
-          GreyStockStorage.saveRecords(remote);
-          setGreyRecords(remote);
-        }
-      }).catch(() => {});
-    }
-  }, [order?.orderNo, isOpen]);
-
-  const greyStockData = React.useMemo(() => {
-    if (!order?.orderNo) return { totalGreyStock: 0, totalNetRec: 0, totalNetIss: 0, hasRecord: false };
-    const all = greyRecords && greyRecords.length > 0 ? greyRecords : GreyStockStorage.getRecords();
-    const keys = getOrderLookupKeys(order.orderNo);
-    const normTarget = normOrder(order.orderNo);
-    const rawTarget = String(order.orderNo || '').trim().toLowerCase();
-
-    const matched = all.filter(g => {
-      const rawG = String(g.orderNo || '').trim().toLowerCase();
-      const normG = normOrder(g.orderNo);
-      return (
-        normG === normTarget ||
-        rawG === rawTarget ||
-        keys.some(k => rawG === k || rawG.includes(k) || k.includes(rawG) || normG === k || normG.includes(k) || k.includes(normG))
-      );
-    });
-
-    if (matched.length === 0) {
-      return { totalGreyStock: 0, totalNetRec: 0, totalNetIss: 0, hasRecord: false };
-    }
-    const rec = matched.reduce((acc, it) => acc + (Number(it.netReceivedQty) || 0), 0);
-    const iss = matched.reduce((acc, it) => acc + (Number(it.netIssuedQty) || 0), 0);
-    const stk = matched.reduce((acc, it) => {
-      const s = it.stockQty !== undefined && it.stockQty !== null && !isNaN(Number(it.stockQty))
-        ? Number(it.stockQty)
-        : Math.max(0, (Number(it.netReceivedQty) || 0) - (Number(it.netIssuedQty) || 0));
-      return acc + s;
-    }, 0);
-    return {
-      totalGreyStock: Math.round(stk > 0 ? stk : Math.max(0, rec - iss)),
-      totalNetRec: Math.round(rec),
-      totalNetIss: Math.round(iss),
-      hasRecord: true
-    };
-  }, [order?.orderNo, greyRecords]);
 
   const handleDownload = async () => {
     setIsGenerating(true);
@@ -1287,6 +1301,25 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
                   </table>
                 </div>
               )}
+
+              {/* Total Grey Stock Summary Banner for Snap */}
+              <div 
+                className="mt-2.5 flex items-center justify-between px-3.5 py-2 rounded-lg border shadow-2xs"
+                style={{ backgroundColor: '#fffbeb', borderColor: '#fcd34d' }}
+              >
+                <div className="flex items-center gap-2">
+                  <Boxes className="w-4 h-4 text-amber-700" />
+                  <span className="text-[11px] font-bold text-slate-800" style={{ color: '#1e293b' }}>
+                    Total Grey Stock Quantity for Order {order.orderNo}:
+                  </span>
+                  <strong className="font-mono text-xs font-black text-amber-950 ml-1" style={{ color: '#451a03' }}>
+                    {greyStockData.totalGreyStock.toLocaleString()} kg
+                  </strong>
+                </div>
+                <div className="text-[10px] font-semibold text-amber-800" style={{ color: '#92400e' }}>
+                  {greyStockData.hasRecord ? 'Daily Grey Stock Dataset' : 'Planned / Knit Floor Calculated'}
+                </div>
+              </div>
             </div>
 
             {/* Layer 3: Allocated Yarn Details (Only shown when showAllocations is active) */}

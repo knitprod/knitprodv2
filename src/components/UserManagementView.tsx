@@ -72,6 +72,7 @@ export const ALL_TABS = [
   'Floor Dashboard',
   'Management Dashboard',
   'Reports',
+  'Plan Order Followup',
   'Order OTD Status',
   'Team Leader OTD Status',
   'Buyerwise OTD Status',

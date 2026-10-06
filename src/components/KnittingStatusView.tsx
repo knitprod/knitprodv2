@@ -67,6 +67,7 @@ import { SyncProgressBar, SyncProgressState } from './SyncProgressBar';
 interface KnittingStatusViewProps {
   currentUser?: UserRecord | null;
   initialTab?: 'knitting_status' | 'textile_close_pmc' | 'grey_stock_summary';
+  onNavigateTab?: (tab: string) => void;
 }
 
 export interface SearchableFilterOption {
@@ -337,7 +338,7 @@ function SearchableFilterDropdown({
   );
 }
 
-export default function KnittingStatusView({ currentUser, initialTab }: KnittingStatusViewProps) {
+export default function KnittingStatusView({ currentUser, initialTab, onNavigateTab }: KnittingStatusViewProps) {
   // Active Sub-Tab: Knitting Status vs Textile Close By PMC vs Grey Stock Summary
   const [activeSubTab, setActiveSubTab] = useState<'knitting_status' | 'textile_close_pmc' | 'grey_stock_summary'>(
     initialTab || 'knitting_status'
@@ -1876,7 +1877,10 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
         <button
           type="button"
-          onClick={() => setActiveSubTab('knitting_status')}
+          onClick={() => {
+            setActiveSubTab('knitting_status');
+            if (onNavigateTab) onNavigateTab('Running Orders');
+          }}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
             activeSubTab === 'knitting_status'
               ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-500/20'
@@ -1889,7 +1893,10 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
 
         <button
           type="button"
-          onClick={() => setActiveSubTab('textile_close_pmc')}
+          onClick={() => {
+            setActiveSubTab('textile_close_pmc');
+            if (onNavigateTab) onNavigateTab('Textile Close By PMC');
+          }}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
             activeSubTab === 'textile_close_pmc'
               ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-500/20'
@@ -1902,7 +1909,10 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
 
         <button
           type="button"
-          onClick={() => setActiveSubTab('grey_stock_summary')}
+          onClick={() => {
+            setActiveSubTab('grey_stock_summary');
+            if (onNavigateTab) onNavigateTab('Grey Stock Summary');
+          }}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
             activeSubTab === 'grey_stock_summary'
               ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-500/20'
@@ -1915,9 +1925,9 @@ export default function KnittingStatusView({ currentUser, initialTab }: Knitting
       </div>
 
       {activeSubTab === 'textile_close_pmc' ? (
-        <TextileClosePMCView currentUser={currentUser} />
+        <TextileClosePMCView currentUser={currentUser} onNavigateTab={onNavigateTab} />
       ) : activeSubTab === 'grey_stock_summary' ? (
-        <GreyStockSummaryView currentUser={currentUser} />
+        <GreyStockSummaryView currentUser={currentUser} onNavigateTab={onNavigateTab} />
       ) : (
         <>
       {/* Header Banner */}

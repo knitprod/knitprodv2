@@ -31,7 +31,9 @@ import {
   Clock,
   Eye,
   ChevronsUpDown,
-  Scissors
+  Scissors,
+  Activity,
+  Boxes
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
 import { TextileCloseRecord, KnittingStatusOrder } from '../types';
@@ -101,9 +103,10 @@ export function convertTextileGroupToKnittingOrder(group: TextileCloseOrderGroup
 
 interface TextileClosePMCViewProps {
   currentUser?: UserRecord | null;
+  onNavigateTab?: (tab: string) => void;
 }
 
-export default function TextileClosePMCView({ currentUser }: TextileClosePMCViewProps) {
+export default function TextileClosePMCView({ currentUser, onNavigateTab }: TextileClosePMCViewProps) {
   // Admin permissions
   const isAdmin = currentUser?.userType === 'Admin';
 
@@ -641,6 +644,35 @@ export default function TextileClosePMCView({ currentUser }: TextileClosePMCView
           </button>
         </div>
       )}
+
+      {/* Sub-View Switcher: Knitting Status vs Textile Close By PMC vs Grey Stock Summary */}
+      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+        <button
+          type="button"
+          onClick={() => onNavigateTab && onNavigateTab('Running Orders')}
+          className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800"
+        >
+          <Activity className="w-4 h-4 text-indigo-500" />
+          <span>Running Orders</span>
+        </button>
+
+        <button
+          type="button"
+          className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-500/20"
+        >
+          <ShieldCheck className="w-4 h-4" />
+          <span>Textile Close By PMC</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onNavigateTab && onNavigateTab('Grey Stock Summary')}
+          className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800"
+        >
+          <Boxes className="w-4 h-4 text-blue-500" />
+          <span>Grey Stock Summary</span>
+        </button>
+      </div>
 
       {/* Header Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
