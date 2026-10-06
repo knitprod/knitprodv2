@@ -136,13 +136,12 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
   const [copiedOrderNo, setCopiedOrderNo] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  // Top Sync & Upload/Download Progress Bar State (stays permanently visible in Grey Stock)
+  // Top Sync & Upload/Download Progress Bar State
   const [syncProgress, setSyncProgress] = useState<SyncProgressState>({
-    isActive: true,
+    isActive: false,
     type: 'sync',
-    title: 'Grey Stock & Knitting Status Synchronized',
-    percent: 100,
-    stage: 'Real-time database connected. Live inventory synchronized.'
+    percent: 0,
+    stage: ''
   });
 
   // Upload & Download Progress States
@@ -651,6 +650,10 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
       });
 
       setTimeout(() => {
+        setSyncProgress(prev => ({ ...prev, isActive: false }));
+      }, 2500);
+
+      setTimeout(() => {
         handleCloseUploadModal();
       }, 1200);
 
@@ -737,6 +740,9 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
         });
         showToast('Supabase table is empty. Click "Upload to Supabase" in the modal to seed.');
       }
+      setTimeout(() => {
+        setSyncProgress(prev => ({ ...prev, isActive: false }));
+      }, 2500);
     } catch (err: any) {
       setSyncProgress({
         isActive: true,
@@ -988,6 +994,10 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
       });
 
       setTimeout(() => {
+        setSyncProgress(prev => ({ ...prev, isActive: false }));
+      }, 2500);
+
+      setTimeout(() => {
         setDownloadProgress(null);
       }, 1400);
 
@@ -1199,17 +1209,10 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
         </div>
       </div>
 
-      {/* Sync & Upload/Download Progress Bar Banner (stays permanently visible showing live status) */}
+      {/* Sync & Upload/Download Progress Bar Banner */}
       <SyncProgressBar
         progress={syncProgress}
-        onDismiss={() => setSyncProgress({
-          isActive: true,
-          type: 'sync',
-          title: 'Grey Stock & Knitting Status Synchronized',
-          percent: 100,
-          stage: 'Real-time database connected. Live inventory synchronized.'
-        })}
-        alwaysVisible={true}
+        onDismiss={() => setSyncProgress(prev => ({ ...prev, isActive: false, error: null }))}
         accentColor="indigo"
       />
 
