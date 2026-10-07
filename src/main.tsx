@@ -23,6 +23,21 @@ if (typeof window !== 'undefined') {
   } catch (e) {
     // Ignore storage access restrictions if any
   }
+
+  // Gracefully handle any browser clipboard permission rejections
+  window.addEventListener('unhandledrejection', (event) => {
+    const msg = event.reason?.message || String(event.reason || '');
+    const name = event.reason?.name || '';
+    if (
+      name === 'NotAllowedError' ||
+      msg.includes('Clipboard') ||
+      msg.includes('write') ||
+      msg.includes('permission denied')
+    ) {
+      console.warn('Prevented unhandled clipboard permission rejection:', msg);
+      event.preventDefault();
+    }
+  });
 }
 
 createRoot(document.getElementById('root')!).render(

@@ -130,7 +130,11 @@ export async function saveCompanyLogo(base64DataUrl: string): Promise<{ success:
       console.warn('localStorage quota warning for company logo:', lsErr);
     }
     updateDocumentFavicon(optimized);
-    window.dispatchEvent(new CustomEvent('company_logo_updated', { detail: optimized }));
+    setTimeout(() => {
+      try {
+        window.dispatchEvent(new CustomEvent('company_logo_updated', { detail: optimized }));
+      } catch {}
+    }, 0);
 
     // 1. Instantly sync to Express central server (available to all devices & browsers)
     fetch('/api/branding', {
@@ -158,7 +162,11 @@ export async function removeCompanyLogo(): Promise<void> {
     inMemoryCompanyLogo = null;
     try { localStorage.removeItem(LOGO_STORAGE_KEY); } catch {}
     updateDocumentFavicon('/favicon.svg');
-    window.dispatchEvent(new CustomEvent('company_logo_updated', { detail: null }));
+    setTimeout(() => {
+      try {
+        window.dispatchEvent(new CustomEvent('company_logo_updated', { detail: null }));
+      } catch {}
+    }, 0);
 
     fetch('/api/branding', {
       method: 'POST',
@@ -195,7 +203,11 @@ export async function saveMyLogo(base64DataUrl: string): Promise<{ success: bool
     } catch (lsErr) {
       console.warn('localStorage quota warning for My Logo:', lsErr);
     }
-    window.dispatchEvent(new CustomEvent('my_logo_updated', { detail: optimized }));
+    setTimeout(() => {
+      try {
+        window.dispatchEvent(new CustomEvent('my_logo_updated', { detail: optimized }));
+      } catch {}
+    }, 0);
 
     // 1. Instantly sync to Express central server (available to all devices & browsers)
     fetch('/api/branding', {
@@ -222,7 +234,11 @@ export async function removeMyLogo(): Promise<void> {
   try {
     inMemoryMyLogo = null;
     try { localStorage.removeItem(MY_LOGO_STORAGE_KEY); } catch {}
-    window.dispatchEvent(new CustomEvent('my_logo_updated', { detail: null }));
+    setTimeout(() => {
+      try {
+        window.dispatchEvent(new CustomEvent('my_logo_updated', { detail: null }));
+      } catch {}
+    }, 0);
 
     fetch('/api/branding', {
       method: 'POST',
@@ -289,7 +305,11 @@ export async function initBrandingSync(): Promise<{ companyLogo: string | null; 
     if (inMemoryCompanyLogo !== remoteCompanyLogo) {
       inMemoryCompanyLogo = remoteCompanyLogo;
       try { localStorage.setItem(LOGO_STORAGE_KEY, remoteCompanyLogo); } catch {}
-      window.dispatchEvent(new CustomEvent('company_logo_updated', { detail: remoteCompanyLogo }));
+      setTimeout(() => {
+        try {
+          window.dispatchEvent(new CustomEvent('company_logo_updated', { detail: remoteCompanyLogo }));
+        } catch {}
+      }, 0);
     }
   } else if (localCompanyLogo) {
     // Push local to remote server and Supabase for other devices
@@ -306,7 +326,11 @@ export async function initBrandingSync(): Promise<{ companyLogo: string | null; 
     if (inMemoryMyLogo !== remoteMyLogo) {
       inMemoryMyLogo = remoteMyLogo;
       try { localStorage.setItem(MY_LOGO_STORAGE_KEY, remoteMyLogo); } catch {}
-      window.dispatchEvent(new CustomEvent('my_logo_updated', { detail: remoteMyLogo }));
+      setTimeout(() => {
+        try {
+          window.dispatchEvent(new CustomEvent('my_logo_updated', { detail: remoteMyLogo }));
+        } catch {}
+      }, 0);
     }
   } else if (localMyLogo) {
     // Push local to remote server and Supabase for other devices

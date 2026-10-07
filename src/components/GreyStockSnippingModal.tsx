@@ -19,6 +19,7 @@ import { toPng } from 'html-to-image';
 import html2canvas from 'html2canvas';
 import { GreyStockOrderGroup } from '../types';
 import { getCompanyLogo } from '../lib/logoStore';
+import { safeCopyImageBlob } from '../lib/clipboardHelper';
 
 interface GreyStockSnippingModalProps {
   orderGroup: GreyStockOrderGroup | null;
@@ -216,22 +217,30 @@ export const GreyStockSnippingModal: React.FC<GreyStockSnippingModalProps> = ({
     try {
       const res = await captureCard();
       const blob = res?.blob || imageBlob;
-      if (blob && navigator.clipboard && (window as any).ClipboardItem) {
-        const item = new (window as any).ClipboardItem({ 'image/png': blob });
-        await navigator.clipboard.write([item]);
+      if (!blob) {
+        handleDownload();
+        return;
+      }
+
+      const success = await safeCopyImageBlob(blob, () => {
+        handleDownload();
+        setStatusMessage('Browser clipboard restricted; downloaded PNG file instead!');
+        setTimeout(() => setStatusMessage(null), 3500);
+      });
+
+      if (success) {
         setCopiedImage(true);
         setStatusMessage('Image copied to clipboard!');
         setTimeout(() => {
           setCopiedImage(false);
           setStatusMessage(null);
         }, 3000);
-      } else {
-        throw new Error('Clipboard API not supported in this browser.');
       }
     } catch (err: any) {
-      console.error('Clipboard copy error:', err);
-      setStatusMessage('Could not copy directly. Please use Download button.');
-      setTimeout(() => setStatusMessage(null), 4000);
+      console.warn('Clipboard write fallback notice, downloading image instead:', err);
+      handleDownload();
+      setStatusMessage('Downloaded PNG image file!');
+      setTimeout(() => setStatusMessage(null), 3500);
     }
   };
 

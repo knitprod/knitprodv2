@@ -1294,7 +1294,11 @@ export class KnittingStatusStorage {
 
           const result = cleaned.map(aggregateOrderValues);
           if (hasHealedChanges) {
-            this.saveOrders(result);
+            setTimeout(() => {
+              try {
+                this.saveOrders(result);
+              } catch {}
+            }, 0);
           }
           return result;
         }
@@ -1310,7 +1314,11 @@ export class KnittingStatusStorage {
     try {
       const sanitized = orders.map(aggregateOrderValues);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
-      window.dispatchEvent(new CustomEvent('epyllion_knitting_status_updated', { detail: { count: sanitized.length } }));
+      setTimeout(() => {
+        try {
+          window.dispatchEvent(new CustomEvent('epyllion_knitting_status_updated', { detail: { count: sanitized.length } }));
+        } catch {}
+      }, 0);
     } catch (e) {
       console.warn('Could not save knitting status to localStorage', e);
     }

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { getCompanyLogo, initBrandingSync } from '../lib/logoStore';
+import { safeCopyText, safeCopyImageBlob } from '../lib/clipboardHelper';
 
 interface RaihanSnippingModalProps {
   isOpen: boolean;
@@ -391,29 +392,22 @@ export const RaihanSnippingModal: React.FC<RaihanSnippingModalProps> = ({
       return;
     }
 
-    try {
-      if (navigator.clipboard && window.ClipboardItem) {
-        const item = new ClipboardItem({ 'image/png': blob });
-        await navigator.clipboard.write([item]);
-        setCopiedImage(true);
-        setTimeout(() => setCopiedImage(false), 2500);
-      } else {
-        handleCopyText();
-      }
-    } catch (err) {
-      console.warn('Clipboard image write failed, falling back to download:', err);
+    const success = await safeCopyImageBlob(blob, () => {
       handleDownload();
+    });
+
+    if (success) {
+      setCopiedImage(true);
+      setTimeout(() => setCopiedImage(false), 2500);
     }
   };
 
   const handleCopyText = async () => {
     if (!rawText) return;
-    try {
-      await navigator.clipboard.writeText(rawText);
+    const success = await safeCopyText(rawText);
+    if (success) {
       setCopiedText(true);
       setTimeout(() => setCopiedText(false), 2500);
-    } catch (err) {
-      console.error('Failed to copy text:', err);
     }
   };
 

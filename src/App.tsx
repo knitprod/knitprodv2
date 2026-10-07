@@ -616,8 +616,12 @@ export default function App() {
         setActivityLogs(activityRes);
       }
       setGasSyncError(null);
-      // Notify all components that live Google Sheets sync is complete
-      window.dispatchEvent(new Event('gas_data_synced'));
+      // Notify all components that live Google Sheets sync is complete (deferred)
+      setTimeout(() => {
+        try {
+          window.dispatchEvent(new Event('gas_data_synced'));
+        } catch {}
+      }, 0);
     } catch (err: any) {
       console.error("Failed to fetch live GAS REST API data in background:", err);
       setGasSyncError(err.message || String(err));
@@ -630,8 +634,12 @@ export default function App() {
     try {
       // 1. Pull live data from Google Sheet & update local React states
       await loadLiveGasData(true);
-      // 2. Dispatch global sync event so mounted views re-fetch live sheets data
-      window.dispatchEvent(new Event('gas_data_synced'));
+      // 2. Dispatch global sync event so mounted views re-fetch live sheets data (deferred)
+      setTimeout(() => {
+        try {
+          window.dispatchEvent(new Event('gas_data_synced'));
+        } catch {}
+      }, 0);
 
       setSyncBannerMessage("Successfully pulled & synchronized live data from Google Sheet!");
       setTimeout(() => setSyncBannerMessage(null), 4500);

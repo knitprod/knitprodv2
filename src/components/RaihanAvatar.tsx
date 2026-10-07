@@ -94,7 +94,11 @@ export const RaihanAvatar: React.FC<RaihanAvatarProps> = ({
         setCustomAvatar(result);
         setCandidateIndex(0);
         setAllFailed(false);
-        window.dispatchEvent(new Event('raihan_avatar_updated'));
+        setTimeout(() => {
+          try {
+            window.dispatchEvent(new Event('raihan_avatar_updated'));
+          } catch {}
+        }, 0);
         if (onAvatarChange) onAvatarChange(result);
       }
     };

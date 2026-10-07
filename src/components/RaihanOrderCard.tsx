@@ -21,6 +21,7 @@ import { calculateKnittingCondition } from '../lib/knittingStatusStore';
 import { getCompanyLogo } from '../lib/logoStore';
 import { GreyStockStorage, getOrderLookupKeys, GreyStockItem } from '../lib/greyStockStore';
 import { SnipDisplayMode } from './KnittingOrderSnippingModal';
+import { safeCopyText } from '../lib/clipboardHelper';
 
 function parseDateString(str?: string): Date | null {
   if (!str || str === '-' || str.toLowerCase() === 'pending' || str.toLowerCase() === 'not set') return null;
@@ -249,9 +250,12 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
         const s = it.stockQty !== undefined ? it.stockQty : Math.max(0, r - i);
         gsText += `${order.orderNo} | ${it.colour || '-'} | ${it.fabStyle || '-'} | ${it.fabType || '-'} | ${it.buyerName || order.buyerName || '-'} | ${it.ownerUnit || 'EKL'} | ${Math.round(g)} kg | ${Math.round(r)} kg | ${Math.round(i)} kg | ${Math.round(s)} kg\n`;
       });
-      navigator.clipboard.writeText(gsText.trim());
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      safeCopyText(gsText.trim()).then((ok) => {
+        if (ok) {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }
+      });
       return;
     }
 
@@ -268,9 +272,12 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
       items.forEach(it => {
         predText += `• ${it.color} (${it.fabType}): ${Number(it.knitBalance || 0).toLocaleString()} kg remaining | Daily: ${Math.ceil(Number(it.avgProdPerDay || 0))} kg/d | PMC: ${it.pmcKnitStartDate || '-'}\n`;
       });
-      navigator.clipboard.writeText(predText);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
+      safeCopyText(predText).then((ok) => {
+        if (ok) {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2500);
+        }
+      });
       return;
     }
 
@@ -299,9 +306,12 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
       summaryText += `Total Allocated Yarn: ${totalAllocatedQty.toLocaleString()} kg\n`;
     }
 
-    navigator.clipboard.writeText(summaryText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
+    safeCopyText(summaryText).then((ok) => {
+      if (ok) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
+      }
+    });
   };
 
   return (

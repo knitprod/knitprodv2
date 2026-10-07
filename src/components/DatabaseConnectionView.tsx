@@ -38,6 +38,7 @@ import { GreyStockStorage } from '../lib/greyStockStore';
 import { SyncConflictLog } from '../types';
 import { useGlobalData } from '../context/GlobalDataContext';
 import gasScriptContent from '../../google-apps-script/Code.gs?raw';
+import { safeCopyText } from '../lib/clipboardHelper';
 
 interface DatabaseConnectionViewProps {
   onSuccessNotice?: (msg: string) => void;
@@ -159,12 +160,10 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
   };
 
   const handleCopyYarnSql = async () => {
-    try {
-      await navigator.clipboard.writeText(SupabaseSync.getYarnSetupSQL());
+    const success = await safeCopyText(SupabaseSync.getYarnSetupSQL());
+    if (success) {
       setCopiedYarnSql(true);
       setTimeout(() => setCopiedYarnSql(false), 2500);
-    } catch (err) {
-      console.error('Failed to copy Yarn SQL:', err);
     }
   };
 
@@ -196,12 +195,10 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
   };
 
   const handleCopyOrdersSql = async () => {
-    try {
-      await navigator.clipboard.writeText(SupabaseSync.getOrderPlansSetupSQL());
+    const success = await safeCopyText(SupabaseSync.getOrderPlansSetupSQL());
+    if (success) {
       setCopiedOrdersSql(true);
       setTimeout(() => setCopiedOrdersSql(false), 2500);
-    } catch (err) {
-      console.error('Failed to copy Order Plans SQL:', err);
     }
   };
 
@@ -234,12 +231,10 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
   };
 
   const handleCopyTextileCloseSql = async () => {
-    try {
-      await navigator.clipboard.writeText(SupabaseSync.getTextileCloseSetupSQL());
+    const success = await safeCopyText(SupabaseSync.getTextileCloseSetupSQL());
+    if (success) {
       setCopiedTextileCloseSql(true);
       setTimeout(() => setCopiedTextileCloseSql(false), 2500);
-    } catch (err) {
-      console.error('Failed to copy Textile Close SQL:', err);
     }
   };
 
@@ -272,22 +267,18 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
   };
 
   const handleCopyGreyStockSql = async () => {
-    try {
-      await navigator.clipboard.writeText(SupabaseSync.getGreyStockSchemaSQL());
+    const success = await safeCopyText(SupabaseSync.getGreyStockSchemaSQL());
+    if (success) {
       setCopiedGreyStockSql(true);
       setTimeout(() => setCopiedGreyStockSql(false), 2500);
-    } catch (err) {
-      console.error('Failed to copy Grey Stock SQL:', err);
     }
   };
 
   const handleCopySql = async () => {
-    try {
-      await navigator.clipboard.writeText(SupabaseSync.getSetupSQL());
+    const success = await safeCopyText(SupabaseSync.getSetupSQL());
+    if (success) {
       setCopiedSql(true);
       setTimeout(() => setCopiedSql(false), 2500);
-    } catch (err) {
-      console.error('Failed to copy SQL:', err);
     }
   };
 
@@ -328,12 +319,10 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
   };
 
   const handleCopyScript = async () => {
-    try {
-      await navigator.clipboard.writeText(gasScriptContent);
+    const success = await safeCopyText(gasScriptContent);
+    if (success) {
       setCopiedScript(true);
       setTimeout(() => setCopiedScript(false), 2500);
-    } catch (err) {
-      console.error('Failed to copy script:', err);
     }
   };
 

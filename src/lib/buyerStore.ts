@@ -63,7 +63,11 @@ export function saveBuyers(buyers: string[]): void {
       } catch (err) {
         console.warn('Error persisting buyers to localStorage:', err);
       }
-      window.dispatchEvent(new CustomEvent('buyers_updated', { detail: buyers }));
+      setTimeout(() => {
+        try {
+          window.dispatchEvent(new CustomEvent('buyers_updated', { detail: buyers }));
+        } catch {}
+      }, 0);
     }
   } catch (e) {
     console.error('Failed to update buyers list', e);

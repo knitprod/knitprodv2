@@ -148,9 +148,13 @@ export class SupabaseSync {
     if (cleanUrl && cleanKey) {
       try {
         this.client = createClient(cleanUrl, cleanKey);
-        // Dispatch event for UI components
+        // Dispatch event for UI components (deferred)
         if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('supabase_config_updated', { detail: { url: cleanUrl } }));
+          setTimeout(() => {
+            try {
+              window.dispatchEvent(new CustomEvent('supabase_config_updated', { detail: { url: cleanUrl } }));
+            } catch {}
+          }, 0);
         }
         return true;
       } catch {

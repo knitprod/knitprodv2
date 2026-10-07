@@ -163,14 +163,16 @@ export class TextileClosePMCStorage {
   }
 
   private static notifyListeners(records: TextileCloseRecord[]) {
-    this._listeners.forEach(fn => {
-      try { fn(records); } catch (e) { console.error(e); }
-    });
-    try {
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('epyllion_tc_pmc_updated', { detail: { count: records.length } }));
-      }
-    } catch {}
+    setTimeout(() => {
+      this._listeners.forEach(fn => {
+        try { fn(records); } catch (e) { console.error(e); }
+      });
+      try {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('epyllion_tc_pmc_updated', { detail: { count: records.length } }));
+        }
+      } catch {}
+    }, 0);
   }
 
   static getRecords(): TextileCloseRecord[] {

@@ -49,7 +49,11 @@ export function saveUnitConfigs(configs: UnitThresholdConfig[]): void {
   try {
     const sanitized = configs.map(c => c.unitName.toUpperCase() === 'EKL' ? { ...c, totalMachine: 29 } : c);
     localStorage.setItem(UNIT_STORAGE_KEY, JSON.stringify(sanitized));
-    window.dispatchEvent(new CustomEvent('unit_configs_updated', { detail: sanitized }));
+    setTimeout(() => {
+      try {
+        window.dispatchEvent(new CustomEvent('unit_configs_updated', { detail: sanitized }));
+      } catch {}
+    }, 0);
   } catch (err) {
     console.warn('Error saving unit configs to storage:', err);
   }

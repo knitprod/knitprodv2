@@ -56,6 +56,7 @@ import {
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
 import { GreyStockItem, GreyStockOrderGroup, KnittingStatusOrder, TextileCloseRecord } from '../types';
+import { safeCopyText } from '../lib/clipboardHelper';
 import { 
   GreyStockStorage, 
   groupGreyStockRecords, 
@@ -229,25 +230,43 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
 
   // Listen to cross-component storage updates
   useEffect(() => {
+    let isMounted = true;
+
     const handleStorageUpdate = (e: Event) => {
       const customEv = e as CustomEvent<GreyStockItem[]>;
-      if (customEv.detail) {
-        setRecords(customEv.detail);
-        setUploadMeta(GreyStockStorage.getUploadMeta());
+      if (customEv.detail && isMounted) {
+        setTimeout(() => {
+          if (isMounted) {
+            setRecords(customEv.detail);
+            setUploadMeta(GreyStockStorage.getUploadMeta());
+          }
+        }, 0);
       }
     };
 
     const handleKnittingUpdate = () => {
-      setKnittingOrders(KnittingStatusStorage.getOrders());
+      setTimeout(() => {
+        if (isMounted) {
+          setKnittingOrders(KnittingStatusStorage.getOrders());
+        }
+      }, 0);
     };
 
     const handleTextileCloseUpdate = () => {
-      setTextileRecords(TextileClosePMCStorage.getRecords());
+      setTimeout(() => {
+        if (isMounted) {
+          setTextileRecords(TextileClosePMCStorage.getRecords());
+        }
+      }, 0);
     };
 
     const handleWindowFocus = () => {
-      setKnittingOrders(KnittingStatusStorage.getOrders());
-      setTextileRecords(TextileClosePMCStorage.getRecords());
+      setTimeout(() => {
+        if (isMounted) {
+          setKnittingOrders(KnittingStatusStorage.getOrders());
+          setTextileRecords(TextileClosePMCStorage.getRecords());
+        }
+      }, 0);
     };
 
     window.addEventListener('epyllion_grey_stock_updated', handleStorageUpdate);
@@ -256,17 +275,16 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
     window.addEventListener('focus', handleWindowFocus);
     document.addEventListener('visibilitychange', handleWindowFocus);
 
-    // Initial sync of connected data sources
-    setKnittingOrders(KnittingStatusStorage.getOrders());
-    setTextileRecords(TextileClosePMCStorage.getRecords());
-
     // Automatic Two-Way Database Sync on mount & background interval (45s)
     handleSyncCloud(true);
     const autoSyncInterval = setInterval(() => {
-      handleSyncCloud(true);
+      if (isMounted) {
+        handleSyncCloud(true);
+      }
     }, 45000);
 
     return () => {
+      isMounted = false;
       clearInterval(autoSyncInterval);
       window.removeEventListener('epyllion_grey_stock_updated', handleStorageUpdate);
       window.removeEventListener('epyllion_knitting_status_updated', handleKnittingUpdate);
@@ -544,9 +562,12 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
   // Quick Copy Order No
   const handleCopyOrderNo = (e: React.MouseEvent, orderNo: string) => {
     e.stopPropagation();
-    navigator.clipboard.writeText(orderNo);
-    setCopiedOrderNo(orderNo);
-    setTimeout(() => setCopiedOrderNo(null), 2000);
+    safeCopyText(orderNo).then((success) => {
+      if (success) {
+        setCopiedOrderNo(orderNo);
+        setTimeout(() => setCopiedOrderNo(null), 2000);
+      }
+    });
   };
 
   // Reset all filters to default
@@ -790,11 +811,13 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
 
   const handleCopySql = async () => {
     try {
-      await navigator.clipboard.writeText(SupabaseSync.getGreyStockSchemaSQL());
-      setCopiedSql(true);
-      setTimeout(() => setCopiedSql(false), 2500);
+      const ok = await safeCopyText(SupabaseSync.getGreyStockSchemaSQL());
+      if (ok) {
+        setCopiedSql(true);
+        setTimeout(() => setCopiedSql(false), 2500);
+      }
     } catch (err) {
-      console.error('Failed to copy SQL:', err);
+      console.warn('Failed to copy SQL:', err);
     }
   };
 
@@ -884,11 +907,13 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
 
   const handleCopyCode = async () => {
     try {
-      await navigator.clipboard.writeText(getUploadCodeSnippet());
-      setCopiedCode(true);
-      setTimeout(() => setCopiedCode(false), 2500);
+      const ok = await safeCopyText(getUploadCodeSnippet());
+      if (ok) {
+        setCopiedCode(true);
+        setTimeout(() => setCopiedCode(false), 2500);
+      }
     } catch (err) {
-      console.error('Failed to copy code:', err);
+      console.warn('Failed to copy code:', err);
     }
   };
 

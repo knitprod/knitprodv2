@@ -302,8 +302,12 @@ export const GreyStockStorage = {
     } catch (err) {
       console.warn('Storage quota warning - keeping dataset in memory:', err);
     }
-    // Dispatch custom event for real-time reactive sync across components
-    window.dispatchEvent(new CustomEvent('epyllion_grey_stock_updated', { detail: records }));
+    // Dispatch custom event for real-time reactive sync across components (deferred)
+    setTimeout(() => {
+      try {
+        window.dispatchEvent(new CustomEvent('epyllion_grey_stock_updated', { detail: records }));
+      } catch {}
+    }, 0);
 
     // Two-Way Automatic Sync: seamlessly push records to database in background
     if (pushToRemote && Array.isArray(records) && records.length > 0) {
@@ -419,7 +423,11 @@ export const GreyStockStorage = {
       totalOrders: 5
     };
     this.saveUploadMeta(meta);
-    window.dispatchEvent(new CustomEvent('epyllion_grey_stock_updated', { detail: INITIAL_GREY_STOCK_RECORDS }));
+    setTimeout(() => {
+      try {
+        window.dispatchEvent(new CustomEvent('epyllion_grey_stock_updated', { detail: INITIAL_GREY_STOCK_RECORDS }));
+      } catch {}
+    }, 0);
     return INITIAL_GREY_STOCK_RECORDS;
   }
 };

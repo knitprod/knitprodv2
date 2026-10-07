@@ -7,6 +7,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { GasClient } from '../lib/gasClient';
 import { SupabaseSync } from '../lib/supabaseClient';
+import { safeCopyText } from '../lib/clipboardHelper';
 import { UserRecord } from './UserManagementView';
 import { formatDisplayDate } from './YarnAllocationView';
 import SearchableSelect from './SearchableSelect';
@@ -2582,9 +2583,12 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       text += `\n`;
     });
 
-    navigator.clipboard.writeText(text);
-    setCopiedSummary(true);
-    setTimeout(() => setCopiedSummary(false), 2000);
+    safeCopyText(text).then((ok) => {
+      if (ok) {
+        setCopiedSummary(true);
+        setTimeout(() => setCopiedSummary(false), 2000);
+      }
+    });
   };
 
   const toggleExpandOrder = (orderId: string) => {

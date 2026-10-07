@@ -25,6 +25,7 @@ import { GreyStockStorage, getOrderLookupKeys, normOrder } from '../lib/greyStoc
 import { SupabaseSync } from '../lib/supabaseClient';
 import { getCompanyLogo } from '../lib/logoStore';
 import { useGlobalData } from '../context/GlobalDataContext';
+import { safeCopyImageBlob } from '../lib/clipboardHelper';
 
 export type SnipDisplayMode = 'knitting' | 'allocation' | 'grey_stock' | 'combine';
 
@@ -478,21 +479,25 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
     }
 
     try {
-      if (navigator.clipboard && window.ClipboardItem) {
-        const item = new ClipboardItem({ 'image/png': blob });
-        await navigator.clipboard.write([item]);
+      const copied = await safeCopyImageBlob(blob, () => {
+        handleDownload();
+        setStatusMessage('Clipboard restricted in browser; downloaded HD image file instead!');
+        setTimeout(() => setStatusMessage(null), 3500);
+      });
+
+      if (copied) {
         setCopiedImage(true);
         setStatusMessage('Copied HD image to clipboard! Ready to paste into WhatsApp / Teams.');
         setTimeout(() => {
           setCopiedImage(false);
           setStatusMessage(null);
         }, 3500);
-      } else {
-        handleDownload();
       }
     } catch (err) {
       console.warn('Clipboard image write failed, falling back to download:', err);
       handleDownload();
+      setStatusMessage('Downloaded HD image file!');
+      setTimeout(() => setStatusMessage(null), 3500);
     }
   };
 
