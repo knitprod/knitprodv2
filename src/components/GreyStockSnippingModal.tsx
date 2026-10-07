@@ -16,6 +16,7 @@ import {
   MoveHorizontal
 } from 'lucide-react';
 import { toPng } from 'html-to-image';
+import html2canvas from 'html2canvas';
 import { GreyStockOrderGroup } from '../types';
 import { getCompanyLogo } from '../lib/logoStore';
 
@@ -107,36 +108,75 @@ export const GreyStockSnippingModal: React.FC<GreyStockSnippingModalProps> = ({
 
   const captureCard = async (): Promise<{ dataUrl: string; blob: Blob } | null> => {
     if (!cardRef.current) return null;
+    const wrapper = wrapperRef.current;
+    const prevTransform = wrapper?.style.transform;
+    const prevOrigin = wrapper?.style.transformOrigin;
+
     try {
       setIsGenerating(true);
       setStatusMessage('Rendering high-resolution Grey Stock snip...');
 
-      const clone = cardRef.current.cloneNode(true) as HTMLElement;
-      clone.style.position = 'fixed';
-      clone.style.top = '-99999px';
-      clone.style.left = '-99999px';
-      clone.style.width = '1080px';
-      clone.style.maxWidth = '1080px';
-      clone.style.minWidth = '1080px';
-      clone.style.transform = 'none';
-      clone.style.margin = '0';
-      clone.style.zIndex = '-9999';
-      document.body.appendChild(clone);
+      // Temporarily reset CSS scale/transform to 1:1 so capture canvas doesn't render an offset white box
+      if (wrapper) {
+        wrapper.style.transform = 'none';
+        wrapper.style.transformOrigin = 'top left';
+      }
 
-      const dataUrl = await toPng(clone, {
-        quality: 0.98,
-        pixelRatio: 2,
-        backgroundColor: '#ffffff',
-        cacheBust: true,
-        style: {
-          transform: 'none',
-          margin: '0',
-          left: '0',
-          top: '0'
+      // Small delay to allow layout recalculation if needed
+      await new Promise(r => setTimeout(r, 60));
+
+      const card = cardRef.current;
+      const captureWidth = 1080;
+      const captureHeight = card.offsetHeight || card.scrollHeight || 750;
+
+      let dataUrl: string | null = null;
+
+      // 1. First attempt with html2canvas (reliable rasterization without foreignObject blank issues)
+      try {
+        const canvas = await html2canvas(card, {
+          backgroundColor: '#ffffff',
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          logging: false,
+          width: captureWidth,
+          windowWidth: 1080,
+          scrollX: 0,
+          scrollY: 0
+        });
+        if (canvas) {
+          dataUrl = canvas.toDataURL('image/png', 0.98);
         }
-      });
+      } catch (h2cErr) {
+        console.warn('html2canvas capture notice, falling back to toPng:', h2cErr);
+      }
 
-      document.body.removeChild(clone);
+      // 2. If html2canvas returned null or tiny data, fallback to toPng
+      if (!dataUrl || dataUrl === 'data:,' || dataUrl.length < 2000) {
+        try {
+          dataUrl = await toPng(card, {
+            quality: 0.98,
+            pixelRatio: 2,
+            backgroundColor: '#ffffff',
+            skipFonts: true,
+            cacheBust: true,
+            width: captureWidth,
+            height: captureHeight,
+            style: {
+              transform: 'none',
+              margin: '0',
+              left: '0',
+              top: '0'
+            }
+          });
+        } catch (toPngErr) {
+          console.warn('toPng failed:', toPngErr);
+        }
+      }
+
+      if (!dataUrl) {
+        throw new Error('Failed to generate image data.');
+      }
 
       const blob = dataUrlToBlob(dataUrl);
       setImageDataUrl(dataUrl);
@@ -149,6 +189,12 @@ export const GreyStockSnippingModal: React.FC<GreyStockSnippingModalProps> = ({
       setIsGenerating(false);
       setStatusMessage('Error capturing image: ' + (err.message || 'Unknown error'));
       return null;
+    } finally {
+      // Restore previous transform
+      if (wrapper && prevTransform !== undefined) {
+        wrapper.style.transform = prevTransform;
+        wrapper.style.transformOrigin = prevOrigin || 'top center';
+      }
     }
   };
 
@@ -491,66 +537,63 @@ export const GreyStockSnippingModal: React.FC<GreyStockSnippingModalProps> = ({
                   </span>
                 </div>
 
-                <div className="rounded-xl border border-slate-300 overflow-hidden shadow-2xs">
-                  <table className="w-full text-left text-xs border-collapse">
+                <div className="rounded-xl border border-slate-300 overflow-x-auto shadow-2xs">
+                  <table className="w-full text-left text-xs border-collapse" style={{ minWidth: '1020px' }}>
                     <thead>
                       <tr className="bg-slate-100 text-slate-800 font-black uppercase tracking-wider text-[11px] border-b border-slate-300 select-none">
-                        <th className="py-2.5 px-3">Order No.</th>
-                        <th className="py-2.5 px-3">Colour</th>
-                        <th className="py-2.5 px-3">Fabric Style</th>
-                        <th className="py-2.5 px-3">Fabrics Type</th>
-                        <th className="py-2.5 px-3">Buyer</th>
-                        <th className="py-2.5 px-3 text-center">Owner Unit</th>
-                        <th className="py-2.5 px-3 text-right text-indigo-900">Total Grey QTY</th>
-                        <th className="py-2.5 px-3 text-right text-emerald-900">Net Received Qty.-Kg</th>
-                        <th className="py-2.5 px-3 text-right text-blue-900">Net Issued Qty.-Kg</th>
-                        <th className="py-2.5 px-3 text-right text-amber-950 bg-amber-50/60 font-black">
+                        <th className="py-2.5 px-2.5" style={{ width: '90px' }}>Order No.</th>
+                        <th className="py-2.5 px-2.5" style={{ width: '110px' }}>Colour</th>
+                        <th className="py-2.5 px-2.5" style={{ width: '220px' }}>Fabrics Type</th>
+                        <th className="py-2.5 px-2.5" style={{ width: '100px' }}>Buyer</th>
+                        <th className="py-2.5 px-2 text-center" style={{ width: '70px' }}>Owner Unit</th>
+                        <th className="py-2.5 px-2.5 text-right text-indigo-900 bg-indigo-50/70 font-black" style={{ width: '110px' }}>Total Grey QTY</th>
+                        <th className="py-2.5 px-2.5 text-right text-emerald-900 bg-emerald-50/70 font-black" style={{ width: '115px' }}>Net Received Qty.-Kg</th>
+                        <th className="py-2.5 px-2.5 text-right text-blue-900 bg-blue-50/70 font-black" style={{ width: '110px' }}>Net Issued Qty.-Kg</th>
+                        <th className="py-2.5 px-2.5 text-right text-amber-950 bg-amber-100/80 font-black" style={{ width: '125px' }}>
                           Total Grey Stock Qty
                         </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 font-medium">
                       {orderGroup.items.map((itm, itmIdx) => {
-                        const mGrey = Math.round(itm.matchedGreyQty || (orderGroup.items.length === 1 ? totalGreyReq : 0) || 0);
-                        const nRec = Math.round(itm.netReceivedQty || 0);
-                        const nIss = Math.round(itm.netIssuedQty || 0);
-                        const sQty = Math.round(itm.stockQty !== undefined ? itm.stockQty : Math.max(0, nRec - nIss));
+                        const mGrey = Math.round(Number(itm.matchedGreyQty) || (orderGroup.items.length === 1 ? totalGreyReq : (Number(orderGroup.greyRequired) || 0)) || 0);
+                        const nRec = Math.round(Number(itm.netReceivedQty) || 0);
+                        const nIss = Math.round(Number(itm.netIssuedQty) || 0);
+                        const calcStock = itm.stockQty !== undefined && itm.stockQty !== null ? Number(itm.stockQty) : (nRec - nIss);
+                        const sQty = Math.round(calcStock >= 0 ? calcStock : Math.max(0, nRec - nIss));
 
                         return (
                           <tr
                             key={itm.id || `snip-itm-${itmIdx}`}
                             className={itmIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}
                           >
-                            <td className="py-2.5 px-3 font-mono font-bold text-slate-900 whitespace-nowrap">
+                            <td className="py-2.5 px-2.5 font-mono font-bold text-slate-900 whitespace-nowrap">
                               {orderGroup.orderNo}
                             </td>
-                            <td className="py-2.5 px-3 font-bold text-slate-950 whitespace-nowrap">
+                            <td className="py-2.5 px-2.5 font-bold text-slate-950 max-w-[110px] break-words">
                               {itm.colour || '—'}
                             </td>
-                            <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap">
-                              {itm.fabStyle || '—'}
-                            </td>
-                            <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap">
+                            <td className="py-2.5 px-2.5 text-slate-700 max-w-[220px] break-words leading-tight">
                               {itm.fabType || '—'}
                             </td>
-                            <td className="py-2.5 px-3 text-slate-800 whitespace-nowrap">
+                            <td className="py-2.5 px-2.5 text-slate-800 max-w-[100px] truncate">
                               {itm.buyerName || orderGroup.buyerName || '—'}
                             </td>
-                            <td className="py-2.5 px-3 text-center whitespace-nowrap font-mono text-xs font-semibold">
-                              <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-300 text-slate-800">
+                            <td className="py-2.5 px-2 text-center whitespace-nowrap font-mono text-xs font-semibold">
+                              <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-300 text-slate-800 font-bold">
                                 {itm.ownerUnit || 'EKL'}
                               </span>
                             </td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold text-indigo-700 whitespace-nowrap">
-                              {mGrey > 0 ? mGrey.toLocaleString() : '0'}
+                            <td className="py-2.5 px-2.5 text-right font-mono font-black text-indigo-900 bg-indigo-50/40 whitespace-nowrap">
+                              {mGrey > 0 ? mGrey.toLocaleString() : (totalGreyReq > 0 ? totalGreyReq.toLocaleString() : '0')}
                             </td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
+                            <td className="py-2.5 px-2.5 text-right font-mono font-black text-emerald-900 bg-emerald-50/40 whitespace-nowrap">
                               {nRec.toLocaleString()}
                             </td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold text-blue-700 whitespace-nowrap">
+                            <td className="py-2.5 px-2.5 text-right font-mono font-black text-blue-900 bg-blue-50/40 whitespace-nowrap">
                               {nIss.toLocaleString()}
                             </td>
-                            <td className="py-2.5 px-3 text-right font-mono font-black text-amber-900 bg-amber-50/40 whitespace-nowrap">
+                            <td className="py-2.5 px-2.5 text-right font-mono font-black text-amber-950 bg-amber-100/60 whitespace-nowrap">
                               {sQty.toLocaleString()}
                             </td>
                           </tr>
@@ -559,19 +602,19 @@ export const GreyStockSnippingModal: React.FC<GreyStockSnippingModalProps> = ({
                     </tbody>
                     <tfoot>
                       <tr className="bg-slate-100/90 font-black text-slate-950 border-t-2 border-slate-300 text-xs">
-                        <td colSpan={6} className="py-2.5 px-3 uppercase tracking-wider text-slate-700">
+                        <td colSpan={5} className="py-2.5 px-3 uppercase tracking-wider text-slate-700">
                           Total Order Sum ({orderGroup.items.length} items)
                         </td>
-                        <td className="py-2.5 px-3 text-right font-mono text-indigo-900 font-black">
+                        <td className="py-2.5 px-2.5 text-right font-mono text-indigo-900 font-black bg-indigo-50/70">
                           {totalGreyReq.toLocaleString()}
                         </td>
-                        <td className="py-2.5 px-3 text-right font-mono text-emerald-900 font-black">
+                        <td className="py-2.5 px-2.5 text-right font-mono text-emerald-900 font-black bg-emerald-50/70">
                           {totalNetRec.toLocaleString()}
                         </td>
-                        <td className="py-2.5 px-3 text-right font-mono text-blue-900 font-black">
+                        <td className="py-2.5 px-2.5 text-right font-mono text-blue-900 font-black bg-blue-50/70">
                           {totalNetIss.toLocaleString()}
                         </td>
-                        <td className="py-2.5 px-3 text-right font-mono text-amber-950 bg-amber-100/60 font-black">
+                        <td className="py-2.5 px-2.5 text-right font-mono text-amber-950 bg-amber-100/80 font-black">
                           {totalStock.toLocaleString()}
                         </td>
                       </tr>

@@ -63,7 +63,8 @@ import {
   findDuplicateProductionRecord,
   normalizeFloorKey,
   normalizeDateKey,
-  isAntuSuperAdmin
+  isAntuSuperAdmin,
+  getAllFactoryFloors
 } from '../lib/userPermissions';
 import { 
   getTargetKgForUnit, 
@@ -1236,7 +1237,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
 
   // Extract all unique units/floors actually entered in the ledger or configured
   const availableUnits = useMemo(() => {
-    const defaultList = ['EKL', 'EFL', 'EFL-2', 'Auto Stripe', 'EFL-Extension', 'ESL-Extension', 'Sub-Contact'];
+    const defaultList = getAllFactoryFloors();
     const fromRecords = enrichedLedger.map((r) => r.floor).filter(Boolean);
     const fromConfigs = unitConfigs.map((c) => c.unitName).filter(Boolean);
     const set = new Set([...defaultList, ...fromRecords, ...fromConfigs]);
@@ -1437,7 +1438,7 @@ export default function ProductionLedgerView({ currentUser }: ProductionLedgerVi
   };
   const allowedEntryFloors = useMemo(() => {
     return getUserAllowedFloorsForEntry(currentUser);
-  }, [currentUser]);
+  }, [currentUser, unitConfigs]);
   const hasWritePermission = isSuperAdmin || hasUserWritePermissionForTab(currentUser, 'Production Ledger');
   const canUserEnterRecords = hasWritePermission && allowedEntryFloors.length > 0;
 

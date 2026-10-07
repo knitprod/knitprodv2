@@ -29,7 +29,7 @@ import {
   UnitThresholdConfig
 } from '../lib/unitStore';
 import { UserRecord } from './UserManagementView';
-import { ALL_FACTORY_FLOORS, normalizeFloorKey, isAntuSuperAdmin } from '../lib/userPermissions';
+import { ALL_FACTORY_FLOORS, getAllFactoryFloors, normalizeFloorKey, isAntuSuperAdmin } from '../lib/userPermissions';
 import { ShieldCheck, Lock } from 'lucide-react';
 
 interface AddProductionRecordModalProps {
@@ -133,7 +133,7 @@ export default function AddProductionRecordModal({
     };
   }, []);
 
-  const allFloors = ALL_FACTORY_FLOORS;
+  const allFloors = React.useMemo(() => getAllFactoryFloors(), [unitConfigs]);
   const isSuperAdmin = isAntuSuperAdmin(currentUser);
   const isAdmin = currentUser?.userType === 'Admin';
   
@@ -168,7 +168,7 @@ export default function AddProductionRecordModal({
     }
 
     return allFloors;
-  }, [isSuperAdmin, allowedFloors, currentUser?.assignedUnits, record?.floor]);
+  }, [isSuperAdmin, allowedFloors, currentUser?.assignedUnits, record?.floor, allFloors]);
 
   // Keep record.floor in sync with valid options
   React.useEffect(() => {

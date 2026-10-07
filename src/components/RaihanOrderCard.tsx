@@ -5,6 +5,7 @@ import {
   Check,
   Sparkles,
   ChevronRight,
+  ChevronDown,
   Clock,
   Calendar,
   TrendingUp,
@@ -12,12 +13,14 @@ import {
   AlertCircle,
   CheckCircle2,
   Layers,
-  Factory
+  Factory,
+  Boxes
 } from 'lucide-react';
 import { KnittingStatusOrder } from '../types';
 import { calculateKnittingCondition } from '../lib/knittingStatusStore';
 import { getCompanyLogo } from '../lib/logoStore';
 import { GreyStockStorage, getOrderLookupKeys, GreyStockItem } from '../lib/greyStockStore';
+import { SnipDisplayMode } from './KnittingOrderSnippingModal';
 
 function parseDateString(str?: string): Date | null {
   if (!str || str === '-' || str.toLowerCase() === 'pending' || str.toLowerCase() === 'not set') return null;
@@ -56,7 +59,7 @@ interface RaihanOrderCardProps {
   order: KnittingStatusOrder;
   allocations?: any[];
   greyStockItems?: GreyStockItem[];
-  onOpenSnippingTool?: (order: KnittingStatusOrder) => void;
+  onOpenSnippingTool?: (order: KnittingStatusOrder, mode?: SnipDisplayMode) => void;
   onOpenGreyStockSnippingTool?: (group: any) => void;
   className?: string;
   viewMode?: 'all' | 'production' | 'allocation' | 'prediction' | 'grey_stock';
@@ -74,6 +77,7 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
   filterColor
 }) => {
   const [copied, setCopied] = useState(false);
+  const [isSnipMenuOpen, setIsSnipMenuOpen] = useState(false);
   const [activeMode, setActiveMode] = useState<'all' | 'production' | 'allocation' | 'prediction' | 'grey_stock'>(viewMode || 'all');
   const customLogo = getCompanyLogo();
 
@@ -997,15 +1001,84 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
         <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800 gap-2 flex-wrap">
           <div className="flex items-center gap-2">
             {onOpenSnippingTool && (
-              <button
-                type="button"
-                onClick={() => onOpenSnippingTool(order)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 transition-all shadow-xs cursor-pointer active:scale-98"
-                title="Open in Snipping Tool (1060px HD View) to snapshot, copy HD image, or download PNG"
-              >
-                <Scissors className="w-3.5 h-3.5" />
-                <span>Open in Snipping Tool (HD Snapshot)</span>
-              </button>
+              <div className="relative inline-flex items-center rounded-xl shadow-xs overflow-visible bg-teal-600 hover:bg-teal-700 transition-all">
+                <button
+                  type="button"
+                  onClick={() => onOpenSnippingTool(order, activeMode === 'grey_stock' ? 'grey_stock' : (activeMode === 'allocation' ? 'allocation' : (activeMode === 'production' ? 'knitting' : 'combine')))}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-700 cursor-pointer active:scale-98 rounded-l-xl"
+                  title="Open Snipping Tool (HD Snapshot)"
+                >
+                  <Scissors className="w-3.5 h-3.5" />
+                  <span>Snipping Tool</span>
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsSnipMenuOpen(prev => !prev);
+                  }}
+                  className="px-2 py-1.5 text-white/90 hover:text-white hover:bg-teal-800 border-l border-teal-500/80 cursor-pointer rounded-r-xl"
+                  title="Choose Screenshot Option: 1. Knitting Status, 2. Yarn Allocation, 3. Grey Stock, 4. All Combine"
+                >
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isSnipMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {isSnipMenuOpen && (
+                  <div 
+                    className="absolute left-0 bottom-full mb-1.5 w-56 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1 z-30 animate-in fade-in"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="px-3 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-800">
+                      Choose Screenshot View
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsSnipMenuOpen(false);
+                        onOpenSnippingTool(order, 'knitting');
+                      }}
+                      className="w-full text-left px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer transition-colors"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>1. Knitting Status</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsSnipMenuOpen(false);
+                        onOpenSnippingTool(order, 'allocation');
+                      }}
+                      className="w-full text-left px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer transition-colors"
+                    >
+                      <Layers className="w-3.5 h-3.5 text-amber-600" />
+                      <span>2. Yarn Allocation</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsSnipMenuOpen(false);
+                        onOpenSnippingTool(order, 'grey_stock');
+                      }}
+                      className="w-full text-left px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer transition-colors"
+                    >
+                      <Boxes className="w-3.5 h-3.5 text-purple-600" />
+                      <span>3. Grey Stock</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsSnipMenuOpen(false);
+                        onOpenSnippingTool(order, 'combine');
+                      }}
+                      className="w-full text-left px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-t border-slate-100 dark:border-slate-800 transition-colors"
+                    >
+                      <Scissors className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>4. All Combine</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
 
             <button

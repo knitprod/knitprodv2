@@ -13,6 +13,7 @@ export type { GreyStockItem, GreyStockOrderGroup };
 import { KnittingStatusStorage, calculateKnittingCondition } from './knittingStatusStore';
 import { TextileClosePMCStorage } from './textileClosePMCStore';
 import { SupabaseSync } from './supabaseClient';
+import { GasClient } from './gasClient';
 
 const STORAGE_KEY = 'epyllion_grey_stock_summary_v1';
 const LAST_UPLOAD_KEY = 'epyllion_grey_stock_last_upload';
@@ -292,8 +293,9 @@ export const GreyStockStorage = {
 
   /**
    * Replaces current dataset with newly uploaded records
+   * Automatically pushes to central database (server DB & Supabase) for two-way synchronization
    */
-  saveRecords(records: GreyStockItem[]): void {
+  saveRecords(records: GreyStockItem[], pushToRemote: boolean = true): void {
     memoryRecordsCache = records;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
@@ -302,6 +304,80 @@ export const GreyStockStorage = {
     }
     // Dispatch custom event for real-time reactive sync across components
     window.dispatchEvent(new CustomEvent('epyllion_grey_stock_updated', { detail: records }));
+
+    // Two-Way Automatic Sync: seamlessly push records to database in background
+    if (pushToRemote && Array.isArray(records) && records.length > 0) {
+      try {
+        GasClient.saveGreyStockRecords(records).catch(() => {});
+        if (SupabaseSync.isConfigured()) {
+          SupabaseSync.bulkSaveGreyStockRecords(records, true).catch(() => {});
+        }
+      } catch (e) {
+        console.warn('Background auto-push notice:', e);
+      }
+    }
+  },
+
+  /**
+   * Performs seamless two-way automatic and manual synchronization between
+   * local browser storage, central Server DB (/api/db), and Supabase Cloud.
+   */
+  async syncTwoWay(forcePushLocal: boolean = false): Promise<{ records: GreyStockItem[]; source: string; count: number }> {
+    let remoteRecords: GreyStockItem[] | null = null;
+    let remoteSource = 'local';
+
+    // 1. Fetch from Server DB
+    try {
+      const serverRecs = await GasClient.fetchGreyStockRecords();
+      if (serverRecs && Array.isArray(serverRecs) && serverRecs.length > 0) {
+        remoteRecords = serverRecs;
+        remoteSource = 'server_db';
+      }
+    } catch (e) {
+      console.warn('Notice: Server DB fetch:', e);
+    }
+
+    // 2. Fetch from Supabase Cloud if available
+    if ((!remoteRecords || remoteRecords.length === 0) && SupabaseSync.isConfigured()) {
+      try {
+        const supaRecs = await SupabaseSync.fetchGreyStockRecords();
+        if (supaRecs && Array.isArray(supaRecs) && supaRecs.length > 0) {
+          remoteRecords = supaRecs;
+          remoteSource = 'supabase';
+        }
+      } catch (e) {
+        console.warn('Notice: Supabase fetch:', e);
+      }
+    }
+
+    const localRecords = this.getRecords();
+
+    // If forced to push local or if local has uploaded dataset while remote is empty
+    if (forcePushLocal || (localRecords.length > INITIAL_GREY_STOCK_RECORDS.length && (!remoteRecords || remoteRecords.length === 0))) {
+      GasClient.saveGreyStockRecords(localRecords).catch(() => {});
+      if (SupabaseSync.isConfigured()) {
+        SupabaseSync.bulkSaveGreyStockRecords(localRecords, true).catch(() => {});
+      }
+      return { records: localRecords, source: 'local_pushed', count: localRecords.length };
+    }
+
+    // If remote has valid dataset
+    if (remoteRecords && remoteRecords.length > 0) {
+      if (remoteRecords.length >= localRecords.length || localRecords.length <= INITIAL_GREY_STOCK_RECORDS.length) {
+        this.saveRecords(remoteRecords, false);
+        return { records: remoteRecords, source: remoteSource, count: remoteRecords.length };
+      }
+    }
+
+    // Otherwise, ensure remote is in sync with current local records
+    if (localRecords.length > 0) {
+      GasClient.saveGreyStockRecords(localRecords).catch(() => {});
+      if (SupabaseSync.isConfigured()) {
+        SupabaseSync.bulkSaveGreyStockRecords(localRecords, true).catch(() => {});
+      }
+    }
+
+    return { records: localRecords, source: 'synced', count: localRecords.length };
   },
 
   getUploadMeta(): GreyStockUploadMeta {

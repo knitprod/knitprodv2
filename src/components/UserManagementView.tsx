@@ -3,7 +3,7 @@ import { GasClient } from '../lib/gasClient';
 import { SupabaseSync } from '../lib/supabaseClient';
 import { getBuyers, saveBuyers } from '../lib/buyerStore';
 import { getUnitConfigs, UnitThresholdConfig } from '../lib/unitStore';
-import { isAntuSuperAdmin } from '../lib/userPermissions';
+import { isAntuSuperAdmin, getAllFactoryFloors } from '../lib/userPermissions';
 import { 
   Users, 
   UserPlus, 
@@ -501,10 +501,7 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
   const [buyersList, setBuyersList] = useState<string[]>(() => getBuyers());
 
   // Dynamic Factory Units list state from central store / settings
-  const [unitsList, setUnitsList] = useState<string[]>(() => {
-    const configs = getUnitConfigs();
-    return configs.length > 0 ? configs.map(u => u.unitName) : AVAILABLE_UNITS;
-  });
+  const [unitsList, setUnitsList] = useState<string[]>(() => getAllFactoryFloors());
 
   useEffect(() => {
     // 1. Listen to custom event for buyers
@@ -521,18 +518,26 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
     window.addEventListener('buyers_updated', handleBuyersUpdate);
 
     // 2. Listen to custom event for units
-    const handleUnitsUpdate = (e: Event) => {
-      const customEv = e as CustomEvent<any>;
-      const configs = customEv.detail || getUnitConfigs();
-      if (configs && Array.isArray(configs) && configs.length > 0) {
-        setUnitsList(configs.map((u: UnitThresholdConfig) => u.unitName));
-      }
+    const handleUnitsUpdate = () => {
+      setUnitsList(getAllFactoryFloors());
     };
     window.addEventListener('unit_configs_updated', handleUnitsUpdate);
+
+    // 3. Listen to localStorage storage events across browser tabs
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'knitprod_buyers') {
+        setBuyersList(getBuyers());
+      }
+      if (e.key === 'knitprod_unit_configs') {
+        setUnitsList(getAllFactoryFloors());
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
 
     return () => {
       window.removeEventListener('buyers_updated', handleBuyersUpdate);
       window.removeEventListener('unit_configs_updated', handleUnitsUpdate);
+      window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
 
@@ -698,10 +703,16 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
     setFormCity('Dhaka');
     setFormCountry('Bangladesh');
 
+    // Ensure latest buyers & units from settings
+    const latestBuyers = getBuyers();
+    const latestUnits = getAllFactoryFloors();
+    setBuyersList(latestBuyers);
+    setUnitsList(latestUnits);
+
     setFormPermission('Read');
     setFormDepartment('Knitting');
     setFormAssignedUnits([]);
-    setFormAssignedBuyers([...buyersList]);
+    setFormAssignedBuyers([...latestBuyers]);
     setFormAllowedTabs(Array.from(new Set(ALL_TABS)));
     const initialAddPerms: Record<string, 'View Only' | 'Full Access' | 'No Access'> = {};
     ALL_TABS.forEach(t => {
@@ -748,9 +759,15 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
     setFormCity('Gazipur');
     setFormCountry('Bangladesh');
 
+    // Ensure latest buyers & units from settings
+    const latestBuyers = getBuyers();
+    const latestUnits = getAllFactoryFloors();
+    setBuyersList(latestBuyers);
+    setUnitsList(latestUnits);
+
     setFormDepartment(user.department);
     setFormAssignedUnits([...user.assignedUnits]);
-    setFormAssignedBuyers(user.assignedBuyers ? [...user.assignedBuyers] : [...buyersList]);
+    setFormAssignedBuyers(user.assignedBuyers ? [...user.assignedBuyers] : [...latestBuyers]);
     setFormPermission(user.permission);
     const initialAllowed = user.allowedTabs || (isAntuSuperAdmin(user) ? ALL_TABS : (user.userType === 'Admin' ? ALL_TABS.filter(t => !['User Management', 'Database Connection', 'Settings'].includes(t)) : ALL_TABS.filter(t => t !== 'User Management')));
     setFormAllowedTabs(Array.from(new Set(initialAllowed)));
@@ -1257,7 +1274,7 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
               className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 px-2.5 py-1.5 text-xs font-bold text-gray-700 dark:text-slate-200 transition-all focus:border-[#0F4C81] focus:bg-white dark:focus:bg-slate-900 focus:outline-hidden cursor-pointer"
             >
               <option value="all">🏭 All Units</option>
-              {AVAILABLE_UNITS.map(unit => (
+              {unitsList.map(unit => (
                 <option key={unit} value={unit}>{unit}</option>
               ))}
             </select>

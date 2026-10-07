@@ -32,7 +32,7 @@ import { useGlobalData } from '../context/GlobalDataContext';
 import { RaihanAvatar } from './RaihanAvatar';
 import { generateInitialLedger } from './ProductionLedgerView';
 import { RaihanSnippingModal } from './RaihanSnippingModal';
-import { KnittingOrderSnippingModal } from './KnittingOrderSnippingModal';
+import { KnittingOrderSnippingModal, SnipDisplayMode } from './KnittingOrderSnippingModal';
 import { RaihanOrderCard } from './RaihanOrderCard';
 import { KnittingStatusOrder, GreyStockItem } from '../types';
 import { 
@@ -91,6 +91,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
   const [snipTitle, setSnipTitle] = useState('Raihan ERP Summary');
   const [snipRawText, setSnipRawText] = useState('');
   const [snipOrder, setSnipOrder] = useState<KnittingStatusOrder | null>(null);
+  const [snipInitialMode, setSnipInitialMode] = useState<SnipDisplayMode>('combine');
 
   const handleSnipMessage = (_msgId: string, text: string, msgOrderData?: KnittingStatusOrder | null) => {
     if (msgOrderData) {
@@ -1435,7 +1436,16 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
                           order={cardOrder}
                           allocations={msg.yarnAllocations || yarnAllocations}
                           greyStockItems={msg.greyStockItems}
-                          onOpenSnippingTool={(ord) => setSnipOrder(ord)}
+                          onOpenSnippingTool={(ord, mode) => {
+                            setSnipInitialMode(
+                              mode || (
+                                currentViewMode === 'grey_stock' ? 'grey_stock' :
+                                (currentViewMode === 'allocation' ? 'allocation' :
+                                (currentViewMode === 'production' ? 'knitting' : 'combine'))
+                              )
+                            );
+                            setSnipOrder(ord);
+                          }}
                           viewMode={currentViewMode}
                           filterColor={currentColor}
                         />
@@ -1581,6 +1591,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         isOpen={Boolean(snipOrder)}
         onClose={() => setSnipOrder(null)}
         includeAllocation={true}
+        initialMode={snipInitialMode}
       />
 
       {/* High-Definition Snipping Tool Modal for General ERP summaries */}

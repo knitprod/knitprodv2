@@ -1478,6 +1478,32 @@ export class GasClient {
   }
 
   // ==========================================================
+  // GREY STOCK SUMMARY METHODS
+  // ==========================================================
+  static async fetchGreyStockRecords(): Promise<any[] | null> {
+    try {
+      const db = await this.fetchServerDb();
+      if (db && Array.isArray(db.greyStockRecords) && db.greyStockRecords.length > 0) {
+        return db.greyStockRecords;
+      }
+    } catch (e) {
+      console.warn("Error reading grey stock records from server DB:", e);
+    }
+    return null;
+  }
+
+  static async saveGreyStockRecords(records: any[]): Promise<void> {
+    try {
+      await this.saveServerDb({ 
+        greyStockRecords: records,
+        greyStockLastUpdated: new Date().toISOString()
+      });
+    } catch (e) {
+      console.warn("Error saving grey stock records to server DB:", e);
+    }
+  }
+
+  // ==========================================================
   // SYSTEM CONFIGURATION & ACTIVITY LOGS
   // ==========================================================
   static async fetchSettings(): Promise<any> {

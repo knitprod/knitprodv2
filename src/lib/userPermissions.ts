@@ -4,6 +4,7 @@
  */
 
 import { UserRecord } from '../types';
+import { getUnitConfigs } from './unitStore';
 
 export const ALL_FACTORY_FLOORS: string[] = [
   'EKL',
@@ -14,6 +15,20 @@ export const ALL_FACTORY_FLOORS: string[] = [
   'ESL-Extension',
   'Sub-Contact'
 ];
+
+/**
+ * Returns dynamic list of all factory floors including custom units added in Settings
+ */
+export const getAllFactoryFloors = (): string[] => {
+  try {
+    const configs = getUnitConfigs();
+    const configNames = configs.map(c => c.unitName?.trim()).filter(Boolean);
+    const set = new Set<string>([...ALL_FACTORY_FLOORS, ...configNames]);
+    return Array.from(set);
+  } catch {
+    return [...ALL_FACTORY_FLOORS];
+  }
+};
 
 /**
  * Normalizes floor names across spelling / hyphen variations
@@ -29,11 +44,12 @@ export const normalizeFloorKey = (floor: string): string => {
   if (clean === 'eslextension' || clean === 'eslext' || clean === 'eslextn' || clean === 'esl') return 'ESL-Extension';
   if (clean === 'subcontact' || clean === 'sub' || clean === 'subcontract') return 'Sub-Contact';
   
-  // Check if it matches any standard floor in ALL_FACTORY_FLOORS
-  const standardMatch = ALL_FACTORY_FLOORS.find(
+  // Check if it matches any floor in getAllFactoryFloors
+  const allCurrent = getAllFactoryFloors();
+  const match = allCurrent.find(
     f => f.toLowerCase().replace(/[-\s_]/g, '') === clean
   );
-  if (standardMatch) return standardMatch;
+  if (match) return match;
 
   return floor.trim();
 };
@@ -136,20 +152,21 @@ export const hasUserWritePermissionForTab = (user: UserRecord | null | undefined
  */
 export const getUserAllowedFloorsForEntry = (user: UserRecord | null | undefined): string[] => {
   if (!user) return [];
+  const allFloors = getAllFactoryFloors();
   if (isAntuSuperAdmin(user)) {
-    return [...ALL_FACTORY_FLOORS];
+    return allFloors;
   }
   
   // If user has specific assigned units, map and return them
   if (user.assignedUnits && Array.isArray(user.assignedUnits) && user.assignedUnits.length > 0) {
     const assignedNorm = user.assignedUnits.map(normalizeFloorKey).filter(Boolean);
     if (assignedNorm.some(u => u.toLowerCase() === 'all' || u.toLowerCase() === 'allunits')) {
-      return [...ALL_FACTORY_FLOORS];
+      return allFloors;
     }
 
     const result: string[] = [];
     assignedNorm.forEach(u => {
-      const match = ALL_FACTORY_FLOORS.find(f => normalizeFloorKey(f) === normalizeFloorKey(u));
+      const match = allFloors.find(f => normalizeFloorKey(f) === normalizeFloorKey(u));
       const finalName = match || u;
       if (!result.includes(finalName)) {
         result.push(finalName);

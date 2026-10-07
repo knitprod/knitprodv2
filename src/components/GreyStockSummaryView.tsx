@@ -260,7 +260,14 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
     setKnittingOrders(KnittingStatusStorage.getOrders());
     setTextileRecords(TextileClosePMCStorage.getRecords());
 
+    // Automatic Two-Way Database Sync on mount & background interval (45s)
+    handleSyncCloud(true);
+    const autoSyncInterval = setInterval(() => {
+      handleSyncCloud(true);
+    }, 45000);
+
     return () => {
+      clearInterval(autoSyncInterval);
       window.removeEventListener('epyllion_grey_stock_updated', handleStorageUpdate);
       window.removeEventListener('epyllion_knitting_status_updated', handleKnittingUpdate);
       window.removeEventListener('epyllion_tc_pmc_updated', handleTextileCloseUpdate);
@@ -694,65 +701,61 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
     }
   };
 
-  // Sync latest from Supabase Cloud
-  const handleSyncCloud = async () => {
-    if (!SupabaseSync.isConfigured()) {
-      setIsSupabaseModalOpen(true);
-      return;
-    }
+  // Two-way synchronization: Central Database & Supabase Cloud (Manual or Automatic)
+  const handleSyncCloud = async (isSilent: boolean = false) => {
     setIsSyncingCloud(true);
-    setSyncProgress({
-      isActive: true,
-      type: 'sync',
-      title: 'Synchronizing Grey Stock with Supabase Cloud',
-      percent: 25,
-      stage: 'Connecting to Supabase cloud...'
-    });
+    if (!isSilent) {
+      setSyncProgress({
+        isActive: true,
+        type: 'sync',
+        title: 'Synchronizing Grey Stock Database',
+        percent: 25,
+        stage: 'Connecting to central database & Supabase cloud...'
+      });
+    }
     try {
-      const remote = await SupabaseSync.fetchGreyStockRecords();
-      setSyncProgress({
-        isActive: true,
-        type: 'sync',
-        title: 'Synchronizing Grey Stock with Supabase Cloud',
-        percent: 75,
-        stage: 'Processing remote records...'
-      });
-      if (Array.isArray(remote) && remote.length > 0) {
-        setRecords(remote);
-        GreyStockStorage.saveRecords(remote);
+      if (!isSilent) {
         setSyncProgress({
           isActive: true,
           type: 'sync',
-          title: 'Cloud Sync Complete',
-          percent: 100,
-          stage: `Successfully synchronized ${remote.length.toLocaleString()} records from Supabase Cloud.`,
-          current: remote.length,
-          total: remote.length
+          title: 'Synchronizing Grey Stock Database',
+          percent: 60,
+          stage: 'Syncing records bidirectional...'
         });
-        showToast(`Synced ${remote.length} records from Supabase Cloud.`);
-      } else {
-        setSyncProgress({
-          isActive: true,
-          type: 'sync',
-          title: 'Cloud Sync Complete',
-          percent: 100,
-          stage: 'Supabase table is currently empty.'
-        });
-        showToast('Supabase table is empty. Click "Upload to Supabase" in the modal to seed.');
       }
-      setTimeout(() => {
-        setSyncProgress(prev => ({ ...prev, isActive: false }));
-      }, 2500);
+
+      const syncResult = await GreyStockStorage.syncTwoWay(false);
+      if (Array.isArray(syncResult.records) && syncResult.records.length > 0) {
+        setRecords(syncResult.records);
+      }
+
+      if (!isSilent) {
+        setSyncProgress({
+          isActive: true,
+          type: 'sync',
+          title: 'Database Sync Complete',
+          percent: 100,
+          stage: `Successfully synchronized ${syncResult.count.toLocaleString()} records (Two-way Automatic & Manual active).`,
+          current: syncResult.count,
+          total: syncResult.count
+        });
+        showToast(`Synced ${syncResult.count.toLocaleString()} records across database (Two-way Auto & Manual).`);
+        setTimeout(() => {
+          setSyncProgress(prev => ({ ...prev, isActive: false }));
+        }, 2200);
+      }
     } catch (err: any) {
-      setSyncProgress({
-        isActive: true,
-        type: 'sync',
-        title: 'Cloud Sync Error',
-        percent: 100,
-        stage: err.message || 'Cloud sync failed',
-        error: err.message || 'Failed to sync with Supabase Cloud'
-      });
-      showToast(`Cloud Sync error: ${err.message || String(err)}`);
+      if (!isSilent) {
+        setSyncProgress({
+          isActive: true,
+          type: 'sync',
+          title: 'Database Sync Error',
+          percent: 100,
+          stage: err.message || 'Database sync failed',
+          error: err.message || 'Failed to sync with central database'
+        });
+        showToast(`Sync error: ${err.message || String(err)}`);
+      }
     } finally {
       setIsSyncingCloud(false);
     }
@@ -1161,16 +1164,19 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
 
         {/* Action Controls */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Sync Cloud button */}
+          {/* Two-Way Sync Database button */}
           <button
             type="button"
-            onClick={handleSyncCloud}
+            onClick={() => handleSyncCloud(false)}
             disabled={isSyncingCloud}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 hover:bg-sky-100 transition-all shadow-2xs cursor-pointer disabled:opacity-50"
-            title="Synchronize latest Grey Stock records from Supabase Cloud"
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl border border-sky-300 dark:border-sky-700 bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/40 transition-all shadow-2xs cursor-pointer disabled:opacity-50"
+            title="Two-Way Automatic & Manual Sync: Central Server Database + Supabase Cloud"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-sky-600 dark:text-sky-400 ${isSyncingCloud ? 'animate-spin' : ''}`} />
-            <span>{isSyncingCloud ? 'Syncing...' : 'Sync Cloud'}</span>
+            <span>{isSyncingCloud ? 'Syncing...' : 'Sync Database'}</span>
+            <span className="hidden sm:inline-block text-[10px] font-extrabold uppercase px-1.5 py-0.2 rounded bg-sky-200/80 dark:bg-sky-800 text-sky-800 dark:text-sky-200 ml-0.5">
+              Auto/Manual
+            </span>
           </button>
 
           {/* Export Dropdown / Actions */}

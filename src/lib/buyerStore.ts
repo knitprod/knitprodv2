@@ -28,20 +28,45 @@ export const DEFAULT_BUYERS: string[] = [
   'Obey'
 ];
 
-let memoryBuyers: string[] = [...DEFAULT_BUYERS];
+const BUYER_STORAGE_KEY = 'knitprod_buyers';
+
+let memoryBuyers: string[] | null = null;
 
 export function getBuyers(): string[] {
-  return [...memoryBuyers];
+  if (memoryBuyers && memoryBuyers.length > 0) {
+    return [...memoryBuyers];
+  }
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = localStorage.getItem(BUYER_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          memoryBuyers = parsed;
+          return [...parsed];
+        }
+      }
+    } catch (e) {
+      console.warn('Error reading buyers from localStorage:', e);
+    }
+  }
+  memoryBuyers = [...DEFAULT_BUYERS];
+  return [...DEFAULT_BUYERS];
 }
 
 export function saveBuyers(buyers: string[]): void {
   try {
     memoryBuyers = [...buyers];
     if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(BUYER_STORAGE_KEY, JSON.stringify(buyers));
+      } catch (err) {
+        console.warn('Error persisting buyers to localStorage:', err);
+      }
       window.dispatchEvent(new CustomEvent('buyers_updated', { detail: buyers }));
     }
   } catch (e) {
-    console.error('Failed to update buyers list in memory', e);
+    console.error('Failed to update buyers list', e);
   }
 }
 
