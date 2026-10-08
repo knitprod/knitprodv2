@@ -52,7 +52,9 @@ import {
   SlidersHorizontal,
   ChevronLeft,
   ChevronsLeft,
-  ChevronsRight
+  ChevronsRight,
+  Calendar as CalendarIcon,
+  Hash
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
 import { GreyStockItem, GreyStockOrderGroup, KnittingStatusOrder, TextileCloseRecord } from '../types';
@@ -69,6 +71,8 @@ import { TextileClosePMCStorage } from '../lib/textileClosePMCStore';
 import { SupabaseSync } from '../lib/supabaseClient';
 import { GreyStockSnippingModal } from './GreyStockSnippingModal';
 import { SyncProgressBar, SyncProgressState } from './SyncProgressBar';
+import SearchableSelect from './SearchableSelect';
+import GreyStockDateFilter, { DateFilterState, MonthOption } from './GreyStockDateFilter';
 
 interface GreyStockSummaryViewProps {
   currentUser?: UserRecord | null;
@@ -76,8 +80,51 @@ interface GreyStockSummaryViewProps {
 }
 
 export type StockStatusFilter = 'all' | 'active_stock' | 'high_stock' | 'zero_stock' | 'deficit';
-export type SortField = 'stock' | 'orderNo' | 'buyer' | 'required' | 'received' | 'issued' | 'status';
+export type SortField = 'stock' | 'orderNo' | 'buyer' | 'received' | 'issued' | 'status' | 'completionDate';
 export type SortDirection = 'asc' | 'desc';
+
+/**
+ * Robust date parser for Grey Stock Completion Date strings
+ * Handles: "24-Oct-2024", "2024-10-24", "15/11/2024", Excel serial dates, etc.
+ */
+export function parseCompletionDateKey(val?: string | null): { isoDate: string; yearMonth: string; monthLabel: string } | null {
+  if (!val) return null;
+  const s = String(val).trim();
+  if (!s || s === '—' || s === '-' || s === '0' || s.toLowerCase() === 'unknown') return null;
+
+  let d: Date | null = null;
+  const dMmmY = s.match(/^(\d{1,2})[-/\s]([A-Za-z]{3,})[-/\s](\d{2,4})$/);
+  if (dMmmY) {
+    const day = parseInt(dMmmY[1], 10);
+    const mStr = dMmmY[2].toLowerCase();
+    let year = parseInt(dMmmY[3], 10);
+    if (year < 100) year += 2000;
+    const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    const mIdx = months.findIndex(m => mStr.startsWith(m));
+    if (mIdx !== -1 && !isNaN(day)) d = new Date(year, mIdx, day);
+  }
+  if (!d) {
+    const ymd = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+    if (ymd) d = new Date(parseInt(ymd[1], 10), parseInt(ymd[2], 10) - 1, parseInt(ymd[3], 10));
+  }
+  if (!d) {
+    const dmy = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+    if (dmy) d = new Date(parseInt(dmy[3], 10), parseInt(dmy[2], 10) - 1, parseInt(dmy[1], 10));
+  }
+  if (!d) {
+    const ts = Date.parse(s);
+    if (!isNaN(ts)) d = new Date(ts);
+  }
+  if (!d || isNaN(d.getTime())) return null;
+
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const isoDate = `${y}-${m}-${day}`;
+  const yearMonth = `${y}-${m}`;
+  const monthLabel = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  return { isoDate, yearMonth, monthLabel };
+}
 
 export default function GreyStockSummaryView({ currentUser, onNavigateTab }: GreyStockSummaryViewProps) {
   const isAdmin = currentUser?.userType === 'Admin';
@@ -95,6 +142,10 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // Dedicated Order No search bar with debounce
+  const [orderNoSearch, setOrderNoSearch] = useState('');
+  const [debouncedOrderNoSearch, setDebouncedOrderNoSearch] = useState('');
+
   // Quick Filters
   const [statusFilter, setStatusFilter] = useState('All');
   const [unitFilter, setUnitFilter] = useState('All');
@@ -102,6 +153,14 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
   const [fabricFilter, setFabricFilter] = useState('All');
   const [colorFilter, setColorFilter] = useState('All');
   const [stockStatusFilter, setStockStatusFilter] = useState<StockStatusFilter>('all');
+
+  // Completion Date Filter: Calendar & Month-wise System
+  const [completionDateFilter, setCompletionDateFilter] = useState<DateFilterState>({
+    mode: 'all',
+    selectedDate: '',
+    selectedMonth: '',
+    label: ''
+  });
 
   // Sorting: Default to highest stock on top for immediate actionable insight
   const [sortField, setSortField] = useState<SortField | null>('stock');
@@ -184,48 +243,67 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedOrderNoSearch(orderNoSearch);
+      setCurrentPage(1);
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [orderNoSearch]);
+
   // Initial Load from Supabase Cloud & Real-time WebSockets
   useEffect(() => {
+    let unsub: (() => void) | null = null;
+    let isCancelled = false;
+
     if (SupabaseSync.isConfigured()) {
-      SupabaseSync.fetchGreyStockRecords()
-        .then(remoteRecords => {
-          if (Array.isArray(remoteRecords) && remoteRecords.length > 0) {
-            setRecords(remoteRecords);
-            GreyStockStorage.saveRecords(remoteRecords);
-          }
-        })
-        .catch(err => {
-          console.warn('Grey Stock Supabase fetch notice:', err);
-        });
+      SupabaseSync.checkGreyStockTableExists().then(exists => {
+        if (isCancelled || !exists) return;
 
-      // Real-time subscription to cloud table
-      const unsub = SupabaseSync.subscribeToGreyStockRecords(({ eventType, record, id }) => {
-        if (eventType === 'DELETE') {
-          setRecords(prev => {
-            const next = prev.filter(r => r.id !== id);
-            GreyStockStorage.saveRecords(next);
-            return next;
-          });
-        } else if (eventType === 'INSERT' || eventType === 'UPDATE') {
-          setRecords(prev => {
-            const idx = prev.findIndex(r => r.id === record.id);
-            let next: GreyStockItem[];
-            if (idx >= 0) {
-              next = [...prev];
-              next[idx] = record;
-            } else {
-              next = [record, ...prev];
+        // Fetch records only if confirmed to exist
+        SupabaseSync.fetchGreyStockRecords()
+          .then(remoteRecords => {
+            if (isCancelled) return;
+            if (Array.isArray(remoteRecords) && remoteRecords.length > 0) {
+              setRecords(remoteRecords);
+              GreyStockStorage.saveRecords(remoteRecords, false);
             }
-            GreyStockStorage.saveRecords(next);
-            return next;
-          });
-        }
-      });
+          })
+          .catch(() => {});
 
-      return () => {
-        unsub();
-      };
+        // Real-time subscription to cloud table
+        unsub = SupabaseSync.subscribeToGreyStockRecords(({ eventType, record, id }) => {
+          if (isCancelled) return;
+          if (eventType === 'DELETE') {
+            setRecords(prev => {
+              const next = prev.filter(r => r.id !== id);
+              GreyStockStorage.saveRecords(next, false);
+              return next;
+            });
+          } else if (eventType === 'INSERT' || eventType === 'UPDATE') {
+            setRecords(prev => {
+              const idx = prev.findIndex(r => r.id === record.id);
+              let next: GreyStockItem[];
+              if (idx >= 0) {
+                next = [...prev];
+                next[idx] = record;
+              } else {
+                next = [record, ...prev];
+              }
+              GreyStockStorage.saveRecords(next, false);
+              return next;
+            });
+          }
+        });
+      }).catch(() => {});
     }
+
+    return () => {
+      isCancelled = true;
+      if (unsub) {
+        unsub();
+      }
+    };
   }, []);
 
   // Listen to cross-component storage updates
@@ -275,17 +353,11 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
     window.addEventListener('focus', handleWindowFocus);
     document.addEventListener('visibilitychange', handleWindowFocus);
 
-    // Automatic Two-Way Database Sync on mount & background interval (45s)
+    // Initial silent synchronization with server database on mount (no polling loop)
     handleSyncCloud(true);
-    const autoSyncInterval = setInterval(() => {
-      if (isMounted) {
-        handleSyncCloud(true);
-      }
-    }, 45000);
 
     return () => {
       isMounted = false;
-      clearInterval(autoSyncInterval);
       window.removeEventListener('epyllion_grey_stock_updated', handleStorageUpdate);
       window.removeEventListener('epyllion_knitting_status_updated', handleKnittingUpdate);
       window.removeEventListener('epyllion_tc_pmc_updated', handleTextileCloseUpdate);
@@ -306,15 +378,10 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // STEP 1: Pre-calculate the O(1) Lookup Index ONCE whenever knitting/textile records update
-  const lookupIndex = useMemo(() => {
-    return buildGreyStockLookupIndex(knittingOrders, textileRecords);
-  }, [knittingOrders, textileRecords]);
-
-  // STEP 2: Group the master records ONCE into Order-wise Groups (avoids regrouping 10,000 items per keystroke)
+  // STEP 1: Group the master records directly into 1st Layer Order-wise Groups from uploaded dataset
   const masterOrderGroups = useMemo(() => {
-    return groupGreyStockRecords(records, lookupIndex);
-  }, [records, lookupIndex]);
+    return groupGreyStockRecords(records);
+  }, [records]);
 
   // STEP 3: Dynamic Filter Options (cached from master dataset)
   const filterOptions = useMemo(() => {
@@ -323,11 +390,25 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
     const buyers = new Set<string>();
     const fabTypes = new Set<string>();
     const colors = new Set<string>();
+    const datesSet = new Set<string>();
+    const monthMap = new Map<string, { label: string; count: number }>();
 
     for (let i = 0; i < masterOrderGroups.length; i++) {
       const g = masterOrderGroups[i];
       if (g.status) statuses.add(g.status);
       if (g.buyerName && g.buyerName !== '—') buyers.add(g.buyerName);
+      
+      const parsedDate = parseCompletionDateKey(g.completionDate);
+      if (parsedDate) {
+        datesSet.add(parsedDate.isoDate);
+        const existing = monthMap.get(parsedDate.yearMonth);
+        if (existing) {
+          existing.count += 1;
+        } else {
+          monthMap.set(parsedDate.yearMonth, { label: parsedDate.monthLabel, count: 1 });
+        }
+      }
+
       for (let j = 0; j < g.items.length; j++) {
         const itm = g.items[j];
         if (itm.ownerUnit) units.add(itm.ownerUnit);
@@ -336,43 +417,55 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
       }
     }
 
+    const availableMonths: MonthOption[] = Array.from(monthMap.entries())
+      .map(([ym, data]) => ({ yearMonth: ym, label: data.label, count: data.count }))
+      .sort((a, b) => b.yearMonth.localeCompare(a.yearMonth));
+
     return {
       statuses: Array.from(statuses).sort(),
       units: Array.from(units).sort(),
       buyers: Array.from(buyers).sort(),
       fabTypes: Array.from(fabTypes).sort(),
-      colors: Array.from(colors).sort()
+      colors: Array.from(colors).sort(),
+      availableDates: Array.from(datesSet).sort(),
+      availableMonths
     };
   }, [masterOrderGroups]);
 
   // STEP 4: High-speed Filtering on Pre-grouped dataset (<1ms execution)
   const filteredOrderGroups = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase();
+    const ordQ = debouncedOrderNoSearch.trim().toLowerCase();
 
     return masterOrderGroups.filter(group => {
-      // 1. Status Filter
+      // 1. Order No: Dedicated Search Bar
+      if (ordQ && !group.orderNo.toLowerCase().includes(ordQ)) {
+        return false;
+      }
+
+      // 2. Status Filter
       if (statusFilter !== 'All' && group.status.toLowerCase() !== statusFilter.toLowerCase()) {
         return false;
       }
 
-      // 2. Buyer Filter
+      // 3. Buyer: Searchable Drop Down
       if (buyerFilter !== 'All' && group.buyerName.toLowerCase() !== buyerFilter.toLowerCase()) {
         return false;
       }
 
-      // 3. Stock Status Segment Filter
+      // 4. Stock Status Segment Filter (Picture Quick Filter Setup)
       if (stockStatusFilter === 'active_stock' && group.totalGreyStock <= 0) return false;
       if (stockStatusFilter === 'high_stock' && group.totalGreyStock < 1000) return false;
       if (stockStatusFilter === 'zero_stock' && group.totalGreyStock !== 0) return false;
       if (stockStatusFilter === 'deficit' && group.totalGreyStock >= 0) return false;
 
-      // 4. Owner Unit Filter
+      // 5. Owner Unit Filter
       if (unitFilter !== 'All') {
         const hasUnit = group.items.some(itm => itm.ownerUnit.toLowerCase() === unitFilter.toLowerCase());
         if (!hasUnit) return false;
       }
 
-      // 5. Fabric Type Filter
+      // 6. Fabric Type: Searchable Drop Down
       if (fabricFilter !== 'All') {
         const hasFab = group.items.some(
           itm => itm.fabType && itm.fabType.trim().toLowerCase() === fabricFilter.toLowerCase()
@@ -380,7 +473,7 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
         if (!hasFab) return false;
       }
 
-      // 6. Color Filter
+      // 7. Color: Searchable Drop Down
       if (colorFilter !== 'All') {
         const hasColor = group.items.some(
           itm => itm.colour && itm.colour.trim().toLowerCase() === colorFilter.toLowerCase()
@@ -388,7 +481,29 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
         if (!hasColor) return false;
       }
 
-      // 7. Search Query
+      // 8. Completion Date: Calendar Filter With Month wise Filter System & Date Range
+      if (completionDateFilter.mode === 'date' && completionDateFilter.selectedDate) {
+        const parsed = parseCompletionDateKey(group.completionDate);
+        if (!parsed || parsed.isoDate !== completionDateFilter.selectedDate) {
+          return false;
+        }
+      } else if (completionDateFilter.mode === 'month' && completionDateFilter.selectedMonth) {
+        const parsed = parseCompletionDateKey(group.completionDate);
+        if (!parsed || parsed.yearMonth !== completionDateFilter.selectedMonth) {
+          return false;
+        }
+      } else if (completionDateFilter.mode === 'range') {
+        const parsed = parseCompletionDateKey(group.completionDate);
+        if (!parsed) return false;
+        if (completionDateFilter.startDate && parsed.isoDate < completionDateFilter.startDate) {
+          return false;
+        }
+        if (completionDateFilter.endDate && parsed.isoDate > completionDateFilter.endDate) {
+          return false;
+        }
+      }
+
+      // 9. Global Keyword Search Query
       if (q) {
         const matchOrd = group.orderNo.toLowerCase().includes(q);
         const matchBuyer = group.buyerName.toLowerCase().includes(q);
@@ -405,7 +520,18 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
 
       return true;
     });
-  }, [masterOrderGroups, debouncedSearch, statusFilter, buyerFilter, stockStatusFilter, unitFilter, fabricFilter, colorFilter]);
+  }, [
+    masterOrderGroups, 
+    debouncedSearch, 
+    debouncedOrderNoSearch, 
+    statusFilter, 
+    buyerFilter, 
+    stockStatusFilter, 
+    unitFilter, 
+    fabricFilter, 
+    colorFilter, 
+    completionDateFilter
+  ]);
 
   // STEP 5: Multi-Directional Column Sorting
   const sortedOrderGroups = useMemo(() => {
@@ -422,10 +548,10 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
           return (a.totalNetReceived - b.totalNetReceived) * dir;
         case 'issued':
           return (a.totalNetIssued - b.totalNetIssued) * dir;
-        case 'required':
-          return (a.greyRequired - b.greyRequired) * dir;
         case 'orderNo':
           return a.orderNo.localeCompare(b.orderNo, undefined, { numeric: true }) * dir;
+        case 'completionDate':
+          return (a.completionDate || '').localeCompare(b.completionDate || '') * dir;
         case 'buyer':
           return (a.buyerName || '').localeCompare(b.buyerName || '') * dir;
         case 'status':
@@ -572,6 +698,8 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
 
   // Reset all filters to default
   const handleResetFilters = () => {
+    setOrderNoSearch('');
+    setDebouncedOrderNoSearch('');
     setSearchTerm('');
     setDebouncedSearch('');
     setStatusFilter('All');
@@ -579,6 +707,7 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
     setBuyerFilter('All');
     setFabricFilter('All');
     setColorFilter('All');
+    setCompletionDateFilter({ mode: 'all', selectedDate: '', selectedMonth: '', startDate: '', endDate: '', label: '' });
     setStockStatusFilter('all');
     setCurrentPage(1);
   };
@@ -837,15 +966,19 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 export interface GreyStockRow {
   id?: string;
-  status: string;
+  code?: string;
   orderNo: string;
+  buyerName?: string;
+  fabType: string;
   colour: string;
   fabStyle: string;
-  fabType: string;
-  ownerUnit: string;
+  status: string;
+  completionDate?: string;
   netReceivedQty: number;
   netIssuedQty: number;
   stockQty: number;
+  doubleCount?: number;
+  ownerUnit?: string;
 }
 
 /**
@@ -869,15 +1002,19 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
 
     const rows = records.map((r, idx) => ({
       id: r.id || \`gs-\${r.orderNo}-\${idx + 1}-\${Date.now()}\`,
-      status: r.status || 'Running',
+      code: r.code || null,
       order_no: String(r.orderNo).trim(),
+      buyer_name: r.buyerName || null,
+      fab_type: r.fabType || '',
       colour: r.colour || '',
       fab_style: r.fabStyle || '',
-      fab_type: r.fabType || '',
-      owner_unit: r.ownerUnit || 'EKL',
+      status: r.status || 'Running',
+      completion_date: r.completionDate || null,
       net_received_qty: Number(r.netReceivedQty) || 0,
       net_issued_qty: Number(r.netIssuedQty) || 0,
       stock_qty: Number(r.stockQty) || 0,
+      double_count: Number(r.doubleCount) || 0,
+      owner_unit: r.ownerUnit || 'EKL',
       raw_data: r,
       updated_at: new Date().toISOString()
     }));
@@ -952,17 +1089,16 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
       targetGroups.forEach(g => {
         g.items.forEach(itm => {
           exportRows.push({
-            'Order No.': g.orderNo,
+            'Order Number': g.orderNo,
             'Status': g.status,
-            'Buyer': g.buyerName || itm.buyerName || '—',
+            'Completion Date': g.completionDate || '—',
+            'Buyer Name': g.buyerName || '—',
             'Colour': itm.colour,
+            'Fabric Type': itm.fabType,
             'Fabric Style': itm.fabStyle,
-            'Fabrics Type': itm.fabType,
-            'Owner Unit': itm.ownerUnit,
-            'Grey Required (Kg)': g.greyRequired,
-            'Net Received Qty.-Kg': itm.netReceivedQty,
-            'Net Issued Qty.-Kg': itm.netIssuedQty,
-            'Stock Qty. Kg': itm.stockQty,
+            'Total Received (Kg)': itm.netReceivedQty,
+            'Total Issued (Kg)': itm.netIssuedQty,
+            'Total Stock (Kg)': itm.stockQty,
             'Order Net Received (Kg)': g.totalNetReceived,
             'Order Net Issued (Kg)': g.totalNetIssued,
             'Order Grey Stock (Kg)': g.totalGreyStock,
@@ -1045,13 +1181,15 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
   };
 
   const isAnyFilterActive = 
+    orderNoSearch.trim() !== '' ||
+    searchTerm.trim() !== '' ||
     statusFilter !== 'All' || 
     unitFilter !== 'All' || 
     buyerFilter !== 'All' || 
     fabricFilter !== 'All' || 
     colorFilter !== 'All' || 
-    stockStatusFilter !== 'all' || 
-    searchTerm.trim() !== '';
+    completionDateFilter.mode !== 'all' || 
+    stockStatusFilter !== 'all';
 
   // Render Status Badge with business logic styling
   const renderStatusBadge = (status: string) => {
@@ -1248,7 +1386,7 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
       />
 
       {/* KPI Summary Cards - Interactive with 1-Click Filtering */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
         {/* Total Orders Card */}
         <div 
           onClick={() => {
@@ -1277,20 +1415,6 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
           </div>
         </div>
 
-        {/* Total Grey QTY Card */}
-        <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
-          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Total Grey QTY</span>
-            <Package className="w-4 h-4 text-indigo-500" />
-          </div>
-          <div className="text-xl font-black font-mono text-indigo-600 dark:text-indigo-400">
-            {Math.round(overallMetrics.totalReq).toLocaleString()} <span className="text-xs font-normal">Kg</span>
-          </div>
-          <div className="text-[11px] text-slate-400 mt-0.5">
-            Knitting Status / PMC Total
-          </div>
-        </div>
-
         {/* Net Received Card */}
         <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
@@ -1301,7 +1425,7 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
             {overallMetrics.totalNetRec.toLocaleString()} <span className="text-xs font-normal">Kg</span>
           </div>
           <div className="text-[11px] text-slate-400 mt-0.5">
-            Floor Production Receipt
+            Total Floor Received
           </div>
         </div>
 
@@ -1328,7 +1452,7 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
             setStockStatusFilter(prev => prev === 'active_stock' ? 'all' : 'active_stock');
             setCurrentPage(1);
           }}
-          className={`bg-white dark:bg-slate-900 p-4 rounded-2xl border transition-all cursor-pointer select-none group hover:shadow-md col-span-2 sm:col-span-1 ${
+          className={`bg-white dark:bg-slate-900 p-4 rounded-2xl border transition-all cursor-pointer select-none group hover:shadow-md ${
             stockStatusFilter === 'active_stock' 
               ? 'border-amber-500 ring-2 ring-amber-500/20 bg-amber-50/20 dark:bg-amber-950/20 shadow-xs' 
               : 'border-slate-200 dark:border-slate-800 hover:border-amber-300'
@@ -1453,34 +1577,120 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
       </div>
 
       {/* Filter & Search Bar */}
-      <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
-        {/* Search */}
-        <div className="relative flex-1 max-w-lg">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-          <input
-            ref={searchInputRef}
-            type="text"
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            placeholder="Search Order No., Buyer, Color, Fab Type, Unit... (press / to focus)"
-            className="w-full pl-9 pr-8 py-2 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-          />
-          {searchTerm && (
-            <button
-              onClick={() => {
-                setSearchTerm('');
-                setDebouncedSearch('');
-              }}
-              className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-              title="Clear search"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
+      <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs space-y-3">
+        {/* Row 1: Search Inputs (Dedicated Order No. Search Bar + Global Keyword Search) */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+          {/* Order No: Search Bar */}
+          <div className="relative flex-1 sm:max-w-xs">
+            <div className="absolute left-3 top-2.5 flex items-center pointer-events-none text-slate-400">
+              <Search className="h-4 w-4" />
+            </div>
+            <input
+              type="text"
+              value={orderNoSearch}
+              onChange={e => setOrderNoSearch(e.target.value)}
+              placeholder="Search Order No. (e.g. 271890)..."
+              className="w-full pl-9 pr-8 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+            />
+            {orderNoSearch && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOrderNoSearch('');
+                  setDebouncedOrderNoSearch('');
+                }}
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                title="Clear Order No search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Global / Keyword Search */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              placeholder="Quick search Buyer, Fab Type, Color, Unit... (press / to focus)"
+              className="w-full pl-9 pr-8 py-2 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setDebouncedSearch('');
+                }}
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                title="Clear quick search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Filter Dropdowns */}
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Row 2: Searchable Dropdowns & Date Filter */}
+        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+          {/* Buyer: Searchable Drop Down */}
+          <div className="w-full sm:w-auto min-w-[170px] max-w-[230px]">
+            <SearchableSelect
+              value={buyerFilter}
+              onChange={val => {
+                setBuyerFilter(val);
+                setCurrentPage(1);
+              }}
+              options={filterOptions.buyers}
+              placeholder="Search Buyer..."
+              allLabel={`All Buyers (${filterOptions.buyers.length})`}
+            />
+          </div>
+
+          {/* Fabric Type: Searchable Drop Down */}
+          <div className="w-full sm:w-auto min-w-[180px] max-w-[240px]">
+            <SearchableSelect
+              value={fabricFilter}
+              onChange={val => {
+                setFabricFilter(val);
+                setCurrentPage(1);
+              }}
+              options={filterOptions.fabTypes}
+              placeholder="Search Fabric Type..."
+              allLabel={`All Fab. Types (${filterOptions.fabTypes.length})`}
+            />
+          </div>
+
+          {/* Color: Searchable Drop Down */}
+          <div className="w-full sm:w-auto min-w-[160px] max-w-[220px]">
+            <SearchableSelect
+              value={colorFilter}
+              onChange={val => {
+                setColorFilter(val);
+                setCurrentPage(1);
+              }}
+              options={filterOptions.colors}
+              placeholder="Search Color..."
+              allLabel={`All Colors (${filterOptions.colors.length})`}
+            />
+          </div>
+
+          {/* Completion Date: Calendar Filter With Month wise Filter System */}
+          <div className="w-full sm:w-auto min-w-[200px]">
+            <GreyStockDateFilter
+              value={completionDateFilter}
+              onChange={fil => {
+                setCompletionDateFilter(fil);
+                setCurrentPage(1);
+              }}
+              availableDates={filterOptions.availableDates}
+              availableMonths={filterOptions.availableMonths}
+            />
+          </div>
+
           {/* Status Filter */}
           <select
             value={statusFilter}
@@ -1488,7 +1698,7 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
               setStatusFilter(e.target.value);
               setCurrentPage(1);
             }}
-            className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:border-blue-500 cursor-pointer"
+            className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:border-blue-500 cursor-pointer min-h-[38px]"
           >
             <option value="All">All Statuses ({filterOptions.statuses.length})</option>
             {filterOptions.statuses.map(st => (
@@ -1503,72 +1713,109 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
               setUnitFilter(e.target.value);
               setCurrentPage(1);
             }}
-            className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:border-blue-500 cursor-pointer"
+            className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:border-blue-500 cursor-pointer min-h-[38px]"
           >
-            <option value="All">All Owner Units ({filterOptions.units.length})</option>
+            <option value="All">All Units ({filterOptions.units.length})</option>
             {filterOptions.units.map(u => (
               <option key={u} value={u}>{u}</option>
-            ))}
-          </select>
-
-          {/* Buyer Filter */}
-          <select
-            value={buyerFilter}
-            onChange={e => {
-              setBuyerFilter(e.target.value);
-              setCurrentPage(1);
-            }}
-            className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:border-blue-500 cursor-pointer"
-          >
-            <option value="All">All Buyers ({filterOptions.buyers.length})</option>
-            {filterOptions.buyers.map(b => (
-              <option key={b} value={b}>{b}</option>
-            ))}
-          </select>
-
-          {/* Fabric Type Filter */}
-          <select
-            value={fabricFilter}
-            onChange={e => {
-              setFabricFilter(e.target.value);
-              setCurrentPage(1);
-            }}
-            className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:border-blue-500 cursor-pointer max-w-[170px] truncate"
-            title="Filter by Fabric Type"
-          >
-            <option value="All">All Fab. Types ({filterOptions.fabTypes.length})</option>
-            {filterOptions.fabTypes.map(f => (
-              <option key={f} value={f}>{f}</option>
-            ))}
-          </select>
-
-          {/* Color Filter */}
-          <select
-            value={colorFilter}
-            onChange={e => {
-              setColorFilter(e.target.value);
-              setCurrentPage(1);
-            }}
-            className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-hidden focus:border-blue-500 cursor-pointer max-w-[150px] truncate"
-            title="Filter by Color"
-          >
-            <option value="All">All Colors ({filterOptions.colors.length})</option>
-            {filterOptions.colors.map(c => (
-              <option key={c} value={c}>{c}</option>
             ))}
           </select>
 
           {isAnyFilterActive && (
             <button
               onClick={handleResetFilters}
-              className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 dark:text-rose-400 px-2.5 py-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-600 dark:text-rose-400 px-3 py-2 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 transition-colors cursor-pointer min-h-[38px]"
               title="Reset all search and dropdown filters"
             >
               <X className="w-3.5 h-3.5" />
-              <span>Reset</span>
+              <span>Reset Filters</span>
             </button>
           )}
         </div>
+
+        {/* Active Filter Chips / Pills for quick visual overview and single-click removal */}
+        {isAnyFilterActive && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px]">
+            <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px] mr-1">
+              Active Filters:
+            </span>
+
+            {orderNoSearch && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 font-semibold">
+                <span>Order No: <strong>{orderNoSearch}</strong></span>
+                <button 
+                  onClick={() => { setOrderNoSearch(''); setDebouncedOrderNoSearch(''); }}
+                  className="hover:text-blue-900 dark:hover:text-white cursor-pointer ml-0.5"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {buyerFilter !== 'All' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 font-semibold">
+                <span>Buyer: <strong>{buyerFilter}</strong></span>
+                <button onClick={() => setBuyerFilter('All')} className="hover:text-blue-900 dark:hover:text-white cursor-pointer ml-0.5">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {fabricFilter !== 'All' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-semibold">
+                <span>Fabric: <strong>{fabricFilter}</strong></span>
+                <button onClick={() => setFabricFilter('All')} className="hover:text-indigo-900 dark:hover:text-white cursor-pointer ml-0.5">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {colorFilter !== 'All' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-violet-50 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800 font-semibold">
+                <span>Color: <strong>{colorFilter}</strong></span>
+                <button onClick={() => setColorFilter('All')} className="hover:text-violet-900 dark:hover:text-white cursor-pointer ml-0.5">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {completionDateFilter.mode !== 'all' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-semibold">
+                <span>
+                  {completionDateFilter.mode === 'month' 
+                    ? 'Month' 
+                    : completionDateFilter.mode === 'range' 
+                    ? 'Range' 
+                    : 'Date'}: <strong>{completionDateFilter.label}</strong>
+                </span>
+                <button 
+                  onClick={() => setCompletionDateFilter({ mode: 'all', selectedDate: '', selectedMonth: '', startDate: '', endDate: '', label: '' })} 
+                  className="hover:text-emerald-900 dark:hover:text-white cursor-pointer ml-0.5"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {statusFilter !== 'All' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-semibold">
+                <span>Status: <strong>{statusFilter}</strong></span>
+                <button onClick={() => setStatusFilter('All')} className="hover:text-slate-900 dark:hover:text-white cursor-pointer ml-0.5">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {searchTerm && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold">
+                <span>Keyword: <strong>"{searchTerm}"</strong></span>
+                <button onClick={() => { setSearchTerm(''); setDebouncedSearch(''); }} className="hover:text-amber-900 dark:hover:text-white cursor-pointer ml-0.5">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Main Table: 1st Layer (Order Summary) & 2nd Layer (Expandable Breakdown) */}
@@ -1651,13 +1898,13 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                   <span className="sr-only">Expand/Collapse</span>
                 </th>
 
-                {/* 2. Order No. */}
+                {/* 2. Order Number */}
                 <th 
                   onClick={() => handleSort('orderNo')}
                   className="py-2.5 px-3 min-w-[130px] whitespace-nowrap cursor-pointer hover:bg-slate-200/60 dark:hover:bg-slate-750 transition-colors"
                 >
                   <div className="flex items-center gap-1.5">
-                    <span>Order No.</span>
+                    <span>Order Number</span>
                     {sortField === 'orderNo' ? (
                       sortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
                     ) : (
@@ -1681,7 +1928,22 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                   </div>
                 </th>
 
-                {/* 4. Buyer Name */}
+                {/* 4. Completion Date */}
+                <th 
+                  onClick={() => handleSort('completionDate')}
+                  className="py-2.5 px-3 min-w-[130px] whitespace-nowrap cursor-pointer hover:bg-slate-200/60 dark:hover:bg-slate-750 transition-colors"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Completion Date</span>
+                    {sortField === 'completionDate' ? (
+                      sortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                    )}
+                  </div>
+                </th>
+
+                {/* 5. Buyer Name */}
                 <th 
                   onClick={() => handleSort('buyer')}
                   className="py-2.5 px-3 min-w-[140px] whitespace-nowrap cursor-pointer hover:bg-slate-200/60 dark:hover:bg-slate-750 transition-colors"
@@ -1690,21 +1952,6 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                     <span>Buyer Name</span>
                     {sortField === 'buyer' ? (
                       sortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-blue-600" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-                    ) : (
-                      <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
-                    )}
-                  </div>
-                </th>
-
-                {/* 5. Total Grey QTY */}
-                <th 
-                  onClick={() => handleSort('required')}
-                  className="py-2.5 px-3 min-w-[130px] whitespace-nowrap text-right text-indigo-700 dark:text-indigo-300 cursor-pointer hover:bg-slate-200/60 dark:hover:bg-slate-750 transition-colors"
-                >
-                  <div className="flex items-center justify-end gap-1.5">
-                    <span>Total Grey QTY</span>
-                    {sortField === 'required' ? (
-                      sortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-indigo-600" /> : <ArrowDown className="w-3.5 h-3.5 text-indigo-600" />
                     ) : (
                       <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
                     )}
@@ -1726,7 +1973,7 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                   </div>
                 </th>
 
-                {/* 7. Net Issued & Issue % */}
+                {/* 7. Net Issued */}
                 <th 
                   onClick={() => handleSort('issued')}
                   className="py-2.5 px-3 min-w-[130px] whitespace-nowrap text-right text-blue-700 dark:text-blue-300 cursor-pointer hover:bg-slate-200/60 dark:hover:bg-slate-750 transition-colors"
@@ -1847,14 +2094,14 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                           {renderStatusBadge(group.status)}
                         </td>
 
-                        {/* 4. Buyer Name */}
-                        <td className={`${pyClass} px-3 font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap`}>
-                          {group.buyerName || '—'}
+                        {/* 4. Completion Date */}
+                        <td className={`${pyClass} px-3 font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap`}>
+                          {group.completionDate || '—'}
                         </td>
 
-                        {/* 5. Total Grey QTY */}
-                        <td className={`${pyClass} px-3 text-right font-mono font-bold text-indigo-700 dark:text-indigo-300 whitespace-nowrap`}>
-                          {group.greyRequired ? Math.round(group.greyRequired).toLocaleString() : '0'}
+                        {/* 5. Buyer Name */}
+                        <td className={`${pyClass} px-3 font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap`}>
+                          {group.buyerName || '—'}
                         </td>
 
                         {/* 6. Net Received */}
@@ -1972,28 +2219,22 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                                 </div>
                               </div>
 
-                              {/* Second Layer Table */}
+                               {/* Second Layer Table */}
                               <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs">
                                 <table className="w-full text-left text-[11px] border-collapse">
                                   <thead>
                                     <tr className="bg-slate-100/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                                      <th className="py-2 px-3">Order No.</th>
                                       <th className="py-2 px-3">Colour</th>
-                                      <th className="py-2 px-3">Fabric Style</th>
-                                      <th className="py-2 px-3">Fabrics Type</th>
-                                      <th className="py-2 px-3">Buyer</th>
-                                      <th className="py-2 px-3 text-center">Owner Unit</th>
-                                      <th className="py-2 px-3 text-right text-indigo-600 dark:text-indigo-400">
-                                        Total Grey QTY
-                                      </th>
+                                      <th className="py-2 px-3">Fabric Type</th>
+                                      <th className="py-2 px-3">Fab Style</th>
                                       <th className="py-2 px-3 text-right text-emerald-600 dark:text-emerald-400">
-                                        Net Received Qty.-Kg
+                                        Total Received
                                       </th>
                                       <th className="py-2 px-3 text-right text-blue-600 dark:text-blue-400">
-                                        Net Issued Qty.-Kg
+                                        Total Issued
                                       </th>
                                       <th className="py-2 px-3 text-right text-amber-600 dark:text-amber-400">
-                                        Stock Qty. Kg
+                                        Total Stock
                                       </th>
                                     </tr>
                                   </thead>
@@ -2016,28 +2257,14 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                                               : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/40'
                                           }`}
                                         >
-                                          <td className="py-2 px-3 font-mono font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
-                                            {group.orderNo}
-                                          </td>
                                           <td className="py-2 px-3 font-semibold text-slate-900 dark:text-white whitespace-nowrap">
                                             {itm.colour || '—'}
                                           </td>
                                           <td className="py-2 px-3 text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                                            {itm.fabStyle || '—'}
-                                          </td>
-                                          <td className="py-2 px-3 text-slate-600 dark:text-slate-400 whitespace-nowrap">
                                             {itm.fabType || '—'}
                                           </td>
-                                          <td className="py-2 px-3 text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                                            {itm.buyerName || group.buyerName || '—'}
-                                          </td>
-                                          <td className="py-2 px-3 text-center whitespace-nowrap">
-                                            <span className="px-1.5 py-0.5 rounded-md font-mono text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                                              {itm.ownerUnit || 'EKL'}
-                                            </span>
-                                          </td>
-                                          <td className="py-2 px-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
-                                            {Math.round(itm.matchedGreyQty || (group.items.length === 1 ? group.greyRequired : 0) || 0).toLocaleString()}
+                                          <td className="py-2 px-3 text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                                            {itm.fabStyle || '—'}
                                           </td>
                                           <td className="py-2 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                                             {Math.round(itm.netReceivedQty || 0).toLocaleString()}
@@ -2054,11 +2281,8 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                                   </tbody>
                                   <tfoot>
                                     <tr className="bg-slate-100/90 dark:bg-slate-800/90 font-black text-slate-900 dark:text-white border-t border-slate-300 dark:border-slate-700">
-                                      <td colSpan={6} className="py-2.5 px-3 uppercase tracking-wider text-slate-700 dark:text-slate-300 text-[10px]">
-                                        Total Order Sum ({group.items.length} {group.items.length === 1 ? 'specification' : 'specifications'})
-                                      </td>
-                                      <td className="py-2.5 px-3 text-right font-mono font-bold text-indigo-700 dark:text-indigo-300 whitespace-nowrap">
-                                        {Math.round(group.greyRequired || 0).toLocaleString()}
+                                      <td colSpan={3} className="py-2.5 px-3 uppercase tracking-wider text-slate-700 dark:text-slate-300 text-[10px]">
+                                        Total Order Sum ({group.items.length} {group.items.length === 1 ? 'item' : 'items'})
                                       </td>
                                       <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300 whitespace-nowrap">
                                         {Math.round(group.totalNetReceived || 0).toLocaleString()}
@@ -2161,9 +2385,15 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                     </h2>
                     {renderStatusBadge(viewingOrder.status)}
                   </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Buyer Name: <span className="font-semibold text-slate-700 dark:text-slate-300">{viewingOrder.buyerName || '—'}</span> (from Knitting Status)
-                  </p>
+                  <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    <span>
+                      Completion Date: <strong className="text-slate-800 dark:text-slate-200 font-mono">{viewingOrder.completionDate || '—'}</strong>
+                    </span>
+                    <span>•</span>
+                    <span>
+                      Buyer Name: <strong className="text-slate-800 dark:text-slate-200">{viewingOrder.buyerName || '—'}</strong>
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -2188,13 +2418,7 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
             </div>
 
             {/* KPI Summary Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4">
-              <div className="bg-slate-50 dark:bg-slate-850 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
-                <span className="text-[10px] font-bold uppercase text-indigo-600 dark:text-indigo-400">Total Grey QTY</span>
-                <div className="text-lg font-bold font-mono text-indigo-600 dark:text-indigo-400 mt-0.5">
-                  {Math.round(viewingOrder.greyRequired).toLocaleString()} <span className="text-xs font-normal text-slate-400">Kg</span>
-                </div>
-              </div>
+            <div className="grid grid-cols-3 gap-3 my-4">
               <div className="bg-slate-50 dark:bg-slate-850 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
                 <span className="text-[10px] font-bold uppercase text-emerald-600 dark:text-emerald-400">Net Received</span>
                 <div className="text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
@@ -2220,34 +2444,42 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
               <table className="w-full text-xs text-left border-collapse">
                 <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold sticky top-0">
                   <tr>
-                    <th className="py-2.5 px-3">Order No.</th>
                     <th className="py-2.5 px-3">Colour</th>
-                    <th className="py-2.5 px-3">Fabric Style</th>
-                    <th className="py-2.5 px-3">Fabrics Type</th>
-                    <th className="py-2.5 px-3">Buyer</th>
-                    <th className="py-2.5 px-3 text-center">Owner Unit</th>
-                    <th className="py-2.5 px-3 text-right text-indigo-600 dark:text-indigo-400">Total Grey QTY</th>
-                    <th className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400">Net Received Qty.-Kg</th>
-                    <th className="py-2.5 px-3 text-right text-blue-600 dark:text-blue-400">Net Issued Qty.-Kg</th>
-                    <th className="py-2.5 px-3 text-right text-amber-600 dark:text-amber-400">Stock Qty. Kg</th>
+                    <th className="py-2.5 px-3">Fabric Type</th>
+                    <th className="py-2.5 px-3">Fab Style</th>
+                    <th className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400">Total Received</th>
+                    <th className="py-2.5 px-3 text-right text-blue-600 dark:text-blue-400">Total Issued</th>
+                    <th className="py-2.5 px-3 text-right text-amber-600 dark:text-amber-400">Total Stock</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
                   {viewingOrder.items.map((itm, itmIdx) => (
                     <tr key={itm.id || `modal-itm-${itmIdx}`} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
-                      <td className="py-2.5 px-3 font-mono font-bold text-slate-800 dark:text-slate-200">{viewingOrder.orderNo}</td>
                       <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-white">{itm.colour || '—'}</td>
-                      <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300">{itm.fabStyle || '—'}</td>
-                      <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">{itm.fabType || '—'}</td>
-                      <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300">{itm.buyerName || viewingOrder.buyerName || '—'}</td>
-                      <td className="py-2.5 px-3 text-center font-mono">{itm.ownerUnit || 'EKL'}</td>
-                      <td className="py-2.5 px-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400">{Math.round(itm.matchedGreyQty || (viewingOrder.items.length === 1 ? viewingOrder.greyRequired : 0) || 0).toLocaleString()}</td>
+                      <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300">{itm.fabType || '—'}</td>
+                      <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">{itm.fabStyle || '—'}</td>
                       <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">{Math.round(itm.netReceivedQty || 0).toLocaleString()}</td>
                       <td className="py-2.5 px-3 text-right font-mono font-bold text-blue-600 dark:text-blue-400">{Math.round(itm.netIssuedQty || 0).toLocaleString()}</td>
                       <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-600 dark:text-amber-400">{Math.round(itm.stockQty !== undefined ? itm.stockQty : Math.max(0, (itm.netReceivedQty || 0) - (itm.netIssuedQty || 0))).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr className="bg-slate-100/90 dark:bg-slate-800/90 font-black text-slate-900 dark:text-white border-t border-slate-300 dark:border-slate-700">
+                    <td colSpan={3} className="py-2.5 px-3 uppercase tracking-wider text-slate-700 dark:text-slate-300 text-[10px]">
+                      Total Order Sum ({viewingOrder.items.length} {viewingOrder.items.length === 1 ? 'item' : 'items'})
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300 whitespace-nowrap">
+                      {Math.round(viewingOrder.totalNetReceived || 0).toLocaleString()}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-blue-700 dark:text-blue-300 whitespace-nowrap">
+                      {Math.round(viewingOrder.totalNetIssued || 0).toLocaleString()}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-black text-amber-900 dark:text-amber-300 whitespace-nowrap bg-amber-50/40 dark:bg-amber-950/20">
+                      {Math.round(viewingOrder.totalGreyStock || 0).toLocaleString()}
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
 
@@ -2370,45 +2602,29 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                 </div>
               </div>
 
-              {/* Active Header Re-Routing Card */}
-              <div className="bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs space-y-2.5">
+              {/* Active Header Mapping Card */}
+              <div className="bg-slate-50 dark:bg-slate-850 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs space-y-2.5">
                 <div className="flex items-center justify-between">
                   <p className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-blue-500" />
-                    <span>Auto Header Re-Routing &amp; Mapping:</span>
+                    <span>Direct File Header Mapping (Self-Contained):</span>
                   </p>
                   <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
-                    Active
+                    Exact Match
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px]">
-                  <div className="flex items-center justify-between bg-white dark:bg-slate-700 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 shadow-2xs">
-                    <span className="text-slate-500 dark:text-slate-400 font-mono">Fabrics Type</span>
-                    <span className="text-slate-400">&rarr;</span>
-                    <span className="font-bold text-blue-600 dark:text-blue-300 font-mono">Fab. Type</span>
-                  </div>
-                  <div className="flex items-center justify-between bg-white dark:bg-slate-700 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 shadow-2xs">
-                    <span className="text-slate-500 dark:text-slate-400 font-mono">Net Received Qty.-Kg</span>
-                    <span className="text-slate-400">&rarr;</span>
-                    <span className="font-bold text-emerald-600 dark:text-emerald-300 font-mono">Net Received</span>
-                  </div>
-                  <div className="flex items-center justify-between bg-white dark:bg-slate-700 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 shadow-2xs">
-                    <span className="text-slate-500 dark:text-slate-400 font-mono">Net Issued Qty.-Kg</span>
-                    <span className="text-slate-400">&rarr;</span>
-                    <span className="font-bold text-blue-600 dark:text-blue-300 font-mono">Net Issued</span>
-                  </div>
-                  <div className="flex items-center justify-between bg-white dark:bg-slate-700 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 shadow-2xs">
-                    <span className="text-slate-500 dark:text-slate-400 font-mono">Stock Qty. Kg</span>
-                    <span className="text-slate-400">&rarr;</span>
-                    <span className="font-bold text-amber-600 dark:text-amber-300 font-mono">Stock QTY</span>
+                <div className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                  Expected 12 Headers in your Excel file:
+                  <div className="font-mono text-[10px] bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-700 mt-1 text-slate-800 dark:text-slate-200 overflow-x-auto">
+                    Code • Order No. • Buyer Name • Fabrics Type • Colour • Fab Style • Status • Completion Date • Net Received • Net Issued • Total Stock • Double Count
                   </div>
                 </div>
 
                 <div className="pt-2 border-t border-slate-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-300 flex items-start gap-2 bg-blue-50/50 dark:bg-blue-950/30 p-2 rounded-lg">
                   <CheckCircle2 className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-bold text-slate-800 dark:text-slate-200">Buyer Priority Rule:</span> Checks if the order number exists in <strong>Knitting Status</strong> to take Knitting Status Buyer. Otherwise takes <strong>Buyer</strong> column from your uploaded file.
+                    <span className="font-bold text-slate-800 dark:text-slate-200">No External Matching:</span> All Layer 1 (Order No., Status, Completion Date, Buyer Name, Net Received, Net Issued, Grey Stock) and Layer 2 (Colour, Fabric Type, Fab Style, Total Received, Total Issued, Total Stock) are constructed entirely from your uploaded file.
                   </div>
                 </div>
               </div>

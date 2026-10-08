@@ -46,203 +46,253 @@ export function normOrder(val: string | null | undefined): string {
 }
 
 /**
- * Initial Default Demo Records for Grey Stock
+ * Formats completion date cleanly into readable string (e.g. "15-Oct-2024" or clean text)
+ */
+export function formatCompletionDate(val: any): string {
+  if (val === null || val === undefined || val === '') return '—';
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return '—';
+    return val.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+  const s = String(val).trim();
+  if (!s || s === '0' || s === 'null' || s === 'undefined' || s === '—') return '—';
+
+  // Excel serial day number (e.g. 45200 ~ 2023)
+  const num = Number(s);
+  if (!isNaN(num) && num > 30000 && num < 60000) {
+    try {
+      const d = new Date((num - (25567 + 2)) * 86400 * 1000);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+      }
+    } catch {}
+  }
+
+  // ISO or standard date string
+  if (s.includes('-') || s.includes('/') || s.includes('.')) {
+    const parsed = Date.parse(s);
+    if (!isNaN(parsed) && !s.match(/^\d+$/)) {
+      try {
+        const d = new Date(parsed);
+        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+      } catch {}
+    }
+  }
+
+  return s;
+}
+
+/**
+ * Initial Default Demo Records for Grey Stock (Full 12-header structure)
  */
 export const INITIAL_GREY_STOCK_RECORDS: GreyStockItem[] = [
   {
     id: 'gs-271890-1',
-    status: 'Running',
+    code: 'CD-271890-A',
     orderNo: '271890',
     buyerName: 'Vogue Sourcin',
+    fabType: '100% Cotton Single Jersey',
     colour: 'Navy Blue',
     fabStyle: 'Basic S/J',
-    fabType: '100% Cotton Single Jersey',
-    ownerUnit: 'EKL',
+    status: 'Running',
+    completionDate: '24-Oct-2024',
     netReceivedQty: 1200,
     netIssuedQty: 800,
-    stockQty: 400
+    stockQty: 400,
+    doubleCount: 0,
+    ownerUnit: 'EKL'
   },
   {
     id: 'gs-271890-2',
-    status: 'Running',
+    code: 'CD-271890-B',
     orderNo: '271890',
     buyerName: 'Vogue Sourcin',
+    fabType: '95% Cotton 5% Spandex S/J',
     colour: 'Bright White',
     fabStyle: 'Lycra S/J',
-    fabType: '95% Cotton 5% Spandex S/J',
-    ownerUnit: 'EFL',
+    status: 'Running',
+    completionDate: '24-Oct-2024',
     netReceivedQty: 950,
     netIssuedQty: 600,
-    stockQty: 350
+    stockQty: 350,
+    doubleCount: 0,
+    ownerUnit: 'EFL'
   },
   {
     id: 'gs-272277-1',
-    status: 'Running',
+    code: 'CD-272277-A',
     orderNo: '272277',
     buyerName: 'M&S',
+    fabType: '100% Cotton 1x1 Spandex Rib',
     colour: 'Slate Grey',
     fabStyle: 'Style-A',
-    fabType: '100% Cotton 1x1 Spandex Rib',
-    ownerUnit: 'EKL',
+    status: 'Running',
+    completionDate: '18-Nov-2024',
     netReceivedQty: 480,
     netIssuedQty: 320,
-    stockQty: 160
+    stockQty: 160,
+    doubleCount: 0,
+    ownerUnit: 'EKL'
   },
   {
     id: 'gs-272277-2',
-    status: 'Running',
+    code: 'CD-272277-B',
     orderNo: '272277',
     buyerName: 'M&S',
+    fabType: '100% Cotton Single Jersey',
     colour: 'Slate Grey',
     fabStyle: 'Style-B',
-    fabType: '100% Cotton Single Jersey',
-    ownerUnit: 'EFL',
+    status: 'Running',
+    completionDate: '18-Nov-2024',
     netReceivedQty: 2950,
     netIssuedQty: 2200,
-    stockQty: 750
+    stockQty: 750,
+    doubleCount: 0,
+    ownerUnit: 'EFL'
   },
   {
     id: 'gs-271522-1',
-    status: 'Running',
+    code: 'CD-271522-A',
     orderNo: '271522',
     buyerName: 'Zara',
+    fabType: '100% Organic Cotton S/J',
     colour: 'Black',
     fabStyle: 'Basic S/J',
-    fabType: '100% Organic Cotton S/J',
-    ownerUnit: 'EKL',
+    status: 'Running',
+    completionDate: '05-Dec-2024',
     netReceivedQty: 2400,
     netIssuedQty: 1850,
-    stockQty: 550
+    stockQty: 550,
+    doubleCount: 0,
+    ownerUnit: 'EKL'
   },
   {
     id: 'gs-271522-2',
-    status: 'Running',
+    code: 'CD-271522-B',
     orderNo: '271522',
     buyerName: 'Zara',
+    fabType: '100% Organic Cotton S/J',
     colour: 'White',
     fabStyle: 'Basic S/J',
-    fabType: '100% Organic Cotton S/J',
-    ownerUnit: 'EKL',
+    status: 'Running',
+    completionDate: '05-Dec-2024',
     netReceivedQty: 1800,
     netIssuedQty: 1400,
-    stockQty: 400
+    stockQty: 400,
+    doubleCount: 0,
+    ownerUnit: 'EKL'
   },
   {
     id: 'gs-271891-1',
-    status: 'Complete',
+    code: 'CD-271891-A',
     orderNo: '271891',
     buyerName: 'S.Oliver',
+    fabType: '100% Cotton 1x1 Rib',
     colour: 'Olive Green',
     fabStyle: 'Rib Neck',
-    fabType: '100% Cotton 1x1 Rib',
-    ownerUnit: 'Sub-Contact',
+    status: 'Complete',
+    completionDate: '12-Oct-2024',
     netReceivedQty: 1220,
     netIssuedQty: 1220,
-    stockQty: 0
+    stockQty: 0,
+    doubleCount: 0,
+    ownerUnit: 'Sub-Contact'
   },
   {
     id: 'gs-271891-2',
-    status: 'Complete',
+    code: 'CD-271891-B',
     orderNo: '271891',
     buyerName: 'S.Oliver',
+    fabType: 'Drop Needle Interlock',
     colour: 'Dark Olive',
     fabStyle: 'Body Knit',
-    fabType: 'Drop Needle Interlock',
-    ownerUnit: 'EKL',
+    status: 'Complete',
+    completionDate: '12-Oct-2024',
     netReceivedQty: 1260,
     netIssuedQty: 1260,
-    stockQty: 0
+    stockQty: 0,
+    doubleCount: 0,
+    ownerUnit: 'EKL'
   },
   {
     id: 'gs-270258-1',
-    status: 'Complete',
+    code: 'CD-270258-A',
     orderNo: '270258',
     buyerName: 'H&M',
+    fabType: 'Cotton Polyester Melange',
     colour: 'Heather Grey',
     fabStyle: 'Style-H',
-    fabType: 'Cotton Polyester Melange',
-    ownerUnit: 'EKL',
+    status: 'Complete',
+    completionDate: '30-Sep-2024',
     netReceivedQty: 1850,
     netIssuedQty: 1850,
-    stockQty: 0
+    stockQty: 0,
+    doubleCount: 0,
+    ownerUnit: 'EKL'
   },
   {
     id: 'gs-260796-1',
-    status: 'Complete',
+    code: 'CD-260796-A',
     orderNo: '260796',
     buyerName: 'H&M',
+    fabType: '100% Cotton Interlock',
     colour: 'Black',
     fabStyle: 'Interlock Body',
-    fabType: '100% Cotton Interlock',
-    ownerUnit: 'EKL',
+    status: 'Complete',
+    completionDate: '28-Sep-2024',
     netReceivedQty: 5490,
     netIssuedQty: 5488,
-    stockQty: 2
+    stockQty: 2,
+    doubleCount: 0,
+    ownerUnit: 'EKL'
   },
   {
     id: 'gs-265430-1',
-    status: 'Running',
+    code: 'CD-265430-A',
     orderNo: '265430',
     buyerName: 'Next',
+    fabType: 'French Terry Fleece',
     colour: 'French Navy',
     fabStyle: 'Terry Body',
-    fabType: 'French Terry Fleece',
-    ownerUnit: 'EFL',
+    status: 'Running',
+    completionDate: '15-Nov-2024',
     netReceivedQty: 2200,
     netIssuedQty: 1500,
-    stockQty: 700
+    stockQty: 700,
+    doubleCount: 0,
+    ownerUnit: 'EFL'
   },
   {
     id: 'gs-268400-1',
-    status: 'Running',
+    code: 'CD-268400-A',
     orderNo: '268400',
     buyerName: 'Mango',
+    fabType: '100% Combed Cotton Pique',
     colour: 'Navy Blue',
     fabStyle: 'Polo Pique',
-    fabType: '100% Combed Cotton Pique',
-    ownerUnit: 'EFL',
+    status: 'Running',
+    completionDate: '02-Dec-2024',
     netReceivedQty: 1650,
     netIssuedQty: 1100,
-    stockQty: 550
+    stockQty: 550,
+    doubleCount: 0,
+    ownerUnit: 'EFL'
   },
   {
     id: 'gs-268400-2',
-    status: 'Running',
+    code: 'CD-268400-B',
     orderNo: '268400',
     buyerName: 'Mango',
+    fabType: 'Cotton Lycra Flat Knit',
     colour: 'Charcoal',
     fabStyle: 'Polo Collar',
-    fabType: 'Cotton Lycra Flat Knit',
-    ownerUnit: 'EKL',
+    status: 'Running',
+    completionDate: '02-Dec-2024',
     netReceivedQty: 750,
     netIssuedQty: 520,
-    stockQty: 230
-  },
-  {
-    id: 'gs-1001-1',
-    status: 'Running',
-    orderNo: '1001',
-    buyerName: 'Buyer A',
-    colour: 'Black',
-    fabStyle: 'Style A',
-    fabType: 'Jersey',
-    ownerUnit: 'EKL',
-    netReceivedQty: 500,
-    netIssuedQty: 300,
-    stockQty: 200
-  },
-  {
-    id: 'gs-1001-2',
-    status: 'Running',
-    orderNo: '1001',
-    buyerName: 'Buyer A',
-    colour: 'Navy',
-    fabStyle: 'Style B',
-    fabType: 'Jersey',
-    ownerUnit: 'EFL',
-    netReceivedQty: 400,
-    netIssuedQty: 250,
-    stockQty: 150
+    stockQty: 230,
+    doubleCount: 0,
+    ownerUnit: 'EKL'
   }
 ];
 
@@ -296,11 +346,14 @@ export const GreyStockStorage = {
    * Automatically pushes to central database (server DB & Supabase) for two-way synchronization
    */
   saveRecords(records: GreyStockItem[], pushToRemote: boolean = true): void {
+    const isSameReference = memoryRecordsCache === records;
     memoryRecordsCache = records;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-    } catch (err) {
-      console.warn('Storage quota warning - keeping dataset in memory:', err);
+    if (!isSameReference) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+      } catch (err) {
+        console.warn('Storage quota warning - keeping dataset in memory:', err);
+      }
     }
     // Dispatch custom event for real-time reactive sync across components (deferred)
     setTimeout(() => {
@@ -313,7 +366,7 @@ export const GreyStockStorage = {
     if (pushToRemote && Array.isArray(records) && records.length > 0) {
       try {
         GasClient.saveGreyStockRecords(records).catch(() => {});
-        if (SupabaseSync.isConfigured()) {
+        if (SupabaseSync.isConfigured() && SupabaseSync.isGreyStockTableAvailable()) {
           SupabaseSync.bulkSaveGreyStockRecords(records, true).catch(() => {});
         }
       } catch (e) {
@@ -342,7 +395,7 @@ export const GreyStockStorage = {
     }
 
     // 2. Fetch from Supabase Cloud if available
-    if ((!remoteRecords || remoteRecords.length === 0) && SupabaseSync.isConfigured()) {
+    if ((!remoteRecords || remoteRecords.length === 0) && SupabaseSync.isConfigured() && SupabaseSync.isGreyStockTableAvailable()) {
       try {
         const supaRecs = await SupabaseSync.fetchGreyStockRecords();
         if (supaRecs && Array.isArray(supaRecs) && supaRecs.length > 0) {
@@ -359,7 +412,7 @@ export const GreyStockStorage = {
     // If forced to push local or if local has uploaded dataset while remote is empty
     if (forcePushLocal || (localRecords.length > INITIAL_GREY_STOCK_RECORDS.length && (!remoteRecords || remoteRecords.length === 0))) {
       GasClient.saveGreyStockRecords(localRecords).catch(() => {});
-      if (SupabaseSync.isConfigured()) {
+      if (SupabaseSync.isConfigured() && SupabaseSync.isGreyStockTableAvailable()) {
         SupabaseSync.bulkSaveGreyStockRecords(localRecords, true).catch(() => {});
       }
       return { records: localRecords, source: 'local_pushed', count: localRecords.length };
@@ -376,7 +429,7 @@ export const GreyStockStorage = {
     // Otherwise, ensure remote is in sync with current local records
     if (localRecords.length > 0) {
       GasClient.saveGreyStockRecords(localRecords).catch(() => {});
-      if (SupabaseSync.isConfigured()) {
+      if (SupabaseSync.isConfigured() && SupabaseSync.isGreyStockTableAvailable()) {
         SupabaseSync.bulkSaveGreyStockRecords(localRecords, true).catch(() => {});
       }
     }
@@ -888,143 +941,80 @@ export function resolveGreyStockOrderStatus(
 }
 
 /**
- * Groups Grey Stock Items into Order-wise Main Layer Groups
- * High-performance O(N) execution with pre-indexed hash lookups.
- * Buyer Resolution Rule:
- * 1. Check if the order number exists in Knitting Status -> Use Knitting Status Buyer.
- * 2. Otherwise -> Take buyer name from Excel uploaded file ('Buyer' column).
+ * Groups Grey Stock Items into Order-wise 1st Layer Groups.
+ * User requirement:
+ * "No Matching with another file or something. I will upload all the data.
  * 
- * Status Resolution Rule:
- * 1. Textile Close by PMC -> "Textile Close"
- * 2. Running / condition in Knitting Status -> Knitting Status module status
- * 3. Series < 27 & not in Knitting Status -> "Unknown"
+ * 1st Layer:
+ * - Order Number = Order No.
+ * - Status = Status
+ * - Completion Date = Completion Date
+ * - Buyer Name = Buyer Name
+ * - Net Received = Sum of Total Received
+ * - Net Issued = Sum of Total Issued
+ * - Grey Stock = Sum of Total Stock
+ * - Action = View & Snip
+ * 
+ * 2nd Layer:
+ * - Colour = Colour
+ * - Fabric Type = Fabrics Type
+ * - Fabric Style = Fab Style
+ * - Total Received = Net Received
+ * - Total Issued = Net Issued
+ * - Total Stock = Total Stock"
  */
 export function groupGreyStockRecords(
   items: GreyStockItem[],
-  knittingOrdersOrIndex: KnittingStatusOrder[] | GreyStockLookupIndex = [],
-  textileRecords: TextileCloseRecord[] = []
+  _knittingOrdersOrIndex: KnittingStatusOrder[] | GreyStockLookupIndex = [],
+  _textileRecords: TextileCloseRecord[] = []
 ): GreyStockOrderGroup[] {
-  const index: GreyStockLookupIndex = ('buyerMap' in (knittingOrdersOrIndex as any))
-    ? (knittingOrdersOrIndex as GreyStockLookupIndex)
-    : buildGreyStockLookupIndex(knittingOrdersOrIndex as KnittingStatusOrder[], textileRecords);
-
   const map = new Map<string, GreyStockOrderGroup>();
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     const rawOrd = (item.orderNo || 'Unknown').trim();
-    const keys = getOrderLookupKeys(rawOrd);
     let group = map.get(rawOrd);
-
-    if (!group) {
-      // 1. Check if order number exists in Knitting Status dataset across all keys
-      let ksBuyer: string | undefined;
-      for (let k = 0; k < keys.length; k++) {
-        if (index.buyerMap.has(keys[k])) {
-          ksBuyer = index.buyerMap.get(keys[k]);
-          break;
-        }
-      }
-      const fileBuyer = item.buyerName?.trim();
-
-      // If Knitting Status has a valid buyer name for this order, take it; otherwise take from uploaded file
-      const resolvedBuyer = (ksBuyer && ksBuyer !== '—' && ksBuyer.toLowerCase() !== 'unknown')
-        ? ksBuyer
-        : (fileBuyer && fileBuyer !== '—' ? fileBuyer : (rawOrd === '1001' ? 'Buyer A' : '—'));
-
-      let greyReq = 0;
-      for (let k = 0; k < keys.length; k++) {
-        if (index.greyReqMap.has(keys[k])) {
-          greyReq = index.greyReqMap.get(keys[k]) || 0;
-          break;
-        }
-      }
-      if (!greyReq && rawOrd === '1001') greyReq = 1200;
-
-      const resolvedStatus = resolveGreyStockOrderStatus(rawOrd, index, item.status);
-
-      group = {
-        orderNo: rawOrd,
-        status: resolvedStatus,
-        buyerName: resolvedBuyer,
-        greyRequired: greyReq,
-        totalNetReceived: 0,
-        totalNetIssued: 0,
-        totalGreyStock: 0,
-        items: []
-      };
-      map.set(rawOrd, group);
-    } else {
-      // If group was created without a buyer, check if subsequent item has buyer
-      if ((!group.buyerName || group.buyerName === '—') && item.buyerName?.trim()) {
-        let ksBuyer: string | undefined;
-        for (let k = 0; k < keys.length; k++) {
-          if (index.buyerMap.has(keys[k])) {
-            ksBuyer = index.buyerMap.get(keys[k]);
-            break;
-          }
-        }
-        group.buyerName = (ksBuyer && ksBuyer !== '—' && ksBuyer.toLowerCase() !== 'unknown')
-          ? ksBuyer
-          : item.buyerName.trim();
-      }
-    }
-
-    // Keep item status and buyer synchronized
-    item.status = group.status;
-    if (!item.buyerName || item.buyerName === '—') {
-      item.buyerName = group.buyerName;
-    }
-
-    if (item.matchedGreyQty === undefined || item.matchedGreyQty === 0) {
-      const normCol = norm(item.colour);
-      const normFab = norm(item.fabType);
-      let matched = 0;
-      for (let k = 0; k < keys.length; k++) {
-        const key = keys[k];
-        const exactKey = `${key}__${normCol}__${normFab}`;
-        if (index.greyQtyExactMap.has(exactKey)) {
-          matched = index.greyQtyExactMap.get(exactKey) || 0;
-          break;
-        }
-        const colorKey = `${key}__${normCol}`;
-        if (index.greyQtyColorMap.has(colorKey)) {
-          matched = index.greyQtyColorMap.get(colorKey) || 0;
-          break;
-        }
-        if (index.greyQtyOrderMap.has(key)) {
-          matched = index.greyQtyOrderMap.get(key) || 0;
-          break;
-        }
-      }
-      item.matchedGreyQty = Math.round(matched);
-    }
 
     const netRec = Math.round(parseNumericValue(item.netReceivedQty));
     const netIss = Math.round(parseNumericValue(item.netIssuedQty));
-    const stock = item.stockQty !== undefined ? Math.round(parseNumericValue(item.stockQty)) : Math.max(0, netRec - netIss);
+    const stock = item.stockQty !== undefined && item.stockQty !== null
+      ? Math.round(parseNumericValue(item.stockQty))
+      : Math.max(0, netRec - netIss);
 
     item.netReceivedQty = netRec;
     item.netIssuedQty = netIss;
     item.stockQty = stock;
 
-    group.totalNetReceived = Math.round(group.totalNetReceived + netRec);
-    group.totalNetIssued = Math.round(group.totalNetIssued + netIss);
-    group.totalGreyStock = Math.round(group.totalGreyStock + stock);
-    group.items.push(item);
-  }
-
-  // Final pass: ensure group total grey requirement is accurate and rounded up
-  for (const group of map.values()) {
-    if (!group.greyRequired || group.greyRequired === 0) {
-      const sumItemGrey = group.items.reduce((acc, it) => acc + (it.matchedGreyQty || 0), 0);
-      group.greyRequired = Math.round(sumItemGrey || group.totalNetReceived || 0);
+    if (!group) {
+      group = {
+        orderNo: rawOrd,
+        status: (item.status && item.status.trim() && item.status.trim() !== '—') ? item.status.trim() : 'Running',
+        completionDate: (item.completionDate && item.completionDate.trim() && item.completionDate.trim() !== '—') ? item.completionDate.trim() : '—',
+        buyerName: (item.buyerName && item.buyerName.trim() && item.buyerName.trim() !== '—') ? item.buyerName.trim() : '—',
+        totalNetReceived: netRec,
+        totalNetIssued: netIss,
+        totalGreyStock: stock,
+        greyRequired: stock,
+        items: [item]
+      };
+      map.set(rawOrd, group);
     } else {
-      group.greyRequired = Math.round(group.greyRequired);
-    }
-    // If order has only 1 item and item's matchedGreyQty is 0 or undefined, assign group.greyRequired
-    if (group.items.length === 1 && (!group.items[0].matchedGreyQty || group.items[0].matchedGreyQty === 0) && group.greyRequired > 0) {
-      group.items[0].matchedGreyQty = group.greyRequired;
+      // If group has placeholder values, populate from subsequent items if available
+      if ((!group.status || group.status === '—' || group.status === 'Running') && item.status && item.status.trim() && item.status.trim() !== '—') {
+        group.status = item.status.trim();
+      }
+      if ((!group.completionDate || group.completionDate === '—') && item.completionDate && item.completionDate.trim() && item.completionDate.trim() !== '—') {
+        group.completionDate = item.completionDate.trim();
+      }
+      if ((!group.buyerName || group.buyerName === '—') && item.buyerName && item.buyerName.trim() && item.buyerName.trim() !== '—') {
+        group.buyerName = item.buyerName.trim();
+      }
+
+      group.totalNetReceived = Math.round(group.totalNetReceived + netRec);
+      group.totalNetIssued = Math.round(group.totalNetIssued + netIss);
+      group.totalGreyStock = Math.round(group.totalGreyStock + stock);
+      group.greyRequired = group.totalGreyStock;
+      group.items.push(item);
     }
   }
 
@@ -1040,14 +1030,8 @@ export type ParseProgressCallback = (progress: {
 }) => void;
 
 /**
- * Daily Excel / CSV File Parser with Intelligent Header Routing & Re-Routing
- * 
- * Re-routes:
- * - Fabrics Type -> Fab. Type
- * - Net Received Qty.-Kg -> Net Received
- * - Net Issued Qty.-Kg -> Net Issued
- * - Stock Qty. Kg -> Stock QTY
- * - Buyer / Buyer Name -> Buyer Name
+ * Daily Excel / CSV File Parser customized for:
+ * Headers: Code, Order No., Buyer Name, Fabrics Type, Colour, Fab Style, Status, Completion Date, Net Received, Net Issued, Total Stock, Double Count
  */
 export function parseGreyStockExcel(
   file: File,
@@ -1126,9 +1110,13 @@ export function parseGreyStockExcel(
             if (cellNorm.includes('fabric') || cellNorm.includes('fabrics') || cellNorm.includes('fabtype')) score += 4;
             if (cellNorm.includes('received') || cellNorm.includes('recieved')) score += 4;
             if (cellNorm.includes('issued')) score += 4;
-            if (cellNorm.includes('stock')) score += 3;
+            if (cellNorm.includes('stock')) score += 4;
             if (cellNorm.includes('buyer')) score += 3;
-            if (cellNorm.includes('unit')) score += 2;
+            if (cellNorm.includes('status')) score += 3;
+            if (cellNorm.includes('completion') || cellNorm.includes('compdate')) score += 3;
+            if (cellNorm.includes('style') || cellNorm.includes('fabstyle')) score += 3;
+            if (cellNorm.includes('code')) score += 2;
+            if (cellNorm.includes('double')) score += 2;
           }
 
           if (score > highestHeaderScore) {
@@ -1155,59 +1143,75 @@ export function parseGreyStockExcel(
         });
       }
 
-      // Map column positions accurately from detected header row
+      // Map column positions accurately from detected header row according to user specification:
+      // Code, Order No., Buyer Name, Fabrics Type, Colour, Fab Style, Status, Completion Date, Net Received, Net Issued, Total Stock, Double Count
+      let colCode = -1;
       let colOrderNo = -1;
-      let colStatus = -1;
       let colBuyer = -1;
-      let colColour = -1;
       let colFabType = -1;
+      let colColour = -1;
       let colFabStyle = -1;
-      let colOwnerUnit = -1;
+      let colStatus = -1;
+      let colCompletionDate = -1;
       let colNetReceived = -1;
       let colNetIssued = -1;
-      let colStock = -1;
+      let colTotalStock = -1;
+      let colDoubleCount = -1;
+      let colOwnerUnit = -1;
 
       for (let c = 0; c < headerRow.length; c++) {
         const hNorm = norm(headerRow[c]);
         if (!hNorm) continue;
 
-        // 1. Order No.
-        if (colOrderNo === -1 && (hNorm.includes('order') || hNorm === 'jobno' || hNorm === 'ewo' || hNorm === 'ewono')) {
-          colOrderNo = c;
+        // 1. Code
+        if (colCode === -1 && (hNorm === 'code' || hNorm === 'itemcode' || hNorm === 'ordercode' || hNorm === 'fabriccode')) {
+          colCode = c;
         }
-        // 2. Status
-        else if (colStatus === -1 && (hNorm === 'status' || hNorm === 'orderstatus' || hNorm === 'itemstatus')) {
-          colStatus = c;
+        // 2. Order No.
+        else if (colOrderNo === -1 && (hNorm.includes('orderno') || hNorm.includes('ordernumber') || hNorm === 'order' || hNorm === 'jobno' || hNorm === 'ewo' || hNorm === 'ewono' || (hNorm.includes('order') && !hNorm.includes('status')))) {
+          colOrderNo = c;
         }
         // 3. Buyer Name / Buyer
         else if (colBuyer === -1 && (hNorm.includes('buyer') || hNorm.includes('customer'))) {
           colBuyer = c;
         }
-        // 4. Colour / Color
+        // 4. Fab Style (check style first so "Fab Style" is not captured as Fabrics Type)
+        else if (colFabStyle === -1 && (hNorm.includes('fabstyle') || hNorm.includes('fabricstyle') || hNorm === 'style' || hNorm.includes('style'))) {
+          colFabStyle = c;
+        }
+        // 5. Fabrics Type / Fabric Type
+        else if (colFabType === -1 && (hNorm.includes('fabricstype') || hNorm.includes('fabrictype') || hNorm.includes('fabtype') || hNorm.includes('fabrication') || hNorm === 'fabrics' || hNorm === 'fabric' || (hNorm.includes('fabric') && !hNorm.includes('style')))) {
+          colFabType = c;
+        }
+        // 6. Colour / Color
         else if (colColour === -1 && (hNorm.includes('colour') || hNorm.includes('color') || hNorm.includes('shade'))) {
           colColour = c;
         }
-        // 5. Net Received Qty.-Kg -> Net Received
-        else if (colNetReceived === -1 && (hNorm.includes('received') || hNorm.includes('recieved') || hNorm.includes('netrec'))) {
+        // 7. Status
+        else if (colStatus === -1 && (hNorm === 'status' || hNorm === 'orderstatus' || hNorm === 'itemstatus')) {
+          colStatus = c;
+        }
+        // 8. Completion Date
+        else if (colCompletionDate === -1 && (hNorm.includes('completion') || hNorm.includes('completedate') || hNorm.includes('compdate') || hNorm.includes('closingdate') || hNorm.includes('closeddate') || hNorm.includes('deliverydate'))) {
+          colCompletionDate = c;
+        }
+        // 9. Net Received (Sum of Total Received / Net Received)
+        else if (colNetReceived === -1 && (hNorm.includes('netrec') || hNorm.includes('totalrec') || hNorm.includes('received') || hNorm.includes('recieved'))) {
           colNetReceived = c;
         }
-        // 6. Net Issued Qty.-Kg -> Net Issued
-        else if (colNetIssued === -1 && (hNorm.includes('issued') || hNorm.includes('netiss'))) {
+        // 10. Net Issued (Sum of Total Issued / Net Issued)
+        else if (colNetIssued === -1 && (hNorm.includes('netiss') || hNorm.includes('totaliss') || hNorm.includes('issued'))) {
           colNetIssued = c;
         }
-        // 7. Stock Qty. Kg -> Stock QTY
-        else if (colStock === -1 && (hNorm.includes('stock') || hNorm.includes('balance'))) {
-          colStock = c;
+        // 11. Total Stock / Grey Stock / Stock
+        else if (colTotalStock === -1 && (hNorm.includes('totalstock') || hNorm.includes('greystock') || hNorm === 'stock' || hNorm.includes('stock') || hNorm.includes('balance'))) {
+          colTotalStock = c;
         }
-        // 8. Fabric Style -> Fab Style (check style first before general fabric)
-        if (colFabStyle === -1 && (hNorm.includes('style') || hNorm.includes('fabricstyle') || hNorm.includes('fabstyle'))) {
-          colFabStyle = c;
+        // 12. Double Count
+        else if (colDoubleCount === -1 && (hNorm.includes('double') || hNorm.includes('doublecount'))) {
+          colDoubleCount = c;
         }
-        // 9. Fabrics Type -> Fab. Type (must not be fabric style)
-        else if (colFabType === -1 && (hNorm.includes('fabricstype') || hNorm.includes('fabrictype') || hNorm.includes('fabtype') || hNorm.includes('fabrication') || hNorm === 'fabrics' || hNorm === 'fabric')) {
-          colFabType = c;
-        }
-        // 10. Owner Unit
+        // Optional Owner Unit
         else if (colOwnerUnit === -1 && (hNorm.includes('owner') || hNorm.includes('unit') || hNorm === 'plant' || hNorm === 'factory')) {
           colOwnerUnit = c;
         }
@@ -1241,17 +1245,25 @@ export function parseGreyStockExcel(
         }
         const orderNo = rawOrder || lastSeenOrderNo;
 
+        const codeFromFile = colCode >= 0 ? String(row[colCode] || '').trim() : undefined;
         const buyerFromFile = colBuyer >= 0 ? String(row[colBuyer] || '').trim() : '';
         const fabType = colFabType >= 0 ? String(row[colFabType] || '').trim() : '';
         const fabStyle = colFabStyle >= 0 ? String(row[colFabStyle] || '').trim() : '';
-        const ownerUnit = colOwnerUnit >= 0 ? String(row[colOwnerUnit] || '').trim() || 'EKL' : 'EKL';
         const statusFromFile = colStatus >= 0 ? String(row[colStatus] || '').trim() : '';
+        
+        let completionDateStr = '—';
+        if (colCompletionDate >= 0 && row[colCompletionDate] !== undefined && row[colCompletionDate] !== null && row[colCompletionDate] !== '') {
+          completionDateStr = formatCompletionDate(row[colCompletionDate]);
+        }
 
         const netReceived = colNetReceived >= 0 ? Math.round(parseNumericValue(row[colNetReceived])) : 0;
         const netIssued = colNetIssued >= 0 ? Math.round(parseNumericValue(row[colNetIssued])) : 0;
-        const stock = (colStock >= 0 && row[colStock] !== '' && row[colStock] !== undefined)
-          ? Math.round(parseNumericValue(row[colStock]))
+        const stock = (colTotalStock >= 0 && row[colTotalStock] !== '' && row[colTotalStock] !== undefined)
+          ? Math.round(parseNumericValue(row[colTotalStock]))
           : Math.max(0, netReceived - netIssued);
+
+        const doubleCountVal = colDoubleCount >= 0 ? row[colDoubleCount] : undefined;
+        const ownerUnit = colOwnerUnit >= 0 ? String(row[colOwnerUnit] || '').trim() || 'EKL' : 'EKL';
 
         // Skip completely empty rows
         if (!orderNo && !colour && !fabType && netReceived === 0 && netIssued === 0 && stock === 0) {
@@ -1260,16 +1272,19 @@ export function parseGreyStockExcel(
 
         parsedItems.push({
           id: `gs-upload-${orderNo || 'ord'}-${idx + 1}-${nowTs}`,
-          status: statusFromFile || '',
+          code: codeFromFile,
           orderNo: orderNo || 'Unknown',
-          buyerName: buyerFromFile || undefined,
+          buyerName: buyerFromFile || '—',
+          fabType: fabType || '—',
           colour: colour || '—',
           fabStyle: fabStyle || '—',
-          fabType: fabType || '—',
-          ownerUnit: ownerUnit,
+          status: statusFromFile || 'Running',
+          completionDate: completionDateStr,
           netReceivedQty: netReceived,
           netIssuedQty: netIssued,
-          stockQty: stock
+          stockQty: stock,
+          doubleCount: doubleCountVal,
+          ownerUnit: ownerUnit
         });
 
         // Periodic progress update

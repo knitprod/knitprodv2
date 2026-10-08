@@ -71,7 +71,36 @@ export interface GlobalDataContextType {
 
 const GlobalDataContext = createContext<GlobalDataContextType | null>(null);
 
-const POLLING_INTERVAL_MS = 12000; // 12 seconds responsive background polling (paused when tab hidden)
+const POLLING_INTERVAL_MS = 45000; // 45 seconds responsive background polling (paused when tab hidden; WebSockets handle instant live updates)
+
+/**
+ * Fast O(1) comparison to detect dataset changes without lagging main thread with JSON.stringify
+ */
+function hasArrayChanged<T extends Record<string, any>>(prev: T[], next: T[]): boolean {
+  if (prev === next) return false;
+  if (prev.length !== next.length) return true;
+  if (prev.length === 0) return false;
+
+  const last = prev.length - 1;
+  const mid = Math.floor(prev.length / 2);
+  const p0 = prev[0], n0 = next[0];
+  const pM = prev[mid], nM = next[mid];
+  const pL = prev[last], nL = next[last];
+
+  if ((p0?.id ?? p0?.orderNo ?? p0?.ewo) !== (n0?.id ?? n0?.orderNo ?? n0?.ewo)) return true;
+  if ((pM?.id ?? pM?.orderNo ?? pM?.ewo) !== (nM?.id ?? nM?.orderNo ?? nM?.ewo)) return true;
+  if ((pL?.id ?? pL?.orderNo ?? pL?.ewo) !== (nL?.id ?? nL?.orderNo ?? nL?.ewo)) return true;
+
+  const tP0 = p0?.updatedAt || p0?.updated_at || p0?.date;
+  const tN0 = n0?.updatedAt || n0?.updated_at || n0?.date;
+  if (tP0 !== tN0) return true;
+
+  const tPL = pL?.updatedAt || pL?.updated_at || pL?.date;
+  const tNL = nL?.updatedAt || nL?.updated_at || nL?.date;
+  if (tPL !== tNL) return true;
+
+  return false;
+}
 
 /**
  * Executes a write mutation against /api/sheets with keepalive to prevent tab-close data loss.
@@ -632,7 +661,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           if (Array.isArray(supOrders) && supOrders.length > 0) {
             const cleanOrders = filterDeletedOrders(deduplicateOrderPlans(supOrders));
             setOrderPlans(prev => {
-              if (prev.length !== cleanOrders.length || JSON.stringify(prev) !== JSON.stringify(cleanOrders)) {
+              if (hasArrayChanged(prev, cleanOrders)) {
                 try {
                   localStorage.setItem('cached_order_plans', JSON.stringify(cleanOrders));
                 } catch (e) {}
@@ -645,7 +674,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           if (Array.isArray(supLedgers) && supLedgers.length > 0) {
             const cleanLedger = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(supLedgers)));
             setLedger(prev => {
-              if (prev.length !== cleanLedger.length || JSON.stringify(prev) !== JSON.stringify(cleanLedger)) {
+              if (hasArrayChanged(prev, cleanLedger)) {
                 try {
                   localStorage.setItem('cached_production_ledger', JSON.stringify(cleanLedger));
                 } catch (e) {}
@@ -672,7 +701,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             if (Array.isArray(rOrders) && rOrders.length > 0) {
               const cleanOrders = filterDeletedOrders(deduplicateOrderPlans(rOrders));
               setOrderPlans(prev => {
-                if (prev.length !== cleanOrders.length || JSON.stringify(prev) !== JSON.stringify(cleanOrders)) {
+                if (hasArrayChanged(prev, cleanOrders)) {
                   try {
                     localStorage.setItem('cached_order_plans', JSON.stringify(cleanOrders));
                   } catch (e) {}
@@ -684,7 +713,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             if (Array.isArray(rYarn) && rYarn.length > 0) {
               const cleanYarn = filterDeletedYarn(deduplicateWithUniqueIds(rYarn, 'yarn'));
               setYarnAllocations(prev => {
-                if (prev.length !== cleanYarn.length || JSON.stringify(prev) !== JSON.stringify(cleanYarn)) {
+                if (hasArrayChanged(prev, cleanYarn)) {
                   try {
                     localStorage.setItem('cached_yarn_allocations', JSON.stringify(cleanYarn));
                   } catch (e) {}

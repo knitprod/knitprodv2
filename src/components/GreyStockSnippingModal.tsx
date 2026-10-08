@@ -435,6 +435,10 @@ export const GreyStockSnippingModal: React.FC<GreyStockSnippingModalProps> = ({
                       Buyer: <strong className="text-slate-900">{orderGroup.buyerName || '—'}</strong>
                     </span>
                     <span className="text-slate-300">•</span>
+                    <span className="text-xs font-bold text-slate-600">
+                      Completion: <strong className="text-slate-900 font-mono">{orderGroup.completionDate || '—'}</strong>
+                    </span>
+                    <span className="text-slate-300">•</span>
                     {/* Status Badge */}
                     <span
                       className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wide border shadow-2xs ${
@@ -459,22 +463,9 @@ export const GreyStockSnippingModal: React.FC<GreyStockSnippingModalProps> = ({
                 </div>
               </div>
 
-              {/* 5 KPI Metric Cards with Rounded Whole Integer Values */}
-              <div className="grid grid-cols-5 gap-3.5">
-                {/* 1. Total Grey QTY */}
-                <div className="bg-indigo-50/70 p-3.5 rounded-xl border border-indigo-200">
-                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-700">
-                    Total Grey QTY
-                  </span>
-                  <div className="text-2xl font-black font-mono text-indigo-950 mt-1">
-                    {totalGreyReq.toLocaleString()} <span className="text-xs font-bold text-indigo-600">Kg</span>
-                  </div>
-                  <div className="text-[10px] text-indigo-600 font-semibold mt-0.5">
-                    Order requirement
-                  </div>
-                </div>
-
-                {/* 2. Net Received Qty */}
+              {/* 4 KPI Metric Cards with Rounded Whole Integer Values */}
+              <div className="grid grid-cols-4 gap-3.5">
+                {/* 1. Net Received Qty */}
                 <div className="bg-emerald-50/70 p-3.5 rounded-xl border border-emerald-200">
                   <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700">
                     Net Received Qty
@@ -483,11 +474,11 @@ export const GreyStockSnippingModal: React.FC<GreyStockSnippingModalProps> = ({
                     {totalNetRec.toLocaleString()} <span className="text-xs font-bold text-emerald-600">Kg</span>
                   </div>
                   <div className="text-[10px] text-emerald-600 font-semibold mt-0.5">
-                    Total received
+                    Sum of Total Received
                   </div>
                 </div>
 
-                {/* 3. Net Issued Qty */}
+                {/* 2. Net Issued Qty */}
                 <div className="bg-blue-50/70 p-3.5 rounded-xl border border-blue-200">
                   <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-700">
                     Net Issued Qty
@@ -496,24 +487,24 @@ export const GreyStockSnippingModal: React.FC<GreyStockSnippingModalProps> = ({
                     {totalNetIss.toLocaleString()} <span className="text-xs font-bold text-blue-600">Kg</span>
                   </div>
                   <div className="text-[10px] text-blue-600 font-semibold mt-0.5">
-                    Dispatched to dye
+                    Sum of Total Issued
                   </div>
                 </div>
 
-                {/* 4. Total Grey Stock Qty */}
+                {/* 3. Total Grey Stock Qty */}
                 <div className="bg-amber-50/80 p-3.5 rounded-xl border border-amber-300">
                   <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-800">
-                    Total Grey Stock Qty
+                    Grey Stock Qty
                   </span>
                   <div className="text-2xl font-black font-mono text-amber-950 mt-1">
                     {totalStock.toLocaleString()} <span className="text-xs font-bold text-amber-700">Kg</span>
                   </div>
                   <div className="text-[10px] text-amber-700 font-semibold mt-0.5">
-                    Remaining in floor
+                    Sum of Total Stock
                   </div>
                 </div>
 
-                {/* 5. Issue Percentage */}
+                {/* 4. Issue Percentage */}
                 <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
                   <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-600">
                     Issued Rate
@@ -538,34 +529,30 @@ export const GreyStockSnippingModal: React.FC<GreyStockSnippingModalProps> = ({
                   <div className="flex items-center gap-2">
                     <Boxes className="w-4 h-4 text-blue-700" />
                     <h4 className="text-xs font-black uppercase tracking-wider text-slate-900">
-                      Fabric &amp; Colour Specification Breakdown ({orderGroup.items.length} specifications)
+                      Layer 2: Fabric &amp; Colour Breakdown ({orderGroup.items.length} items)
                     </h4>
                   </div>
                   <span className="text-[11px] font-semibold text-slate-500">
-                    All quantities rounded up to whole integers (Kg)
+                    All quantities rounded to whole integers (Kg)
                   </span>
                 </div>
 
                 <div className="rounded-xl border border-slate-300 overflow-x-auto shadow-2xs">
-                  <table className="w-full text-left text-xs border-collapse" style={{ minWidth: '1020px' }}>
+                  <table className="w-full text-left text-xs border-collapse" style={{ minWidth: '900px' }}>
                     <thead>
                       <tr className="bg-slate-100 text-slate-800 font-black uppercase tracking-wider text-[11px] border-b border-slate-300 select-none">
-                        <th className="py-2.5 px-2.5" style={{ width: '90px' }}>Order No.</th>
-                        <th className="py-2.5 px-2.5" style={{ width: '110px' }}>Colour</th>
-                        <th className="py-2.5 px-2.5" style={{ width: '220px' }}>Fabrics Type</th>
-                        <th className="py-2.5 px-2.5" style={{ width: '100px' }}>Buyer</th>
-                        <th className="py-2.5 px-2 text-center" style={{ width: '70px' }}>Owner Unit</th>
-                        <th className="py-2.5 px-2.5 text-right text-indigo-900 bg-indigo-50/70 font-black" style={{ width: '110px' }}>Total Grey QTY</th>
-                        <th className="py-2.5 px-2.5 text-right text-emerald-900 bg-emerald-50/70 font-black" style={{ width: '115px' }}>Net Received Qty.-Kg</th>
-                        <th className="py-2.5 px-2.5 text-right text-blue-900 bg-blue-50/70 font-black" style={{ width: '110px' }}>Net Issued Qty.-Kg</th>
-                        <th className="py-2.5 px-2.5 text-right text-amber-950 bg-amber-100/80 font-black" style={{ width: '125px' }}>
-                          Total Grey Stock Qty
+                        <th className="py-2.5 px-3" style={{ width: '160px' }}>Colour</th>
+                        <th className="py-2.5 px-3" style={{ width: '260px' }}>Fabric Type</th>
+                        <th className="py-2.5 px-3" style={{ width: '160px' }}>Fab Style</th>
+                        <th className="py-2.5 px-3 text-right text-emerald-900 bg-emerald-50/70 font-black" style={{ width: '130px' }}>Total Received</th>
+                        <th className="py-2.5 px-3 text-right text-blue-900 bg-blue-50/70 font-black" style={{ width: '130px' }}>Total Issued</th>
+                        <th className="py-2.5 px-3 text-right text-amber-950 bg-amber-100/80 font-black" style={{ width: '140px' }}>
+                          Total Stock
                         </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 font-medium">
                       {orderGroup.items.map((itm, itmIdx) => {
-                        const mGrey = Math.round(Number(itm.matchedGreyQty) || (orderGroup.items.length === 1 ? totalGreyReq : (Number(orderGroup.greyRequired) || 0)) || 0);
                         const nRec = Math.round(Number(itm.netReceivedQty) || 0);
                         const nIss = Math.round(Number(itm.netIssuedQty) || 0);
                         const calcStock = itm.stockQty !== undefined && itm.stockQty !== null ? Number(itm.stockQty) : (nRec - nIss);
@@ -576,33 +563,22 @@ export const GreyStockSnippingModal: React.FC<GreyStockSnippingModalProps> = ({
                             key={itm.id || `snip-itm-${itmIdx}`}
                             className={itmIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}
                           >
-                            <td className="py-2.5 px-2.5 font-mono font-bold text-slate-900 whitespace-nowrap">
-                              {orderGroup.orderNo}
-                            </td>
-                            <td className="py-2.5 px-2.5 font-bold text-slate-950 max-w-[110px] break-words">
+                            <td className="py-2.5 px-3 font-bold text-slate-950">
                               {itm.colour || '—'}
                             </td>
-                            <td className="py-2.5 px-2.5 text-slate-700 max-w-[220px] break-words leading-tight">
+                            <td className="py-2.5 px-3 text-slate-700 leading-tight">
                               {itm.fabType || '—'}
                             </td>
-                            <td className="py-2.5 px-2.5 text-slate-800 max-w-[100px] truncate">
-                              {itm.buyerName || orderGroup.buyerName || '—'}
+                            <td className="py-2.5 px-3 text-slate-700">
+                              {itm.fabStyle || '—'}
                             </td>
-                            <td className="py-2.5 px-2 text-center whitespace-nowrap font-mono text-xs font-semibold">
-                              <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-300 text-slate-800 font-bold">
-                                {itm.ownerUnit || 'EKL'}
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-2.5 text-right font-mono font-black text-indigo-900 bg-indigo-50/40 whitespace-nowrap">
-                              {mGrey > 0 ? mGrey.toLocaleString() : (totalGreyReq > 0 ? totalGreyReq.toLocaleString() : '0')}
-                            </td>
-                            <td className="py-2.5 px-2.5 text-right font-mono font-black text-emerald-900 bg-emerald-50/40 whitespace-nowrap">
+                            <td className="py-2.5 px-3 text-right font-mono font-black text-emerald-900 bg-emerald-50/40 whitespace-nowrap">
                               {nRec.toLocaleString()}
                             </td>
-                            <td className="py-2.5 px-2.5 text-right font-mono font-black text-blue-900 bg-blue-50/40 whitespace-nowrap">
+                            <td className="py-2.5 px-3 text-right font-mono font-black text-blue-900 bg-blue-50/40 whitespace-nowrap">
                               {nIss.toLocaleString()}
                             </td>
-                            <td className="py-2.5 px-2.5 text-right font-mono font-black text-amber-950 bg-amber-100/60 whitespace-nowrap">
+                            <td className="py-2.5 px-3 text-right font-mono font-black text-amber-950 bg-amber-100/60 whitespace-nowrap">
                               {sQty.toLocaleString()}
                             </td>
                           </tr>
@@ -611,19 +587,16 @@ export const GreyStockSnippingModal: React.FC<GreyStockSnippingModalProps> = ({
                     </tbody>
                     <tfoot>
                       <tr className="bg-slate-100/90 font-black text-slate-950 border-t-2 border-slate-300 text-xs">
-                        <td colSpan={5} className="py-2.5 px-3 uppercase tracking-wider text-slate-700">
+                        <td colSpan={3} className="py-2.5 px-3 uppercase tracking-wider text-slate-700">
                           Total Order Sum ({orderGroup.items.length} items)
                         </td>
-                        <td className="py-2.5 px-2.5 text-right font-mono text-indigo-900 font-black bg-indigo-50/70">
-                          {totalGreyReq.toLocaleString()}
-                        </td>
-                        <td className="py-2.5 px-2.5 text-right font-mono text-emerald-900 font-black bg-emerald-50/70">
+                        <td className="py-2.5 px-3 text-right font-mono text-emerald-900 font-black bg-emerald-50/70">
                           {totalNetRec.toLocaleString()}
                         </td>
-                        <td className="py-2.5 px-2.5 text-right font-mono text-blue-900 font-black bg-blue-50/70">
+                        <td className="py-2.5 px-3 text-right font-mono text-blue-900 font-black bg-blue-50/70">
                           {totalNetIss.toLocaleString()}
                         </td>
-                        <td className="py-2.5 px-2.5 text-right font-mono text-amber-950 bg-amber-100/80 font-black">
+                        <td className="py-2.5 px-3 text-right font-mono text-amber-950 bg-amber-100/80 font-black">
                           {totalStock.toLocaleString()}
                         </td>
                       </tr>

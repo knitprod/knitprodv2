@@ -299,28 +299,32 @@ export interface TextileCloseRecord {
 
 export interface GreyStockItem extends SyncMetadata {
   id: string;
-  status: string;         // Status from file (e.g. "Running", "Complete")
+  code?: string;          // Code from uploaded file
   orderNo: string;        // Order No.
-  buyerName?: string;     // Buyer Name from file or matched from Knitting Status
+  buyerName?: string;     // Buyer Name from uploaded file
+  fabType: string;        // Fabrics Type / Fabric Type
   colour: string;         // Colour
-  fabStyle: string;       // Fab Style
-  fabType: string;        // Fab Type
-  ownerUnit: string;      // Owner Unit (e.g. "EKL", "EFL", "Sub-Contact")
-  netReceivedQty: number; // Net Received QTY
-  netIssuedQty: number;   // Net Issued QTY
-  stockQty: number;       // Stock QTY
-  matchedGreyQty?: number;// Matched Grey QTY from Knitting Status
+  fabStyle: string;       // Fab Style / Fabric Style
+  status: string;         // Status from file (e.g. "Running", "Complete")
+  completionDate?: string;// Completion Date from uploaded file
+  netReceivedQty: number; // Net Received (displayed as Total Received in 2nd layer)
+  netIssuedQty: number;   // Net Issued (displayed as Total Issued in 2nd layer)
+  stockQty: number;       // Total Stock (displayed as Total Stock in 2nd layer)
+  doubleCount?: string | number; // Double Count from uploaded file
+  ownerUnit?: string;     // Owner Unit (optional)
+  matchedGreyQty?: number;// Matched Grey QTY (optional)
 }
 
 export interface GreyStockOrderGroup {
   orderNo: string;
   status: string;
+  completionDate?: string;
   buyerName: string;
-  greyRequired: number;
   totalNetReceived: number;
   totalNetIssued: number;
   totalGreyStock: number;
   items: GreyStockItem[];
+  greyRequired?: number;
 }
 
 

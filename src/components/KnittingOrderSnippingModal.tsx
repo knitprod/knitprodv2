@@ -174,10 +174,10 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
     }
 
     // 2. Fetch latest from Supabase cloud
-    if (SupabaseSync.isConfigured()) {
+    if (SupabaseSync.isConfigured() && SupabaseSync.isGreyStockTableAvailable()) {
       SupabaseSync.fetchGreyStockRecords().then(remote => {
         if (Array.isArray(remote) && remote.length > 0) {
-          GreyStockStorage.saveRecords(remote);
+          GreyStockStorage.saveRecords(remote, false);
           setGreyRecords(remote);
         }
       }).catch(() => {});

@@ -2452,15 +2452,19 @@ export class SupabaseSync {
     const raw = row.raw_data || {};
     return {
       id: String(row.id || raw.id || `gs-item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`),
-      status: String(row.status || raw.status || 'Running'),
+      code: row.code || raw.code || undefined,
       orderNo: String(row.order_no || raw.orderNo || ''),
+      buyerName: row.buyer_name || raw.buyerName || undefined,
       colour: String(row.colour || raw.colour || row.color || ''),
       fabStyle: String(row.fab_style || raw.fabStyle || ''),
       fabType: String(row.fab_type || raw.fabType || ''),
-      ownerUnit: String(row.owner_unit || raw.ownerUnit || 'EKL'),
+      status: String(row.status || raw.status || 'Running'),
+      completionDate: row.completion_date || raw.completionDate || undefined,
       netReceivedQty: parseFloat(String(row.net_received_qty ?? raw.netReceivedQty ?? 0)) || 0,
       netIssuedQty: parseFloat(String(row.net_issued_qty ?? raw.netIssuedQty ?? 0)) || 0,
       stockQty: parseFloat(String(row.stock_qty ?? raw.stockQty ?? 0)) || 0,
+      doubleCount: row.double_count !== undefined && row.double_count !== null ? parseFloat(String(row.double_count)) : (raw.doubleCount ?? 0),
+      ownerUnit: String(row.owner_unit || raw.ownerUnit || 'EKL'),
       matchedGreyQty: row.matched_grey_qty !== undefined && row.matched_grey_qty !== null ? parseFloat(String(row.matched_grey_qty)) : undefined,
       updatedAt: row.updated_at || raw.updatedAt || new Date().toISOString()
     };
@@ -2470,26 +2474,112 @@ export class SupabaseSync {
     const rawId = String(item.id || `gs-${item.orderNo}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`);
     return {
       id: rawId,
-      status: String(item.status || 'Running'),
+      code: item.code || null,
       order_no: String(item.orderNo || ''),
+      buyer_name: item.buyerName || null,
       colour: String(item.colour || ''),
       fab_style: String(item.fabStyle || ''),
       fab_type: String(item.fabType || ''),
-      owner_unit: String(item.ownerUnit || 'EKL'),
+      status: String(item.status || 'Running'),
+      completion_date: item.completionDate || null,
       net_received_qty: parseFloat(String(item.netReceivedQty || 0)) || 0,
       net_issued_qty: parseFloat(String(item.netIssuedQty || 0)) || 0,
       stock_qty: parseFloat(String(item.stockQty || 0)) || 0,
+      double_count: item.doubleCount !== undefined && item.doubleCount !== null ? parseFloat(String(item.doubleCount)) : 0,
+      owner_unit: String(item.ownerUnit || 'EKL'),
       matched_grey_qty: item.matchedGreyQty !== undefined ? parseFloat(String(item.matchedGreyQty)) : null,
       raw_data: item,
       updated_at: new Date().toISOString()
     };
   }
 
+  private static _greyStockTableExists: boolean | null = null;
+  private static _lastGreyStockCheckTime: number = 0;
+  private static _checkingGreyStockTable: Promise<boolean> | null = null;
+
+  static isGreyStockTableAvailable(): boolean {
+    if (this._greyStockTableExists === null) {
+      try {
+        const cached = sessionStorage.getItem('epyllion_grey_stock_table_exists');
+        if (cached === 'true') {
+          this._greyStockTableExists = true;
+          return true;
+        } else if (cached === 'false') {
+          this._greyStockTableExists = false;
+          return false;
+        }
+      } catch {}
+      // Default to false when unverified to prevent background WebSocket storms and warning spam
+      return false;
+    }
+    if (this._greyStockTableExists === false) {
+      if (Date.now() - this._lastGreyStockCheckTime < 10 * 60 * 1000) {
+        return false;
+      }
+    }
+    return this._greyStockTableExists === true;
+  }
+
+  static async checkGreyStockTableExists(forceRecheck: boolean = false): Promise<boolean> {
+    const client = this.getClient();
+    if (!client || !this.isConfigured()) return false;
+
+    if (!forceRecheck && this._greyStockTableExists !== null) {
+      if (this._greyStockTableExists === false && Date.now() - this._lastGreyStockCheckTime < 10 * 60 * 1000) {
+        return false;
+      }
+      if (this._greyStockTableExists === true) {
+        return true;
+      }
+    }
+
+    if (this._checkingGreyStockTable) return this._checkingGreyStockTable;
+
+    this._checkingGreyStockTable = (async () => {
+      try {
+        const { error } = await client
+          .from('grey_stock_summary')
+          .select('id', { head: true, count: 'exact' });
+
+        if (error) {
+          if (error.code === 'PGRST205' || error.message?.includes('does not exist') || error.message?.includes('grey_stock_summary')) {
+            this._greyStockTableExists = false;
+            this._lastGreyStockCheckTime = Date.now();
+            try { sessionStorage.setItem('epyllion_grey_stock_table_exists', 'false'); } catch {}
+            return false;
+          }
+        }
+        this._greyStockTableExists = true;
+        this._lastGreyStockCheckTime = Date.now();
+        try { sessionStorage.setItem('epyllion_grey_stock_table_exists', 'true'); } catch {}
+        return true;
+      } catch (e: any) {
+        if (e?.code === 'PGRST205' || e?.message?.includes('does not exist')) {
+          this._greyStockTableExists = false;
+          this._lastGreyStockCheckTime = Date.now();
+          try { sessionStorage.setItem('epyllion_grey_stock_table_exists', 'false'); } catch {}
+          return false;
+        }
+        return false;
+      } finally {
+        this._checkingGreyStockTable = null;
+      }
+    })();
+
+    return this._checkingGreyStockTable;
+  }
+
+  static resetGreyStockTableCache(): void {
+    this._greyStockTableExists = null;
+    this._lastGreyStockCheckTime = 0;
+    try { sessionStorage.removeItem('epyllion_grey_stock_table_exists'); } catch {}
+  }
+
   static async fetchGreyStockRecords(
     onProgress?: (loaded: number, total: number, percent: number) => void
   ): Promise<GreyStockItem[]> {
     const client = this.getClient();
-    if (!client) return [];
+    if (!client || !this.isGreyStockTableAvailable()) return [];
 
     try {
       let totalCount = 0;
@@ -2497,12 +2587,25 @@ export class SupabaseSync {
         const { count, error: countErr } = await client
           .from('grey_stock_summary')
           .select('*', { count: 'exact', head: true });
-        if (!countErr && typeof count === 'number') {
+        if (countErr) {
+          if (countErr.code === 'PGRST205' || countErr.message?.includes('does not exist') || countErr.message?.includes('grey_stock_summary')) {
+            this._greyStockTableExists = false;
+            this._lastGreyStockCheckTime = Date.now();
+            return [];
+          }
+        } else if (typeof count === 'number') {
+          this._greyStockTableExists = true;
           totalCount = count;
         }
-      } catch (cntErr) {
-        console.warn('Supabase grey_stock_summary count error:', cntErr);
+      } catch (cntErr: any) {
+        if (cntErr?.code === 'PGRST205' || cntErr?.message?.includes('does not exist')) {
+          this._greyStockTableExists = false;
+          this._lastGreyStockCheckTime = Date.now();
+          return [];
+        }
       }
+
+      if (this._greyStockTableExists === false) return [];
 
       const allRows: any[] = [];
       const BATCH_SIZE = 1000;
@@ -2517,7 +2620,11 @@ export class SupabaseSync {
           .range(from, to);
 
         if (error) {
-          console.warn('Supabase fetchGreyStockRecords range error:', error.message);
+          if (error.code === 'PGRST205' || error.message?.includes('does not exist') || error.message?.includes('grey_stock_summary')) {
+            this._greyStockTableExists = false;
+            this._lastGreyStockCheckTime = Date.now();
+            return [];
+          }
           break;
         }
 
@@ -2538,6 +2645,7 @@ export class SupabaseSync {
         from += BATCH_SIZE;
       }
 
+      this._greyStockTableExists = true;
       return allRows.map(row => this.mapRowToGreyStockItem(row));
     } catch {
       return [];
@@ -2552,12 +2660,33 @@ export class SupabaseSync {
     const client = this.getClient();
     if (!client) return { success: false, count: 0, error: 'Supabase client is not initialized.' };
 
+    const tableAvailable = this.isGreyStockTableAvailable() || await this.checkGreyStockTableExists();
+    if (!tableAvailable) {
+      return {
+        success: false,
+        count: 0,
+        error: "Table 'public.grey_stock_summary' does not exist yet. Please execute the SQL schema in Supabase SQL Editor."
+      };
+    }
+
     try {
       if (replace) {
         if (onProgress) {
           onProgress(0, items.length, 5, 'Purging previous records from Supabase cloud...');
         }
-        await client.from('grey_stock_summary').delete().neq('id', '___PURGE___');
+        const { error: delError } = await client.from('grey_stock_summary').delete().neq('id', '___PURGE___');
+        if (delError) {
+          if (delError.code === 'PGRST205' || delError.message?.includes('does not exist') || delError.message?.includes('grey_stock_summary')) {
+            this._greyStockTableExists = false;
+            this._lastGreyStockCheckTime = Date.now();
+            return {
+              success: false,
+              count: 0,
+              error: "Table 'public.grey_stock_summary' does not exist yet. Please execute the SQL schema in Supabase SQL Editor."
+            };
+          }
+          return { success: false, count: 0, error: delError.message };
+        }
       }
 
       if (!items || items.length === 0) return { success: true, count: 0 };
@@ -2570,7 +2699,15 @@ export class SupabaseSync {
         const chunk = rows.slice(i, i + CHUNK_SIZE);
         const { error } = await client.from('grey_stock_summary').upsert(chunk, { onConflict: 'id' });
         if (error) {
-          console.warn('Supabase bulkSaveGreyStockRecords chunk error:', error.message);
+          if (error.code === 'PGRST205' || error.message?.includes('does not exist') || error.message?.includes('grey_stock_summary')) {
+            this._greyStockTableExists = false;
+            this._lastGreyStockCheckTime = Date.now();
+            return {
+              success: false,
+              count: insertedCount,
+              error: "Table 'public.grey_stock_summary' does not exist yet. Please execute the SQL schema in Supabase SQL Editor."
+            };
+          }
           return { success: false, count: insertedCount, error: error.message };
         }
         insertedCount += chunk.length;
@@ -2580,6 +2717,7 @@ export class SupabaseSync {
         }
       }
 
+      this._greyStockTableExists = true;
       return { success: true, count: insertedCount };
     } catch (err: any) {
       return { success: false, count: 0, error: err.message || String(err) };
@@ -2588,7 +2726,7 @@ export class SupabaseSync {
 
   static async deleteGreyStockRecord(id: string): Promise<{ success: boolean; error?: string }> {
     const client = this.getClient();
-    if (!client) return { success: false, error: 'Supabase client not initialized.' };
+    if (!client || !this.isGreyStockTableAvailable()) return { success: false, error: 'Supabase client not initialized or table not available.' };
     try {
       const { error } = await client.from('grey_stock_summary').delete().eq('id', id);
       if (error) return { success: false, error: error.message };
@@ -2602,7 +2740,7 @@ export class SupabaseSync {
     onRecordChange: (change: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: GreyStockItem; id: string }) => void
   ): () => void {
     const client = this.getClient();
-    if (!client) return () => {};
+    if (!client || !this.isGreyStockTableAvailable()) return () => {};
 
     try {
       const channel = client
@@ -2644,22 +2782,39 @@ export class SupabaseSync {
 
 CREATE TABLE IF NOT EXISTS public.grey_stock_summary (
   id TEXT PRIMARY KEY,
-  status TEXT DEFAULT 'Running',
+  code TEXT,
   order_no TEXT NOT NULL,
+  buyer_name TEXT,
+  fab_type TEXT,
   colour TEXT,
   fab_style TEXT,
-  fab_type TEXT,
-  owner_unit TEXT DEFAULT 'EKL',
+  status TEXT DEFAULT 'Running',
+  completion_date TEXT,
   net_received_qty NUMERIC DEFAULT 0,
   net_issued_qty NUMERIC DEFAULT 0,
   stock_qty NUMERIC DEFAULT 0,
+  double_count NUMERIC DEFAULT 0,
+  owner_unit TEXT DEFAULT 'EKL',
   matched_grey_qty NUMERIC DEFAULT 0,
   raw_data JSONB,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Idempotent ALTER TABLE to add newly introduced columns if table already exists
+ALTER TABLE public.grey_stock_summary ADD COLUMN IF NOT EXISTS code TEXT;
+ALTER TABLE public.grey_stock_summary ADD COLUMN IF NOT EXISTS buyer_name TEXT;
+ALTER TABLE public.grey_stock_summary ADD COLUMN IF NOT EXISTS completion_date TEXT;
+ALTER TABLE public.grey_stock_summary ADD COLUMN IF NOT EXISTS double_count NUMERIC DEFAULT 0;
+ALTER TABLE public.grey_stock_summary ADD COLUMN IF NOT EXISTS fab_style TEXT;
+ALTER TABLE public.grey_stock_summary ADD COLUMN IF NOT EXISTS fab_type TEXT;
+ALTER TABLE public.grey_stock_summary ADD COLUMN IF NOT EXISTS colour TEXT;
+ALTER TABLE public.grey_stock_summary ADD COLUMN IF NOT EXISTS owner_unit TEXT DEFAULT 'EKL';
+ALTER TABLE public.grey_stock_summary ADD COLUMN IF NOT EXISTS matched_grey_qty NUMERIC DEFAULT 0;
+
 -- Performance Indexes
 CREATE INDEX IF NOT EXISTS idx_grey_stock_order_no ON public.grey_stock_summary(order_no);
+CREATE INDEX IF NOT EXISTS idx_grey_stock_buyer_name ON public.grey_stock_summary(buyer_name);
+CREATE INDEX IF NOT EXISTS idx_grey_stock_completion_date ON public.grey_stock_summary(completion_date);
 CREATE INDEX IF NOT EXISTS idx_grey_stock_colour ON public.grey_stock_summary(colour);
 CREATE INDEX IF NOT EXISTS idx_grey_stock_fab_type ON public.grey_stock_summary(fab_type);
 CREATE INDEX IF NOT EXISTS idx_grey_stock_owner_unit ON public.grey_stock_summary(owner_unit);

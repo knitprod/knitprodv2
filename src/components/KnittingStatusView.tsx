@@ -60,9 +60,6 @@ import { useGlobalData } from '../context/GlobalDataContext';
 import { KnittingOrderDetailsModal } from './KnittingOrderDetailsModal';
 import { KnittingOrderSnippingModal } from './KnittingOrderSnippingModal';
 import { SupabaseSync } from '../lib/supabaseClient';
-import { GreyStockStorage } from '../lib/greyStockStore';
-import TextileClosePMCView from './TextileClosePMCView';
-import GreyStockSummaryView from './GreyStockSummaryView';
 import { SyncProgressBar, SyncProgressState } from './SyncProgressBar';
 
 interface KnittingStatusViewProps {
@@ -383,13 +380,6 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
   // Supabase Real-time Cloud Synchronization
   useEffect(() => {
     if (!SupabaseSync.isConfigured()) return;
-    
-    // Pre-hydrate Grey Stock inventory records so cross-module queries and snaps are always populated
-    SupabaseSync.fetchGreyStockRecords().then(remoteGrey => {
-      if (Array.isArray(remoteGrey) && remoteGrey.length > 0) {
-        GreyStockStorage.saveRecords(remoteGrey);
-      }
-    }).catch(() => {});
 
     // Fetch initial from Supabase
     SupabaseSync.fetchKnittingOrders().then(remoteOrders => {
@@ -1882,8 +1872,11 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
           <button
             type="button"
             onClick={() => {
-              setActiveSubTab('knitting_status');
-              if (onNavigateTab) onNavigateTab('Running Orders');
+              if (onNavigateTab) {
+                onNavigateTab('Running Orders');
+              } else {
+                setActiveSubTab('knitting_status');
+              }
             }}
             className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
               activeSubTab === 'knitting_status'
@@ -1899,17 +1892,10 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
         {isPageAllowedForUser(currentUser, 'Textile Close By PMC') && (
           <button
             type="button"
-            onClick={() => {
-              setActiveSubTab('textile_close_pmc');
-              if (onNavigateTab) onNavigateTab('Textile Close By PMC');
-            }}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
-              activeSubTab === 'textile_close_pmc'
-                ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-500/20'
-                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
-            }`}
+            onClick={() => onNavigateTab && onNavigateTab('Textile Close By PMC')}
+            className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800"
           >
-            <ShieldCheck className="w-4 h-4" />
+            <ShieldCheck className="w-4 h-4 text-emerald-500" />
             <span>Textile Close By PMC</span>
           </button>
         )}
@@ -1917,28 +1903,15 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
         {isPageAllowedForUser(currentUser, 'Grey Stock Summary') && (
           <button
             type="button"
-            onClick={() => {
-              setActiveSubTab('grey_stock_summary');
-              if (onNavigateTab) onNavigateTab('Grey Stock Summary');
-            }}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
-              activeSubTab === 'grey_stock_summary'
-                ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-500/20'
-                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
-            }`}
+            onClick={() => onNavigateTab && onNavigateTab('Grey Stock Summary')}
+            className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800"
           >
-            <Boxes className="w-4 h-4" />
+            <Boxes className="w-4 h-4 text-blue-500" />
             <span>Grey Stock Summary</span>
           </button>
         )}
       </div>
 
-      {activeSubTab === 'textile_close_pmc' ? (
-        <TextileClosePMCView currentUser={currentUser} onNavigateTab={onNavigateTab} />
-      ) : activeSubTab === 'grey_stock_summary' ? (
-        <GreyStockSummaryView currentUser={currentUser} onNavigateTab={onNavigateTab} />
-      ) : (
-        <>
       {/* Header Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
         <div>
@@ -3063,8 +3036,6 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
           )}
         </div>
       </div>
-      </>
-      )}
 
       {/* Modal: View Order Details (Shows all data on that order) */}
       {viewingOrder && (

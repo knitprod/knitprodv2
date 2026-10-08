@@ -819,12 +819,12 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     // 1. Initial automatic load from database on mount without requiring button click
     loadOrders(false, true);
 
-    // 2. Periodic background check every 25 seconds while tab is active
+    // 2. Periodic background check every 90 seconds while tab is active (Realtime subscription handles instant live changes)
     const timer = setInterval(() => {
       if (typeof document !== 'undefined' && !document.hidden && !isSyncingRef.current) {
         loadOrders(false, true);
       }
-    }, 25000);
+    }, 90000);
 
     // 3. Tab visibility / Window focus handler: sync when user returns to this tab
     const handleFocus = () => {
