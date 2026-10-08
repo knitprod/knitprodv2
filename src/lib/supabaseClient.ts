@@ -2449,25 +2449,159 @@ export class SupabaseSync {
   // =========================================================================
 
   static mapRowToGreyStockItem(row: Record<string, any>): GreyStockItem {
-    const raw = row.raw_data || {};
-    return {
-      id: String(row.id || raw.id || `gs-item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`),
-      code: row.code || raw.code || undefined,
-      orderNo: String(row.order_no || raw.orderNo || ''),
-      buyerName: row.buyer_name || raw.buyerName || undefined,
-      colour: String(row.colour || raw.colour || row.color || ''),
-      fabStyle: String(row.fab_style || raw.fabStyle || ''),
-      fabType: String(row.fab_type || raw.fabType || ''),
-      status: String(row.status || raw.status || 'Running'),
-      completionDate: row.completion_date || raw.completionDate || undefined,
-      netReceivedQty: parseFloat(String(row.net_received_qty ?? raw.netReceivedQty ?? 0)) || 0,
-      netIssuedQty: parseFloat(String(row.net_issued_qty ?? raw.netIssuedQty ?? 0)) || 0,
-      stockQty: parseFloat(String(row.stock_qty ?? raw.stockQty ?? 0)) || 0,
-      doubleCount: row.double_count !== undefined && row.double_count !== null ? parseFloat(String(row.double_count)) : (raw.doubleCount ?? 0),
-      ownerUnit: String(row.owner_unit || raw.ownerUnit || 'EKL'),
-      matchedGreyQty: row.matched_grey_qty !== undefined && row.matched_grey_qty !== null ? parseFloat(String(row.matched_grey_qty)) : undefined,
-      updatedAt: row.updated_at || raw.updatedAt || new Date().toISOString()
+    if (!row || typeof row !== 'object') {
+      return {
+        id: `gs-item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        orderNo: 'Unknown',
+        fabType: '—',
+        colour: '—',
+        fabStyle: '—',
+        status: 'Running',
+        netReceivedQty: 0,
+        netIssuedQty: 0,
+        stockQty: 0
+      };
+    }
+
+    const raw = (row.raw_data && typeof row.raw_data === 'object') ? row.raw_data : {};
+
+    // Helper: case-insensitive, punctuation-insensitive lookup across row and raw_data
+    const getVal = (...keys: string[]): any => {
+      // 1. Direct exact key match on row
+      for (const k of keys) {
+        if (row[k] !== undefined && row[k] !== null && row[k] !== '') return row[k];
+      }
+      // 2. Direct exact key match on raw
+      for (const k of keys) {
+        if (raw[k] !== undefined && raw[k] !== null && raw[k] !== '') return raw[k];
+      }
+      // 3. Normalized alphanumeric lowercase key match on row
+      const rowEntries = Object.entries(row);
+      for (const k of keys) {
+        const cleanK = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+        for (const [rk, rv] of rowEntries) {
+          if (rk.toLowerCase().replace(/[^a-z0-9]/g, '') === cleanK) {
+            if (rv !== undefined && rv !== null && rv !== '') return rv;
+          }
+        }
+      }
+      // 4. Normalized alphanumeric lowercase key match on raw
+      const rawEntries = Object.entries(raw);
+      for (const k of keys) {
+        const cleanK = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+        for (const [rk, rv] of rawEntries) {
+          if (rk.toLowerCase().replace(/[^a-z0-9]/g, '') === cleanK) {
+            if (rv !== undefined && rv !== null && rv !== '') return rv;
+          }
+        }
+      }
+      return undefined;
     };
+
+    // Extract Order No (supports all Supabase naming conventions: order_no, orderno, order, order_number, job_no, etc.)
+    const rawOrderNo = getVal('order_no', 'orderNo', 'order', 'orderno', 'order_number', 'ordernumber', 'job_no', 'jobno', 'ewo_no', 'ewono');
+    const orderNoStr = rawOrderNo !== undefined && rawOrderNo !== null ? String(rawOrderNo).trim() : '';
+
+    // Extract Buyer Name
+    const rawBuyer = getVal('buyer_name', 'buyerName', 'buyer', 'buyername', 'customer', 'customer_name');
+    const buyerStr = rawBuyer !== undefined && rawBuyer !== null && String(rawBuyer).trim() !== '' ? String(rawBuyer).trim() : undefined;
+
+    // Extract Colour
+    const rawColour = getVal('colour', 'color', 'Colour', 'Color', 'shade', 'fabric_colour', 'fabric_color');
+    const colourStr = rawColour !== undefined && rawColour !== null ? String(rawColour).trim() : '';
+
+    // Extract Fabric Type
+    const rawFabType = getVal('fab_type', 'fabType', 'fabric_type', 'fabricstype', 'fabtype', 'fabrication', 'fabrics', 'fabric', 'Fabric Type', 'Fabrics Type');
+    const fabTypeStr = rawFabType !== undefined && rawFabType !== null ? String(rawFabType).trim() : '';
+
+    // Extract Fabric Style
+    const rawFabStyle = getVal('fab_style', 'fabStyle', 'fabric_style', 'style', 'fabstyle', 'fabricstyle', 'Fab Style', 'Fabric Style');
+    const fabStyleStr = rawFabStyle !== undefined && rawFabStyle !== null ? String(rawFabStyle).trim() : '';
+
+    // Extract Status
+    const rawStatus = getVal('status', 'order_status', 'orderstatus', 'item_status', 'itemstatus', 'Status');
+    const statusStr = rawStatus !== undefined && rawStatus !== null && String(rawStatus).trim() !== '' ? String(rawStatus).trim() : 'Running';
+
+    // Extract Completion Date
+    const rawCompDate = getVal('completion_date', 'completionDate', 'comp_date', 'compdate', 'closing_date', 'closed_date', 'delivery_date', 'Completion Date');
+    const compDateStr = rawCompDate !== undefined && rawCompDate !== null && String(rawCompDate).trim() !== '' ? String(rawCompDate).trim() : undefined;
+
+    // Extract Numerical Quantities with fallbacks
+    const rawNetRec = getVal('net_received_qty', 'netReceivedQty', 'net_received', 'netrec', 'total_received', 'totalreceived', 'received_qty', 'received', 'recieved', 'Net Received', 'Total Received');
+    const netReceivedQty = parseFloat(String(rawNetRec ?? 0)) || 0;
+
+    const rawNetIss = getVal('net_issued_qty', 'netIssuedQty', 'net_issued', 'netiss', 'total_issued', 'totalissued', 'issued_qty', 'issued', 'Net Issued', 'Total Issued');
+    const netIssuedQty = parseFloat(String(rawNetIss ?? 0)) || 0;
+
+    const rawStock = getVal('stock_qty', 'stockQty', 'total_stock', 'totalstock', 'stock', 'grey_stock', 'greystock', 'balance', 'Total Stock', 'Stock');
+    let stockQty = rawStock !== undefined && rawStock !== null && rawStock !== '' ? (parseFloat(String(rawStock)) || 0) : Math.max(0, netReceivedQty - netIssuedQty);
+
+    // Double Count
+    const rawDouble = getVal('double_count', 'doubleCount', 'double', 'doublecount', 'Double Count');
+    const doubleCount = rawDouble !== undefined && rawDouble !== null ? rawDouble : 0;
+
+    // Owner Unit
+    const rawUnit = getVal('owner_unit', 'ownerUnit', 'unit', 'plant', 'factory', 'Owner Unit', 'Unit');
+    const ownerUnit = rawUnit !== undefined && rawUnit !== null && String(rawUnit).trim() !== '' ? String(rawUnit).trim() : 'EKL';
+
+    // Code
+    const rawCode = getVal('code', 'item_code', 'itemcode', 'order_code', 'ordercode', 'fabric_code', 'Code');
+    const code = rawCode !== undefined && rawCode !== null && String(rawCode).trim() !== '' ? String(rawCode).trim() : undefined;
+
+    // Matched Grey QTY
+    const rawMatched = getVal('matched_grey_qty', 'matchedGreyQty', 'matched_qty', 'matchedgrey');
+    const matchedGreyQty = rawMatched !== undefined && rawMatched !== null && rawMatched !== '' ? parseFloat(String(rawMatched)) : undefined;
+
+    // Track standard normalized keys to safely isolate custom user-added columns
+    const standardNormKeys = new Set([
+      'id', 'orderno', 'ordernumber', 'order', 'jobno', 'ewono', 'buyername', 'buyer', 'customer',
+      'colour', 'color', 'shade', 'fabtype', 'fabrictype', 'fabricstype', 'fabrication', 'fabrics', 'fabric',
+      'fabstyle', 'fabricstyle', 'style', 'status', 'orderstatus', 'itemstatus', 'completiondate', 'compdate',
+      'closingdate', 'closeddate', 'deliverydate', 'netreceivedqty', 'netreceived', 'netrec', 'totalreceived',
+      'receivedqty', 'received', 'recieved', 'netissuedqty', 'netissued', 'netiss', 'totalissued', 'issuedqty',
+      'issued', 'stockqty', 'totalstock', 'stock', 'greystock', 'balance', 'doublecount', 'double', 'ownerunit',
+      'unit', 'plant', 'factory', 'code', 'itemcode', 'ordercode', 'fabriccode', 'matchedgreyqty', 'matchedqty',
+      'rawdata', 'updatedat', 'createdat'
+    ]);
+
+    // Preserve ANY custom or newly added columns in Supabase
+    const customFields: Record<string, any> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      const normK = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (!standardNormKeys.has(normK) && v !== undefined && v !== null && v !== '') {
+        customFields[k] = v;
+      }
+    }
+    for (const [k, v] of Object.entries(row)) {
+      if (k === 'raw_data') continue;
+      const normK = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (!standardNormKeys.has(normK) && v !== undefined && v !== null && v !== '') {
+        customFields[k] = v;
+      }
+    }
+
+    const item: GreyStockItem = {
+      id: String(row.id || raw.id || `gs-item-${orderNoStr || 'ord'}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`),
+      code,
+      orderNo: orderNoStr,
+      buyerName: buyerStr,
+      colour: colourStr,
+      fabStyle: fabStyleStr,
+      fabType: fabTypeStr,
+      status: statusStr,
+      completionDate: compDateStr,
+      netReceivedQty,
+      netIssuedQty,
+      stockQty,
+      doubleCount,
+      ownerUnit,
+      matchedGreyQty,
+      customFields: Object.keys(customFields).length > 0 ? customFields : undefined,
+      updatedAt: row.updated_at || raw.updatedAt || new Date().toISOString(),
+      ...customFields // Spread custom columns directly onto item for instant access
+    };
+
+    return item;
   }
 
   static mapGreyStockItemToRow(item: GreyStockItem): Record<string, any> {
@@ -2485,7 +2619,7 @@ export class SupabaseSync {
       net_received_qty: parseFloat(String(item.netReceivedQty || 0)) || 0,
       net_issued_qty: parseFloat(String(item.netIssuedQty || 0)) || 0,
       stock_qty: parseFloat(String(item.stockQty || 0)) || 0,
-      double_count: item.doubleCount !== undefined && item.doubleCount !== null ? parseFloat(String(item.doubleCount)) : 0,
+      double_count: item.doubleCount !== undefined && item.doubleCount !== null ? parseFloat(String(item.doubleCount)) || 0 : 0,
       owner_unit: String(item.ownerUnit || 'EKL'),
       matched_grey_qty: item.matchedGreyQty !== undefined ? parseFloat(String(item.matchedGreyQty)) : null,
       raw_data: item,
@@ -2610,20 +2744,34 @@ export class SupabaseSync {
       const allRows: any[] = [];
       const BATCH_SIZE = 1000;
       let from = 0;
+      let sortKey: 'id' | 'order_no' | null = 'id';
 
       while (true) {
         const to = from + BATCH_SIZE - 1;
-        const { data, error } = await client
-          .from('grey_stock_summary')
-          .select('*')
-          .order('order_no', { ascending: true })
-          .range(from, to);
+        let query = client.from('grey_stock_summary').select('*');
+
+        if (sortKey) {
+          query = query.order(sortKey, { ascending: true });
+        }
+
+        const { data, error } = await query.range(from, to);
 
         if (error) {
           if (error.code === 'PGRST205' || error.message?.includes('does not exist') || error.message?.includes('grey_stock_summary')) {
             this._greyStockTableExists = false;
             this._lastGreyStockCheckTime = Date.now();
             return [];
+          }
+
+          // If ordering by 'id' failed because 'id' column does not exist, retry once with 'order_no'
+          if (sortKey === 'id' && (error.message?.includes('column') || error.message?.includes('id') || error.code === '42703')) {
+            sortKey = 'order_no';
+            continue;
+          }
+          // If ordering by 'order_no' failed, retry without explicit sort
+          if (sortKey === 'order_no') {
+            sortKey = null;
+            continue;
           }
           break;
         }
@@ -2635,7 +2783,7 @@ export class SupabaseSync {
         allRows.push(...data);
         const percent = totalCount > 0 ? Math.min(100, Math.round((allRows.length / totalCount) * 100)) : 100;
         if (onProgress) {
-          onProgress(allRows.length, totalCount || allRows.length, percent);
+          onProgress(allRows.length, Math.max(totalCount, allRows.length), percent);
         }
 
         if (data.length < BATCH_SIZE || (totalCount > 0 && allRows.length >= totalCount)) {
@@ -2810,6 +2958,11 @@ ALTER TABLE public.grey_stock_summary ADD COLUMN IF NOT EXISTS fab_type TEXT;
 ALTER TABLE public.grey_stock_summary ADD COLUMN IF NOT EXISTS colour TEXT;
 ALTER TABLE public.grey_stock_summary ADD COLUMN IF NOT EXISTS owner_unit TEXT DEFAULT 'EKL';
 ALTER TABLE public.grey_stock_summary ADD COLUMN IF NOT EXISTS matched_grey_qty NUMERIC DEFAULT 0;
+ALTER TABLE public.grey_stock_summary ADD COLUMN IF NOT EXISTS raw_data JSONB;
+ALTER TABLE public.grey_stock_summary ADD COLUMN IF NOT EXISTS net_received_qty NUMERIC DEFAULT 0;
+ALTER TABLE public.grey_stock_summary ADD COLUMN IF NOT EXISTS net_issued_qty NUMERIC DEFAULT 0;
+ALTER TABLE public.grey_stock_summary ADD COLUMN IF NOT EXISTS stock_qty NUMERIC DEFAULT 0;
+ALTER TABLE public.grey_stock_summary ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Running';
 
 -- Performance Indexes
 CREATE INDEX IF NOT EXISTS idx_grey_stock_order_no ON public.grey_stock_summary(order_no);

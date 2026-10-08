@@ -221,6 +221,7 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
 
   // Supabase Cloud states
   const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+  const [syncStatusText, setSyncStatusText] = useState<string>('');
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -789,6 +790,67 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
 
       setCurrentPage(1);
 
+      // If Supabase is configured, keep the sync status & loader active until fully updated
+      if (SupabaseSync.isConfigured()) {
+        setIsSyncingCloud(true);
+        setSyncStatusText('Supabase: 0%');
+        setUploadProgress({
+          percent: 94,
+          message: `Uploading & updating ${parsed.length.toLocaleString()} rows in Supabase Cloud...`,
+          stage: 'completed',
+          totalRows: parsed.length,
+          processedRows: parsed.length
+        });
+        setSyncProgress({
+          isActive: true,
+          type: 'upload',
+          title: 'Updating Grey Stock Data on Supabase',
+          percent: 94,
+          stage: `Uploading and replacing ${parsed.length.toLocaleString()} records in Supabase...`,
+          current: parsed.length,
+          total: parsed.length
+        });
+
+        try {
+          const res = await SupabaseSync.bulkSaveGreyStockRecords(
+            parsed, 
+            true, 
+            (processed, total, pct) => {
+              const overall = 92 + Math.round(pct * 0.08);
+              setSyncProgress(prev => ({
+                ...prev,
+                isActive: true,
+                type: 'upload',
+                title: 'Updating Grey Stock Data on Supabase',
+                percent: Math.min(99, overall),
+                stage: `Updating Supabase table (${processed}/${total} rows, ${pct}%)...`,
+                current: processed,
+                total
+              }));
+              setUploadProgress({
+                percent: Math.min(99, overall),
+                message: `Updating Supabase table (${processed}/${total} rows, ${pct}%)...`,
+                stage: 'completed',
+                totalRows: total,
+                processedRows: processed
+              });
+              setSyncStatusText(`Supabase: ${pct}%`);
+            }
+          );
+
+          if (res.success) {
+            showToast(`Grey stock data fully updated on Supabase (${res.count.toLocaleString()} records)!`);
+          } else {
+            console.warn('Supabase sync notice:', res.error);
+          }
+        } catch (err: any) {
+          console.warn('Supabase upload error:', err);
+        } finally {
+          setIsSyncingCloud(false);
+          setSyncStatusText('');
+        }
+      }
+
       setUploadProgress({
         percent: 100,
         message: `Successfully replaced dataset: ${parsed.length.toLocaleString()} rows uploaded across ${uniqueOrders} orders.`,
@@ -799,9 +861,9 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
       setSyncProgress({
         isActive: true,
         type: 'upload',
-        title: 'Daily File Upload Complete',
+        title: 'Daily File & Supabase Update Complete',
         percent: 100,
-        stage: `Successfully loaded and replaced ${parsed.length.toLocaleString()} records across ${uniqueOrders} orders.`,
+        stage: `Successfully loaded and fully updated ${parsed.length.toLocaleString()} records across ${uniqueOrders} orders.`,
         current: parsed.length,
         total: parsed.length
       });
@@ -815,21 +877,6 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
       }, 1200);
 
       showToast(`Successfully replaced dataset: ${parsed.length.toLocaleString()} rows uploaded across ${uniqueOrders} orders.`);
-
-      // Sync to Supabase Cloud if configured
-      if (SupabaseSync.isConfigured()) {
-        SupabaseSync.bulkSaveGreyStockRecords(parsed, true)
-          .then(res => {
-            if (res.success) {
-              showToast(`Synced & replaced ${res.count} records in Supabase Cloud!`);
-            } else {
-              console.warn('Supabase sync notice:', res.error);
-            }
-          })
-          .catch(err => {
-            console.warn('Supabase upload error:', err);
-          });
-      }
     } catch (err: any) {
       setUploadProgress(null);
       const msg = err.message || 'Failed to parse file. Please verify required headers.';
@@ -845,6 +892,8 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
       showToast(`Upload error: ${msg}`);
     } finally {
       setIsUploading(false);
+      setIsSyncingCloud(false);
+      setSyncStatusText('');
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -854,12 +903,13 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
   // Two-way synchronization: Central Database & Supabase Cloud (Manual or Automatic)
   const handleSyncCloud = async (isSilent: boolean = false) => {
     setIsSyncingCloud(true);
+    setSyncStatusText('Connecting...');
     if (!isSilent) {
       setSyncProgress({
         isActive: true,
         type: 'sync',
-        title: 'Synchronizing Grey Stock Database',
-        percent: 25,
+        title: 'Synchronizing Grey Stock with Supabase',
+        percent: 20,
         stage: 'Connecting to central database & Supabase cloud...'
       });
     }
@@ -868,13 +918,31 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
         setSyncProgress({
           isActive: true,
           type: 'sync',
-          title: 'Synchronizing Grey Stock Database',
-          percent: 60,
-          stage: 'Syncing records bidirectional...'
+          title: 'Updating Grey Stock Data on Supabase',
+          percent: 35,
+          stage: 'Syncing records to Supabase cloud...'
         });
       }
 
-      const syncResult = await GreyStockStorage.syncTwoWay(false);
+      const syncResult = await GreyStockStorage.syncTwoWay(
+        false,
+        (processed, total, pct, stage) => {
+          if (!isSilent) {
+            setSyncProgress(prev => ({
+              ...prev,
+              isActive: true,
+              type: 'sync',
+              title: 'Updating Grey Stock Data on Supabase',
+              percent: Math.min(99, Math.max(35, pct)),
+              stage: stage || `Updating Supabase table (${processed}/${total} rows, ${pct}%)...`,
+              current: processed,
+              total
+            }));
+          }
+          setSyncStatusText(`Supabase: ${pct}%`);
+        }
+      );
+
       if (Array.isArray(syncResult.records) && syncResult.records.length > 0) {
         setRecords(syncResult.records);
       }
@@ -883,13 +951,13 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
         setSyncProgress({
           isActive: true,
           type: 'sync',
-          title: 'Database Sync Complete',
+          title: 'Supabase Sync Complete',
           percent: 100,
-          stage: `Successfully synchronized ${syncResult.count.toLocaleString()} records (Two-way Automatic & Manual active).`,
+          stage: `Successfully updated ${syncResult.count.toLocaleString()} records on Supabase Cloud.`,
           current: syncResult.count,
           total: syncResult.count
         });
-        showToast(`Synced ${syncResult.count.toLocaleString()} records across database (Two-way Auto & Manual).`);
+        showToast(`Grey stock data fully updated on Supabase (${syncResult.count.toLocaleString()} records)!`);
         setTimeout(() => {
           setSyncProgress(prev => ({ ...prev, isActive: false }));
         }, 2200);
@@ -902,12 +970,13 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
           title: 'Database Sync Error',
           percent: 100,
           stage: err.message || 'Database sync failed',
-          error: err.message || 'Failed to sync with central database'
+          error: err.message || 'Failed to sync with Supabase'
         });
         showToast(`Sync error: ${err.message || String(err)}`);
       }
     } finally {
       setIsSyncingCloud(false);
+      setSyncStatusText('');
     }
   };
 
@@ -1332,13 +1401,21 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
             type="button"
             onClick={() => handleSyncCloud(false)}
             disabled={isSyncingCloud}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl border border-sky-300 dark:border-sky-700 bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/40 transition-all shadow-2xs cursor-pointer disabled:opacity-50"
+            className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl border transition-all shadow-2xs cursor-pointer disabled:cursor-not-allowed ${
+              isSyncingCloud
+                ? 'border-blue-400 bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500/25'
+                : 'border-sky-300 dark:border-sky-700 bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/40'
+            }`}
             title="Two-Way Automatic & Manual Sync: Central Server Database + Supabase Cloud"
           >
-            <RefreshCw className={`w-3.5 h-3.5 text-sky-600 dark:text-sky-400 ${isSyncingCloud ? 'animate-spin' : ''}`} />
-            <span>{isSyncingCloud ? 'Syncing...' : 'Sync Database'}</span>
-            <span className="hidden sm:inline-block text-[10px] font-extrabold uppercase px-1.5 py-0.2 rounded bg-sky-200/80 dark:bg-sky-800 text-sky-800 dark:text-sky-200 ml-0.5">
-              Auto/Manual
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCloud ? 'text-blue-600 dark:text-blue-400 animate-spin' : 'text-sky-600 dark:text-sky-400'}`} />
+            <span>{isSyncingCloud ? (syncStatusText || 'Updating Supabase...') : 'Sync Database'}</span>
+            <span className={`hidden sm:inline-block text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded ${
+              isSyncingCloud
+                ? 'bg-blue-200/80 dark:bg-blue-900/80 text-blue-800 dark:text-blue-200 animate-pulse'
+                : 'bg-sky-200/80 dark:bg-sky-800 text-sky-800 dark:text-sky-200'
+            } ml-0.5`}>
+              {isSyncingCloud ? 'Saving' : 'Auto/Manual'}
             </span>
           </button>
 
@@ -1402,15 +1479,20 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
         >
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
             <span className="text-[11px] font-bold uppercase tracking-wider group-hover:text-blue-600 transition-colors">
-              Total Orders
+              Total Dataset
             </span>
             <Boxes className="w-4 h-4 text-blue-500" />
           </div>
-          <div className="text-xl font-black font-mono text-slate-900 dark:text-white">
-            {overallMetrics.totalOrders}
+          <div className="flex items-baseline gap-2">
+            <span className="text-xl font-black font-mono text-slate-900 dark:text-white">
+              {overallMetrics.totalOrders.toLocaleString()}
+            </span>
+            <span className="text-xs font-semibold text-slate-500">Orders</span>
           </div>
-          <div className="text-[11px] text-slate-400 mt-0.5 flex items-center justify-between">
-            <span>{overallMetrics.totalItems} specifications</span>
+          <div className="text-[11px] text-slate-400 mt-1 flex items-center justify-between">
+            <span className="inline-flex items-center gap-1 font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-1.5 py-0.5 rounded text-[10px]">
+              {overallMetrics.totalItems.toLocaleString()} Total Rows / Items
+            </span>
             <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity">Show All</span>
           </div>
         </div>
@@ -1496,7 +1578,7 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                 : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200 dark:border-slate-700'
             }`}
           >
-            All Orders ({overallMetrics.totalOrders})
+            All Orders ({overallMetrics.totalOrders.toLocaleString()} · {overallMetrics.totalItems.toLocaleString()} Rows)
           </button>
 
           <button
@@ -1827,10 +1909,10 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
               Showing:
             </span>
             <span className="px-2.5 py-0.5 rounded-md font-mono text-[11px] font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60">
-              {sortedOrderGroups.length} of {masterOrderGroups.length} Orders
+              {sortedOrderGroups.length.toLocaleString()} of {masterOrderGroups.length.toLocaleString()} Orders
             </span>
-            <span className="text-slate-400">
-              ({currentViewMetrics.itemsCount} Specifications • Stock: <span className="font-mono font-bold text-amber-600 dark:text-amber-400">{currentViewMetrics.viewStock.toLocaleString()} kg</span>)
+            <span className="text-slate-500 font-medium">
+              ({currentViewMetrics.itemsCount.toLocaleString()} Rows in View • {overallMetrics.totalItems.toLocaleString()} Total Rows in Database)
             </span>
           </div>
 
@@ -2219,83 +2301,119 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                                 </div>
                               </div>
 
-                               {/* Second Layer Table */}
+                              {/* Second Layer Table */}
                               <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs">
-                                <table className="w-full text-left text-[11px] border-collapse">
-                                  <thead>
-                                    <tr className="bg-slate-100/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                                      <th className="py-2 px-3">Colour</th>
-                                      <th className="py-2 px-3">Fabric Type</th>
-                                      <th className="py-2 px-3">Fab Style</th>
-                                      <th className="py-2 px-3 text-right text-emerald-600 dark:text-emerald-400">
-                                        Total Received
-                                      </th>
-                                      <th className="py-2 px-3 text-right text-blue-600 dark:text-blue-400">
-                                        Total Issued
-                                      </th>
-                                      <th className="py-2 px-3 text-right text-amber-600 dark:text-amber-400">
-                                        Total Stock
-                                      </th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-                                    {group.items.map((itm, itmIdx) => {
-                                      const isFilterActive = fabricFilter !== 'All' || colorFilter !== 'All';
-                                      const matchesFabric = fabricFilter === 'All' || (itm.fabType && itm.fabType.trim().toLowerCase() === fabricFilter.toLowerCase());
-                                      const matchesColor = colorFilter === 'All' || (itm.colour && itm.colour.trim().toLowerCase() === colorFilter.toLowerCase());
-                                      const isMatchedItem = matchesFabric && matchesColor;
-                                      const itemStock = itm.stockQty !== undefined ? itm.stockQty : Math.max(0, (itm.netReceivedQty || 0) - (itm.netIssuedQty || 0));
+                                {(() => {
+                                  const showCode = group.items.some(i => i.code && i.code !== '—');
+                                  const showUnit = group.items.some(i => i.ownerUnit && i.ownerUnit !== 'EKL');
+                                  const showDouble = group.items.some(i => i.doubleCount && Number(i.doubleCount) > 0);
+                                  const customCols = (group.customColumns || []).filter(c => c && c.toLowerCase() !== 'id' && c.toLowerCase() !== 'raw_data');
+                                  const leadColSpan = 3 + (showCode ? 1 : 0) + (showUnit ? 1 : 0) + (showDouble ? 1 : 0) + customCols.length;
 
-                                      return (
-                                        <tr
-                                          key={itm.id || `itm-${group.orderNo}-${itmIdx}`}
-                                          className={`transition-colors ${
-                                            isFilterActive && isMatchedItem
-                                              ? 'bg-blue-50/90 dark:bg-blue-950/50 font-semibold'
-                                              : isFilterActive && !isMatchedItem
-                                              ? 'opacity-40 hover:opacity-100 hover:bg-slate-50/70 dark:hover:bg-slate-800/40'
-                                              : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/40'
-                                          }`}
-                                        >
-                                          <td className="py-2 px-3 font-semibold text-slate-900 dark:text-white whitespace-nowrap">
-                                            {itm.colour || '—'}
+                                  return (
+                                    <table className="w-full text-left text-[11px] border-collapse">
+                                      <thead>
+                                        <tr className="bg-slate-100/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                                          <th className="py-2 px-3">Colour</th>
+                                          <th className="py-2 px-3">Fabric Type</th>
+                                          <th className="py-2 px-3">Fab Style</th>
+                                          {showCode && <th className="py-2 px-3 font-mono">Code</th>}
+                                          {showUnit && <th className="py-2 px-3">Unit</th>}
+                                          {showDouble && <th className="py-2 px-3 text-right">Double Count</th>}
+                                          {customCols.map(c => (
+                                            <th key={c} className="py-2 px-3 capitalize">{c.replace(/_/g, ' ')}</th>
+                                          ))}
+                                          <th className="py-2 px-3 text-right text-emerald-600 dark:text-emerald-400">
+                                            Total Received
+                                          </th>
+                                          <th className="py-2 px-3 text-right text-blue-600 dark:text-blue-400">
+                                            Total Issued
+                                          </th>
+                                          <th className="py-2 px-3 text-right text-amber-600 dark:text-amber-400">
+                                            Total Stock
+                                          </th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                                        {group.items.map((itm, itmIdx) => {
+                                          const isFilterActive = fabricFilter !== 'All' || colorFilter !== 'All';
+                                          const matchesFabric = fabricFilter === 'All' || (itm.fabType && itm.fabType.trim().toLowerCase() === fabricFilter.toLowerCase());
+                                          const matchesColor = colorFilter === 'All' || (itm.colour && itm.colour.trim().toLowerCase() === colorFilter.toLowerCase());
+                                          const isMatchedItem = matchesFabric && matchesColor;
+                                          const itemStock = itm.stockQty !== undefined ? itm.stockQty : Math.max(0, (itm.netReceivedQty || 0) - (itm.netIssuedQty || 0));
+
+                                          return (
+                                            <tr
+                                              key={itm.id || `itm-${group.orderNo}-${itmIdx}`}
+                                              className={`transition-colors ${
+                                                isFilterActive && isMatchedItem
+                                                  ? 'bg-blue-50/90 dark:bg-blue-950/50 font-semibold'
+                                                  : isFilterActive && !isMatchedItem
+                                                  ? 'opacity-40 hover:opacity-100 hover:bg-slate-50/70 dark:hover:bg-slate-800/40'
+                                                  : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/40'
+                                              }`}
+                                            >
+                                              <td className="py-2 px-3 font-semibold text-slate-900 dark:text-white whitespace-nowrap">
+                                                {itm.colour || '—'}
+                                              </td>
+                                              <td className="py-2 px-3 text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                                                {itm.fabType || '—'}
+                                              </td>
+                                              <td className="py-2 px-3 text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                                                {itm.fabStyle || '—'}
+                                              </td>
+                                              {showCode && (
+                                                <td className="py-2 px-3 font-mono text-slate-500 whitespace-nowrap">
+                                                  {itm.code || '—'}
+                                                </td>
+                                              )}
+                                              {showUnit && (
+                                                <td className="py-2 px-3 text-slate-500 whitespace-nowrap">
+                                                  {itm.ownerUnit || '—'}
+                                                </td>
+                                              )}
+                                              {showDouble && (
+                                                <td className="py-2 px-3 text-right font-mono text-slate-500 whitespace-nowrap">
+                                                  {itm.doubleCount || 0}
+                                                </td>
+                                              )}
+                                              {customCols.map(c => (
+                                                <td key={c} className="py-2 px-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                                                  {String(itm[c] ?? (itm.customFields && itm.customFields[c]) ?? '—')}
+                                                </td>
+                                              ))}
+                                              <td className="py-2 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                                                {Math.round(itm.netReceivedQty || 0).toLocaleString()}
+                                              </td>
+                                              <td className="py-2 px-3 text-right font-mono font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                                                {Math.round(itm.netIssuedQty || 0).toLocaleString()}
+                                              </td>
+                                              <td className="py-2 px-3 text-right font-mono font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
+                                                {Math.round(itemStock).toLocaleString()}
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                      <tfoot>
+                                        <tr className="bg-slate-100/90 dark:bg-slate-800/90 font-black text-slate-900 dark:text-white border-t border-slate-300 dark:border-slate-700">
+                                          <td colSpan={leadColSpan} className="py-2.5 px-3 uppercase tracking-wider text-slate-700 dark:text-slate-300 text-[10px]">
+                                            Total Order Sum ({group.items.length} {group.items.length === 1 ? 'item' : 'items'})
                                           </td>
-                                          <td className="py-2 px-3 text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                                            {itm.fabType || '—'}
+                                          <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300 whitespace-nowrap">
+                                            {Math.round(group.totalNetReceived || 0).toLocaleString()}
                                           </td>
-                                          <td className="py-2 px-3 text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                                            {itm.fabStyle || '—'}
+                                          <td className="py-2.5 px-3 text-right font-mono font-bold text-blue-700 dark:text-blue-300 whitespace-nowrap">
+                                            {Math.round(group.totalNetIssued || 0).toLocaleString()}
                                           </td>
-                                          <td className="py-2 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                                            {Math.round(itm.netReceivedQty || 0).toLocaleString()}
-                                          </td>
-                                          <td className="py-2 px-3 text-right font-mono font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                                            {Math.round(itm.netIssuedQty || 0).toLocaleString()}
-                                          </td>
-                                          <td className="py-2 px-3 text-right font-mono font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
-                                            {Math.round(itemStock).toLocaleString()}
+                                          <td className="py-2.5 px-3 text-right font-mono font-black text-amber-900 dark:text-amber-300 whitespace-nowrap bg-amber-50/40 dark:bg-amber-950/20">
+                                            {Math.round(group.totalGreyStock || 0).toLocaleString()}
                                           </td>
                                         </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                  <tfoot>
-                                    <tr className="bg-slate-100/90 dark:bg-slate-800/90 font-black text-slate-900 dark:text-white border-t border-slate-300 dark:border-slate-700">
-                                      <td colSpan={3} className="py-2.5 px-3 uppercase tracking-wider text-slate-700 dark:text-slate-300 text-[10px]">
-                                        Total Order Sum ({group.items.length} {group.items.length === 1 ? 'item' : 'items'})
-                                      </td>
-                                      <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300 whitespace-nowrap">
-                                        {Math.round(group.totalNetReceived || 0).toLocaleString()}
-                                      </td>
-                                      <td className="py-2.5 px-3 text-right font-mono font-bold text-blue-700 dark:text-blue-300 whitespace-nowrap">
-                                        {Math.round(group.totalNetIssued || 0).toLocaleString()}
-                                      </td>
-                                      <td className="py-2.5 px-3 text-right font-mono font-black text-amber-900 dark:text-amber-300 whitespace-nowrap bg-amber-50/40 dark:bg-amber-950/20">
-                                        {Math.round(group.totalGreyStock || 0).toLocaleString()}
-                                      </td>
-                                    </tr>
-                                  </tfoot>
-                                </table>
+                                      </tfoot>
+                                    </table>
+                                  );
+                                })()}
                               </div>
                             </div>
                           </td>
@@ -2441,46 +2559,73 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
 
             {/* Detailed Second Layer Items Table */}
             <div className="overflow-y-auto flex-1 rounded-xl border border-slate-200 dark:border-slate-800">
-              <table className="w-full text-xs text-left border-collapse">
-                <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold sticky top-0">
-                  <tr>
-                    <th className="py-2.5 px-3">Colour</th>
-                    <th className="py-2.5 px-3">Fabric Type</th>
-                    <th className="py-2.5 px-3">Fab Style</th>
-                    <th className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400">Total Received</th>
-                    <th className="py-2.5 px-3 text-right text-blue-600 dark:text-blue-400">Total Issued</th>
-                    <th className="py-2.5 px-3 text-right text-amber-600 dark:text-amber-400">Total Stock</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-                  {viewingOrder.items.map((itm, itmIdx) => (
-                    <tr key={itm.id || `modal-itm-${itmIdx}`} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
-                      <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-white">{itm.colour || '—'}</td>
-                      <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300">{itm.fabType || '—'}</td>
-                      <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">{itm.fabStyle || '—'}</td>
-                      <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">{Math.round(itm.netReceivedQty || 0).toLocaleString()}</td>
-                      <td className="py-2.5 px-3 text-right font-mono font-bold text-blue-600 dark:text-blue-400">{Math.round(itm.netIssuedQty || 0).toLocaleString()}</td>
-                      <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-600 dark:text-amber-400">{Math.round(itm.stockQty !== undefined ? itm.stockQty : Math.max(0, (itm.netReceivedQty || 0) - (itm.netIssuedQty || 0))).toLocaleString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="bg-slate-100/90 dark:bg-slate-800/90 font-black text-slate-900 dark:text-white border-t border-slate-300 dark:border-slate-700">
-                    <td colSpan={3} className="py-2.5 px-3 uppercase tracking-wider text-slate-700 dark:text-slate-300 text-[10px]">
-                      Total Order Sum ({viewingOrder.items.length} {viewingOrder.items.length === 1 ? 'item' : 'items'})
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300 whitespace-nowrap">
-                      {Math.round(viewingOrder.totalNetReceived || 0).toLocaleString()}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-mono font-bold text-blue-700 dark:text-blue-300 whitespace-nowrap">
-                      {Math.round(viewingOrder.totalNetIssued || 0).toLocaleString()}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-mono font-black text-amber-900 dark:text-amber-300 whitespace-nowrap bg-amber-50/40 dark:bg-amber-950/20">
-                      {Math.round(viewingOrder.totalGreyStock || 0).toLocaleString()}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
+              {(() => {
+                const showCode = viewingOrder.items.some(i => i.code && i.code !== '—');
+                const showUnit = viewingOrder.items.some(i => i.ownerUnit && i.ownerUnit !== 'EKL');
+                const showDouble = viewingOrder.items.some(i => i.doubleCount && Number(i.doubleCount) > 0);
+                const customCols = (viewingOrder.customColumns || []).filter(c => c && c.toLowerCase() !== 'id' && c.toLowerCase() !== 'raw_data');
+                const leadColSpan = 3 + (showCode ? 1 : 0) + (showUnit ? 1 : 0) + (showDouble ? 1 : 0) + customCols.length;
+
+                return (
+                  <table className="w-full text-xs text-left border-collapse">
+                    <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold sticky top-0">
+                      <tr>
+                        <th className="py-2.5 px-3">Colour</th>
+                        <th className="py-2.5 px-3">Fabric Type</th>
+                        <th className="py-2.5 px-3">Fab Style</th>
+                        {showCode && <th className="py-2.5 px-3 font-mono">Code</th>}
+                        {showUnit && <th className="py-2.5 px-3">Unit</th>}
+                        {showDouble && <th className="py-2.5 px-3 text-right">Double Count</th>}
+                        {customCols.map(c => (
+                          <th key={c} className="py-2.5 px-3 capitalize">{c.replace(/_/g, ' ')}</th>
+                        ))}
+                        <th className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400">Total Received</th>
+                        <th className="py-2.5 px-3 text-right text-blue-600 dark:text-blue-400">Total Issued</th>
+                        <th className="py-2.5 px-3 text-right text-amber-600 dark:text-amber-400">Total Stock</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                      {viewingOrder.items.map((itm, itmIdx) => {
+                        const itemStock = itm.stockQty !== undefined ? itm.stockQty : Math.max(0, (itm.netReceivedQty || 0) - (itm.netIssuedQty || 0));
+                        return (
+                          <tr key={itm.id || `modal-itm-${itmIdx}`} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                            <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-white whitespace-nowrap">{itm.colour || '—'}</td>
+                            <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300 whitespace-nowrap">{itm.fabType || '—'}</td>
+                            <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400 whitespace-nowrap">{itm.fabStyle || '—'}</td>
+                            {showCode && <td className="py-2.5 px-3 font-mono text-slate-500 whitespace-nowrap">{itm.code || '—'}</td>}
+                            {showUnit && <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">{itm.ownerUnit || '—'}</td>}
+                            {showDouble && <td className="py-2.5 px-3 text-right font-mono text-slate-500 whitespace-nowrap">{itm.doubleCount || 0}</td>}
+                            {customCols.map(c => (
+                              <td key={c} className="py-2.5 px-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                                {String(itm[c] ?? (itm.customFields && itm.customFields[c]) ?? '—')}
+                              </td>
+                            ))}
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">{Math.round(itm.netReceivedQty || 0).toLocaleString()}</td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">{Math.round(itm.netIssuedQty || 0).toLocaleString()}</td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">{Math.round(itemStock).toLocaleString()}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-slate-100/90 dark:bg-slate-800/90 font-black text-slate-900 dark:text-white border-t border-slate-300 dark:border-slate-700">
+                        <td colSpan={leadColSpan} className="py-2.5 px-3 uppercase tracking-wider text-slate-700 dark:text-slate-300 text-[10px]">
+                          Total Order Sum ({viewingOrder.items.length} {viewingOrder.items.length === 1 ? 'item' : 'items'})
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300 whitespace-nowrap">
+                          {Math.round(viewingOrder.totalNetReceived || 0).toLocaleString()}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono font-bold text-blue-700 dark:text-blue-300 whitespace-nowrap">
+                          {Math.round(viewingOrder.totalNetIssued || 0).toLocaleString()}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono font-black text-amber-900 dark:text-amber-300 whitespace-nowrap bg-amber-50/40 dark:bg-amber-950/20">
+                          {Math.round(viewingOrder.totalGreyStock || 0).toLocaleString()}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                );
+              })()}
             </div>
 
             {/* Modal Footer */}

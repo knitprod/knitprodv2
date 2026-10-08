@@ -379,23 +379,15 @@ export const GreyStockStorage = {
    * Performs seamless two-way automatic and manual synchronization between
    * local browser storage, central Server DB (/api/db), and Supabase Cloud.
    */
-  async syncTwoWay(forcePushLocal: boolean = false): Promise<{ records: GreyStockItem[]; source: string; count: number }> {
+  async syncTwoWay(
+    forcePushLocal: boolean = false,
+    onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void
+  ): Promise<{ records: GreyStockItem[]; source: string; count: number }> {
     let remoteRecords: GreyStockItem[] | null = null;
     let remoteSource = 'local';
 
-    // 1. Fetch from Server DB
-    try {
-      const serverRecs = await GasClient.fetchGreyStockRecords();
-      if (serverRecs && Array.isArray(serverRecs) && serverRecs.length > 0) {
-        remoteRecords = serverRecs;
-        remoteSource = 'server_db';
-      }
-    } catch (e) {
-      console.warn('Notice: Server DB fetch:', e);
-    }
-
-    // 2. Fetch from Supabase Cloud if available
-    if ((!remoteRecords || remoteRecords.length === 0) && SupabaseSync.isConfigured() && SupabaseSync.isGreyStockTableAvailable()) {
+    // 1. Fetch from Supabase Cloud first if configured & available (primary cloud store)
+    if (SupabaseSync.isConfigured() && SupabaseSync.isGreyStockTableAvailable()) {
       try {
         const supaRecs = await SupabaseSync.fetchGreyStockRecords();
         if (supaRecs && Array.isArray(supaRecs) && supaRecs.length > 0) {
@@ -407,13 +399,27 @@ export const GreyStockStorage = {
       }
     }
 
+    // 2. Fetch / compare with Server DB (/api/db)
+    try {
+      const serverRecs = await GasClient.fetchGreyStockRecords();
+      if (serverRecs && Array.isArray(serverRecs) && serverRecs.length > 0) {
+        // If Supabase was empty or Server DB has more records, use Server DB
+        if (!remoteRecords || serverRecs.length > remoteRecords.length) {
+          remoteRecords = serverRecs;
+          remoteSource = 'server_db';
+        }
+      }
+    } catch (e) {
+      console.warn('Notice: Server DB fetch:', e);
+    }
+
     const localRecords = this.getRecords();
 
     // If forced to push local or if local has uploaded dataset while remote is empty
     if (forcePushLocal || (localRecords.length > INITIAL_GREY_STOCK_RECORDS.length && (!remoteRecords || remoteRecords.length === 0))) {
-      GasClient.saveGreyStockRecords(localRecords).catch(() => {});
+      await GasClient.saveGreyStockRecords(localRecords).catch(() => {});
       if (SupabaseSync.isConfigured() && SupabaseSync.isGreyStockTableAvailable()) {
-        SupabaseSync.bulkSaveGreyStockRecords(localRecords, true).catch(() => {});
+        await SupabaseSync.bulkSaveGreyStockRecords(localRecords, true, onProgress);
       }
       return { records: localRecords, source: 'local_pushed', count: localRecords.length };
     }
@@ -428,9 +434,9 @@ export const GreyStockStorage = {
 
     // Otherwise, ensure remote is in sync with current local records
     if (localRecords.length > 0) {
-      GasClient.saveGreyStockRecords(localRecords).catch(() => {});
+      await GasClient.saveGreyStockRecords(localRecords).catch(() => {});
       if (SupabaseSync.isConfigured() && SupabaseSync.isGreyStockTableAvailable()) {
-        SupabaseSync.bulkSaveGreyStockRecords(localRecords, true).catch(() => {});
+        await SupabaseSync.bulkSaveGreyStockRecords(localRecords, true, onProgress);
       }
     }
 
@@ -972,7 +978,7 @@ export function groupGreyStockRecords(
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
-    const rawOrd = (item.orderNo || 'Unknown').trim();
+    const rawOrd = (item.orderNo || item.order_no || item.orderNumber || 'Unknown').trim();
     let group = map.get(rawOrd);
 
     const netRec = Math.round(parseNumericValue(item.netReceivedQty));
@@ -986,6 +992,11 @@ export function groupGreyStockRecords(
     item.stockQty = stock;
 
     if (!group) {
+      const customCols = new Set<string>();
+      if (item.customFields) {
+        Object.keys(item.customFields).forEach(k => customCols.add(k));
+      }
+
       group = {
         orderNo: rawOrd,
         status: (item.status && item.status.trim() && item.status.trim() !== '—') ? item.status.trim() : 'Running',
@@ -995,7 +1006,8 @@ export function groupGreyStockRecords(
         totalNetIssued: netIss,
         totalGreyStock: stock,
         greyRequired: stock,
-        items: [item]
+        items: [item],
+        customColumns: Array.from(customCols)
       };
       map.set(rawOrd, group);
     } else {
@@ -1008,6 +1020,12 @@ export function groupGreyStockRecords(
       }
       if ((!group.buyerName || group.buyerName === '—') && item.buyerName && item.buyerName.trim() && item.buyerName.trim() !== '—') {
         group.buyerName = item.buyerName.trim();
+      }
+
+      if (item.customFields) {
+        const curCols = new Set(group.customColumns || []);
+        Object.keys(item.customFields).forEach(k => curCols.add(k));
+        group.customColumns = Array.from(curCols);
       }
 
       group.totalNetReceived = Math.round(group.totalNetReceived + netRec);

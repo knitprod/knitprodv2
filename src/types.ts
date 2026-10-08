@@ -313,6 +313,8 @@ export interface GreyStockItem extends SyncMetadata {
   doubleCount?: string | number; // Double Count from uploaded file
   ownerUnit?: string;     // Owner Unit (optional)
   matchedGreyQty?: number;// Matched Grey QTY (optional)
+  customFields?: Record<string, any>; // Preserves any additional custom columns from Supabase or Excel
+  [key: string]: any;     // Index signature for dynamic columns
 }
 
 export interface GreyStockOrderGroup {
@@ -325,6 +327,7 @@ export interface GreyStockOrderGroup {
   totalGreyStock: number;
   items: GreyStockItem[];
   greyRequired?: number;
+  customColumns?: string[]; // Names of any detected extra columns
 }
 
 
