@@ -240,7 +240,7 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
     const timer = setTimeout(() => {
       setDebouncedSearch(searchTerm);
       setCurrentPage(1);
-    }, 120);
+    }, 80);
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
@@ -248,7 +248,7 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
     const timer = setTimeout(() => {
       setDebouncedOrderNoSearch(orderNoSearch);
       setCurrentPage(1);
-    }, 120);
+    }, 80);
     return () => clearTimeout(timer);
   }, [orderNoSearch]);
 
@@ -448,8 +448,8 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
     return groupGreyStockRecords(records);
   }, [records]);
 
-  // STEP 3: Dynamic Filter Options (cached from master dataset)
-  const filterOptions = useMemo(() => {
+  // STEP 2: Master Filter Options (computed across the full master dataset for fast-path when nothing is filtered)
+  const masterFilterOptions = useMemo(() => {
     const statuses = new Set<string>();
     const units = new Set<string>();
     const buyers = new Set<string>();
@@ -496,6 +496,228 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
       availableMonths
     };
   }, [masterOrderGroups]);
+
+  // STEP 3: Relational / Cascading Filter Options (Dynamically scoped by Search Order No & active criteria)
+  // When an Order No (e.g. 271890) is entered, all filter dropdowns show ONLY that order's Buyers, Fab Types, Colors, Dates, Units, and Statuses.
+  // When nothing is filtered, all options across the entire dataset are displayed.
+  const filterOptions = useMemo(() => {
+    const ordQ = debouncedOrderNoSearch.trim().toLowerCase();
+    const q = debouncedSearch.trim().toLowerCase();
+
+    const isNothingFiltered = 
+      !ordQ && 
+      !q && 
+      stockStatusFilter === 'all' && 
+      buyerFilter === 'All' && 
+      fabricFilter === 'All' && 
+      colorFilter === 'All' && 
+      statusFilter === 'All' && 
+      unitFilter === 'All' && 
+      completionDateFilter.mode === 'all';
+
+    // If nothing filtered, return full master options
+    if (isNothingFiltered) {
+      return masterFilterOptions;
+    }
+
+    const statuses = new Set<string>();
+    const units = new Set<string>();
+    const buyers = new Set<string>();
+    const fabTypes = new Set<string>();
+    const colors = new Set<string>();
+    const datesSet = new Set<string>();
+    const monthMap = new Map<string, { label: string; count: number }>();
+
+    const targetBuyer = buyerFilter.toLowerCase();
+    const targetFab = fabricFilter.trim().toLowerCase();
+    const targetColor = colorFilter.trim().toLowerCase();
+    const targetStatus = statusFilter.toLowerCase();
+    const targetUnit = unitFilter.toLowerCase();
+
+    for (let i = 0; i < masterOrderGroups.length; i++) {
+      const g = masterOrderGroups[i];
+
+      // 1. Dedicated Search Order No
+      if (ordQ && !g.orderNo.toLowerCase().includes(ordQ)) {
+        continue;
+      }
+
+      // 2. Global search query
+      if (q) {
+        const matchOrd = g.orderNo.toLowerCase().includes(q);
+        const matchBuyer = g.buyerName.toLowerCase().includes(q);
+        const matchSpec = g.items.some(item =>
+          item.colour.toLowerCase().includes(q) ||
+          item.fabType.toLowerCase().includes(q) ||
+          item.fabStyle.toLowerCase().includes(q) ||
+          item.ownerUnit.toLowerCase().includes(q)
+        );
+        if (!matchOrd && !matchBuyer && !matchSpec) {
+          continue;
+        }
+      }
+
+      // 3. Stock Status Segment Filter
+      if (stockStatusFilter === 'active_stock' && g.totalGreyStock <= 0) continue;
+      if (stockStatusFilter === 'high_stock' && g.totalGreyStock < 1000) continue;
+      if (stockStatusFilter === 'zero_stock' && g.totalGreyStock !== 0) continue;
+      if (stockStatusFilter === 'deficit' && g.totalGreyStock >= 0) continue;
+
+      // Group-level match flags
+      const matchBuyer = buyerFilter === 'All' || g.buyerName.toLowerCase() === targetBuyer;
+      const matchStatus = statusFilter === 'All' || g.status.toLowerCase() === targetStatus;
+
+      // Date match
+      let matchDate = true;
+      const parsedDate = parseCompletionDateKey(g.completionDate);
+      if (completionDateFilter.mode === 'date' && completionDateFilter.selectedDate) {
+        matchDate = !!parsedDate && parsedDate.isoDate === completionDateFilter.selectedDate;
+      } else if (completionDateFilter.mode === 'month' && completionDateFilter.selectedMonth) {
+        matchDate = !!parsedDate && parsedDate.yearMonth === completionDateFilter.selectedMonth;
+      } else if (completionDateFilter.mode === 'range') {
+        if (!parsedDate) {
+          matchDate = false;
+        } else {
+          if (completionDateFilter.startDate && parsedDate.isoDate < completionDateFilter.startDate) matchDate = false;
+          if (completionDateFilter.endDate && parsedDate.isoDate > completionDateFilter.endDate) matchDate = false;
+        }
+      }
+
+      // Item-level dimension match checks across this group
+      const hasMatchingFab = fabricFilter === 'All' || g.items.some(itm => itm.fabType && itm.fabType.trim().toLowerCase() === targetFab);
+      const hasMatchingColor = colorFilter === 'All' || g.items.some(itm => itm.colour && itm.colour.trim().toLowerCase() === targetColor);
+      const hasMatchingUnit = unitFilter === 'All' || g.items.some(itm => itm.ownerUnit.toLowerCase() === targetUnit);
+
+      // --- Dimension 1: BUYERS (respects all criteria EXCEPT buyer itself) ---
+      if (matchStatus && matchDate && hasMatchingFab && hasMatchingColor && hasMatchingUnit) {
+        if (g.buyerName && g.buyerName !== '—') {
+          buyers.add(g.buyerName);
+        }
+      }
+
+      // --- Dimension 2: STATUSES (respects all criteria EXCEPT status itself) ---
+      if (matchBuyer && matchDate && hasMatchingFab && hasMatchingColor && hasMatchingUnit) {
+        if (g.status) {
+          statuses.add(g.status);
+        }
+      }
+
+      // --- Dimension 3: COMPLETION DATES & MONTHS (respects all criteria EXCEPT date itself) ---
+      if (matchBuyer && matchStatus && hasMatchingFab && hasMatchingColor && hasMatchingUnit) {
+        if (parsedDate) {
+          datesSet.add(parsedDate.isoDate);
+          const existing = monthMap.get(parsedDate.yearMonth);
+          if (existing) {
+            existing.count += 1;
+          } else {
+            monthMap.set(parsedDate.yearMonth, { label: parsedDate.monthLabel, count: 1 });
+          }
+        }
+      }
+
+      // --- Dimension 4: FABRIC TYPES (respects group criteria + item-level color/unit) ---
+      if (matchBuyer && matchStatus && matchDate) {
+        for (let j = 0; j < g.items.length; j++) {
+          const itm = g.items[j];
+          const itemColorOk = colorFilter === 'All' || (itm.colour && itm.colour.trim().toLowerCase() === targetColor);
+          const itemUnitOk = unitFilter === 'All' || (itm.ownerUnit && itm.ownerUnit.toLowerCase() === targetUnit);
+          if (itemColorOk && itemUnitOk && itm.fabType && itm.fabType.trim()) {
+            fabTypes.add(itm.fabType.trim());
+          }
+        }
+      }
+
+      // --- Dimension 5: COLORS (respects group criteria + item-level fabric/unit) ---
+      if (matchBuyer && matchStatus && matchDate) {
+        for (let j = 0; j < g.items.length; j++) {
+          const itm = g.items[j];
+          const itemFabOk = fabricFilter === 'All' || (itm.fabType && itm.fabType.trim().toLowerCase() === targetFab);
+          const itemUnitOk = unitFilter === 'All' || (itm.ownerUnit && itm.ownerUnit.toLowerCase() === targetUnit);
+          if (itemFabOk && itemUnitOk && itm.colour && itm.colour.trim()) {
+            colors.add(itm.colour.trim());
+          }
+        }
+      }
+
+      // --- Dimension 6: UNITS (respects group criteria + item-level fabric/color) ---
+      if (matchBuyer && matchStatus && matchDate) {
+        for (let j = 0; j < g.items.length; j++) {
+          const itm = g.items[j];
+          const itemFabOk = fabricFilter === 'All' || (itm.fabType && itm.fabType.trim().toLowerCase() === targetFab);
+          const itemColorOk = colorFilter === 'All' || (itm.colour && itm.colour.trim().toLowerCase() === targetColor);
+          if (itemFabOk && itemColorOk && itm.ownerUnit) {
+            units.add(itm.ownerUnit);
+          }
+        }
+      }
+    }
+
+    const availableMonths: MonthOption[] = Array.from(monthMap.entries())
+      .map(([ym, data]) => ({ yearMonth: ym, label: data.label, count: data.count }))
+      .sort((a, b) => b.yearMonth.localeCompare(a.yearMonth));
+
+    return {
+      statuses: Array.from(statuses).sort(),
+      units: Array.from(units).sort(),
+      buyers: Array.from(buyers).sort(),
+      fabTypes: Array.from(fabTypes).sort(),
+      colors: Array.from(colors).sort(),
+      availableDates: Array.from(datesSet).sort(),
+      availableMonths
+    };
+  }, [
+    masterOrderGroups,
+    masterFilterOptions,
+    debouncedOrderNoSearch,
+    debouncedSearch,
+    stockStatusFilter,
+    buyerFilter,
+    fabricFilter,
+    colorFilter,
+    statusFilter,
+    unitFilter,
+    completionDateFilter
+  ]);
+
+  // Auto-reconcile active filter values: if an active filter selection no longer exists in relational options,
+  // automatically reset that filter to 'All' so that newly searched orders are immediately visible.
+  useEffect(() => {
+    if (buyerFilter !== 'All' && filterOptions.buyers.length > 0 && !filterOptions.buyers.some(b => b.toLowerCase() === buyerFilter.toLowerCase())) {
+      setBuyerFilter('All');
+    }
+  }, [filterOptions.buyers, buyerFilter]);
+
+  useEffect(() => {
+    if (fabricFilter !== 'All' && filterOptions.fabTypes.length > 0 && !filterOptions.fabTypes.some(f => f.toLowerCase() === fabricFilter.toLowerCase())) {
+      setFabricFilter('All');
+    }
+  }, [filterOptions.fabTypes, fabricFilter]);
+
+  useEffect(() => {
+    if (colorFilter !== 'All' && filterOptions.colors.length > 0 && !filterOptions.colors.some(c => c.toLowerCase() === colorFilter.toLowerCase())) {
+      setColorFilter('All');
+    }
+  }, [filterOptions.colors, colorFilter]);
+
+  useEffect(() => {
+    if (statusFilter !== 'All' && filterOptions.statuses.length > 0 && !filterOptions.statuses.some(s => s.toLowerCase() === statusFilter.toLowerCase())) {
+      setStatusFilter('All');
+    }
+  }, [filterOptions.statuses, statusFilter]);
+
+  useEffect(() => {
+    if (unitFilter !== 'All' && filterOptions.units.length > 0 && !filterOptions.units.some(u => u.toLowerCase() === unitFilter.toLowerCase())) {
+      setUnitFilter('All');
+    }
+  }, [filterOptions.units, unitFilter]);
+
+  useEffect(() => {
+    if (completionDateFilter.mode === 'date' && completionDateFilter.selectedDate && filterOptions.availableDates.length > 0 && !filterOptions.availableDates.includes(completionDateFilter.selectedDate)) {
+      setCompletionDateFilter({ mode: 'all', selectedDate: '', selectedMonth: '', startDate: '', endDate: '', label: '' });
+    } else if (completionDateFilter.mode === 'month' && completionDateFilter.selectedMonth && filterOptions.availableMonths.length > 0 && !filterOptions.availableMonths.some(m => m.yearMonth === completionDateFilter.selectedMonth)) {
+      setCompletionDateFilter({ mode: 'all', selectedDate: '', selectedMonth: '', startDate: '', endDate: '', label: '' });
+    }
+  }, [filterOptions.availableDates, filterOptions.availableMonths, completionDateFilter]);
 
   // STEP 4: High-speed Filtering on Pre-grouped dataset (<1ms execution)
   const filteredOrderGroups = useMemo(() => {
@@ -1961,6 +2183,15 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-semibold">
                 <span>Status: <strong>{statusFilter}</strong></span>
                 <button onClick={() => setStatusFilter('All')} className="hover:text-slate-900 dark:hover:text-white cursor-pointer ml-0.5">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {unitFilter !== 'All' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 font-semibold">
+                <span>Unit: <strong>{unitFilter}</strong></span>
+                <button onClick={() => setUnitFilter('All')} className="hover:text-teal-900 dark:hover:text-white cursor-pointer ml-0.5">
                   <X className="w-3 h-3" />
                 </button>
               </span>
