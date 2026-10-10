@@ -2632,26 +2632,13 @@ export class SupabaseSync {
   private static _checkingGreyStockTable: Promise<boolean> | null = null;
 
   static isGreyStockTableAvailable(): boolean {
-    if (this._greyStockTableExists === null) {
-      try {
-        const cached = sessionStorage.getItem('epyllion_grey_stock_table_exists');
-        if (cached === 'true') {
-          this._greyStockTableExists = true;
-          return true;
-        } else if (cached === 'false') {
-          this._greyStockTableExists = false;
-          return false;
-        }
-      } catch {}
-      // Default to false when unverified to prevent background WebSocket storms and warning spam
-      return false;
-    }
     if (this._greyStockTableExists === false) {
       if (Date.now() - this._lastGreyStockCheckTime < 10 * 60 * 1000) {
         return false;
       }
+      this._greyStockTableExists = null;
     }
-    return this._greyStockTableExists === true;
+    return true;
   }
 
   static async checkGreyStockTableExists(forceRecheck: boolean = false): Promise<boolean> {

@@ -252,60 +252,124 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
     return () => clearTimeout(timer);
   }, [orderNoSearch]);
 
-  // Initial Load from Supabase Cloud & Real-time WebSockets
+  // Automated Synchronization with Supabase Cloud:
+  // 1. Initial Auto-Pull on Mount (no manual button needed)
+  // 2. Real-Time WebSockets on Remote Cloud Events
+  // 3. Periodic Background Polling (every 90 seconds)
+  // 4. Tab / Window Focus Auto-Refresh
+  const isAutoPullingRef = useRef(false);
+  const lastAutoSyncTimeRef = useRef<number>(0);
+
+  const autoPullFromCloud = useCallback(async (isInitial = false) => {
+    if (!SupabaseSync.isConfigured()) return;
+    if (isAutoPullingRef.current) return;
+
+    // Prevent spam: if not initial and synced within last 15 seconds, skip
+    const now = Date.now();
+    if (!isInitial && now - lastAutoSyncTimeRef.current < 15000) return;
+
+    isAutoPullingRef.current = true;
+    setIsSyncingCloud(true);
+    setSyncStatusText(isInitial ? 'Auto-syncing...' : 'Checking updates...');
+
+    try {
+      const syncResult = await GreyStockStorage.syncTwoWay(
+        false,
+        (processed, total, pct) => {
+          setSyncStatusText(`Auto-sync: ${pct}%`);
+        }
+      );
+
+      if (Array.isArray(syncResult.records) && syncResult.records.length > 0) {
+        setRecords(syncResult.records);
+        const uniqueOrders = new Set(syncResult.records.map(p => p.orderNo)).size;
+        const meta: GreyStockUploadMeta = {
+          lastUploadedAt: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+          fileName: syncResult.source === 'supabase' ? 'Supabase Cloud (Auto-Synced)' : 'Central Database',
+          totalRecords: syncResult.records.length,
+          totalOrders: uniqueOrders
+        };
+        GreyStockStorage.saveUploadMeta(meta);
+        setUploadMeta(meta);
+        lastAutoSyncTimeRef.current = Date.now();
+
+        if (isInitial && syncResult.records.length > 0) {
+          showToast(`Auto-synced ${syncResult.records.length.toLocaleString()} records from Supabase Cloud`);
+        }
+      }
+    } catch (err) {
+      console.warn('Auto-pull notice:', err);
+    } finally {
+      setIsSyncingCloud(false);
+      setSyncStatusText('');
+      isAutoPullingRef.current = false;
+    }
+  }, [showToast]);
+
   useEffect(() => {
     let unsub: (() => void) | null = null;
     let isCancelled = false;
 
+    // 1. Automatically pull on initial mount
+    autoPullFromCloud(true);
+
+    // 2. Real-time subscription to Supabase Cloud table
     if (SupabaseSync.isConfigured()) {
-      SupabaseSync.checkGreyStockTableExists().then(exists => {
-        if (isCancelled || !exists) return;
-
-        // Fetch records only if confirmed to exist
-        SupabaseSync.fetchGreyStockRecords()
-          .then(remoteRecords => {
-            if (isCancelled) return;
-            if (Array.isArray(remoteRecords) && remoteRecords.length > 0) {
-              setRecords(remoteRecords);
-              GreyStockStorage.saveRecords(remoteRecords, false);
+      unsub = SupabaseSync.subscribeToGreyStockRecords(({ eventType, record, id }) => {
+        if (isCancelled) return;
+        if (eventType === 'DELETE') {
+          setRecords(prev => {
+            const next = prev.filter(r => r.id !== id);
+            GreyStockStorage.saveRecords(next, false);
+            return next;
+          });
+        } else if (eventType === 'INSERT' || eventType === 'UPDATE') {
+          setRecords(prev => {
+            const idx = prev.findIndex(r => r.id === record.id);
+            let next: GreyStockItem[];
+            if (idx >= 0) {
+              next = [...prev];
+              next[idx] = record;
+            } else {
+              next = [record, ...prev];
             }
-          })
-          .catch(() => {});
-
-        // Real-time subscription to cloud table
-        unsub = SupabaseSync.subscribeToGreyStockRecords(({ eventType, record, id }) => {
-          if (isCancelled) return;
-          if (eventType === 'DELETE') {
-            setRecords(prev => {
-              const next = prev.filter(r => r.id !== id);
-              GreyStockStorage.saveRecords(next, false);
-              return next;
-            });
-          } else if (eventType === 'INSERT' || eventType === 'UPDATE') {
-            setRecords(prev => {
-              const idx = prev.findIndex(r => r.id === record.id);
-              let next: GreyStockItem[];
-              if (idx >= 0) {
-                next = [...prev];
-                next[idx] = record;
-              } else {
-                next = [record, ...prev];
-              }
-              GreyStockStorage.saveRecords(next, false);
-              return next;
-            });
-          }
-        });
-      }).catch(() => {});
+            GreyStockStorage.saveRecords(next, false);
+            return next;
+          });
+        }
+      });
     }
+
+    // 3. Periodic background auto-check (every 90s)
+    const periodicInterval = setInterval(() => {
+      if (!isCancelled) {
+        autoPullFromCloud(false);
+      }
+    }, 90000);
+
+    // 4. Auto-refresh when tab/window regains focus or visibility
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !isCancelled) {
+        autoPullFromCloud(false);
+      }
+    };
+    const handleFocus = () => {
+      if (!isCancelled) {
+        autoPullFromCloud(false);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
 
     return () => {
       isCancelled = true;
-      if (unsub) {
-        unsub();
-      }
+      if (unsub) unsub();
+      clearInterval(periodicInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
     };
-  }, []);
+  }, [autoPullFromCloud]);
 
   // Listen to cross-component storage updates
   useEffect(() => {
@@ -1406,27 +1470,31 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
 
         {/* Action Controls */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Pull / Sync from Supabase Cloud button */}
+          {/* Merged Single Button: Auto-Sync: Live (Clickable to sync again anytime) */}
           <button
             type="button"
             onClick={() => handleSyncCloud(false)}
             disabled={isSyncingCloud}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl border transition-all shadow-2xs cursor-pointer disabled:cursor-not-allowed ${
+            className={`inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl border transition-all shadow-2xs cursor-pointer disabled:cursor-not-allowed ${
               isSyncingCloud
                 ? 'border-blue-400 bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500/25'
-                : 'border-sky-300 dark:border-sky-700 bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/40'
+                : 'border-emerald-200/90 dark:border-emerald-800/70 bg-emerald-50/90 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100/90 dark:hover:bg-emerald-900/50 hover:border-emerald-300 dark:hover:border-emerald-700'
             }`}
-            title="Fetch and pull latest records from Supabase Cloud into the app. Supabase data stays intact."
+            title="Auto-sync is LIVE with Supabase. Click anytime to re-sync immediately."
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCloud ? 'text-blue-600 dark:text-blue-400 animate-spin' : 'text-sky-600 dark:text-sky-400'}`} />
-            <span>{isSyncingCloud ? (syncStatusText || 'Loading from Supabase...') : 'Sync from Supabase'}</span>
-            <span className={`hidden sm:inline-block text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded ${
-              isSyncingCloud
-                ? 'bg-blue-200/80 dark:bg-blue-900/80 text-blue-800 dark:text-blue-200 animate-pulse'
-                : 'bg-sky-200/80 dark:bg-sky-800 text-sky-800 dark:text-sky-200'
-            } ml-0.5`}>
-              {isSyncingCloud ? 'Fetching' : 'Pull Cloud'}
+            {isSyncingCloud ? (
+              <RefreshCw className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 animate-spin" />
+            ) : (
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+            )}
+            <span>Auto-Sync:</span>
+            <span className="font-bold">
+              {isSyncingCloud ? (syncStatusText || 'Syncing...') : 'Live'}
             </span>
+            <RefreshCw className={`w-3 h-3 ml-0.5 opacity-60 hover:opacity-100 ${isSyncingCloud ? 'hidden' : 'inline'}`} />
           </button>
 
           {/* Export Dropdown / Actions */}
