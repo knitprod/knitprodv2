@@ -315,23 +315,8 @@ export const GreyStockStorage = {
       }
       const parsed = JSON.parse(data);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // Ensure standard demo orders (271890, 272277, etc.) exist if not already in dataset
-        const existingOrderNos = new Set(parsed.map((p: any) => String(p.orderNo).trim()));
-        let needsSave = false;
-        const merged = [...parsed];
-        for (const initRec of INITIAL_GREY_STOCK_RECORDS) {
-          if (!existingOrderNos.has(String(initRec.orderNo).trim())) {
-            merged.push(initRec);
-            needsSave = true;
-          }
-        }
-        if (needsSave) {
-          try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-          } catch {}
-        }
-        memoryRecordsCache = merged;
-        return merged;
+        memoryRecordsCache = parsed;
+        return parsed;
       }
       memoryRecordsCache = INITIAL_GREY_STOCK_RECORDS;
       return INITIAL_GREY_STOCK_RECORDS;
@@ -343,26 +328,27 @@ export const GreyStockStorage = {
 
   /**
    * Replaces current dataset with newly uploaded records
-   * Automatically pushes to central database (server DB & Supabase) for two-way synchronization
+   * Notice: pushToRemote defaults to FALSE so standard state updates NEVER overwrite Supabase!
+   * Supabase stays intact unless the user explicitly uploads a new file.
    */
-  saveRecords(records: GreyStockItem[], pushToRemote: boolean = true): void {
+  saveRecords(records: GreyStockItem[], pushToRemote: boolean = false): void {
     const isSameReference = memoryRecordsCache === records;
     memoryRecordsCache = records;
     if (!isSameReference) {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
       } catch (err) {
-        console.warn('Storage quota warning - keeping dataset in memory:', err);
+        console.warn('Storage quota notice - keeping dataset in memory:', err);
       }
     }
-    // Dispatch custom event for real-time reactive sync across components (deferred)
+    // Dispatch custom event for real-time reactive sync across components
     setTimeout(() => {
       try {
         window.dispatchEvent(new CustomEvent('epyllion_grey_stock_updated', { detail: records }));
       } catch {}
     }, 0);
 
-    // Two-Way Automatic Sync: seamlessly push records to database in background
+    // Only push if explicitly requested (e.g. from an explicit user file upload)
     if (pushToRemote && Array.isArray(records) && records.length > 0) {
       try {
         GasClient.saveGreyStockRecords(records).catch(() => {});
@@ -370,53 +356,23 @@ export const GreyStockStorage = {
           SupabaseSync.bulkSaveGreyStockRecords(records, true).catch(() => {});
         }
       } catch (e) {
-        console.warn('Background auto-push notice:', e);
+        console.warn('Explicit push notice:', e);
       }
     }
   },
 
   /**
-   * Performs seamless two-way automatic and manual synchronization between
-   * local browser storage, central Server DB (/api/db), and Supabase Cloud.
+   * Pulls & synchronizes records from cloud (Supabase first).
+   * Supabase is the primary single source of truth.
+   * Supabase data stays 100% intact - the app updates FROM Supabase, NOT the reverse!
    */
   async syncTwoWay(
     forcePushLocal: boolean = false,
     onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void
   ): Promise<{ records: GreyStockItem[]; source: string; count: number }> {
-    let remoteRecords: GreyStockItem[] | null = null;
-    let remoteSource = 'local';
-
-    // 1. Fetch from Supabase Cloud first if configured & available (primary cloud store)
-    if (SupabaseSync.isConfigured() && SupabaseSync.isGreyStockTableAvailable()) {
-      try {
-        const supaRecs = await SupabaseSync.fetchGreyStockRecords();
-        if (supaRecs && Array.isArray(supaRecs) && supaRecs.length > 0) {
-          remoteRecords = supaRecs;
-          remoteSource = 'supabase';
-        }
-      } catch (e) {
-        console.warn('Notice: Supabase fetch:', e);
-      }
-    }
-
-    // 2. Fetch / compare with Server DB (/api/db)
-    try {
-      const serverRecs = await GasClient.fetchGreyStockRecords();
-      if (serverRecs && Array.isArray(serverRecs) && serverRecs.length > 0) {
-        // If Supabase was empty or Server DB has more records, use Server DB
-        if (!remoteRecords || serverRecs.length > remoteRecords.length) {
-          remoteRecords = serverRecs;
-          remoteSource = 'server_db';
-        }
-      }
-    } catch (e) {
-      console.warn('Notice: Server DB fetch:', e);
-    }
-
-    const localRecords = this.getRecords();
-
-    // If forced to push local or if local has uploaded dataset while remote is empty
-    if (forcePushLocal || (localRecords.length > INITIAL_GREY_STOCK_RECORDS.length && (!remoteRecords || remoteRecords.length === 0))) {
+    // If user explicitly requests to force push local records to remote
+    if (forcePushLocal) {
+      const localRecords = this.getRecords();
       await GasClient.saveGreyStockRecords(localRecords).catch(() => {});
       if (SupabaseSync.isConfigured() && SupabaseSync.isGreyStockTableAvailable()) {
         await SupabaseSync.bulkSaveGreyStockRecords(localRecords, true, onProgress);
@@ -424,23 +380,46 @@ export const GreyStockStorage = {
       return { records: localRecords, source: 'local_pushed', count: localRecords.length };
     }
 
-    // If remote has valid dataset
-    if (remoteRecords && remoteRecords.length > 0) {
-      if (remoteRecords.length >= localRecords.length || localRecords.length <= INITIAL_GREY_STOCK_RECORDS.length) {
-        this.saveRecords(remoteRecords, false);
-        return { records: remoteRecords, source: remoteSource, count: remoteRecords.length };
+    // 1. Fetch from Supabase Cloud first (primary source of truth)
+    if (SupabaseSync.isConfigured() && SupabaseSync.isGreyStockTableAvailable()) {
+      try {
+        const supaRecs = await SupabaseSync.fetchGreyStockRecords((loaded, total, pct) => {
+          if (onProgress) {
+            onProgress(loaded, total, pct, `Fetching records from Supabase (${loaded.toLocaleString()} / ${total.toLocaleString()})...`);
+          }
+        });
+
+        if (supaRecs && Array.isArray(supaRecs) && supaRecs.length > 0) {
+          // Supabase is the source of truth! Update local app state without touching Supabase
+          this.saveRecords(supaRecs, false);
+          const uniqueOrders = new Set(supaRecs.map(p => p.orderNo)).size;
+          this.saveUploadMeta({
+            lastUploadedAt: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+            fileName: 'Supabase Cloud Table (grey_stock_summary)',
+            totalRecords: supaRecs.length,
+            totalOrders: uniqueOrders
+          });
+          return { records: supaRecs, source: 'supabase', count: supaRecs.length };
+        }
+      } catch (e) {
+        console.warn('Supabase fetch notice in sync:', e);
       }
     }
 
-    // Otherwise, ensure remote is in sync with current local records
-    if (localRecords.length > 0) {
-      await GasClient.saveGreyStockRecords(localRecords).catch(() => {});
-      if (SupabaseSync.isConfigured() && SupabaseSync.isGreyStockTableAvailable()) {
-        await SupabaseSync.bulkSaveGreyStockRecords(localRecords, true, onProgress);
+    // 2. Fetch from Server DB (/api/db) as secondary fallback
+    try {
+      const serverRecs = await GasClient.fetchGreyStockRecords();
+      if (serverRecs && Array.isArray(serverRecs) && serverRecs.length > 0) {
+        this.saveRecords(serverRecs, false);
+        return { records: serverRecs, source: 'server_db', count: serverRecs.length };
       }
+    } catch (e) {
+      console.warn('Server DB fetch notice in sync:', e);
     }
 
-    return { records: localRecords, source: 'synced', count: localRecords.length };
+    // 3. Fallback to local records (NEVER push or overwrite Supabase)
+    const localRecords = this.getRecords();
+    return { records: localRecords, source: 'local', count: localRecords.length };
   },
 
   getUploadMeta(): GreyStockUploadMeta {

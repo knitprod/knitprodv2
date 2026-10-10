@@ -900,7 +900,7 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
     }
   };
 
-  // Two-way synchronization: Central Database & Supabase Cloud (Manual or Automatic)
+  // Pull & Synchronize records from Supabase Cloud (Supabase is single source of truth)
   const handleSyncCloud = async (isSilent: boolean = false) => {
     setIsSyncingCloud(true);
     setSyncStatusText('Connecting...');
@@ -908,9 +908,9 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
       setSyncProgress({
         isActive: true,
         type: 'sync',
-        title: 'Synchronizing Grey Stock with Supabase',
+        title: 'Fetching Grey Stock Data from Supabase',
         percent: 20,
-        stage: 'Connecting to central database & Supabase cloud...'
+        stage: 'Connecting to Supabase Cloud to pull latest dataset...'
       });
     }
     try {
@@ -918,9 +918,9 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
         setSyncProgress({
           isActive: true,
           type: 'sync',
-          title: 'Updating Grey Stock Data on Supabase',
-          percent: 35,
-          stage: 'Syncing records to Supabase cloud...'
+          title: 'Fetching Grey Stock Data from Supabase',
+          percent: 30,
+          stage: 'Loading records from Supabase Cloud...'
         });
       }
 
@@ -932,9 +932,9 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
               ...prev,
               isActive: true,
               type: 'sync',
-              title: 'Updating Grey Stock Data on Supabase',
-              percent: Math.min(99, Math.max(35, pct)),
-              stage: stage || `Updating Supabase table (${processed}/${total} rows, ${pct}%)...`,
+              title: 'Fetching Grey Stock Data from Supabase',
+              percent: Math.min(99, Math.max(30, pct)),
+              stage: stage || `Loading records from Supabase Cloud (${processed.toLocaleString()}/${total.toLocaleString()} rows, ${pct}%)...`,
               current: processed,
               total
             }));
@@ -945,19 +945,29 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
 
       if (Array.isArray(syncResult.records) && syncResult.records.length > 0) {
         setRecords(syncResult.records);
+        const uniqueOrders = new Set(syncResult.records.map(p => p.orderNo)).size;
+        const meta: GreyStockUploadMeta = {
+          lastUploadedAt: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+          fileName: syncResult.source === 'supabase' ? 'Supabase Cloud (grey_stock_summary)' : 'Central Database',
+          totalRecords: syncResult.records.length,
+          totalOrders: uniqueOrders
+        };
+        GreyStockStorage.saveUploadMeta(meta);
+        setUploadMeta(meta);
       }
 
       if (!isSilent) {
+        const uniqueOrders = new Set(syncResult.records.map(p => p.orderNo)).size;
         setSyncProgress({
           isActive: true,
           type: 'sync',
-          title: 'Supabase Sync Complete',
+          title: 'Supabase Data Loaded Successfully',
           percent: 100,
-          stage: `Successfully updated ${syncResult.count.toLocaleString()} records on Supabase Cloud.`,
+          stage: `Successfully loaded ${syncResult.count.toLocaleString()} records (${uniqueOrders.toLocaleString()} orders) from Supabase Cloud into App. Supabase data stays intact.`,
           current: syncResult.count,
           total: syncResult.count
         });
-        showToast(`Grey stock data fully updated on Supabase (${syncResult.count.toLocaleString()} records)!`);
+        showToast(`Loaded ${syncResult.count.toLocaleString()} records from Supabase Cloud!`);
         setTimeout(() => {
           setSyncProgress(prev => ({ ...prev, isActive: false }));
         }, 2200);
@@ -967,10 +977,10 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
         setSyncProgress({
           isActive: true,
           type: 'sync',
-          title: 'Database Sync Error',
+          title: 'Supabase Fetch Error',
           percent: 100,
-          stage: err.message || 'Database sync failed',
-          error: err.message || 'Failed to sync with Supabase'
+          stage: err.message || 'Failed to fetch from Supabase',
+          error: err.message || 'Failed to fetch from Supabase'
         });
         showToast(`Sync error: ${err.message || String(err)}`);
       }
@@ -1396,7 +1406,7 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
 
         {/* Action Controls */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Two-Way Sync Database button */}
+          {/* Pull / Sync from Supabase Cloud button */}
           <button
             type="button"
             onClick={() => handleSyncCloud(false)}
@@ -1406,16 +1416,16 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                 ? 'border-blue-400 bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500/25'
                 : 'border-sky-300 dark:border-sky-700 bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/40'
             }`}
-            title="Two-Way Automatic & Manual Sync: Central Server Database + Supabase Cloud"
+            title="Fetch and pull latest records from Supabase Cloud into the app. Supabase data stays intact."
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCloud ? 'text-blue-600 dark:text-blue-400 animate-spin' : 'text-sky-600 dark:text-sky-400'}`} />
-            <span>{isSyncingCloud ? (syncStatusText || 'Updating Supabase...') : 'Sync Database'}</span>
+            <span>{isSyncingCloud ? (syncStatusText || 'Loading from Supabase...') : 'Sync from Supabase'}</span>
             <span className={`hidden sm:inline-block text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded ${
               isSyncingCloud
                 ? 'bg-blue-200/80 dark:bg-blue-900/80 text-blue-800 dark:text-blue-200 animate-pulse'
                 : 'bg-sky-200/80 dark:bg-sky-800 text-sky-800 dark:text-sky-200'
             } ml-0.5`}>
-              {isSyncingCloud ? 'Saving' : 'Auto/Manual'}
+              {isSyncingCloud ? 'Fetching' : 'Pull Cloud'}
             </span>
           </button>
 

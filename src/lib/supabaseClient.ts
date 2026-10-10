@@ -2741,10 +2741,21 @@ export class SupabaseSync {
 
       if (this._greyStockTableExists === false) return [];
 
+      // Probe which column can be safely used for deterministic order
+      let sortKey: 'id' | 'order_no' | null = 'id';
+      try {
+        const testRes = await client.from('grey_stock_summary').select('id').limit(1);
+        if (testRes.error) {
+          const testOrder = await client.from('grey_stock_summary').select('order_no').limit(1);
+          sortKey = testOrder.error ? null : 'order_no';
+        }
+      } catch {
+        sortKey = null;
+      }
+
       const allRows: any[] = [];
       const BATCH_SIZE = 1000;
       let from = 0;
-      let sortKey: 'id' | 'order_no' | null = 'id';
 
       while (true) {
         const to = from + BATCH_SIZE - 1;
@@ -2762,14 +2773,9 @@ export class SupabaseSync {
             this._lastGreyStockCheckTime = Date.now();
             return [];
           }
-
-          // If ordering by 'id' failed because 'id' column does not exist, retry once with 'order_no'
-          if (sortKey === 'id' && (error.message?.includes('column') || error.message?.includes('id') || error.code === '42703')) {
-            sortKey = 'order_no';
-            continue;
-          }
-          // If ordering by 'order_no' failed, retry without explicit sort
-          if (sortKey === 'order_no') {
+          console.warn('Supabase fetch range notice:', error);
+          // If ordering failed unexpectedly, retry once without order
+          if (sortKey) {
             sortKey = null;
             continue;
           }
@@ -2781,16 +2787,22 @@ export class SupabaseSync {
         }
 
         allRows.push(...data);
-        const percent = totalCount > 0 ? Math.min(100, Math.round((allRows.length / totalCount) * 100)) : 100;
+        const effectiveTotal = Math.max(totalCount, allRows.length);
+        const percent = effectiveTotal > 0 ? Math.min(99, Math.round((allRows.length / effectiveTotal) * 100)) : 100;
         if (onProgress) {
-          onProgress(allRows.length, Math.max(totalCount, allRows.length), percent);
+          onProgress(allRows.length, effectiveTotal, percent);
         }
 
-        if (data.length < BATCH_SIZE || (totalCount > 0 && allRows.length >= totalCount)) {
+        // Standard PostgREST pagination termination: if batch is smaller than requested, all rows are fetched
+        if (data.length < BATCH_SIZE) {
           break;
         }
 
         from += BATCH_SIZE;
+      }
+
+      if (onProgress && allRows.length > 0) {
+        onProgress(allRows.length, allRows.length, 100);
       }
 
       this._greyStockTableExists = true;
