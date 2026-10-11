@@ -890,43 +890,6 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
     return new Set(filteredYarnAllocations.map(item => String(item.orderNumber || '').trim()).filter(Boolean)).size;
   }, [filteredYarnAllocations]);
 
-  const formatYarnMetadata = () => {
-    let updateDate = uploadInfo.lastUpdatedDate;
-    let updateTime = uploadInfo.lastUpdateTime;
-    const userName = uploadInfo.uploadedBy || uploadInfo.userName || currentUser?.userName || 'Md. Raihan Hossain Antu';
-
-    if (!updateDate || !updateTime) {
-      if (uploadInfo.lastUploadedAt && uploadInfo.lastUploadedAt !== 'Synced') {
-        if (uploadInfo.lastUploadedAt.includes(',')) {
-          const parts = uploadInfo.lastUploadedAt.split(',');
-          updateDate = updateDate || parts[0]?.trim();
-          updateTime = updateTime || parts.slice(1).join(',').trim();
-        } else {
-          try {
-            const d = new Date(uploadInfo.lastUploadedAt);
-            if (!isNaN(d.getTime())) {
-              updateDate = updateDate || d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-              updateTime = updateTime || d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-            }
-          } catch (e) {}
-        }
-      }
-    }
-
-    if (!updateDate) {
-      const now = new Date();
-      updateDate = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-    }
-    if (!updateTime) {
-      const now = new Date();
-      updateTime = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-    }
-
-    return { updateDate, updateTime, userName };
-  };
-
-  const { updateDate, updateTime, userName } = formatYarnMetadata();
-
   const handleExportYarnExcel = () => {
     if (filteredYarnAllocations.length === 0) return;
 
@@ -1690,53 +1653,6 @@ export default function YarnAllocationView({ currentUser }: YarnAllocationViewPr
           </div>
         </div>
       )}
-
-      {/* YARN ALLOCATION UPDATE STATUS BANNER */}
-      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3.5">
-            <div className={`h-11 w-11 rounded-xl flex items-center justify-center font-bold shrink-0 ${
-              uploadInfo.status === 'Success'
-                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200/80 dark:border-emerald-800'
-                : uploadInfo.status === 'Failed'
-                ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border border-rose-200/80 dark:border-rose-800'
-                : 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200/80 dark:border-blue-800'
-            }`}>
-              <UploadCloud className="h-5 w-5" />
-            </div>
-            <div>
-              <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 block">
-                Yarn Allocation Sync Status
-              </span>
-              <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span>
-                  <span className="text-slate-400 font-medium">Update Time:</span>{' '}
-                  <span className="font-black text-slate-900 dark:text-white font-mono">{updateTime}</span>
-                </span>
-                <span className="text-slate-300 dark:text-slate-700">•</span>
-                <span>
-                  <span className="text-slate-400 font-medium">Update Date:</span>{' '}
-                  <span className="font-black text-slate-900 dark:text-white">{updateDate}</span>
-                </span>
-                <span className="text-slate-300 dark:text-slate-700">•</span>
-                <span>
-                  <span className="text-slate-400 font-medium">User Name:</span>{' '}
-                  <span className="font-black text-blue-600 dark:text-sky-400">{userName}</span>
-                </span>
-                <span className="text-slate-300 dark:text-slate-700">•</span>
-                <span className="text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-md font-bold">
-                  {yarnAllocations.length > 0 ? `${yarnAllocations.length.toLocaleString()} Records` : (uploadInfo.totalRecords ? `${uploadInfo.totalRecords.toLocaleString()} Records` : '0 Records')}
-                </span>
-              </div>
-            </div>
-          </div>
-          {uploadInfo.status === 'Failed' && uploadInfo.errorMessage && (
-            <div className="text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 p-2.5 rounded-xl border border-rose-200 dark:border-rose-800 max-w-md">
-              {uploadInfo.errorMessage}
-            </div>
-          )}
-        </div>
-      </div>
 
       {/* SYNC / SUCCESS BANNER */}
       {uploadSuccessBanner && (
