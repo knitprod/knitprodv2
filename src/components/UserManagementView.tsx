@@ -82,6 +82,7 @@ export const ALL_TABS = [
   'Running Orders',
   'Textile Close By PMC',
   'Grey Stock Summary',
+  'Grey Yarn Stock Summary',
   'Yarn Allocation',
   'User Management',
   'Database Connection',
@@ -104,6 +105,7 @@ export const getTabEmoji = (tabName: string): string => {
     case 'Running Orders': return '⚡';
     case 'Textile Close By PMC': return '🛡️';
     case 'Grey Stock Summary': return '📦';
+    case 'Grey Yarn Stock Summary': return '🧶';
     case 'Yarn Allocation': return '🧶';
     case 'User Management': return '👥';
     case 'Database Connection': return '⚡';
@@ -205,6 +207,7 @@ export const INITIAL_USERS: UserRecord[] = [
       'Running Orders',
       'Textile Close By PMC',
       'Grey Stock Summary',
+      'Grey Yarn Stock Summary',
       'Yarn Allocation'
     ],
     tabPermissions: {
@@ -222,6 +225,7 @@ export const INITIAL_USERS: UserRecord[] = [
       'Running Orders': 'Full Access',
       'Textile Close By PMC': 'Full Access',
       'Grey Stock Summary': 'Full Access',
+      'Grey Yarn Stock Summary': 'Full Access',
       'Yarn Allocation': 'Full Access',
       'User Management': 'No Access',
       'Database Connection': 'No Access',
@@ -2115,6 +2119,7 @@ export default function UserManagementView({ currentUser }: { currentUser?: User
                             case 'Running Orders': return '⚡';
                             case 'Textile Close By PMC': return '🛡️';
                             case 'Grey Stock Summary': return '📦';
+                            case 'Grey Yarn Stock Summary': return '🧶';
                             case 'Yarn Allocation': return '🧶';
                             case 'User Management': return '👥';
                             case 'Database Connection': return '🗄️';

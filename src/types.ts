@@ -330,6 +330,4 @@ export interface GreyStockOrderGroup {
   customColumns?: string[]; // Names of any detected extra columns
 }
 
-
-
-
+export type { GreyYarnStockItem, GreyYarnStockOrderGroup } from './lib/greyYarnStockStore';

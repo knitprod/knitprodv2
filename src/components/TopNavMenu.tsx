@@ -72,6 +72,7 @@ export default function TopNavMenu({ currentPage, onNavigate, currentUser }: Top
     { name: 'Running Orders', icon: Activity, label: 'Running Orders' },
     { name: 'Textile Close By PMC', icon: ShieldCheck, label: 'Textile Close By PMC' },
     { name: 'Grey Stock Summary', icon: Boxes, label: 'Grey Stock Summary' },
+    { name: 'Grey Yarn Stock Summary', icon: Layers, label: 'Grey Yarn Stock Summary' },
   ];
 
   const adminPanelItems = [

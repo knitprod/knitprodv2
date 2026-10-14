@@ -55,6 +55,7 @@ import YarnAllocationView from './components/YarnAllocationView';
 import KnittingStatusView from './components/KnittingStatusView';
 import TextileClosePMCView from './components/TextileClosePMCView';
 import GreyStockSummaryView from './components/GreyStockSummaryView';
+import GreyYarnStockSummaryView from './components/GreyYarnStockSummaryView';
 import DashboardFilterToolbar, { FilterState } from './components/DashboardFilterToolbar';
 import DashboardUnitwiseCards from './components/DashboardUnitwiseCards';
 import DashboardQualityLossCards from './components/DashboardQualityLossCards';
@@ -187,6 +188,7 @@ export const PAGE_TO_HASH: Record<string, string> = {
   'Running Orders': 'running-orders',
   'Textile Close By PMC': 'textile-close-pmc',
   'Grey Stock Summary': 'grey-stock-summary',
+  'Grey Yarn Stock Summary': 'grey-yarn-stock-summary',
   'Yarn Allocation': 'yarn-allocation',
   'Admin Panel': 'admin-panel',
   'User Management': 'user-management',
@@ -1354,7 +1356,7 @@ export default function App() {
                       )}
 
                       {/* 2. Main Menu Knitting Status Group */}
-                      {['Knitting Status', 'Running Orders', 'Textile Close By PMC', 'Grey Stock Summary'].some(isTabAllowed) && (
+                      {['Knitting Status', 'Running Orders', 'Textile Close By PMC', 'Grey Stock Summary', 'Grey Yarn Stock Summary'].some(isTabAllowed) && (
                         <div className="space-y-1 pt-1">
                           <button
                             type="button"
@@ -1373,6 +1375,7 @@ export default function App() {
                                 { name: 'Running Orders', icon: Activity, label: 'Running Orders' },
                                 { name: 'Textile Close By PMC', icon: ShieldCheck, label: 'Textile Close By PMC' },
                                 { name: 'Grey Stock Summary', icon: Boxes, label: 'Grey Stock Summary' },
+                                { name: 'Grey Yarn Stock Summary', icon: Layers, label: 'Grey Yarn Stock Summary' },
                               ].map((sub) => {
                                 if (!isTabAllowed(sub.name)) return null;
                                 const Icon = sub.icon;
@@ -1647,6 +1650,15 @@ export default function App() {
             {currentPage === 'Grey Stock Summary' && (
               <div className="animate-fade-in">
                 <GreyStockSummaryView 
+                  currentUser={currentUser} 
+                  onNavigateTab={(tab) => handleNavigate(tab)}
+                />
+              </div>
+            )}
+
+            {currentPage === 'Grey Yarn Stock Summary' && (
+              <div className="animate-fade-in">
+                <GreyYarnStockSummaryView 
                   currentUser={currentUser} 
                   onNavigateTab={(tab) => handleNavigate(tab)}
                 />

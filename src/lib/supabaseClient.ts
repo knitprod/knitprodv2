@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { UserRecord, LedgerRecord, YarnAllocationRecord, OrderPlan, KnittingStatusOrder, TextileCloseRecord, GreyStockItem } from '../types';
+import { UserRecord, LedgerRecord, YarnAllocationRecord, OrderPlan, KnittingStatusOrder, TextileCloseRecord, GreyStockItem, GreyYarnStockItem } from '../types';
 import { getOrderPlanCanonicalId, deduplicateOrderPlans } from './knittingStatusStore';
 
 /**
@@ -2631,6 +2631,10 @@ export class SupabaseSync {
   private static _lastGreyStockCheckTime: number = 0;
   private static _checkingGreyStockTable: Promise<boolean> | null = null;
 
+  private static _greyYarnStockTableExists: boolean | null = null;
+  private static _lastGreyYarnStockCheckTime: number = 0;
+  private static _checkingGreyYarnStockTable: Promise<boolean> | null = null;
+
   static isGreyStockTableAvailable(): boolean {
     if (this._greyStockTableExists === false) {
       if (Date.now() - this._lastGreyStockCheckTime < 10 * 60 * 1000) {
@@ -2919,6 +2923,484 @@ export class SupabaseSync {
       console.warn('Supabase subscribeToGreyStockRecords error:', err);
       return () => {};
     }
+  }
+
+  // =========================================================================
+  // GREY YARN STOCK CLOUD SYNCHRONIZATION
+  // Table: public.grey_yarn_stock
+  // Matches exact headers: Completion Date, Buyer, Status, Allocated Order WA,
+  // Physical Count, Physical Lot, Spinner, Booking QTY, Yarn Required,
+  // Net Received, Total Issued, Excess Issued, Total Stock QTY, Issue Balance
+  // =========================================================================
+
+  static mapRowToGreyYarnStockItem(row: Record<string, any>): GreyYarnStockItem {
+    if (!row || typeof row !== 'object') {
+      return {
+        id: `gys-item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        orderNo: 'Unknown',
+        physicalYarnCount: '—',
+        physicalYarnLot: '—',
+        spinner: '—',
+        bookingQty: 0,
+        yarnRequired: 0,
+        totalReceived: 0,
+        totalIssued: 0,
+        excessIssued: 0,
+        totalStockQty: 0,
+        issuedBalance: 0
+      };
+    }
+
+    const raw = (row.raw_data && typeof row.raw_data === 'object') ? row.raw_data : {};
+    const bQty = Number(row.booking_qty ?? row.bookingQty ?? raw.bookingQty) || 0;
+    const yReq = Number(row.yarn_required ?? row.yarnRequired ?? raw.yarnRequired) || bQty;
+    const tRec = Number(row.total_received ?? row.net_received ?? row.totalReceived ?? raw.totalReceived) || 0;
+    const tIss = Number(row.total_issued ?? row.totalIssued ?? raw.totalIssued) || 0;
+    const eIss = Number(row.excess_issued ?? row.excessIssued ?? raw.excessIssued) || 0;
+    const sQty = row.total_stock_qty !== undefined ? Number(row.total_stock_qty) : (row.totalStockQty !== undefined ? Number(row.totalStockQty) : Math.max(0, tRec - tIss));
+    const bal = row.issued_balance !== undefined ? Number(row.issued_balance) : (row.issuedBalance !== undefined ? Number(row.issuedBalance) : Math.max(0, yReq - tIss));
+
+    return {
+      id: String(row.id || raw.id || `gys-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`),
+      orderNo: String(row.order_no || row.allocated_order_wa || row.orderNo || raw.orderNo || 'Unknown').trim(),
+      buyerName: row.buyer_name || row.buyer || row.buyerName || raw.buyerName || '',
+      status: row.status || raw.status || 'Running',
+      completionDate: row.completion_date || row.completionDate || raw.completionDate || '',
+      physicalYarnCount: row.physical_yarn_count || row.physicalCount || row.physical_count || row.physicalYarnCount || raw.physicalYarnCount || '—',
+      physicalYarnLot: row.physical_yarn_lot || row.physicalLot || row.physical_lot || row.physicalYarnLot || raw.physicalYarnLot || '—',
+      spinner: row.spinner || row.spinners_name || row.spinnersName || raw.spinner || '—',
+      bookingQty: bQty,
+      yarnRequired: yReq,
+      totalReceived: tRec,
+      totalIssued: tIss,
+      excessIssued: eIss,
+      totalStockQty: sQty,
+      issuedBalance: bal,
+      remarks: row.remarks || raw.remarks || '',
+      customFields: raw.customFields || {}
+    };
+  }
+
+  static mapGreyYarnStockItemToRow(item: GreyYarnStockItem): Record<string, any> {
+    const rawOrder = String(item.orderNo || '').trim();
+    const rawBuyer = item.buyerName || '';
+    const rawCount = item.physicalYarnCount || '';
+    const rawLot = item.physicalYarnLot || '';
+    const bQty = Number(item.bookingQty) || 0;
+    const yReq = Number(item.yarnRequired) || 0;
+    const nRec = Number(item.totalReceived) || 0;
+    const tIss = Number(item.totalIssued) || 0;
+    const eIss = Number(item.excessIssued) || 0;
+    const sQty = Number(item.totalStockQty) || 0;
+    const iBal = Number(item.issuedBalance) || 0;
+
+    return {
+      id: item.id || `gys-${rawOrder}-${Math.random().toString(36).substring(2, 8)}`,
+      // Direct columns matching user file headers:
+      completion_date: item.completionDate || null,
+      buyer: rawBuyer || null,
+      status: item.status || 'Running',
+      allocated_order_wa: rawOrder,
+      physical_count: rawCount,
+      physical_lot: rawLot,
+      spinner: item.spinner || '',
+      booking_qty: bQty,
+      yarn_required: yReq,
+      net_received: nRec,
+      total_issued: tIss,
+      excess_issued: eIss,
+      total_stock_qty: sQty,
+      issue_balance: iBal,
+
+      // Cross-compatibility aliases:
+      order_no: rawOrder,
+      buyer_name: rawBuyer || null,
+      physical_yarn_count: rawCount,
+      physical_yarn_lot: rawLot,
+      total_received: nRec,
+      issued_balance: iBal,
+      remarks: item.remarks || null,
+      raw_data: item,
+      updated_at: new Date().toISOString()
+    };
+  }
+
+  static isGreyYarnStockTableAvailable(): boolean {
+    if (this._greyYarnStockTableExists === false) {
+      if (Date.now() - this._lastGreyYarnStockCheckTime < 10 * 60 * 1000) {
+        return false;
+      }
+      this._greyYarnStockTableExists = null;
+    }
+    return true;
+  }
+
+  static async checkGreyYarnStockTableExists(forceRecheck: boolean = false): Promise<boolean> {
+    const client = this.getClient();
+    if (!client || !this.isConfigured()) return false;
+
+    if (!forceRecheck && this._greyYarnStockTableExists !== null) {
+      if (this._greyYarnStockTableExists === false && Date.now() - this._lastGreyYarnStockCheckTime < 10 * 60 * 1000) {
+        return false;
+      }
+      if (this._greyYarnStockTableExists === true) {
+        return true;
+      }
+    }
+
+    if (this._checkingGreyYarnStockTable) return this._checkingGreyYarnStockTable;
+
+    this._checkingGreyYarnStockTable = (async () => {
+      try {
+        const { error } = await client
+          .from('grey_yarn_stock')
+          .select('id', { head: true, count: 'exact' });
+
+        if (error) {
+          if (error.code === 'PGRST205' || error.message?.includes('does not exist') || error.message?.includes('grey_yarn_stock')) {
+            this._greyYarnStockTableExists = false;
+            this._lastGreyYarnStockCheckTime = Date.now();
+            try { sessionStorage.setItem('epyllion_grey_yarn_stock_table_exists', 'false'); } catch {}
+            return false;
+          }
+        }
+        this._greyYarnStockTableExists = true;
+        this._lastGreyYarnStockCheckTime = Date.now();
+        try { sessionStorage.setItem('epyllion_grey_yarn_stock_table_exists', 'true'); } catch {}
+        return true;
+      } catch (e: any) {
+        if (e?.code === 'PGRST205' || e?.message?.includes('does not exist')) {
+          this._greyYarnStockTableExists = false;
+          this._lastGreyYarnStockCheckTime = Date.now();
+          try { sessionStorage.setItem('epyllion_grey_yarn_stock_table_exists', 'false'); } catch {}
+          return false;
+        }
+        return false;
+      } finally {
+        this._checkingGreyYarnStockTable = null;
+      }
+    })();
+
+    return this._checkingGreyYarnStockTable;
+  }
+
+  static resetGreyYarnStockTableCache(): void {
+    this._greyYarnStockTableExists = null;
+    this._lastGreyYarnStockCheckTime = 0;
+    try { sessionStorage.removeItem('epyllion_grey_yarn_stock_table_exists'); } catch {}
+  }
+
+  static async fetchGreyYarnStockRecords(
+    onProgress?: (loaded: number, total: number, percent: number) => void
+  ): Promise<GreyYarnStockItem[]> {
+    const client = this.getClient();
+    if (!client || !this.isGreyYarnStockTableAvailable()) return [];
+
+    try {
+      let totalCount = 0;
+      try {
+        const { count, error: countErr } = await client
+          .from('grey_yarn_stock')
+          .select('*', { count: 'exact', head: true });
+        if (countErr) {
+          if (countErr.code === 'PGRST205' || countErr.message?.includes('does not exist') || countErr.message?.includes('grey_yarn_stock')) {
+            this._greyYarnStockTableExists = false;
+            this._lastGreyYarnStockCheckTime = Date.now();
+            return [];
+          }
+        } else if (typeof count === 'number') {
+          this._greyYarnStockTableExists = true;
+          totalCount = count;
+        }
+      } catch {}
+
+      const BATCH_SIZE = 1000;
+      let from = 0;
+      const allRows: any[] = [];
+      let sortKey: string | null = 'order_no';
+
+      while (true) {
+        const to = from + BATCH_SIZE - 1;
+        let query = client.from('grey_yarn_stock').select('*');
+
+        if (sortKey) {
+          query = query.order(sortKey, { ascending: true });
+        }
+
+        const { data, error } = await query.range(from, to);
+
+        if (error) {
+          if (error.code === 'PGRST205' || error.message?.includes('does not exist') || error.message?.includes('grey_yarn_stock')) {
+            this._greyYarnStockTableExists = false;
+            this._lastGreyYarnStockCheckTime = Date.now();
+            return [];
+          }
+          if (sortKey) {
+            sortKey = null;
+            continue;
+          }
+          break;
+        }
+
+        if (!data || !Array.isArray(data) || data.length === 0) {
+          break;
+        }
+
+        allRows.push(...data);
+        const effectiveTotal = Math.max(totalCount, allRows.length);
+        const percent = effectiveTotal > 0 ? Math.min(99, Math.round((allRows.length / effectiveTotal) * 100)) : 100;
+        if (onProgress) {
+          onProgress(allRows.length, effectiveTotal, percent);
+        }
+
+        if (data.length < BATCH_SIZE) {
+          break;
+        }
+
+        from += BATCH_SIZE;
+      }
+
+      if (onProgress && allRows.length > 0) {
+        onProgress(allRows.length, allRows.length, 100);
+      }
+
+      this._greyYarnStockTableExists = true;
+      return allRows.map(row => this.mapRowToGreyYarnStockItem(row));
+    } catch {
+      return [];
+    }
+  }
+
+  static async bulkSaveGreyYarnStockRecords(
+    items: GreyYarnStockItem[],
+    replace: boolean = false,
+    onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void
+  ): Promise<{ success: boolean; count: number; error?: string }> {
+    const client = this.getClient();
+    if (!client) return { success: false, count: 0, error: 'Supabase client is not initialized.' };
+
+    const tableAvailable = this.isGreyYarnStockTableAvailable() || await this.checkGreyYarnStockTableExists();
+    if (!tableAvailable) {
+      return {
+        success: false,
+        count: 0,
+        error: "Table 'public.grey_yarn_stock' does not exist yet. Please execute the SQL schema in Supabase SQL Editor."
+      };
+    }
+
+    try {
+      if (replace) {
+        if (onProgress) {
+          onProgress(0, items.length, 5, 'Purging previous records from Supabase cloud...');
+        }
+        const { error: delError } = await client.from('grey_yarn_stock').delete().neq('id', '___PURGE___');
+        if (delError) {
+          if (delError.code === 'PGRST205' || delError.message?.includes('does not exist') || delError.message?.includes('grey_yarn_stock')) {
+            this._greyYarnStockTableExists = false;
+            this._lastGreyYarnStockCheckTime = Date.now();
+            return {
+              success: false,
+              count: 0,
+              error: "Table 'public.grey_yarn_stock' does not exist yet. Please execute the SQL schema in Supabase SQL Editor."
+            };
+          }
+          return { success: false, count: 0, error: delError.message };
+        }
+      }
+
+      if (!items || items.length === 0) return { success: true, count: 0 };
+
+      const rows = items.map(r => this.sanitizeRowForSupabase(this.mapGreyYarnStockItemToRow(r)));
+      const CHUNK_SIZE = 200;
+      let insertedCount = 0;
+
+      for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        const chunk = rows.slice(i, i + CHUNK_SIZE);
+        const { error } = await client.from('grey_yarn_stock').upsert(chunk, { onConflict: 'id' });
+        if (error) {
+          if (error.code === 'PGRST205' || error.message?.includes('does not exist') || error.message?.includes('grey_yarn_stock')) {
+            this._greyYarnStockTableExists = false;
+            this._lastGreyYarnStockCheckTime = Date.now();
+            return {
+              success: false,
+              count: 0,
+              error: "Table 'public.grey_yarn_stock' does not exist yet. Please execute the SQL schema in Supabase SQL Editor."
+            };
+          }
+          return { success: false, count: insertedCount, error: error.message };
+        }
+        insertedCount += chunk.length;
+        if (onProgress) {
+          const percent = Math.min(99, Math.round((insertedCount / rows.length) * 100));
+          onProgress(insertedCount, rows.length, percent, `Saved ${insertedCount} of ${rows.length} records...`);
+        }
+      }
+
+      this._greyYarnStockTableExists = true;
+      if (onProgress) {
+        onProgress(rows.length, rows.length, 100, 'Cloud save complete!');
+      }
+      return { success: true, count: insertedCount };
+    } catch (err: any) {
+      return { success: false, count: 0, error: err?.message || 'Failed to save to Supabase' };
+    }
+  }
+
+  static async deleteGreyYarnStockRecord(id: string): Promise<boolean> {
+    const client = this.getClient();
+    if (!client || !this.isGreyYarnStockTableAvailable()) return false;
+    try {
+      const { error } = await client.from('grey_yarn_stock').delete().eq('id', id);
+      return !error;
+    } catch {
+      return false;
+    }
+  }
+
+  static subscribeToGreyYarnStockRecords(
+    onRecordChange: (change: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: GreyYarnStockItem; id: string }) => void
+  ): () => void {
+    const client = this.getClient();
+    if (!client || !this.isGreyYarnStockTableAvailable()) return () => {};
+
+    try {
+      const channel = client
+        .channel('realtime:grey_yarn_stock')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'grey_yarn_stock' },
+          (payload: any) => {
+            const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE';
+            const row = payload.new || payload.old;
+            if (row) {
+              const record = SupabaseSync.mapRowToGreyYarnStockItem(row);
+              onRecordChange({
+                eventType,
+                record,
+                id: String(row.id || (payload.old && payload.old.id) || '')
+              });
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        try {
+          client.removeChannel(channel);
+        } catch {}
+      };
+    } catch (err) {
+      console.warn('Supabase subscribeToGreyYarnStockRecords error:', err);
+      return () => {};
+    }
+  }
+
+  static getGreyYarnStockSchemaSQL(): string {
+    return `-- =========================================================================
+-- EPYLLION KNITEX ERP: GREY YARN STOCK CLOUD TABLE & REAL-TIME SETUP
+-- Matches exact file headers:
+-- 1.  Completion Date    -> completion_date
+-- 2.  Buyer              -> buyer (and buyer_name)
+-- 3.  Status             -> status
+-- 4.  Allocated Order WA -> allocated_order_wa (and order_no)
+-- 5.  Physical Count     -> physical_count (and physical_yarn_count)
+-- 6.  Physical Lot       -> physical_lot (and physical_yarn_lot)
+-- 7.  Spinner            -> spinner
+-- 8.  Booking QTY        -> booking_qty
+-- 9.  Yarn Required      -> yarn_required
+-- 10. Net Received       -> net_received (and total_received)
+-- 11. Total Issued       -> total_issued
+-- 12. Excess Issued      -> excess_issued
+-- 13. Total Stock QTY    -> total_stock_qty
+-- 14. Issue Balance      -> issue_balance (and issued_balance)
+--
+-- Instructions: Copy and run this script in your Supabase SQL Editor.
+-- =========================================================================
+
+CREATE TABLE IF NOT EXISTS public.grey_yarn_stock (
+  id TEXT PRIMARY KEY,
+  completion_date TEXT,
+  buyer TEXT,
+  buyer_name TEXT,
+  status TEXT DEFAULT 'Running',
+  allocated_order_wa TEXT,
+  order_no TEXT,
+  physical_count TEXT,
+  physical_yarn_count TEXT,
+  physical_lot TEXT,
+  physical_yarn_lot TEXT,
+  spinner TEXT,
+  booking_qty NUMERIC DEFAULT 0,
+  yarn_required NUMERIC DEFAULT 0,
+  net_received NUMERIC DEFAULT 0,
+  total_received NUMERIC DEFAULT 0,
+  total_issued NUMERIC DEFAULT 0,
+  excess_issued NUMERIC DEFAULT 0,
+  total_stock_qty NUMERIC DEFAULT 0,
+  issue_balance NUMERIC DEFAULT 0,
+  issued_balance NUMERIC DEFAULT 0,
+  remarks TEXT,
+  raw_data JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Idempotent column additions for safe schema upgrades
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS completion_date TEXT;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS buyer TEXT;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS buyer_name TEXT;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Running';
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS allocated_order_wa TEXT;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS order_no TEXT;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS physical_count TEXT;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS physical_yarn_count TEXT;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS physical_lot TEXT;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS physical_yarn_lot TEXT;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS spinner TEXT;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS booking_qty NUMERIC DEFAULT 0;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS yarn_required NUMERIC DEFAULT 0;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS net_received NUMERIC DEFAULT 0;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS total_received NUMERIC DEFAULT 0;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS total_issued NUMERIC DEFAULT 0;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS excess_issued NUMERIC DEFAULT 0;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS total_stock_qty NUMERIC DEFAULT 0;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS issue_balance NUMERIC DEFAULT 0;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS issued_balance NUMERIC DEFAULT 0;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS remarks TEXT;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS raw_data JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE public.grey_yarn_stock ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+-- Performance Indexes for Ultra-Fast Queries
+CREATE INDEX IF NOT EXISTS idx_grey_yarn_allocated_order_wa ON public.grey_yarn_stock(allocated_order_wa);
+CREATE INDEX IF NOT EXISTS idx_grey_yarn_order_no ON public.grey_yarn_stock(order_no);
+CREATE INDEX IF NOT EXISTS idx_grey_yarn_buyer ON public.grey_yarn_stock(buyer);
+CREATE INDEX IF NOT EXISTS idx_grey_yarn_buyer_name ON public.grey_yarn_stock(buyer_name);
+CREATE INDEX IF NOT EXISTS idx_grey_yarn_status ON public.grey_yarn_stock(status);
+CREATE INDEX IF NOT EXISTS idx_grey_yarn_completion_date ON public.grey_yarn_stock(completion_date);
+CREATE INDEX IF NOT EXISTS idx_grey_yarn_spinner ON public.grey_yarn_stock(spinner);
+CREATE INDEX IF NOT EXISTS idx_grey_yarn_physical_count ON public.grey_yarn_stock(physical_count);
+CREATE INDEX IF NOT EXISTS idx_grey_yarn_physical_lot ON public.grey_yarn_stock(physical_lot);
+
+-- Enable Row Level Security (RLS) with full read/write access
+ALTER TABLE public.grey_yarn_stock ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public full access to grey_yarn_stock" ON public.grey_yarn_stock;
+CREATE POLICY "Allow public full access to grey_yarn_stock" ON public.grey_yarn_stock FOR ALL USING (true) WITH CHECK (true);
+
+-- Enable Real-Time WebSocket Replication
+DO $$ 
+BEGIN 
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+    AND schemaname = 'public' 
+    AND tablename = 'grey_yarn_stock'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.grey_yarn_stock;
+  END IF;
+EXCEPTION WHEN OTHERS THEN 
+  NULL;
+END $$;
+`;
   }
 
   static getGreyStockSchemaSQL(): string {

@@ -49,6 +49,7 @@ const PAGE_TO_HASH: Record<string, string> = {
   'Running Orders': 'running-orders',
   'Textile Close By PMC': 'textile-close-pmc',
   'Grey Stock Summary': 'grey-stock-summary',
+  'Grey Yarn Stock Summary': 'grey-yarn-stock-summary',
   'Yarn Allocation': 'yarn-allocation',
   'Admin Panel': 'admin-panel',
   'User Management': 'user-management',
@@ -384,6 +385,7 @@ export default function Sidebar({
                     { name: 'Running Orders', icon: Activity, label: 'Running Orders' },
                     { name: 'Textile Close By PMC', icon: ShieldCheck, label: 'Textile Close By PMC' },
                     { name: 'Grey Stock Summary', icon: Boxes, label: 'Grey Stock Summary' },
+                    { name: 'Grey Yarn Stock Summary', icon: Layers, label: 'Grey Yarn Stock Summary' },
                   ].map((sub) => {
                     if (!isTabAllowed(sub.name)) return null;
                     const Icon = sub.icon;

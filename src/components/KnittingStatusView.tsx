@@ -1910,6 +1910,17 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
             <span>Grey Stock Summary</span>
           </button>
         )}
+
+        {isPageAllowedForUser(currentUser, 'Grey Yarn Stock Summary') && (
+          <button
+            type="button"
+            onClick={() => onNavigateTab && onNavigateTab('Grey Yarn Stock Summary')}
+            className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800"
+          >
+            <Layers className="w-4 h-4 text-indigo-500" />
+            <span>Grey Yarn Stock Summary</span>
+          </button>
+        )}
       </div>
 
       {/* Header Banner */}

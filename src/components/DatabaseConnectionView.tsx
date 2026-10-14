@@ -29,12 +29,14 @@ import {
   Globe,
   ArrowRight,
   Zap,
-  Boxes
+  Boxes,
+  Download
 } from 'lucide-react';
 import { GasClient } from '../lib/gasClient';
 import { SupabaseSync } from '../lib/supabaseClient';
 import { TextileClosePMCStorage } from '../lib/textileClosePMCStore';
 import { GreyStockStorage } from '../lib/greyStockStore';
+import { GreyYarnStockStorage } from '../lib/greyYarnStockStore';
 import { SyncConflictLog } from '../types';
 import { useGlobalData } from '../context/GlobalDataContext';
 import gasScriptContent from '../../google-apps-script/Code.gs?raw';
@@ -92,6 +94,12 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
   const [migrateGreyStockStatus, setMigrateGreyStockStatus] = useState<string | null>(null);
   const [copiedGreyStockSql, setCopiedGreyStockSql] = useState(false);
   const [showGreyStockSql, setShowGreyStockSql] = useState(false);
+
+  // Grey Yarn Stock Summary to Supabase Migration State
+  const [isMigratingGreyYarnStock, setIsMigratingGreyYarnStock] = useState(false);
+  const [migrateGreyYarnStockStatus, setMigrateGreyYarnStockStatus] = useState<string | null>(null);
+  const [copiedGreyYarnStockSql, setCopiedGreyYarnStockSql] = useState(false);
+  const [showGreyYarnStockSql, setShowGreyYarnStockSql] = useState(false);
 
   // Two-Way Synchronization states
   const [isSyncing, setIsSyncing] = useState(false);
@@ -272,6 +280,57 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
       setCopiedGreyStockSql(true);
       setTimeout(() => setCopiedGreyStockSql(false), 2500);
     }
+  };
+
+  const handleMigrateGreyYarnStockToSupabase = async () => {
+    if (!SupabaseSync.isConfigured()) {
+      if (onSuccessNotice) onSuccessNotice("Please enter and save your Supabase credentials first.");
+      return;
+    }
+    setIsMigratingGreyYarnStock(true);
+    setMigrateGreyYarnStockStatus("Migrating Grey Yarn Stock Summary records to Supabase...");
+    try {
+      const records = GreyYarnStockStorage.getRecords();
+      const res = await SupabaseSync.bulkSaveGreyYarnStockRecords(records, true);
+      if (res.success) {
+        setMigrateGreyYarnStockStatus(`Successfully migrated and replaced ${res.count} records in Supabase! Live WebSockets active.`);
+        if (onSuccessNotice) onSuccessNotice(`Transferred ${res.count} Grey Yarn Stock Summary records to Supabase!`);
+      } else {
+        if (res.error?.includes('grey_yarn_stock') || res.error?.includes('schema cache') || res.error?.includes('PGRST205')) {
+          setShowGreyYarnStockSql(true);
+          setMigrateGreyYarnStockStatus("Table 'public.grey_yarn_stock' does not exist in Supabase yet. Please copy the SQL script below, run it in your Supabase SQL Editor, and then click Migration.");
+        } else {
+          setMigrateGreyYarnStockStatus(`Error transferring records: ${res.error || 'Check Supabase SQL Editor and table structure.'}`);
+        }
+      }
+    } catch (err: any) {
+      setMigrateGreyYarnStockStatus(`Migration notice: ${err.message || String(err)}`);
+    } finally {
+      setIsMigratingGreyYarnStock(false);
+    }
+  };
+
+  const handleCopyGreyYarnStockSql = async () => {
+    const success = await safeCopyText(SupabaseSync.getGreyYarnStockSchemaSQL());
+    if (success) {
+      setCopiedGreyYarnStockSql(true);
+      if (onSuccessNotice) onSuccessNotice("Copied Grey Yarn Stock SQL script!");
+      setTimeout(() => setCopiedGreyYarnStockSql(false), 2500);
+    }
+  };
+
+  const handleDownloadGreyYarnStockSql = () => {
+    const sql = SupabaseSync.getGreyYarnStockSchemaSQL();
+    const blob = new Blob([sql], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'supabase_grey_yarn_stock.sql';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    if (onSuccessNotice) onSuccessNotice('Downloaded supabase_grey_yarn_stock.sql');
   };
 
   const handleCopySql = async () => {
@@ -934,64 +993,77 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
           )}
         </div>
 
-        {/* Grey Stock Summary Supabase Transfer & Real-time Status Card */}
-        <div className="rounded-xl border border-sky-200 dark:border-sky-900 bg-white/80 dark:bg-slate-900/80 p-4 space-y-3">
+        {/* Grey Yarn Stock Summary Supabase Transfer & Real-time Status Card */}
+        <div className="rounded-xl border border-indigo-200 dark:border-indigo-900 bg-white/80 dark:bg-slate-900/80 p-4 space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="space-y-0.5">
-              <div className="flex items-center gap-2">
-                <Boxes className="h-4 w-4 text-sky-600 dark:text-sky-400" />
+              <div className="flex flex-wrap items-center gap-2">
+                <Layers className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                 <span className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">
-                  Grey Stock Summary Real-Time Cloud Engine (Supabase WebSockets)
+                  Grey Yarn Stock Summary Real-Time Cloud Engine (Supabase WebSockets)
                 </span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-300">
-                  Daily Replace-On-Upload Live
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300">
+                  public.grey_yarn_stock
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                  Exact 14-Column Schema
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Daily Grey Stock records (Main Order Layer + Second Detailed Layer) synchronize through Supabase PostgreSQL table <code className="px-1 py-0.5 rounded bg-sky-50 dark:bg-sky-950 font-mono text-[10px] text-sky-700 dark:text-sky-300">public.grey_stock_summary</code> with automatic replace-on-upload and live multi-user WebSocket updates.
+                Master Grey Yarn Stock records (1st Layer Order Rollup + 2nd Layer Physical Count/Lot/Spinner breakdown) synchronize through Supabase table <code className="px-1 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 font-mono text-[10px] text-indigo-700 dark:text-indigo-300">public.grey_yarn_stock</code> with automatic replace-on-upload and live multi-user WebSocket updates.
               </p>
-              <p className="text-[11px] font-medium text-sky-700 dark:text-sky-300">
-                ⚡ <strong>Setup Requirement:</strong> Execute the Grey Stock SQL script in your Supabase SQL Editor once before migrating.
+              <p className="text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+                ⚡ <strong>Setup Requirement:</strong> Execute the Grey Yarn Stock SQL script below in your Supabase SQL Editor to support your file's exact 14 columns.
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2 shrink-0">
               <button
                 type="button"
-                onClick={handleCopyGreyStockSql}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-sky-300 dark:border-sky-700 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950 dark:hover:bg-sky-900 text-sky-800 dark:text-sky-200 text-xs font-bold transition-all cursor-pointer shadow-2xs whitespace-nowrap"
-                title="Copy the SQL script to create the grey_stock_summary table in Supabase"
+                onClick={handleCopyGreyYarnStockSql}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-indigo-300 dark:border-indigo-700 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950 dark:hover:bg-indigo-900 text-indigo-800 dark:text-indigo-200 text-xs font-bold transition-all cursor-pointer shadow-2xs whitespace-nowrap"
+                title="Copy SQL script to create the grey_yarn_stock table in Supabase"
               >
-                {copiedGreyStockSql ? (
+                {copiedGreyYarnStockSql ? (
                   <>
-                    <Check className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />
-                    <span>Copied Grey Stock SQL!</span>
+                    <Check className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span>Copied SQL!</span>
                   </>
                 ) : (
                   <>
-                    <Copy className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />
-                    <span>Copy Grey Stock SQL</span>
+                    <Copy className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span>Copy SQL</span>
                   </>
                 )}
               </button>
 
               <button
                 type="button"
-                onClick={() => setShowGreyStockSql(!showGreyStockSql)}
+                onClick={handleDownloadGreyYarnStockSql}
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-all cursor-pointer shadow-2xs whitespace-nowrap"
+                title="Download .sql script file"
               >
-                <Code className="h-3.5 w-3.5 text-slate-500" />
-                <span>{showGreyStockSql ? 'Hide SQL' : 'View SQL'}</span>
+                <Database className="h-3.5 w-3.5 text-indigo-500" />
+                <span>.sql File</span>
               </button>
 
               <button
                 type="button"
-                disabled={isMigratingGreyStock || !isSupabaseActive}
-                onClick={handleMigrateGreyStockToSupabase}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-xs whitespace-nowrap"
-                title="Seed and upload your existing Grey Stock records into Supabase"
+                onClick={() => setShowGreyYarnStockSql(!showGreyYarnStockSql)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-all cursor-pointer shadow-2xs whitespace-nowrap"
               >
-                {isMigratingGreyStock ? (
+                <Code className="h-3.5 w-3.5 text-slate-500" />
+                <span>{showGreyYarnStockSql ? 'Hide SQL' : 'View SQL'}</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isMigratingGreyYarnStock || !isSupabaseActive}
+                onClick={handleMigrateGreyYarnStockToSupabase}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-xs whitespace-nowrap"
+                title="Seed and upload current Grey Yarn Stock records into Supabase"
+              >
+                {isMigratingGreyYarnStock ? (
                   <>
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     <span>Uploading Records...</span>
@@ -999,39 +1071,117 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
                 ) : (
                   <>
                     <ArrowRight className="h-3.5 w-3.5" />
-                    <span>One-Time Initial Migration ({GreyStockStorage.getRecords().length} records)</span>
+                    <span>One-Time Initial Migration ({GreyYarnStockStorage.getRecords().length} records)</span>
                   </>
                 )}
               </button>
             </div>
           </div>
 
-          {showGreyStockSql && (
-            <div className="rounded-xl border border-sky-200 dark:border-sky-800 bg-slate-950 p-3.5 space-y-2 text-slate-200 animate-fade-in font-mono text-[11px]">
-              <div className="flex items-center justify-between text-xs pb-1 border-b border-slate-800">
-                <span className="text-sky-400 font-bold">SQL Editor Script (Grey Stock Summary Table & Realtime)</span>
-                <button
-                  type="button"
-                  onClick={handleCopyGreyStockSql}
-                  className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 font-semibold cursor-pointer"
-                >
-                  {copiedGreyStockSql ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                  {copiedGreyStockSql ? 'Copied' : 'Copy Query'}
-                </button>
+          {/* Supported Headers Summary Banner */}
+          <div className="bg-slate-50 dark:bg-slate-800/60 rounded-lg p-2.5 border border-slate-200 dark:border-slate-700 text-[11px]">
+            <span className="font-bold text-slate-800 dark:text-slate-200 block mb-1">
+              Supports Your Exact 14 File Headers:
+            </span>
+            <div className="flex flex-wrap gap-1 font-mono text-[10px]">
+              {[
+                'Completion Date',
+                'Buyer',
+                'Status',
+                'Allocated Order WA',
+                'Physical Count',
+                'Physical Lot',
+                'Spinner',
+                'Booking QTY',
+                'Yarn Required',
+                'Net Received',
+                'Total Issued',
+                'Excess Issued',
+                'Total Stock QTY',
+                'Issue Balance'
+              ].map((h, idx) => (
+                <span key={h} className="px-2 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300">
+                  <span className="text-indigo-500 font-bold mr-1">{idx + 1}.</span>
+                  {h}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {showGreyYarnStockSql && (
+            <div className="rounded-xl border border-indigo-200 dark:border-indigo-800 bg-slate-950 p-4 space-y-3 text-slate-200 animate-fade-in text-[11px]">
+              <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-800">
+                <span className="text-indigo-400 font-bold flex items-center gap-2">
+                  <Database className="w-4 h-4" />
+                  SQL Editor Script (public.grey_yarn_stock Table & Real-Time Setup)
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCopyGreyYarnStockSql}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-semibold cursor-pointer"
+                  >
+                    {copiedGreyYarnStockSql ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                    {copiedGreyYarnStockSql ? 'Copied' : 'Copy Query'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadGreyYarnStockSql}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold cursor-pointer"
+                  >
+                    <Download className="h-3 w-3" />
+                    <span>Download .sql</span>
+                  </button>
+                </div>
               </div>
-              <pre className="overflow-x-auto max-h-48 text-[11px] leading-relaxed text-slate-300 selection:bg-sky-800">
-                {SupabaseSync.getGreyStockSchemaSQL()}
+
+              {/* Exact Column Mappings Table */}
+              <div className="bg-slate-900/90 rounded-lg p-3 border border-slate-800 space-y-1.5">
+                <span className="text-[10px] font-black uppercase text-indigo-300 tracking-wider block">
+                  Column Mappings (File Header ➜ Database Column)
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 font-mono text-[10px]">
+                  {[
+                    { h: 'Completion Date', c: 'completion_date' },
+                    { h: 'Buyer', c: 'buyer (buyer_name)' },
+                    { h: 'Status', c: 'status' },
+                    { h: 'Allocated Order WA', c: 'allocated_order_wa (order_no)' },
+                    { h: 'Physical Count', c: 'physical_count (physical_yarn_count)' },
+                    { h: 'Physical Lot', c: 'physical_lot (physical_yarn_lot)' },
+                    { h: 'Spinner', c: 'spinner' },
+                    { h: 'Booking QTY', c: 'booking_qty' },
+                    { h: 'Yarn Required', c: 'yarn_required' },
+                    { h: 'Net Received', c: 'net_received (total_received)' },
+                    { h: 'Total Issued', c: 'total_issued' },
+                    { h: 'Excess Issued', c: 'excess_issued' },
+                    { h: 'Total Stock QTY', c: 'total_stock_qty' },
+                    { h: 'Issue Balance', c: 'issue_balance (issued_balance)' },
+                  ].map(m => (
+                    <div key={m.h} className="p-1.5 rounded bg-slate-950/80 border border-slate-800 flex items-center justify-between">
+                      <span className="text-slate-300">{m.h}:</span>
+                      <span className="text-sky-400 font-bold ml-1">{m.c}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <pre className="overflow-x-auto max-h-64 font-mono leading-relaxed text-slate-300 selection:bg-indigo-800 p-3 rounded-lg bg-slate-900 border border-slate-800">
+                {SupabaseSync.getGreyYarnStockSchemaSQL()}
               </pre>
+
+              <div className="text-[11px] text-slate-400">
+                💡 <strong className="text-slate-200">How to run:</strong> Open your Supabase Dashboard ➜ SQL Editor ➜ Paste the code ➜ Click "Run".
+              </div>
             </div>
           )}
 
-          {migrateGreyStockStatus && (
+          {migrateGreyYarnStockStatus && (
             <div className={`text-xs font-semibold px-3 py-2 rounded-lg border animate-fade-in ${
-              migrateGreyStockStatus.includes('Successfully')
-                ? 'bg-sky-50 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 border-sky-200 dark:border-sky-800'
+              migrateGreyYarnStockStatus.includes('Successfully')
+                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
                 : 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800'
             }`}>
-              {migrateGreyStockStatus}
+              {migrateGreyYarnStockStatus}
             </div>
           )}
         </div>

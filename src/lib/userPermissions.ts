@@ -105,6 +105,17 @@ export const isPageAllowedForUser = (user: UserRecord | null | undefined, tabNam
       (user.allowedTabs.includes('Running Orders') ||
        user.allowedTabs.includes('Textile Close By PMC') ||
        user.allowedTabs.includes('Grey Stock Summary') ||
+       user.allowedTabs.includes('Grey Yarn Stock Summary') ||
+       user.allowedTabs.includes('Knitting Status'))
+    ) {
+      return true;
+    }
+
+    if (
+      tabName === 'Grey Yarn Stock Summary' &&
+      (user.allowedTabs.includes('Grey Yarn Stock Summary') ||
+       user.allowedTabs.includes('Grey Stock Summary') ||
+       user.allowedTabs.includes('Running Orders') ||
        user.allowedTabs.includes('Knitting Status'))
     ) {
       return true;

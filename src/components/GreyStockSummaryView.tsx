@@ -126,6 +126,87 @@ export function parseCompletionDateKey(val?: string | null): { isoDate: string; 
   return { isoDate, yearMonth, monthLabel };
 }
 
+interface HighlightableCellProps {
+  value: string | number | null | undefined;
+  isMatch: boolean;
+  searchQuery?: string;
+  badge?: string;
+  align?: 'left' | 'right' | 'center';
+  mono?: boolean;
+  className?: string;
+  defaultTextClass?: string;
+}
+
+const HighlightableCell: React.FC<HighlightableCellProps> = ({
+  value,
+  isMatch,
+  searchQuery,
+  badge,
+  align = 'left',
+  mono = false,
+  className = '',
+  defaultTextClass = '',
+}) => {
+  const str = value === null || value === undefined ? '—' : String(value);
+
+  const renderContent = () => {
+    if (!searchQuery || !searchQuery.trim() || str === '—') {
+      return str;
+    }
+    const q = searchQuery.trim();
+    try {
+      const escaped = q.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const regex = new RegExp(`(${escaped})`, 'gi');
+      const parts = str.split(regex);
+      if (parts.length === 1) return str;
+      return (
+        <>
+          {parts.map((p, idx) =>
+            regex.test(p) ? (
+              <mark
+                key={idx}
+                className="bg-amber-300 dark:bg-amber-400 text-slate-950 font-black px-1 py-0.5 rounded shadow-2xs inline-block mx-0.5"
+              >
+                {p}
+              </mark>
+            ) : (
+              p
+            )
+          )}
+        </>
+      );
+    } catch {
+      return str;
+    }
+  };
+
+  if (!isMatch) {
+    return (
+      <span className={`${mono ? 'font-mono' : ''} ${defaultTextClass} ${className}`}>
+        {renderContent()}
+      </span>
+    );
+  }
+
+  return (
+    <div
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-amber-100 dark:bg-amber-950/80 border border-amber-400 dark:border-amber-500 text-amber-950 dark:text-amber-100 font-extrabold shadow-2xs transition-all ${
+        align === 'right' ? 'ml-auto justify-end' : ''
+      } ${className}`}
+    >
+      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 dark:bg-amber-400 animate-pulse shrink-0" />
+      <span className={`${mono ? 'font-mono' : ''} tracking-tight`}>
+        {renderContent()}
+      </span>
+      {badge && (
+        <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 font-black shrink-0 border border-amber-300 dark:border-amber-700">
+          {badge}
+        </span>
+      )}
+    </div>
+  );
+};
+
 export default function GreyStockSummaryView({ currentUser, onNavigateTab }: GreyStockSummaryViewProps) {
   const isAdmin = currentUser?.userType === 'Admin';
 
@@ -1656,6 +1737,15 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
           <Boxes className="w-4 h-4" />
           <span>Grey Stock Summary</span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => onNavigateTab && onNavigateTab('Grey Yarn Stock Summary')}
+          className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800"
+        >
+          <Layers className="w-4 h-4 text-indigo-500" />
+          <span>Grey Yarn Stock Summary</span>
+        </button>
       </div>
 
       {/* Header Banner */}
@@ -2613,11 +2703,9 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                               {/* Second Layer Table */}
                               <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs">
                                 {(() => {
-                                  const showCode = group.items.some(i => i.code && i.code !== '—');
                                   const showUnit = group.items.some(i => i.ownerUnit && i.ownerUnit !== 'EKL');
-                                  const showDouble = group.items.some(i => i.doubleCount && Number(i.doubleCount) > 0);
-                                  const customCols = (group.customColumns || []).filter(c => c && c.toLowerCase() !== 'id' && c.toLowerCase() !== 'raw_data');
-                                  const leadColSpan = 3 + (showCode ? 1 : 0) + (showUnit ? 1 : 0) + (showDouble ? 1 : 0) + customCols.length;
+                                  const customCols = (group.customColumns || []).filter(c => c && c.toLowerCase() !== 'id' && c.toLowerCase() !== 'raw_data' && c.toLowerCase() !== 'code' && c.toLowerCase() !== 'double_count');
+                                  const leadColSpan = 3 + (showUnit ? 1 : 0) + customCols.length;
 
                                   return (
                                     <table className="w-full text-left text-[11px] border-collapse">
@@ -2626,9 +2714,7 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                                           <th className="py-2 px-3">Colour</th>
                                           <th className="py-2 px-3">Fabric Type</th>
                                           <th className="py-2 px-3">Fab Style</th>
-                                          {showCode && <th className="py-2 px-3 font-mono">Code</th>}
                                           {showUnit && <th className="py-2 px-3">Unit</th>}
-                                          {showDouble && <th className="py-2 px-3 text-right">Double Count</th>}
                                           {customCols.map(c => (
                                             <th key={c} className="py-2 px-3 capitalize">{c.replace(/_/g, ' ')}</th>
                                           ))}
@@ -2645,60 +2731,155 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                                       </thead>
                                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
                                         {group.items.map((itm, itmIdx) => {
-                                          const isFilterActive = fabricFilter !== 'All' || colorFilter !== 'All';
-                                          const matchesFabric = fabricFilter === 'All' || (itm.fabType && itm.fabType.trim().toLowerCase() === fabricFilter.toLowerCase());
-                                          const matchesColor = colorFilter === 'All' || (itm.colour && itm.colour.trim().toLowerCase() === colorFilter.toLowerCase());
-                                          const isMatchedItem = matchesFabric && matchesColor;
+                                          const q = debouncedSearch.trim().toLowerCase();
+                                          const qNum = debouncedSearch.trim();
                                           const itemStock = itm.stockQty !== undefined ? itm.stockQty : Math.max(0, (itm.netReceivedQty || 0) - (itm.netIssuedQty || 0));
+
+                                          // Cell-level matching
+                                          const isColorFilterMatch = colorFilter !== 'All' && (itm.colour || '').trim().toLowerCase() === colorFilter.toLowerCase();
+                                          const isColorSearchMatch = Boolean(q && (itm.colour || '').toLowerCase().includes(q));
+                                          const isColorCellMatch = isColorFilterMatch || isColorSearchMatch;
+
+                                          const isFabricFilterMatch = fabricFilter !== 'All' && (itm.fabType || '').trim().toLowerCase() === fabricFilter.toLowerCase();
+                                          const isFabricSearchMatch = Boolean(q && (itm.fabType || '').toLowerCase().includes(q));
+                                          const isFabricCellMatch = isFabricFilterMatch || isFabricSearchMatch;
+
+                                          const isStyleCellMatch = Boolean(q && (itm.fabStyle || '').toLowerCase().includes(q));
+
+                                          const isUnitFilterMatch = unitFilter !== 'All' && (itm.ownerUnit || '').trim().toLowerCase() === unitFilter.toLowerCase();
+                                          const isUnitSearchMatch = Boolean(q && (itm.ownerUnit || '').toLowerCase().includes(q));
+                                          const isUnitCellMatch = isUnitFilterMatch || isUnitSearchMatch;
+
+                                          const isRecCellMatch = Boolean(qNum && (Math.round(itm.netReceivedQty || 0).toLocaleString().includes(qNum) || String(itm.netReceivedQty || '').includes(qNum)));
+                                          const isIssCellMatch = Boolean(qNum && (Math.round(itm.netIssuedQty || 0).toLocaleString().includes(qNum) || String(itm.netIssuedQty || '').includes(qNum)));
+                                          const isStockCellMatch = Boolean(
+                                            (stockStatusFilter === 'stock_only' && itemStock > 0) ||
+                                            (stockStatusFilter === 'zero_stock' && itemStock <= 0) ||
+                                            (qNum && (Math.round(itemStock).toLocaleString().includes(qNum) || String(itemStock).includes(qNum)))
+                                          );
+
+                                          const hasAnyCellMatch = isColorCellMatch || isFabricCellMatch || isStyleCellMatch || isUnitCellMatch || isRecCellMatch || isIssCellMatch || isStockCellMatch;
 
                                           return (
                                             <tr
                                               key={itm.id || `itm-${group.orderNo}-${itmIdx}`}
                                               className={`transition-colors ${
-                                                isFilterActive && isMatchedItem
-                                                  ? 'bg-blue-50/90 dark:bg-blue-950/50 font-semibold'
-                                                  : isFilterActive && !isMatchedItem
-                                                  ? 'opacity-40 hover:opacity-100 hover:bg-slate-50/70 dark:hover:bg-slate-800/40'
+                                                hasAnyCellMatch
+                                                  ? 'bg-amber-50/40 dark:bg-amber-950/20 hover:bg-amber-50/70 dark:hover:bg-amber-950/30'
                                                   : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/40'
                                               }`}
                                             >
-                                              <td className="py-2 px-3 font-semibold text-slate-900 dark:text-white whitespace-nowrap">
-                                                {itm.colour || '—'}
+                                              {/* Colour */}
+                                              <td className={`py-2 px-3 whitespace-nowrap transition-colors ${
+                                                isColorCellMatch ? 'bg-amber-100/80 dark:bg-amber-950/60' : ''
+                                              }`}>
+                                                <HighlightableCell
+                                                  value={itm.colour || '—'}
+                                                  isMatch={isColorCellMatch}
+                                                  searchQuery={debouncedSearch}
+                                                  badge={isColorFilterMatch ? 'Color Filter' : undefined}
+                                                  defaultTextClass="font-semibold text-slate-900 dark:text-white"
+                                                />
                                               </td>
-                                              <td className="py-2 px-3 text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                                                {itm.fabType || '—'}
+
+                                              {/* Fabric Type */}
+                                              <td className={`py-2 px-3 whitespace-nowrap transition-colors ${
+                                                isFabricCellMatch ? 'bg-amber-100/80 dark:bg-amber-950/60' : ''
+                                              }`}>
+                                                <HighlightableCell
+                                                  value={itm.fabType || '—'}
+                                                  isMatch={isFabricCellMatch}
+                                                  searchQuery={debouncedSearch}
+                                                  badge={isFabricFilterMatch ? 'Fabric Filter' : undefined}
+                                                  defaultTextClass="text-slate-700 dark:text-slate-300"
+                                                />
                                               </td>
-                                              <td className="py-2 px-3 text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                                                {itm.fabStyle || '—'}
+
+                                              {/* Fab Style */}
+                                              <td className={`py-2 px-3 whitespace-nowrap transition-colors ${
+                                                isStyleCellMatch ? 'bg-amber-100/80 dark:bg-amber-950/60' : ''
+                                              }`}>
+                                                <HighlightableCell
+                                                  value={itm.fabStyle || '—'}
+                                                  isMatch={isStyleCellMatch}
+                                                  searchQuery={debouncedSearch}
+                                                  defaultTextClass="text-slate-600 dark:text-slate-400"
+                                                />
                                               </td>
-                                              {showCode && (
-                                                <td className="py-2 px-3 font-mono text-slate-500 whitespace-nowrap">
-                                                  {itm.code || '—'}
-                                                </td>
-                                              )}
+
+                                              {/* Unit */}
                                               {showUnit && (
-                                                <td className="py-2 px-3 text-slate-500 whitespace-nowrap">
-                                                  {itm.ownerUnit || '—'}
+                                                <td className={`py-2 px-3 whitespace-nowrap transition-colors ${
+                                                  isUnitCellMatch ? 'bg-amber-100/80 dark:bg-amber-950/60' : ''
+                                                }`}>
+                                                  <HighlightableCell
+                                                    value={itm.ownerUnit || '—'}
+                                                    isMatch={isUnitCellMatch}
+                                                    searchQuery={debouncedSearch}
+                                                    badge={isUnitFilterMatch ? 'Unit Filter' : undefined}
+                                                    defaultTextClass="text-slate-500"
+                                                  />
                                                 </td>
                                               )}
-                                              {showDouble && (
-                                                <td className="py-2 px-3 text-right font-mono text-slate-500 whitespace-nowrap">
-                                                  {itm.doubleCount || 0}
-                                                </td>
-                                              )}
-                                              {customCols.map(c => (
-                                                <td key={c} className="py-2 px-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">
-                                                  {String(itm[c] ?? (itm.customFields && itm.customFields[c]) ?? '—')}
-                                                </td>
-                                              ))}
-                                              <td className="py-2 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                                                {Math.round(itm.netReceivedQty || 0).toLocaleString()}
+
+                                              {customCols.map(c => {
+                                                const valStr = String(itm[c] ?? (itm.customFields && itm.customFields[c]) ?? '—');
+                                                const isCustomMatch = Boolean(q && valStr.toLowerCase().includes(q));
+                                                return (
+                                                  <td key={c} className={`py-2 px-3 whitespace-nowrap transition-colors ${
+                                                    isCustomMatch ? 'bg-amber-100/80 dark:bg-amber-950/60' : ''
+                                                  }`}>
+                                                    <HighlightableCell
+                                                      value={valStr}
+                                                      isMatch={isCustomMatch}
+                                                      searchQuery={debouncedSearch}
+                                                      defaultTextClass="text-slate-600 dark:text-slate-300"
+                                                    />
+                                                  </td>
+                                                );
+                                              })}
+
+                                              {/* Net Received */}
+                                              <td className={`py-2 px-3 text-right font-mono font-bold whitespace-nowrap transition-colors ${
+                                                isRecCellMatch ? 'bg-amber-100/80 dark:bg-amber-950/60' : 'text-emerald-600 dark:text-emerald-400'
+                                              }`}>
+                                                <HighlightableCell
+                                                  value={Math.round(itm.netReceivedQty || 0).toLocaleString()}
+                                                  isMatch={isRecCellMatch}
+                                                  searchQuery={debouncedSearch}
+                                                  align="right"
+                                                  mono
+                                                  defaultTextClass="text-emerald-600 dark:text-emerald-400"
+                                                />
                                               </td>
-                                              <td className="py-2 px-3 text-right font-mono font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                                                {Math.round(itm.netIssuedQty || 0).toLocaleString()}
+
+                                              {/* Net Issued */}
+                                              <td className={`py-2 px-3 text-right font-mono font-bold whitespace-nowrap transition-colors ${
+                                                isIssCellMatch ? 'bg-amber-100/80 dark:bg-amber-950/60' : 'text-blue-600 dark:text-blue-400'
+                                              }`}>
+                                                <HighlightableCell
+                                                  value={Math.round(itm.netIssuedQty || 0).toLocaleString()}
+                                                  isMatch={isIssCellMatch}
+                                                  searchQuery={debouncedSearch}
+                                                  align="right"
+                                                  mono
+                                                  defaultTextClass="text-blue-600 dark:text-blue-400"
+                                                />
                                               </td>
-                                              <td className="py-2 px-3 text-right font-mono font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
-                                                {Math.round(itemStock).toLocaleString()}
+
+                                              {/* Total Stock */}
+                                              <td className={`py-2 px-3 text-right font-mono font-bold whitespace-nowrap transition-colors ${
+                                                isStockCellMatch ? 'bg-amber-200/80 dark:bg-amber-950/80' : 'text-amber-600 dark:text-amber-400'
+                                              }`}>
+                                                <HighlightableCell
+                                                  value={Math.round(itemStock).toLocaleString()}
+                                                  isMatch={isStockCellMatch}
+                                                  searchQuery={debouncedSearch}
+                                                  badge={stockStatusFilter === 'stock_only' ? 'Stock > 0' : stockStatusFilter === 'zero_stock' ? 'Zero' : undefined}
+                                                  align="right"
+                                                  mono
+                                                  defaultTextClass="text-amber-600 dark:text-amber-400"
+                                                />
                                               </td>
                                             </tr>
                                           );
@@ -2869,11 +3050,9 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
             {/* Detailed Second Layer Items Table */}
             <div className="overflow-y-auto flex-1 rounded-xl border border-slate-200 dark:border-slate-800">
               {(() => {
-                const showCode = viewingOrder.items.some(i => i.code && i.code !== '—');
                 const showUnit = viewingOrder.items.some(i => i.ownerUnit && i.ownerUnit !== 'EKL');
-                const showDouble = viewingOrder.items.some(i => i.doubleCount && Number(i.doubleCount) > 0);
-                const customCols = (viewingOrder.customColumns || []).filter(c => c && c.toLowerCase() !== 'id' && c.toLowerCase() !== 'raw_data');
-                const leadColSpan = 3 + (showCode ? 1 : 0) + (showUnit ? 1 : 0) + (showDouble ? 1 : 0) + customCols.length;
+                const customCols = (viewingOrder.customColumns || []).filter(c => c && c.toLowerCase() !== 'id' && c.toLowerCase() !== 'raw_data' && c.toLowerCase() !== 'code' && c.toLowerCase() !== 'double_count');
+                const leadColSpan = 3 + (showUnit ? 1 : 0) + customCols.length;
 
                 return (
                   <table className="w-full text-xs text-left border-collapse">
@@ -2882,9 +3061,7 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                         <th className="py-2.5 px-3">Colour</th>
                         <th className="py-2.5 px-3">Fabric Type</th>
                         <th className="py-2.5 px-3">Fab Style</th>
-                        {showCode && <th className="py-2.5 px-3 font-mono">Code</th>}
                         {showUnit && <th className="py-2.5 px-3">Unit</th>}
-                        {showDouble && <th className="py-2.5 px-3 text-right">Double Count</th>}
                         {customCols.map(c => (
                           <th key={c} className="py-2.5 px-3 capitalize">{c.replace(/_/g, ' ')}</th>
                         ))}
@@ -2901,9 +3078,7 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                             <td className="py-2.5 px-3 font-semibold text-slate-900 dark:text-white whitespace-nowrap">{itm.colour || '—'}</td>
                             <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300 whitespace-nowrap">{itm.fabType || '—'}</td>
                             <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400 whitespace-nowrap">{itm.fabStyle || '—'}</td>
-                            {showCode && <td className="py-2.5 px-3 font-mono text-slate-500 whitespace-nowrap">{itm.code || '—'}</td>}
                             {showUnit && <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">{itm.ownerUnit || '—'}</td>}
-                            {showDouble && <td className="py-2.5 px-3 text-right font-mono text-slate-500 whitespace-nowrap">{itm.doubleCount || 0}</td>}
                             {customCols.map(c => (
                               <td key={c} className="py-2.5 px-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">
                                 {String(itm[c] ?? (itm.customFields && itm.customFields[c]) ?? '—')}
