@@ -112,9 +112,9 @@ export const isPageAllowedForUser = (user: UserRecord | null | undefined, tabNam
     }
 
     if (
-      tabName === 'Grey Yarn Stock Summary' &&
-      (user.allowedTabs.includes('Grey Yarn Stock Summary') ||
-       user.allowedTabs.includes('Grey Stock Summary') ||
+      (tabName === 'Grey Stock Summary' || tabName === 'Grey Yarn Stock Summary') &&
+      (user.allowedTabs.includes('Grey Stock Summary') ||
+       user.allowedTabs.includes('Grey Yarn Stock Summary') ||
        user.allowedTabs.includes('Running Orders') ||
        user.allowedTabs.includes('Knitting Status'))
     ) {

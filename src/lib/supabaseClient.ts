@@ -3477,6 +3477,64 @@ END $$;
   }
 
   /**
+   * Dedicated SQL script for Knitting Status Orders & Items table only
+   */
+  static getKnittingOrdersSetupSQL(): string {
+    return `-- =========================================================
+-- EPYLLION KNITEX ERP: KNITTING STATUS ORDERS & SPECIFICATIONS TABLE
+-- Paste and Run in Supabase Dashboard > SQL Editor (Free Forever)
+-- =========================================================
+
+CREATE TABLE IF NOT EXISTS public.knitting_orders (
+  id TEXT PRIMARY KEY,
+  order_no TEXT,
+  buyer_name TEXT,
+  team_leader TEXT,
+  knit_start_date TEXT,
+  knit_end_date TEXT,
+  req_qty NUMERIC DEFAULT 0,
+  grey_qty NUMERIC DEFAULT 0,
+  production NUMERIC DEFAULT 0,
+  knit_balance NUMERIC DEFAULT 0,
+  items JSONB DEFAULT '[]'::jsonb,
+  remarks TEXT,
+  raw_data JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Safely add items column if table already existed
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='knitting_orders' AND column_name='items') THEN
+    ALTER TABLE public.knitting_orders ADD COLUMN items JSONB DEFAULT '[]'::jsonb;
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_knitting_orders_order_no ON public.knitting_orders(order_no);
+CREATE INDEX IF NOT EXISTS idx_knitting_orders_buyer_name ON public.knitting_orders(buyer_name);
+
+-- Row Level Security (RLS) with full read/write access
+ALTER TABLE public.knitting_orders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public full access to knitting_orders" ON public.knitting_orders;
+CREATE POLICY "Allow public full access to knitting_orders" ON public.knitting_orders FOR ALL USING (true) WITH CHECK (true);
+
+-- Enable Instant Sub-50ms Real-Time WebSocket Replication
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+    AND schemaname = 'public' 
+    AND tablename = 'knitting_orders'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.knitting_orders;
+  END IF;
+END $$;
+`;
+  }
+
+  /**
    * Dedicated SQL script for Plan Order Followup & Status table only (safe, idempotent, fast)
    */
   static getOrderPlansSetupSQL(): string {

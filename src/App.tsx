@@ -69,6 +69,10 @@ import { getTargetKgForUnit, getTotalMachinesForUnit, saveUnitConfigs, getUnitCo
 import { calculateLedgerEfficiency, calculateLedgerCapacityUtilization, calculateEffectiveDays, isSubContactRecord } from './lib/productionMetrics';
 import { saveBuyers } from './lib/buyerStore';
 import { isPageAllowedForUser, isAntuSuperAdmin } from './lib/userPermissions';
+import { KnittingStatusStorage } from './lib/knittingStatusStore';
+import { TextileClosePMCStorage } from './lib/textileClosePMCStore';
+import { GreyStockStorage } from './lib/greyStockStore';
+import { GreyYarnStockStorage } from './lib/greyYarnStockStore';
 
 import { FactoryFloor, ProductionEntry, ActivityLog } from './types';
 import { INITIAL_FLOORS, INITIAL_KPIS, INITIAL_ACTIVITY_LOGS } from './data';
@@ -569,6 +573,7 @@ export default function App() {
     });
   };
 
+  const globalData = useGlobalData();
   const [gasSyncError, setGasSyncError] = useState<string | null>(null);
   const [syncBannerMessage, setSyncBannerMessage] = useState<string | null>(null);
   const [isFirestoreQuotaExceeded, setIsFirestoreQuotaExceeded] = useState<boolean>(false);
@@ -634,20 +639,56 @@ export default function App() {
   const handleManualSync = async () => {
     GasClient.setSyncing(true);
     try {
-      // 1. Pull live data from Google Sheet & update local React states
-      await loadLiveGasData(true);
-      // 2. Dispatch global sync event so mounted views re-fetch live sheets data (deferred)
+      const syncTasks: Promise<any>[] = [
+        loadLiveGasData(true),
+        globalData.refreshAll(true)
+      ];
+
+      // Pull live data from Supabase across all modules
+      if (SupabaseSync.isConfigured()) {
+        syncTasks.push(
+          SupabaseSync.fetchKnittingOrders().then(orders => {
+            if (Array.isArray(orders) && orders.length > 0) {
+              KnittingStatusStorage.saveOrders(orders);
+              window.dispatchEvent(new CustomEvent('epyllion_knitting_status_updated', { detail: orders }));
+            }
+          }).catch(err => console.warn('Knitting orders pull notice:', err))
+        );
+
+        syncTasks.push(
+          SupabaseSync.fetchTextileCloseRecords().then(records => {
+            if (Array.isArray(records) && records.length > 0) {
+              TextileClosePMCStorage.saveRecords(records);
+              window.dispatchEvent(new CustomEvent('epyllion_tc_pmc_updated', { detail: records }));
+            }
+          }).catch(err => console.warn('Textile close records pull notice:', err))
+        );
+
+        syncTasks.push(
+          GreyStockStorage.syncTwoWay(false).catch(err => console.warn('Grey stock pull notice:', err))
+        );
+
+        syncTasks.push(
+          GreyYarnStockStorage.syncTwoWay(false).catch(err => console.warn('Grey yarn stock pull notice:', err))
+        );
+      }
+
+      await Promise.allSettled(syncTasks);
+
       setTimeout(() => {
         try {
           window.dispatchEvent(new Event('gas_data_synced'));
         } catch {}
       }, 0);
 
-      setSyncBannerMessage("Successfully pulled & synchronized live data from Google Sheet!");
+      const msg = SupabaseSync.isConfigured()
+        ? "Successfully pulled & synchronized live data from Supabase Cloud (all 7 tables) and Google Sheets!"
+        : "Successfully pulled & synchronized live data from Google Sheets!";
+      setSyncBannerMessage(msg);
       setTimeout(() => setSyncBannerMessage(null), 4500);
     } catch (err: any) {
       console.error("Manual sync error:", err);
-      setSyncBannerMessage("Sync notice: " + (err.message || "Failed to fetch from Google Sheet"));
+      setSyncBannerMessage("Sync notice: " + (err.message || "Failed to fetch cloud data"));
       setTimeout(() => setSyncBannerMessage(null), 5000);
     } finally {
       GasClient.setSyncing(false);
@@ -657,7 +698,24 @@ export default function App() {
   // Fetch central server database configuration (GAS URL, DB mode & Supabase) on app startup
   useEffect(() => {
     // 1. Sync Supabase config from Server to keep connection sticky
-    SupabaseSync.syncRemoteConfig().catch(() => {});
+    SupabaseSync.syncRemoteConfig().then(() => {
+      // Pull live Supabase data on load if configured
+      if (SupabaseSync.isConfigured()) {
+        globalData.refreshAll(false).catch(() => {});
+        SupabaseSync.fetchKnittingOrders().then(orders => {
+          if (Array.isArray(orders) && orders.length > 0) {
+            KnittingStatusStorage.saveOrders(orders);
+          }
+        }).catch(() => {});
+        SupabaseSync.fetchTextileCloseRecords().then(records => {
+          if (Array.isArray(records) && records.length > 0) {
+            TextileClosePMCStorage.saveRecords(records);
+          }
+        }).catch(() => {});
+        GreyStockStorage.syncTwoWay(false).catch(() => {});
+        GreyYarnStockStorage.syncTwoWay(false).catch(() => {});
+      }
+    }).catch(() => {});
 
     // 2. Sync GAS and fetch live data
     GasClient.fetchServerConfig().then((config) => {
@@ -733,7 +791,6 @@ export default function App() {
     return Math.abs(Math.sin(hash) * multiplier) + offset;
   };
 
-  const globalData = useGlobalData();
   const globalLedger = globalData?.ledger || [];
 
   // Compute live cumulative KPIs dynamically based on current filters and state

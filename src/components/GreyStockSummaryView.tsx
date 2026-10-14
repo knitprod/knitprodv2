@@ -2753,7 +2753,7 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                                           const isRecCellMatch = Boolean(qNum && (Math.round(itm.netReceivedQty || 0).toLocaleString().includes(qNum) || String(itm.netReceivedQty || '').includes(qNum)));
                                           const isIssCellMatch = Boolean(qNum && (Math.round(itm.netIssuedQty || 0).toLocaleString().includes(qNum) || String(itm.netIssuedQty || '').includes(qNum)));
                                           const isStockCellMatch = Boolean(
-                                            (stockStatusFilter === 'stock_only' && itemStock > 0) ||
+                                            (stockStatusFilter === 'active_stock' && itemStock > 0) ||
                                             (stockStatusFilter === 'zero_stock' && itemStock <= 0) ||
                                             (qNum && (Math.round(itemStock).toLocaleString().includes(qNum) || String(itemStock).includes(qNum)))
                                           );
@@ -2875,7 +2875,7 @@ export async function uploadGreyStockToSupabase(records: GreyStockRow[], replace
                                                   value={Math.round(itemStock).toLocaleString()}
                                                   isMatch={isStockCellMatch}
                                                   searchQuery={debouncedSearch}
-                                                  badge={stockStatusFilter === 'stock_only' ? 'Stock > 0' : stockStatusFilter === 'zero_stock' ? 'Zero' : undefined}
+                                                  badge={stockStatusFilter === 'active_stock' ? 'Stock > 0' : stockStatusFilter === 'zero_stock' ? 'Zero' : undefined}
                                                   align="right"
                                                   mono
                                                   defaultTextClass="text-amber-600 dark:text-amber-400"

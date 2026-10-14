@@ -1233,9 +1233,13 @@ export const INITIAL_KNITTING_STATUS_ORDERS: KnittingStatusOrder[] = [
 ];
 
 const STORAGE_KEY = 'epyllion_knitting_status_orders_v1';
+let memoryKnittingOrdersCache: KnittingStatusOrder[] | null = null;
 
 export class KnittingStatusStorage {
   static getOrders(): KnittingStatusOrder[] {
+    if (memoryKnittingOrdersCache && memoryKnittingOrdersCache.length > 0) {
+      return memoryKnittingOrdersCache;
+    }
     if (typeof window === 'undefined') return INITIAL_KNITTING_STATUS_ORDERS;
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
@@ -1293,6 +1297,7 @@ export class KnittingStatusStorage {
           }
 
           const result = cleaned.map(aggregateOrderValues);
+          memoryKnittingOrdersCache = result;
           if (hasHealedChanges) {
             setTimeout(() => {
               try {
@@ -1306,22 +1311,24 @@ export class KnittingStatusStorage {
     } catch (e) {
       console.warn('Could not read knitting status from localStorage', e);
     }
-    return INITIAL_KNITTING_STATUS_ORDERS.map(aggregateOrderValues);
+    memoryKnittingOrdersCache = INITIAL_KNITTING_STATUS_ORDERS.map(aggregateOrderValues);
+    return memoryKnittingOrdersCache;
   }
 
   static saveOrders(orders: KnittingStatusOrder[]): void {
+    const sanitized = orders.map(aggregateOrderValues);
+    memoryKnittingOrdersCache = sanitized;
     if (typeof window === 'undefined') return;
     try {
-      const sanitized = orders.map(aggregateOrderValues);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
-      setTimeout(() => {
-        try {
-          window.dispatchEvent(new CustomEvent('epyllion_knitting_status_updated', { detail: { count: sanitized.length } }));
-        } catch {}
-      }, 0);
     } catch (e) {
-      console.warn('Could not save knitting status to localStorage', e);
+      console.warn('Could not save knitting status to localStorage (keeping in memory):', e);
     }
+    setTimeout(() => {
+      try {
+        window.dispatchEvent(new CustomEvent('epyllion_knitting_status_updated', { detail: { count: sanitized.length } }));
+      } catch {}
+    }, 0);
   }
 
   static resetToDefault(): KnittingStatusOrder[] {

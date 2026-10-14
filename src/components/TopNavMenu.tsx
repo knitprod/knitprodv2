@@ -262,6 +262,29 @@ export default function TopNavMenu({ currentPage, onNavigate, currentUser }: Top
         </div>
       )}
 
+      {/* 4b. Grey Stock Summary Direct Item for Instant 1-Click Access */}
+      {isTabAllowed('Grey Stock Summary') && (
+        <button
+          onClick={() => {
+            onNavigate('Grey Stock Summary');
+            setOpenDropdown(null);
+          }}
+          className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-extrabold transition-all cursor-pointer ${
+            currentPage === 'Grey Stock Summary'
+              ? 'bg-blue-600 text-white shadow-xs shadow-blue-500/30'
+              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+          id="topnav-grey-stock-direct"
+          title="Grey Stock Summary (Click to view full Grey Fabric stock inventory)"
+        >
+          <Boxes className={`h-4 w-4 ${currentPage === 'Grey Stock Summary' ? 'text-white' : 'text-blue-500'}`} />
+          <span>Grey Stock</span>
+          <span className="hidden lg:inline-block px-1.5 py-0.2 rounded text-[9px] font-black uppercase tracking-wider bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+            Stock
+          </span>
+        </button>
+      )}
+
       {/* 5. Yarn Allocation Direct Item */}
       {isYarnAllocationAllowed && (
         <button

@@ -336,6 +336,521 @@ function SearchableFilterDropdown({
   );
 }
 
+interface HighlightableCellProps {
+  value: string | number | null | undefined;
+  isMatch: boolean;
+  searchQuery?: string;
+  badge?: string;
+  className?: string;
+  align?: 'left' | 'center' | 'right';
+  mono?: boolean;
+  defaultTextClass?: string;
+}
+
+const HighlightableCell: React.FC<HighlightableCellProps> = ({
+  value,
+  isMatch,
+  searchQuery,
+  badge,
+  className = '',
+  align = 'left',
+  mono = false,
+  defaultTextClass = 'text-slate-800 dark:text-slate-200'
+}) => {
+  const strVal = value !== null && value !== undefined ? String(value) : '';
+
+  const renderContent = () => {
+    if (!strVal) return <span className="text-slate-400">—</span>;
+    if (!isMatch || !searchQuery || searchQuery.trim().length === 0) {
+      return <span>{strVal}</span>;
+    }
+
+    try {
+      const q = searchQuery.trim();
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`(${escaped})`, 'gi');
+      const parts = strVal.split(regex);
+
+      if (parts.length <= 1) return <span>{strVal}</span>;
+
+      return (
+        <span>
+          {parts.map((part, i) =>
+            part.toLowerCase() === q.toLowerCase() ? (
+              <mark
+                key={i}
+                className="bg-amber-300 dark:bg-amber-400 text-slate-950 font-black px-1 py-0.5 rounded shadow-xs mx-0.5"
+              >
+                {part}
+              </mark>
+            ) : (
+              <span key={i}>{part}</span>
+            )
+          )}
+        </span>
+      );
+    } catch {
+      return <span>{strVal}</span>;
+    }
+  };
+
+  if (!isMatch) {
+    return (
+      <span className={`${mono ? 'font-mono' : ''} ${defaultTextClass} ${className}`}>
+        {renderContent()}
+      </span>
+    );
+  }
+
+  return (
+    <div
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-amber-100 dark:bg-amber-950/80 border border-amber-400 dark:border-amber-500 text-amber-950 dark:text-amber-100 font-extrabold shadow-2xs transition-all ${
+        align === 'right' ? 'ml-auto justify-end' : align === 'center' ? 'mx-auto justify-center' : ''
+      } ${className}`}
+    >
+      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 dark:bg-amber-400 animate-pulse shrink-0" />
+      <span className={`${mono ? 'font-mono' : ''} tracking-tight`}>
+        {renderContent()}
+      </span>
+      {badge && (
+        <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 font-black shrink-0 border border-amber-300 dark:border-amber-700">
+          {badge}
+        </span>
+      )}
+    </div>
+  );
+};
+
+interface KnittingSecondLayerRowProps {
+  item: KnittingStatusItem;
+  colorFilter: string;
+  fabTypeFilter: string;
+  gaugeDiaFilter: string;
+  fgsmFilter: string;
+  pmcStartFilter?: string;
+  pmcStartFrom?: string;
+  pmcStartTo?: string;
+  pmcEndFilter?: string;
+  pmcEndFrom?: string;
+  pmcEndTo?: string;
+  conditionFilter?: string;
+  searchTerm: string;
+}
+
+const KnittingSecondLayerRow: React.FC<KnittingSecondLayerRowProps> = ({
+  item: itm,
+  colorFilter,
+  fabTypeFilter,
+  gaugeDiaFilter,
+  fgsmFilter,
+  pmcStartFilter = 'All',
+  pmcStartFrom = '',
+  pmcStartTo = '',
+  pmcEndFilter = 'All',
+  pmcEndFrom = '',
+  pmcEndTo = '',
+  conditionFilter = 'All',
+  searchTerm
+}) => {
+  const q = searchTerm.trim().toLowerCase();
+  const qNum = searchTerm.trim();
+
+  // 1. Color Match
+  const isColorFilterMatch = colorFilter !== 'All' && (itm.color || '').trim().toLowerCase() === colorFilter.toLowerCase();
+  const isColorSearchMatch = Boolean(q && (itm.color || '').toLowerCase().includes(q));
+  const isColorCellMatch = isColorFilterMatch || isColorSearchMatch;
+  const colorQuery = isColorSearchMatch ? searchTerm : (isColorFilterMatch ? colorFilter : '');
+
+  // 2. M/C Type Match
+  const isMcTypeCellMatch = Boolean(q && (itm.mcType || '').toLowerCase().includes(q));
+
+  // 3. Fab Type Match
+  const isFabTypeFilterMatch = fabTypeFilter !== 'All' && (
+    (itm.fabType || '').trim().toLowerCase() === fabTypeFilter.toLowerCase() ||
+    (itm.fabrication || '').trim().toLowerCase() === fabTypeFilter.toLowerCase()
+  );
+  const isFabTypeSearchMatch = Boolean(q && (
+    (itm.fabType || '').toLowerCase().includes(q) ||
+    (itm.fabrication || '').toLowerCase().includes(q)
+  ));
+  const isFabTypeCellMatch = isFabTypeFilterMatch || isFabTypeSearchMatch;
+  const fabTypeQuery = isFabTypeSearchMatch ? searchTerm : (isFabTypeFilterMatch ? fabTypeFilter : '');
+
+  // 4. FGSM Match
+  const isFgsmFilterMatch = fgsmFilter !== 'All' && String(itm.fgsm ?? '').trim().toLowerCase() === fgsmFilter.toLowerCase();
+  const isFgsmSearchMatch = Boolean(q && String(itm.fgsm ?? '').toLowerCase().includes(q));
+  const isFgsmCellMatch = isFgsmFilterMatch || isFgsmSearchMatch;
+  const fgsmQuery = isFgsmSearchMatch ? searchTerm : (isFgsmFilterMatch ? fgsmFilter : '');
+
+  // 5. Finish Width & Yarn Count Match
+  const isFWidthCellMatch = Boolean(q && String(itm.fWidth ?? '').toLowerCase().includes(q));
+  const isYarnCountCellMatch = Boolean(q && String(itm.yarnCount ?? '').toLowerCase().includes(q));
+
+  // 6. Gauge & Dia Match
+  const isGaugeDiaFilterMatch = gaugeDiaFilter !== 'All' && (itm.gaugeDia || '').trim().toLowerCase() === gaugeDiaFilter.toLowerCase();
+  const isGaugeDiaSearchMatch = Boolean(q && (itm.gaugeDia || '').toLowerCase().includes(q));
+  const isGaugeDiaCellMatch = isGaugeDiaFilterMatch || isGaugeDiaSearchMatch;
+  const gaugeDiaQuery = isGaugeDiaSearchMatch ? searchTerm : (isGaugeDiaFilterMatch ? gaugeDiaFilter : '');
+
+  // 7. Knit Start Date Match
+  const targetStartTs = pmcStartFilter !== 'All' ? parseDateToTimestamp(pmcStartFilter) : null;
+  const fromStartTs = pmcStartFrom ? new Date(pmcStartFrom + 'T00:00:00').getTime() : null;
+  const toStartTs = pmcStartTo ? new Date(pmcStartTo + 'T23:59:59').getTime() : null;
+  const itemStartTs = parseDateToTimestamp(itm.pmcKnitStartDate);
+
+  const isPmcStartExactMatch = pmcStartFilter !== 'All' && (
+    (itm.pmcKnitStartDate || '').trim().toLowerCase() === pmcStartFilter.toLowerCase().trim() ||
+    (targetStartTs !== null && itemStartTs !== null && itemStartTs === targetStartTs)
+  );
+  const isPmcStartRangeMatch = Boolean((fromStartTs || toStartTs) && itemStartTs !== null && (
+    (fromStartTs === null || itemStartTs >= fromStartTs) &&
+    (toStartTs === null || itemStartTs <= toStartTs)
+  ));
+  const isStartSearchMatch = Boolean(q && (
+    (itm.pmcKnitStartDate || '').toLowerCase().includes(q) ||
+    (itm.actualKnitStartDate || '').toLowerCase().includes(q)
+  ));
+  const isStartCellMatch = isPmcStartExactMatch || isPmcStartRangeMatch || isStartSearchMatch;
+
+  // 8. Knit End Date Match
+  const targetEndTs = pmcEndFilter !== 'All' ? parseDateToTimestamp(pmcEndFilter) : null;
+  const fromEndTs = pmcEndFrom ? new Date(pmcEndFrom + 'T00:00:00').getTime() : null;
+  const toEndTs = pmcEndTo ? new Date(pmcEndTo + 'T23:59:59').getTime() : null;
+  const itemEndTs = parseDateToTimestamp(itm.pmcKnitEndDate);
+
+  const isPmcEndExactMatch = pmcEndFilter !== 'All' && (
+    (itm.pmcKnitEndDate || '').trim().toLowerCase() === pmcEndFilter.toLowerCase().trim() ||
+    (targetEndTs !== null && itemEndTs !== null && itemEndTs === targetEndTs)
+  );
+  const isPmcEndRangeMatch = Boolean((fromEndTs || toEndTs) && itemEndTs !== null && (
+    (fromEndTs === null || itemEndTs >= fromEndTs) &&
+    (toEndTs === null || itemEndTs <= toEndTs)
+  ));
+  const isEndSearchMatch = Boolean(q && (
+    (itm.pmcKnitEndDate || '').toLowerCase().includes(q) ||
+    (itm.actualKnitEndDate || '').toLowerCase().includes(q)
+  ));
+  const isEndCellMatch = isPmcEndExactMatch || isPmcEndRangeMatch || isEndSearchMatch;
+
+  // 9. Numeric & Condition Matches
+  const isReqCellMatch = Boolean(qNum && (String(itm.reqQty ?? '').includes(qNum) || Math.round(itm.reqQty ?? 0).toLocaleString().includes(qNum)));
+  
+  const isGreyConditionMatch = conditionFilter === 'Pending' || conditionFilter === 'Running';
+  const isGreySearchMatch = Boolean(qNum && (String(itm.greyQty ?? '').includes(qNum) || Math.round(itm.greyQty ?? 0).toLocaleString().includes(qNum)));
+  const isGreyCellMatch = isGreySearchMatch || isGreyConditionMatch;
+
+  const isProdCellMatch = Boolean(qNum && (String(itm.production ?? '').includes(qNum) || Math.round(itm.production ?? 0).toLocaleString().includes(qNum)));
+  const isHoldCellMatch = Boolean(qNum && (String(itm.hold ?? '').includes(qNum) || Math.round(itm.hold ?? 0).toLocaleString().includes(qNum)));
+  const isRejectCellMatch = Boolean(qNum && (String(itm.reject ?? '').includes(qNum) || Math.round(itm.reject ?? 0).toLocaleString().includes(qNum)));
+  const isItmQtyCellMatch = Boolean(qNum && (String(itm.itmQty ?? '').includes(qNum) || Math.round(itm.itmQty ?? 0).toLocaleString().includes(qNum)));
+
+  const isBalanceCompleteMatch = conditionFilter === 'Complete' && (itm.knitBalance ?? 0) < 3;
+  const isBalanceRunningMatch = conditionFilter === 'Running' && (itm.knitBalance ?? 0) > 0 && (itm.production ?? 0) > 0;
+  const isBalancePendingMatch = conditionFilter === 'Pending' && (itm.production || 0) === 0;
+  const isBalanceSearchMatch = Boolean(qNum && (String(itm.knitBalance ?? '').includes(qNum) || Math.round(itm.knitBalance ?? 0).toLocaleString().includes(qNum)));
+  const isBalanceCellMatch = isBalanceSearchMatch || isBalanceCompleteMatch || isBalanceRunningMatch || isBalancePendingMatch;
+
+  const isAvgProdCellMatch = Boolean(qNum && String(itm.avgProdPerDay ?? '').includes(qNum));
+
+  const hasAnyCellMatch = isColorCellMatch || isMcTypeCellMatch || isFabTypeCellMatch || isFgsmCellMatch || isFWidthCellMatch || isYarnCountCellMatch || isGaugeDiaCellMatch || isStartCellMatch || isEndCellMatch || isReqCellMatch || isGreyCellMatch || isProdCellMatch || isHoldCellMatch || isRejectCellMatch || isItmQtyCellMatch || isBalanceCellMatch || isAvgProdCellMatch;
+
+  return (
+    <tr
+      className={`transition-colors ${
+        hasAnyCellMatch
+          ? 'bg-amber-50/70 dark:bg-amber-950/30 hover:bg-amber-100/50 dark:hover:bg-amber-900/30'
+          : 'hover:bg-slate-50/60 dark:hover:bg-slate-800/40'
+      }`}
+    >
+      {/* Color */}
+      <td className={`py-2 px-2.5 transition-colors ${
+        isColorCellMatch ? 'bg-amber-100/90 dark:bg-amber-900/50 ring-2 ring-amber-400 dark:ring-amber-500 rounded-md font-bold' : ''
+      }`}>
+        <HighlightableCell
+          value={itm.color || '—'}
+          isMatch={isColorCellMatch}
+          searchQuery={colorQuery}
+          badge={isColorFilterMatch ? 'Color' : undefined}
+          defaultTextClass="font-semibold text-slate-900 dark:text-white"
+        />
+      </td>
+
+      {/* M/C Type */}
+      <td className={`py-2 px-2.5 transition-colors ${
+        isMcTypeCellMatch ? 'bg-amber-100/90 dark:bg-amber-900/50 ring-2 ring-amber-400 dark:ring-amber-500 rounded-md font-bold' : ''
+      }`}>
+        <HighlightableCell
+          value={itm.mcType || '—'}
+          isMatch={isMcTypeCellMatch}
+          searchQuery={searchTerm}
+          defaultTextClass="text-slate-700 dark:text-slate-300"
+        />
+      </td>
+
+      {/* Fab. Type */}
+      <td className={`py-2 px-2.5 transition-colors ${
+        isFabTypeCellMatch ? 'bg-amber-100/90 dark:bg-amber-900/50 ring-2 ring-amber-400 dark:ring-amber-500 rounded-md font-bold' : ''
+      }`}>
+        <HighlightableCell
+          value={itm.fabType || itm.fabrication || '—'}
+          isMatch={isFabTypeCellMatch}
+          searchQuery={fabTypeQuery}
+          badge={isFabTypeFilterMatch ? 'Fabric' : undefined}
+          defaultTextClass="text-slate-700 dark:text-slate-300"
+        />
+      </td>
+
+      {/* FGSM */}
+      <td className={`py-2 px-2.5 transition-colors ${
+        isFgsmCellMatch ? 'bg-amber-100/90 dark:bg-amber-900/50 ring-2 ring-amber-400 dark:ring-amber-500 rounded-md font-bold' : ''
+      }`}>
+        <HighlightableCell
+          value={itm.fgsm ?? '—'}
+          isMatch={isFgsmCellMatch}
+          searchQuery={fgsmQuery}
+          badge={isFgsmFilterMatch ? 'FGSM' : undefined}
+          mono
+          defaultTextClass="text-slate-700 dark:text-slate-300"
+        />
+      </td>
+
+      {/* F. Width */}
+      <td className={`py-2 px-2.5 transition-colors ${
+        isFWidthCellMatch ? 'bg-amber-100/90 dark:bg-amber-900/50 ring-2 ring-amber-400 dark:ring-amber-500 rounded-md font-bold' : ''
+      }`}>
+        <HighlightableCell
+          value={itm.fWidth ?? '—'}
+          isMatch={isFWidthCellMatch}
+          searchQuery={searchTerm}
+          mono
+          defaultTextClass="text-slate-700 dark:text-slate-300"
+        />
+      </td>
+
+      {/* Yarn Count */}
+      <td className={`py-2 px-2.5 transition-colors ${
+        isYarnCountCellMatch ? 'bg-amber-100/90 dark:bg-amber-900/50 ring-2 ring-amber-400 dark:ring-amber-500 rounded-md font-bold' : ''
+      }`}>
+        <HighlightableCell
+          value={itm.yarnCount || '—'}
+          isMatch={isYarnCountCellMatch}
+          searchQuery={searchTerm}
+          mono
+          defaultTextClass="text-slate-700 dark:text-slate-300"
+        />
+      </td>
+
+      {/* Gauge & Dia */}
+      <td className={`py-2 px-2.5 transition-colors ${
+        isGaugeDiaCellMatch ? 'bg-amber-100/90 dark:bg-amber-900/50 ring-2 ring-amber-400 dark:ring-amber-500 rounded-md font-bold' : ''
+      }`}>
+        <HighlightableCell
+          value={itm.gaugeDia || '—'}
+          isMatch={isGaugeDiaCellMatch}
+          searchQuery={gaugeDiaQuery}
+          badge={isGaugeDiaFilterMatch ? 'Gauge/Dia' : undefined}
+          mono
+          defaultTextClass="text-slate-700 dark:text-slate-300"
+        />
+      </td>
+
+      {/* Knit Start Date */}
+      <td className={`py-2 px-3 font-mono text-slate-700 dark:text-slate-300 transition-colors ${
+        isStartCellMatch ? 'bg-amber-100/90 dark:bg-amber-900/50 ring-2 ring-amber-400 dark:ring-amber-500 rounded-md font-bold' : ''
+      }`}>
+        <div className="flex flex-col gap-0.5 text-[10.5px]">
+          {itm.pmcKnitStartDate ? (
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">PMC:</span>
+              <HighlightableCell
+                value={itm.pmcKnitStartDate}
+                isMatch={isPmcStartExactMatch || isPmcStartRangeMatch || Boolean(q && (itm.pmcKnitStartDate || '').toLowerCase().includes(q))}
+                searchQuery={Boolean(q) ? searchTerm : (pmcStartFilter !== 'All' ? pmcStartFilter : '')}
+                badge={isPmcStartExactMatch ? 'Start' : isPmcStartRangeMatch ? 'Range' : undefined}
+                mono
+                defaultTextClass="text-slate-600 dark:text-slate-400 font-semibold"
+              />
+            </div>
+          ) : null}
+          {itm.actualKnitStartDate ? (
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">ACT:</span>
+              <HighlightableCell
+                value={itm.actualKnitStartDate}
+                isMatch={Boolean(q && (itm.actualKnitStartDate || '').toLowerCase().includes(q))}
+                searchQuery={searchTerm}
+                mono
+                defaultTextClass="font-bold text-slate-900 dark:text-white"
+              />
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">ACT:</span>
+              <span className="text-slate-400 font-normal">-</span>
+            </div>
+          )}
+        </div>
+      </td>
+
+      {/* Knit End Date */}
+      <td className={`py-2 px-3 font-mono text-slate-700 dark:text-slate-300 transition-colors ${
+        isEndCellMatch ? 'bg-amber-100/90 dark:bg-amber-900/50 ring-2 ring-amber-400 dark:ring-amber-500 rounded-md font-bold' : ''
+      }`}>
+        <div className="flex flex-col gap-0.5 text-[10.5px]">
+          {itm.pmcKnitEndDate ? (
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">PMC:</span>
+              <HighlightableCell
+                value={itm.pmcKnitEndDate}
+                isMatch={isPmcEndExactMatch || isPmcEndRangeMatch || Boolean(q && (itm.pmcKnitEndDate || '').toLowerCase().includes(q))}
+                searchQuery={Boolean(q) ? searchTerm : (pmcEndFilter !== 'All' ? pmcEndFilter : '')}
+                badge={isPmcEndExactMatch ? 'End' : isPmcEndRangeMatch ? 'Range' : undefined}
+                mono
+                defaultTextClass="text-slate-600 dark:text-slate-400 font-semibold"
+              />
+            </div>
+          ) : null}
+          {itm.actualKnitEndDate ? (
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">ACT:</span>
+              <HighlightableCell
+                value={itm.actualKnitEndDate}
+                isMatch={Boolean(q && (itm.actualKnitEndDate || '').toLowerCase().includes(q))}
+                searchQuery={searchTerm}
+                mono
+                defaultTextClass="font-bold text-slate-900 dark:text-white"
+              />
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">ACT:</span>
+              <span className="text-slate-400 font-normal">-</span>
+            </div>
+          )}
+        </div>
+      </td>
+
+      {/* Req. Qty */}
+      <td className={`py-2 px-2.5 text-right transition-colors ${
+        isReqCellMatch ? 'bg-amber-100/90 dark:bg-amber-900/50 ring-2 ring-amber-400 dark:ring-amber-500 rounded-md font-bold' : ''
+      }`}>
+        <HighlightableCell
+          value={itm.reqQty ? itm.reqQty.toLocaleString() : '—'}
+          isMatch={isReqCellMatch}
+          searchQuery={searchTerm}
+          align="right"
+          mono
+          defaultTextClass="text-slate-700 dark:text-slate-300 font-mono"
+        />
+      </td>
+
+      {/* Grey Qty */}
+      <td className={`py-2 px-2.5 text-right transition-colors ${
+        isGreyCellMatch ? 'bg-amber-100/90 dark:bg-amber-900/50 ring-2 ring-amber-400 dark:ring-amber-500 rounded-md font-bold' : ''
+      }`}>
+        <HighlightableCell
+          value={itm.greyQty ? itm.greyQty.toLocaleString() : '—'}
+          isMatch={isGreyCellMatch}
+          searchQuery={isGreySearchMatch ? searchTerm : ''}
+          badge={isGreyConditionMatch ? conditionFilter : undefined}
+          align="right"
+          mono
+          defaultTextClass="text-slate-700 dark:text-slate-300 font-mono"
+        />
+      </td>
+
+      {/* Production */}
+      <td className={`py-2 px-2.5 text-right transition-colors ${
+        isProdCellMatch ? 'bg-amber-100/90 dark:bg-amber-900/50 ring-2 ring-amber-400 dark:ring-amber-500 rounded-md font-bold' : ''
+      }`}>
+        <HighlightableCell
+          value={itm.production ? itm.production.toLocaleString() : '—'}
+          isMatch={isProdCellMatch}
+          searchQuery={searchTerm}
+          align="right"
+          mono
+          defaultTextClass="font-mono font-bold text-indigo-600 dark:text-indigo-400"
+        />
+      </td>
+
+      {/* Hold */}
+      <td className={`py-2 px-2.5 text-right transition-colors ${
+        isHoldCellMatch ? 'bg-amber-100/90 dark:bg-amber-900/50 ring-2 ring-amber-400 dark:ring-amber-500 rounded-md font-bold' : ''
+      }`}>
+        <HighlightableCell
+          value={itm.hold ? itm.hold.toLocaleString() : '—'}
+          isMatch={isHoldCellMatch}
+          searchQuery={searchTerm}
+          align="right"
+          mono
+          defaultTextClass="font-mono text-amber-600 dark:text-amber-400"
+        />
+      </td>
+
+      {/* Reject */}
+      <td className={`py-2 px-2.5 text-right transition-colors ${
+        isRejectCellMatch ? 'bg-amber-100/90 dark:bg-amber-900/50 ring-2 ring-amber-400 dark:ring-amber-500 rounded-md font-bold' : ''
+      }`}>
+        <HighlightableCell
+          value={itm.reject ? itm.reject.toLocaleString() : '—'}
+          isMatch={isRejectCellMatch}
+          searchQuery={searchTerm}
+          align="right"
+          mono
+          defaultTextClass="font-mono text-red-500"
+        />
+      </td>
+
+      {/* ITM QTY */}
+      <td className={`py-2 px-2.5 text-right transition-colors ${
+        isItmQtyCellMatch ? 'bg-amber-100/90 dark:bg-amber-900/50 ring-2 ring-amber-400 dark:ring-amber-500 rounded-md font-bold' : ''
+      }`}>
+        <HighlightableCell
+          value={itm.itmQty ? itm.itmQty.toLocaleString() : '—'}
+          isMatch={isItmQtyCellMatch}
+          searchQuery={searchTerm}
+          align="right"
+          mono
+          defaultTextClass="font-mono text-slate-600 dark:text-slate-400"
+        />
+      </td>
+
+      {/* Knit Balance */}
+      <td className={`py-2 px-2.5 text-right transition-colors ${
+        isBalanceCellMatch ? 'bg-amber-100/90 dark:bg-amber-900/50 ring-2 ring-amber-400 dark:ring-amber-500 rounded-md font-bold' : ''
+      }`}>
+        <HighlightableCell
+          value={itm.knitBalance !== undefined ? itm.knitBalance.toLocaleString() : '—'}
+          isMatch={isBalanceCellMatch}
+          searchQuery={isBalanceSearchMatch ? searchTerm : ''}
+          badge={isBalanceCompleteMatch ? 'Complete' : isBalanceRunningMatch ? 'Running' : isBalancePendingMatch ? 'Pending' : undefined}
+          align="right"
+          mono
+          defaultTextClass={`font-mono font-bold ${
+            (itm.knitBalance ?? 0) < 3
+              ? 'text-emerald-600 dark:text-emerald-400'
+              : 'text-amber-600 dark:text-amber-400'
+          }`}
+        />
+      </td>
+
+      {/* Avg. Prod/Day */}
+      <td className={`py-2 px-2.5 text-right transition-colors ${
+        isAvgProdCellMatch ? 'bg-amber-100/90 dark:bg-amber-900/50 ring-2 ring-amber-400 dark:ring-amber-500 rounded-md font-bold' : ''
+      }`}>
+        <HighlightableCell
+          value={itm.avgProdPerDay ? `${Math.ceil(Number(itm.avgProdPerDay)).toLocaleString()} Kg` : '—'}
+          isMatch={isAvgProdCellMatch}
+          searchQuery={searchTerm}
+          align="right"
+          mono
+          defaultTextClass="font-mono text-slate-700 dark:text-slate-300"
+        />
+      </td>
+    </tr>
+  );
+};
+
 export default function KnittingStatusView({ currentUser, initialTab, onNavigateTab }: KnittingStatusViewProps) {
   // Active Sub-Tab: Knitting Status vs Textile Close By PMC vs Grey Stock Summary
   const [activeSubTab, setActiveSubTab] = useState<'knitting_status' | 'textile_close_pmc' | 'grey_stock_summary'>(
@@ -1088,7 +1603,30 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
     pmcEndFrom,
     pmcEndTo,
     searchTerm,
-    enrichedOrders.length
+  ]);
+
+  // Auto-expand orders when any filter or search is active so matching 2nd-layer cells are instantly visible
+  useEffect(() => {
+    if (summaryMetrics.isFiltered && paginatedOrders.length > 0) {
+      setExpandedOrderIds(prev => {
+        const next = new Set(prev);
+        // Expand the first 25 matching orders on current page
+        paginatedOrders.slice(0, 25).forEach(o => next.add(o.id));
+        return next;
+      });
+    }
+  }, [
+    summaryMetrics.isFiltered,
+    searchTerm,
+    buyerFilter,
+    teamLeaderFilter,
+    fabTypeFilter,
+    colorFilter,
+    gaugeDiaFilter,
+    fgsmFilter,
+    otdFilter,
+    conditionFilter,
+    paginatedOrders
   ]);
 
   const clearAllFilters = () => {
@@ -2511,6 +3049,32 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
         )}
       </div>
 
+      {/* Active Filter Highlights Bar */}
+      {summaryMetrics.isFiltered && (
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/40 dark:to-orange-950/30 border border-amber-200 dark:border-amber-800/60 shadow-xs">
+          <div className="flex items-center gap-2">
+            <span className="flex h-2 w-2 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+            </span>
+            <Sparkles className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span className="text-xs font-black text-amber-950 dark:text-amber-100">
+              Active Filter Cell Highlighting:
+            </span>
+            <span className="text-xs text-amber-800 dark:text-amber-200">
+              Cells matching your search and filter criteria in the 2nd layer breakdown are highlighted with glowing indicators. Matching orders are auto-expanded.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={clearAllFilters}
+            className="text-xs font-bold px-3 py-1 rounded-lg bg-amber-200/80 hover:bg-amber-300 dark:bg-amber-900/60 dark:hover:bg-amber-800 text-amber-950 dark:text-amber-100 border border-amber-300 dark:border-amber-700 transition-colors cursor-pointer"
+          >
+            Reset Filters
+          </button>
+        </div>
+      )}
+
       {/* Main Layered Table */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
@@ -2557,6 +3121,15 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
                   const isExpanded = expandedOrderIds.has(order.id);
                   const itemsCount = order.items?.length || 0;
                   const percentDone = order.greyQty > 0 ? Math.min(100, Math.round((order.production / order.greyQty) * 100)) : 0;
+                  const q = searchTerm.trim().toLowerCase();
+                  const qNum = searchTerm.trim();
+                  const matchesOrderNo = Boolean(q && order.orderNo.toLowerCase().includes(q));
+                  const matchesBuyer = (buyerFilter !== 'All' && order.buyerName.toLowerCase() === buyerFilter.toLowerCase()) || Boolean(q && order.buyerName.toLowerCase().includes(q));
+                  const matchesLeader = (teamLeaderFilter !== 'All' && order.teamLeader.toLowerCase() === teamLeaderFilter.toLowerCase()) || Boolean(q && order.teamLeader.toLowerCase().includes(q));
+                  const matchesReqQty = Boolean(qNum && (String(order.reqQty).includes(qNum) || Math.round(order.reqQty).toLocaleString().includes(qNum)));
+                  const matchesGreyQty = Boolean(qNum && (String(order.greyQty).includes(qNum) || Math.round(order.greyQty).toLocaleString().includes(qNum)));
+                  const matchesProd = Boolean(qNum && (String(order.production).includes(qNum) || Math.round(order.production).toLocaleString().includes(qNum)));
+                  const matchesBal = Boolean(qNum && (String(order.knitBalance).includes(qNum) || Math.round(order.knitBalance).toLocaleString().includes(qNum)));
 
                   return (
                     <React.Fragment key={order.id ? `${order.id}-${orderIdx}` : `ks-order-${orderIdx}`}>
@@ -2584,11 +3157,15 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
                         </td>
 
                         {/* Order No. */}
-                        <td className="py-3 px-3">
+                        <td className={`py-3 px-3 transition-colors ${matchesOrderNo ? 'bg-amber-100/80 dark:bg-amber-950/60' : ''}`}>
                           <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-slate-900 dark:text-white text-sm">
-                              {order.orderNo}
-                            </span>
+                            <HighlightableCell
+                              value={order.orderNo}
+                              isMatch={matchesOrderNo}
+                              searchQuery={searchTerm}
+                              mono
+                              defaultTextClass="font-mono font-bold text-slate-900 dark:text-white text-sm"
+                            />
                             {itemsCount > 0 && (
                               <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
                                 {itemsCount} {itemsCount === 1 ? 'item' : 'items'}
@@ -2603,13 +3180,25 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
                         </td>
 
                         {/* Buyer Name */}
-                        <td className="py-3 px-3 font-semibold text-slate-800 dark:text-slate-200">
-                          {order.buyerName}
+                        <td className={`py-3 px-3 font-semibold text-slate-800 dark:text-slate-200 transition-colors ${matchesBuyer ? 'bg-amber-100/80 dark:bg-amber-950/60' : ''}`}>
+                          <HighlightableCell
+                            value={order.buyerName}
+                            isMatch={matchesBuyer}
+                            searchQuery={searchTerm}
+                            badge={buyerFilter !== 'All' ? 'Buyer' : undefined}
+                            defaultTextClass="font-semibold text-slate-800 dark:text-slate-200"
+                          />
                         </td>
 
                         {/* Team Leader */}
-                        <td className="py-3 px-3 text-slate-600 dark:text-slate-300">
-                          {order.teamLeader || ''}
+                        <td className={`py-3 px-3 text-slate-600 dark:text-slate-300 transition-colors ${matchesLeader ? 'bg-amber-100/80 dark:bg-amber-950/60' : ''}`}>
+                          <HighlightableCell
+                            value={order.teamLeader || '—'}
+                            isMatch={matchesLeader}
+                            searchQuery={searchTerm}
+                            badge={teamLeaderFilter !== 'All' ? 'Leader' : undefined}
+                            defaultTextClass="text-slate-600 dark:text-slate-300"
+                          />
                         </td>
 
                         {/* Knit Start Date (PMC vs Actual) - Minimum Date from Color List */}
@@ -2641,33 +3230,57 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
                         </td>
 
                         {/* Req. Qty */}
-                        <td className="py-3 px-3 text-right font-mono text-slate-700 dark:text-slate-300">
-                          {order.reqQty ? order.reqQty.toLocaleString() : '0'}
+                        <td className={`py-3 px-3 text-right font-mono transition-colors ${matchesReqQty ? 'bg-amber-100/80 dark:bg-amber-950/60' : ''}`}>
+                          <HighlightableCell
+                            value={order.reqQty ? order.reqQty.toLocaleString() : '0'}
+                            isMatch={matchesReqQty}
+                            searchQuery={searchTerm}
+                            align="right"
+                            mono
+                            defaultTextClass="font-mono text-slate-700 dark:text-slate-300"
+                          />
                         </td>
 
                         {/* Grey Qty */}
-                        <td className="py-3 px-3 text-right font-mono text-slate-700 dark:text-slate-300">
-                          {order.greyQty ? order.greyQty.toLocaleString() : '0'}
+                        <td className={`py-3 px-3 text-right font-mono transition-colors ${matchesGreyQty ? 'bg-amber-100/80 dark:bg-amber-950/60' : ''}`}>
+                          <HighlightableCell
+                            value={order.greyQty ? order.greyQty.toLocaleString() : '0'}
+                            isMatch={matchesGreyQty}
+                            searchQuery={searchTerm}
+                            align="right"
+                            mono
+                            defaultTextClass="font-mono text-slate-700 dark:text-slate-300"
+                          />
                         </td>
 
                         {/* Production */}
-                        <td className="py-3 px-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                          {order.production ? order.production.toLocaleString() : '0'}
+                        <td className={`py-3 px-3 text-right font-mono font-bold transition-colors ${matchesProd ? 'bg-amber-100/80 dark:bg-amber-950/60' : ''}`}>
+                          <HighlightableCell
+                            value={order.production ? order.production.toLocaleString() : '0'}
+                            isMatch={matchesProd}
+                            searchQuery={searchTerm}
+                            align="right"
+                            mono
+                            defaultTextClass="font-mono font-bold text-indigo-600 dark:text-indigo-400"
+                          />
                         </td>
 
                         {/* Knit Balance */}
-                        <td className="py-3 px-3 text-right font-mono font-bold">
-                          <span
-                            className={
+                        <td className={`py-3 px-3 text-right font-mono font-bold transition-colors ${matchesBal ? 'bg-amber-100/80 dark:bg-amber-950/60' : ''}`}>
+                          <HighlightableCell
+                            value={order.knitBalance ? order.knitBalance.toLocaleString() : '0'}
+                            isMatch={matchesBal}
+                            searchQuery={searchTerm}
+                            align="right"
+                            mono
+                            defaultTextClass={`font-mono font-bold ${
                               order.knitBalance < 3
                                 ? 'text-emerald-600 dark:text-emerald-400'
                                 : order.knitBalance > 0
                                 ? 'text-amber-600 dark:text-amber-400'
                                 : 'text-slate-600 dark:text-slate-400'
-                            }
-                          >
-                            {order.knitBalance ? order.knitBalance.toLocaleString() : '0'}
-                          </span>
+                            }`}
+                          />
                         </td>
 
                         {/* Action: View Button */}
@@ -2713,7 +3326,28 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
                                     Color-Wise Fabric &amp; Knitting Specifications for Order {order.orderNo}
                                   </span>
                                   <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                                    ({itemsCount} {itemsCount === 1 ? 'color specification' : 'color specifications'})
+                                    ({itemsCount} {itemsCount === 1 ? 'color specification' : 'color specifications'}
+                                    {summaryMetrics.isFiltered && (
+                                      <span className="ml-1 text-amber-600 dark:text-amber-400 font-bold">
+                                        • {order.items?.filter(itm => {
+                                          const q = searchTerm.trim().toLowerCase();
+                                          return (
+                                            (colorFilter !== 'All' && (itm.color || '').trim().toLowerCase() === colorFilter.toLowerCase()) ||
+                                            (fabTypeFilter !== 'All' && ((itm.fabType || '').trim().toLowerCase() === fabTypeFilter.toLowerCase() || (itm.fabrication || '').trim().toLowerCase() === fabTypeFilter.toLowerCase())) ||
+                                            (gaugeDiaFilter !== 'All' && (itm.gaugeDia || '').trim().toLowerCase() === gaugeDiaFilter.toLowerCase()) ||
+                                            (fgsmFilter !== 'All' && String(itm.fgsm ?? '').trim().toLowerCase() === fgsmFilter.toLowerCase()) ||
+                                            Boolean(q && (
+                                              (itm.color || '').toLowerCase().includes(q) ||
+                                              (itm.fabType || '').toLowerCase().includes(q) ||
+                                              (itm.mcType || '').toLowerCase().includes(q) ||
+                                              String(itm.fgsm ?? '').toLowerCase().includes(q) ||
+                                              String(itm.yarnCount ?? '').toLowerCase().includes(q) ||
+                                              (itm.gaugeDia || '').toLowerCase().includes(q)
+                                            ))
+                                          );
+                                        }).length || 0} match filter
+                                      </span>
+                                    )})
                                   </span>
                                 </div>
 
@@ -2777,157 +3411,24 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                      {sortKnittingItems(order.items || []).map((itm, itmIdx) => {
-                                        const matchesSelectedColor = colorFilter !== 'All' && (itm.color || '').trim().toLowerCase() === colorFilter.toLowerCase();
-                                        const matchesSelectedFabType = fabTypeFilter !== 'All' && (itm.fabType || itm.fabrication || '').trim().toLowerCase() === fabTypeFilter.toLowerCase();
-                                        const matchesSelectedGaugeDia = gaugeDiaFilter !== 'All' && (itm.gaugeDia || '').trim().toLowerCase() === gaugeDiaFilter.toLowerCase();
-                                        const matchesSelectedFgsm = fgsmFilter !== 'All' && String(itm.fgsm ?? '').trim().toLowerCase() === fgsmFilter.toLowerCase();
-
-                                        const isMatchedItem = matchesSelectedColor || matchesSelectedFabType || matchesSelectedGaugeDia || matchesSelectedFgsm;
-                                        const isAnySpecFilterActive = colorFilter !== 'All' || fabTypeFilter !== 'All' || gaugeDiaFilter !== 'All' || fgsmFilter !== 'All';
-
-                                        return (
-                                          <tr
-                                            key={itm.id ? `${itm.id}-${itmIdx}` : `itm-${itmIdx}`}
-                                            className={`transition-colors ${
-                                              isMatchedItem
-                                                ? 'bg-amber-50/90 dark:bg-amber-950/40 ring-1 ring-inset ring-amber-400 dark:ring-amber-600 font-semibold'
-                                                : isAnySpecFilterActive
-                                                  ? 'opacity-65 hover:opacity-100 hover:bg-slate-50/60 dark:hover:bg-slate-800/40'
-                                                  : 'hover:bg-slate-50/60 dark:hover:bg-slate-800/40'
-                                            }`}
-                                          >
-                                          {/* Color */}
-                                          <td className="py-2 px-2.5 font-semibold text-slate-900 dark:text-white">
-                                            {itm.color}
-                                          </td>
-
-                                          {/* M/C Type */}
-                                          <td className="py-2 px-2.5 text-slate-700 dark:text-slate-300">
-                                            {itm.mcType}
-                                          </td>
-
-                                          {/* Fab. Type */}
-                                          <td className="py-2 px-2.5 text-slate-700 dark:text-slate-300">
-                                            {itm.fabType}
-                                          </td>
-
-                                          {/* FGSM */}
-                                          <td className="py-2 px-2.5 font-mono text-slate-700 dark:text-slate-300">
-                                            {itm.fgsm}
-                                          </td>
-
-                                          {/* F. Width */}
-                                          <td className="py-2 px-2.5 font-mono text-slate-700 dark:text-slate-300">
-                                            {itm.fWidth}
-                                          </td>
-
-                                          {/* Yarn Count */}
-                                          <td className="py-2 px-2.5 font-mono text-slate-700 dark:text-slate-300">
-                                            {itm.yarnCount}
-                                          </td>
-
-                                          {/* Gauge & Dia */}
-                                          <td className="py-2 px-2.5 font-mono text-slate-700 dark:text-slate-300">
-                                            {itm.gaugeDia}
-                                          </td>
-
-                                          {/* Knit Start Date (PMC K-START vs A. Knit Star) */}
-                                          <td className="py-2 px-3 font-mono text-slate-700 dark:text-slate-300">
-                                            <div className="flex flex-col gap-0.5 text-[10.5px]">
-                                              {itm.pmcKnitStartDate ? (
-                                                <div className="flex items-center gap-1">
-                                                  <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">PMC:</span>
-                                                  <span className="text-slate-600 dark:text-slate-400 font-semibold">{itm.pmcKnitStartDate}</span>
-                                                </div>
-                                              ) : null}
-                                              {itm.actualKnitStartDate ? (
-                                                <div className="flex items-center gap-1">
-                                                  <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">ACT:</span>
-                                                  <span className="font-bold text-slate-900 dark:text-white">{itm.actualKnitStartDate}</span>
-                                                </div>
-                                              ) : (
-                                                <div className="flex items-center gap-1">
-                                                  <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">ACT:</span>
-                                                  <span className="text-slate-400 font-normal">-</span>
-                                                </div>
-                                              )}
-                                            </div>
-                                          </td>
-
-                                          {/* Knit End Date (PMC K-END vs Last Knit) */}
-                                          <td className="py-2 px-3 font-mono text-slate-700 dark:text-slate-300">
-                                            <div className="flex flex-col gap-0.5 text-[10.5px]">
-                                              {itm.pmcKnitEndDate ? (
-                                                <div className="flex items-center gap-1">
-                                                  <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">PMC:</span>
-                                                  <span className="text-slate-600 dark:text-slate-400 font-semibold">{itm.pmcKnitEndDate}</span>
-                                                </div>
-                                              ) : null}
-                                              {itm.actualKnitEndDate ? (
-                                                <div className="flex items-center gap-1">
-                                                  <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">ACT:</span>
-                                                  <span className="font-bold text-slate-900 dark:text-white">{itm.actualKnitEndDate}</span>
-                                                </div>
-                                              ) : (
-                                                <div className="flex items-center gap-1">
-                                                  <span className="text-[9px] font-bold text-slate-400 uppercase w-7 shrink-0">ACT:</span>
-                                                  <span className="text-slate-400 font-normal">-</span>
-                                                </div>
-                                              )}
-                                            </div>
-                                          </td>
-
-                                          {/* Req. Qty */}
-                                          <td className="py-2 px-2.5 text-right font-mono text-slate-700 dark:text-slate-300">
-                                            {itm.reqQty ? itm.reqQty.toLocaleString() : ''}
-                                          </td>
-
-                                          {/* Grey Qty */}
-                                          <td className="py-2 px-2.5 text-right font-mono text-slate-700 dark:text-slate-300">
-                                            {itm.greyQty ? itm.greyQty.toLocaleString() : ''}
-                                          </td>
-
-                                          {/* Production */}
-                                          <td className="py-2 px-2.5 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                                            {itm.production ? itm.production.toLocaleString() : ''}
-                                          </td>
-
-                                          {/* Hold */}
-                                          <td className="py-2 px-2.5 text-right font-mono text-amber-600 dark:text-amber-400">
-                                            {itm.hold ? itm.hold.toLocaleString() : ''}
-                                          </td>
-
-                                          {/* Reject */}
-                                          <td className="py-2 px-2.5 text-right font-mono text-red-500">
-                                            {itm.reject ? itm.reject.toLocaleString() : ''}
-                                          </td>
-
-                                          {/* ITM QTY */}
-                                          <td className="py-2 px-2.5 text-right font-mono text-slate-600 dark:text-slate-400">
-                                            {itm.itmQty ? itm.itmQty.toLocaleString() : ''}
-                                          </td>
-
-                                          {/* Knit Balance */}
-                                          <td className="py-2 px-2.5 text-right font-mono font-bold">
-                                            <span
-                                              className={
-                                                itm.knitBalance < 3
-                                                  ? 'text-emerald-600 dark:text-emerald-400'
-                                                  : 'text-amber-600 dark:text-amber-400'
-                                              }
-                                            >
-                                              {itm.knitBalance !== undefined ? itm.knitBalance.toLocaleString() : ''}
-                                            </span>
-                                          </td>
-
-                                          {/* Avg. Prod/Day */}
-                                          <td className="py-2 px-2.5 text-right font-mono text-slate-700 dark:text-slate-300">
-                                            {itm.avgProdPerDay ? `${Math.ceil(Number(itm.avgProdPerDay)).toLocaleString()} Kg` : ''}
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
+                                       {sortKnittingItems(order.items || []).map((itm, itmIdx) => (
+                                         <KnittingSecondLayerRow
+                                           key={itm.id ? `${itm.id}-${itmIdx}` : `itm-${itmIdx}`}
+                                           item={itm}
+                                           colorFilter={colorFilter}
+                                           fabTypeFilter={fabTypeFilter}
+                                           gaugeDiaFilter={gaugeDiaFilter}
+                                           fgsmFilter={fgsmFilter}
+                                           pmcStartFilter={pmcStartFilter}
+                                           pmcStartFrom={pmcStartFrom}
+                                           pmcStartTo={pmcStartTo}
+                                           pmcEndFilter={pmcEndFilter}
+                                           pmcEndFrom={pmcEndFrom}
+                                           pmcEndTo={pmcEndTo}
+                                           conditionFilter={conditionFilter}
+                                           searchTerm={searchTerm}
+                                         />
+                                       ))}
                                     </tbody>
                                   </table>
                                 </div>

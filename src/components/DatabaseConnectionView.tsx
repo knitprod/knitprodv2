@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Database, 
   Wifi, 
@@ -28,6 +28,9 @@ import {
   Key,
   Globe,
   ArrowRight,
+  ArrowDown,
+  CloudDownload,
+  CloudUpload,
   Zap,
   Boxes,
   Download
@@ -35,6 +38,7 @@ import {
 import { GasClient } from '../lib/gasClient';
 import { SupabaseSync } from '../lib/supabaseClient';
 import { TextileClosePMCStorage } from '../lib/textileClosePMCStore';
+import { KnittingStatusStorage } from '../lib/knittingStatusStore';
 import { GreyStockStorage } from '../lib/greyStockStore';
 import { GreyYarnStockStorage } from '../lib/greyYarnStockStore';
 import { SyncConflictLog } from '../types';
@@ -101,12 +105,102 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
   const [copiedGreyYarnStockSql, setCopiedGreyYarnStockSql] = useState(false);
   const [showGreyYarnStockSql, setShowGreyYarnStockSql] = useState(false);
 
+  // Knitting Orders Supabase Migration State
+  const [isMigratingKnitting, setIsMigratingKnitting] = useState(false);
+  const [migrateKnittingStatus, setMigrateKnittingStatus] = useState<string | null>(null);
+  const [copiedKnittingSql, setCopiedKnittingSql] = useState(false);
+  const [showKnittingSql, setShowKnittingSql] = useState(false);
+
+  // Pull states for each table
+  const [isPullingAll, setIsPullingAll] = useState(false);
+  const [pullAllProgress, setPullAllProgress] = useState<{ current: number; total: number; stage: string } | null>(null);
+  const [isPullingLedger, setIsPullingLedger] = useState(false);
+  const [pullLedgerStatus, setPullLedgerStatus] = useState<string | null>(null);
+  const [isPullingYarn, setIsPullingYarn] = useState(false);
+  const [pullYarnStatus, setPullYarnStatus] = useState<string | null>(null);
+  const [isPullingOrders, setIsPullingOrders] = useState(false);
+  const [pullOrdersStatus, setPullOrdersStatus] = useState<string | null>(null);
+  const [isPullingKnitting, setIsPullingKnitting] = useState(false);
+  const [pullKnittingStatus, setPullKnittingStatus] = useState<string | null>(null);
+  const [isPullingTextileClose, setIsPullingTextileClose] = useState(false);
+  const [pullTextileCloseStatus, setPullTextileCloseStatus] = useState<string | null>(null);
+  const [isPullingGreyStock, setIsPullingGreyStock] = useState(false);
+  const [pullGreyStockStatus, setPullGreyStockStatus] = useState<string | null>(null);
+  const [isPullingGreyYarnStock, setIsPullingGreyYarnStock] = useState(false);
+  const [pullGreyYarnStockStatus, setPullGreyYarnStockStatus] = useState<string | null>(null);
+
+  // Live row counts in Supabase
+  const [supabaseCounts, setSupabaseCounts] = useState<{
+    ledger: number | null;
+    yarn: number | null;
+    orders: number | null;
+    knitting: number | null;
+    textileClose: number | null;
+    greyStock: number | null;
+    greyYarnStock: number | null;
+  }>({
+    ledger: null,
+    yarn: null,
+    orders: null,
+    knitting: null,
+    textileClose: null,
+    greyStock: null,
+    greyYarnStock: null,
+  });
+  const [isLoadingCounts, setIsLoadingCounts] = useState(false);
+
+  // Local storage counts
+  const [localCounts, setLocalCounts] = useState({
+    knitting: KnittingStatusStorage.getOrders().length,
+    textileClose: TextileClosePMCStorage.getRecords().length,
+    greyStock: GreyStockStorage.getRecords().length,
+    greyYarn: GreyYarnStockStorage.getRecords().length
+  });
+
+  const refreshLocalCounts = useCallback(() => {
+    setLocalCounts({
+      knitting: KnittingStatusStorage.getOrders().length,
+      textileClose: TextileClosePMCStorage.getRecords().length,
+      greyStock: GreyStockStorage.getRecords().length,
+      greyYarn: GreyYarnStockStorage.getRecords().length
+    });
+  }, []);
+
+  // Fetch live counts from Supabase Cloud
+  const fetchSupabaseCounts = useCallback(async () => {
+    const client = SupabaseSync.getClient();
+    if (!client || !SupabaseSync.isConfigured()) return;
+    setIsLoadingCounts(true);
+    try {
+      const [rLedger, rYarn, rOrders, rKnit, rTC, rGS, rGYS] = await Promise.allSettled([
+        client.from('production_ledger').select('*', { count: 'exact', head: true }),
+        client.from('yarn_allocations').select('*', { count: 'exact', head: true }),
+        client.from('order_plans').select('*', { count: 'exact', head: true }),
+        client.from('knitting_orders').select('*', { count: 'exact', head: true }),
+        client.from('textile_close_pmc').select('*', { count: 'exact', head: true }),
+        client.from('grey_stock_summary').select('*', { count: 'exact', head: true }),
+        client.from('grey_yarn_stock').select('*', { count: 'exact', head: true }),
+      ]);
+      setSupabaseCounts({
+        ledger: rLedger.status === 'fulfilled' ? (rLedger.value.count ?? null) : null,
+        yarn: rYarn.status === 'fulfilled' ? (rYarn.value.count ?? null) : null,
+        orders: rOrders.status === 'fulfilled' ? (rOrders.value.count ?? null) : null,
+        knitting: rKnit.status === 'fulfilled' ? (rKnit.value.count ?? null) : null,
+        textileClose: rTC.status === 'fulfilled' ? (rTC.value.count ?? null) : null,
+        greyStock: rGS.status === 'fulfilled' ? (rGS.value.count ?? null) : null,
+        greyYarnStock: rGYS.status === 'fulfilled' ? (rGYS.value.count ?? null) : null,
+      });
+    } catch {} finally {
+      setIsLoadingCounts(false);
+    }
+  }, []);
+
   // Two-Way Synchronization states
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<SyncConflictLog[]>([]);
 
-  // Sync with central server configuration on load
+  // Sync with central server configuration on load & fetch counts
   useEffect(() => {
     GasClient.fetchServerConfig().then((config) => {
       if (config.gasWebAppUrl) {
@@ -116,7 +210,28 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
         setDatabaseMode(config.databaseMode);
       }
     });
-  }, []);
+
+    if (SupabaseSync.isConfigured()) {
+      fetchSupabaseCounts();
+    }
+
+    const handleKnittingUpdate = () => refreshLocalCounts();
+    const handleTCUpdate = () => refreshLocalCounts();
+    const handleGSUpdate = () => refreshLocalCounts();
+    const handleGYSUpdate = () => refreshLocalCounts();
+
+    window.addEventListener('epyllion_knitting_status_updated', handleKnittingUpdate);
+    window.addEventListener('epyllion_tc_pmc_updated', handleTCUpdate);
+    window.addEventListener('epyllion_grey_stock_updated', handleGSUpdate);
+    window.addEventListener('epyllion_grey_yarn_stock_updated', handleGYSUpdate);
+
+    return () => {
+      window.removeEventListener('epyllion_knitting_status_updated', handleKnittingUpdate);
+      window.removeEventListener('epyllion_tc_pmc_updated', handleTCUpdate);
+      window.removeEventListener('epyllion_grey_stock_updated', handleGSUpdate);
+      window.removeEventListener('epyllion_grey_yarn_stock_updated', handleGYSUpdate);
+    };
+  }, [fetchSupabaseCounts, refreshLocalCounts]);
 
   const handleMigrateLedgerToSupabase = async () => {
     if (!SupabaseSync.isConfigured()) {
@@ -341,6 +456,260 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
     }
   };
 
+  const handleCopyKnittingSql = async () => {
+    const success = await safeCopyText(SupabaseSync.getKnittingOrdersSetupSQL());
+    if (success) {
+      setCopiedKnittingSql(true);
+      if (onSuccessNotice) onSuccessNotice("Copied Knitting Orders SQL script!");
+      setTimeout(() => setCopiedKnittingSql(false), 2500);
+    }
+  };
+
+  const handleMigrateKnittingToSupabase = async () => {
+    if (!SupabaseSync.isConfigured()) {
+      if (onSuccessNotice) onSuccessNotice("Please enter and save your Supabase credentials first.");
+      return;
+    }
+    setIsMigratingKnitting(true);
+    setMigrateKnittingStatus("Migrating Knitting Status orders & items to Supabase...");
+    try {
+      const records = KnittingStatusStorage.getOrders();
+      const res = await SupabaseSync.bulkSaveKnittingOrders(records, true);
+      if (res.success) {
+        setMigrateKnittingStatus(`Successfully migrated and replaced ${res.count} Knitting Orders in Supabase! Live WebSockets active.`);
+        if (onSuccessNotice) onSuccessNotice(`Transferred ${res.count} Knitting Orders to Supabase!`);
+        fetchSupabaseCounts();
+      } else {
+        if (res.error?.includes('knitting_orders') || res.error?.includes('schema cache') || res.error?.includes('PGRST205')) {
+          setShowKnittingSql(true);
+          setMigrateKnittingStatus("Table 'public.knitting_orders' does not exist in Supabase yet. Please copy the SQL script below, run it in your Supabase SQL Editor, and then click Migration.");
+        } else {
+          setMigrateKnittingStatus(`Error transferring records: ${res.error || 'Check Supabase SQL Editor and table structure.'}`);
+        }
+      }
+    } catch (err: any) {
+      setMigrateKnittingStatus(`Migration notice: ${err.message || String(err)}`);
+    } finally {
+      setIsMigratingKnitting(false);
+    }
+  };
+
+  // ----------------------------------------------------
+  // Two-Way PULL Handlers: Pulling from Supabase Cloud
+  // ----------------------------------------------------
+  const handlePullLedgerFromSupabase = async () => {
+    if (!SupabaseSync.isConfigured()) return;
+    setIsPullingLedger(true);
+    setPullLedgerStatus("Pulling Production Ledger records from Supabase Cloud...");
+    try {
+      const records = await SupabaseSync.fetchProductionLedger();
+      if (Array.isArray(records)) {
+        await refreshAll(true);
+        setPullLedgerStatus(`Successfully pulled ${records.length} Production Ledger records from Supabase!`);
+        if (onSuccessNotice) onSuccessNotice(`Pulled ${records.length} records from Supabase Cloud.`);
+        fetchSupabaseCounts();
+      }
+    } catch (e: any) {
+      setPullLedgerStatus(`Pull notice: ${e.message || String(e)}`);
+    } finally {
+      setIsPullingLedger(false);
+    }
+  };
+
+  const handlePullYarnFromSupabase = async () => {
+    if (!SupabaseSync.isConfigured()) return;
+    setIsPullingYarn(true);
+    setPullYarnStatus("Pulling Yarn Allocations from Supabase Cloud...");
+    try {
+      const records = await SupabaseSync.fetchYarnAllocations();
+      if (Array.isArray(records)) {
+        await refreshAll(true);
+        setPullYarnStatus(`Successfully pulled ${records.length} Yarn Allocations from Supabase!`);
+        if (onSuccessNotice) onSuccessNotice(`Pulled ${records.length} Yarn records from Supabase Cloud.`);
+        fetchSupabaseCounts();
+      }
+    } catch (e: any) {
+      setPullYarnStatus(`Pull notice: ${e.message || String(e)}`);
+    } finally {
+      setIsPullingYarn(false);
+    }
+  };
+
+  const handlePullOrdersFromSupabase = async () => {
+    if (!SupabaseSync.isConfigured()) return;
+    setIsPullingOrders(true);
+    setPullOrdersStatus("Pulling Plan Orders from Supabase Cloud...");
+    try {
+      const records = await SupabaseSync.fetchOrderPlans();
+      if (Array.isArray(records)) {
+        await refreshAll(true);
+        setPullOrdersStatus(`Successfully pulled ${records.length} Plan Orders from Supabase!`);
+        if (onSuccessNotice) onSuccessNotice(`Pulled ${records.length} Plan Orders from Supabase Cloud.`);
+        fetchSupabaseCounts();
+      }
+    } catch (e: any) {
+      setPullOrdersStatus(`Pull notice: ${e.message || String(e)}`);
+    } finally {
+      setIsPullingOrders(false);
+    }
+  };
+
+  const handlePullKnittingFromSupabase = async () => {
+    if (!SupabaseSync.isConfigured()) return;
+    setIsPullingKnitting(true);
+    setPullKnittingStatus("Pulling Knitting Status orders from Supabase Cloud...");
+    try {
+      const records = await SupabaseSync.fetchKnittingOrders();
+      if (Array.isArray(records)) {
+        KnittingStatusStorage.saveOrders(records);
+        window.dispatchEvent(new CustomEvent('epyllion_knitting_status_updated', { detail: records }));
+        refreshLocalCounts();
+        setPullKnittingStatus(`Successfully pulled ${records.length} Knitting Orders from Supabase!`);
+        if (onSuccessNotice) onSuccessNotice(`Pulled ${records.length} Knitting Orders from Supabase Cloud.`);
+        fetchSupabaseCounts();
+      }
+    } catch (e: any) {
+      setPullKnittingStatus(`Pull notice: ${e.message || String(e)}`);
+    } finally {
+      setIsPullingKnitting(false);
+    }
+  };
+
+  const handlePullTextileCloseFromSupabase = async () => {
+    if (!SupabaseSync.isConfigured()) return;
+    setIsPullingTextileClose(true);
+    setPullTextileCloseStatus("Pulling Textile Close By PMC records from Supabase Cloud...");
+    try {
+      const records = await SupabaseSync.fetchTextileCloseRecords();
+      if (Array.isArray(records)) {
+        TextileClosePMCStorage.saveRecords(records);
+        window.dispatchEvent(new CustomEvent('epyllion_tc_pmc_updated', { detail: records }));
+        refreshLocalCounts();
+        setPullTextileCloseStatus(`Successfully pulled ${records.length} Textile Close records from Supabase!`);
+        if (onSuccessNotice) onSuccessNotice(`Pulled ${records.length} Textile Close records from Supabase Cloud.`);
+        fetchSupabaseCounts();
+      }
+    } catch (e: any) {
+      setPullTextileCloseStatus(`Pull notice: ${e.message || String(e)}`);
+    } finally {
+      setIsPullingTextileClose(false);
+    }
+  };
+
+  const handlePullGreyStockFromSupabase = async () => {
+    if (!SupabaseSync.isConfigured()) return;
+    setIsPullingGreyStock(true);
+    setPullGreyStockStatus("Pulling Grey Stock Summary records from Supabase Cloud...");
+    try {
+      const records = await SupabaseSync.fetchGreyStockRecords();
+      if (Array.isArray(records)) {
+        GreyStockStorage.saveRecords(records, false);
+        window.dispatchEvent(new CustomEvent('epyllion_grey_stock_updated', { detail: records }));
+        refreshLocalCounts();
+        setPullGreyStockStatus(`Successfully pulled ${records.length} Grey Stock records from Supabase!`);
+        if (onSuccessNotice) onSuccessNotice(`Pulled ${records.length} Grey Stock records from Supabase Cloud.`);
+        fetchSupabaseCounts();
+      }
+    } catch (e: any) {
+      setPullGreyStockStatus(`Pull notice: ${e.message || String(e)}`);
+    } finally {
+      setIsPullingGreyStock(false);
+    }
+  };
+
+  const handlePullGreyYarnStockFromSupabase = async () => {
+    if (!SupabaseSync.isConfigured()) return;
+    setIsPullingGreyYarnStock(true);
+    setPullGreyYarnStockStatus("Pulling Grey Yarn Stock Summary records from Supabase Cloud...");
+    try {
+      const records = await SupabaseSync.fetchGreyYarnStockRecords();
+      if (Array.isArray(records)) {
+        GreyYarnStockStorage.saveRecords(records, false);
+        window.dispatchEvent(new CustomEvent('epyllion_grey_yarn_stock_updated', { detail: records }));
+        refreshLocalCounts();
+        setPullGreyYarnStockStatus(`Successfully pulled ${records.length} Grey Yarn Stock records from Supabase!`);
+        if (onSuccessNotice) onSuccessNotice(`Pulled ${records.length} Grey Yarn Stock records from Supabase Cloud.`);
+        fetchSupabaseCounts();
+      }
+    } catch (e: any) {
+      setPullGreyYarnStockStatus(`Pull notice: ${e.message || String(e)}`);
+    } finally {
+      setIsPullingGreyYarnStock(false);
+    }
+  };
+
+  const handlePullAllFromSupabase = async () => {
+    if (!SupabaseSync.isConfigured()) {
+      if (onSuccessNotice) onSuccessNotice("Please enter and save your Supabase credentials first.");
+      return;
+    }
+    setIsPullingAll(true);
+    setPullAllProgress({ current: 0, total: 7, stage: 'Connecting to Supabase Cloud...' });
+
+    try {
+      // 1. Production Ledger
+      setPullAllProgress({ current: 1, total: 7, stage: 'Pulling Production Ledger records from Supabase...' });
+      const ledgerData = await SupabaseSync.fetchProductionLedger().catch(() => []);
+
+      // 2. Yarn Allocations
+      setPullAllProgress({ current: 2, total: 7, stage: 'Pulling Yarn Allocations from Supabase...' });
+      const yarnData = await SupabaseSync.fetchYarnAllocations().catch(() => []);
+
+      // 3. Order Plans
+      setPullAllProgress({ current: 3, total: 7, stage: 'Pulling Plan Orders from Supabase...' });
+      const ordersData = await SupabaseSync.fetchOrderPlans().catch(() => []);
+
+      // 4. Knitting Orders
+      setPullAllProgress({ current: 4, total: 7, stage: 'Pulling Knitting Status Orders & Items from Supabase...' });
+      const knitData = await SupabaseSync.fetchKnittingOrders().catch(() => []);
+      if (Array.isArray(knitData) && knitData.length > 0) {
+        KnittingStatusStorage.saveOrders(knitData);
+        window.dispatchEvent(new CustomEvent('epyllion_knitting_status_updated', { detail: knitData }));
+      }
+
+      // 5. Textile Close By PMC
+      setPullAllProgress({ current: 5, total: 7, stage: 'Pulling Textile Close By PMC records from Supabase...' });
+      const tcData = await SupabaseSync.fetchTextileCloseRecords().catch(() => []);
+      if (Array.isArray(tcData) && tcData.length > 0) {
+        TextileClosePMCStorage.saveRecords(tcData);
+        window.dispatchEvent(new CustomEvent('epyllion_tc_pmc_updated', { detail: tcData }));
+      }
+
+      // 6. Grey Stock Summary
+      setPullAllProgress({ current: 6, total: 7, stage: 'Pulling Grey Stock Summary records from Supabase...' });
+      const gsData = await SupabaseSync.fetchGreyStockRecords().catch(() => []);
+      if (Array.isArray(gsData) && gsData.length > 0) {
+        GreyStockStorage.saveRecords(gsData, false);
+        window.dispatchEvent(new CustomEvent('epyllion_grey_stock_updated', { detail: gsData }));
+      }
+
+      // 7. Grey Yarn Stock Summary
+      setPullAllProgress({ current: 7, total: 7, stage: 'Pulling Grey Yarn Stock Summary records from Supabase...' });
+      const gysData = await SupabaseSync.fetchGreyYarnStockRecords().catch(() => []);
+      if (Array.isArray(gysData) && gysData.length > 0) {
+        GreyYarnStockStorage.saveRecords(gysData, false);
+        window.dispatchEvent(new CustomEvent('epyllion_grey_yarn_stock_updated', { detail: gysData }));
+      }
+
+      // Refresh Global Context for Ledger, Yarn, Orders
+      await refreshAll(true);
+      refreshLocalCounts();
+      await fetchSupabaseCounts();
+
+      const totalRows = (ledgerData?.length || 0) + (yarnData?.length || 0) + (ordersData?.length || 0) + 
+        (knitData?.length || 0) + (tcData?.length || 0) + (gsData?.length || 0) + (gysData?.length || 0);
+
+      const msg = `Successfully pulled all ${totalRows.toLocaleString()} live records across 7 tables from Supabase Cloud!`;
+      setSyncNotice(msg);
+      if (onSuccessNotice) onSuccessNotice(msg);
+    } catch (err: any) {
+      setSyncNotice(`Pull notice: ${err.message || String(err)}`);
+    } finally {
+      setIsPullingAll(false);
+      setPullAllProgress(null);
+    }
+  };
+
   const handleTestSupabase = async () => {
     if (!supabaseUrl.trim() || !supabaseKey.trim()) {
       setSupabaseTestSuccess(false);
@@ -359,6 +728,9 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
       const res = await SupabaseSync.testConnection(supabaseUrl, supabaseKey);
       setSupabaseTestSuccess(res.success);
       setSupabaseTestResult(res.message);
+      if (res.success) {
+        fetchSupabaseCounts();
+      }
     } catch (err: any) {
       setSupabaseTestSuccess(false);
       setSupabaseTestResult(`Connection Failed: ${err.message || String(err)}`);
@@ -374,6 +746,7 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
     if (onSuccessNotice) {
       onSuccessNotice("Supabase credentials saved successfully. Users, Settings, & Logs now route to Supabase (100% Free Forever).");
     }
+    fetchSupabaseCounts();
     setTimeout(() => setIsSaved(false), 4000);
   };
 
@@ -638,6 +1011,111 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
           </div>
         </form>
 
+        {/* Master Two-Way Cloud Synchronization & Live Row Counts Panel */}
+        <div className="rounded-2xl border-2 border-indigo-500/40 bg-gradient-to-br from-indigo-50/90 via-white to-emerald-50/60 dark:from-indigo-950/40 dark:via-slate-900 dark:to-emerald-950/30 p-5 shadow-lg space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-indigo-600 text-white shadow-md">
+                  <Database className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
+                    Two-Way Supabase Cloud Synchronization &amp; Live Data Pull
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200">
+                      Live 7 Tables
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
+                    Pull live data from Supabase into your browser memory, or push local records to Supabase.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                type="button"
+                disabled={isPullingAll || !isSupabaseActive}
+                onClick={handlePullAllFromSupabase}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black uppercase tracking-wider transition-all disabled:opacity-50 cursor-pointer shadow-md hover:shadow-lg active:scale-95"
+                title="Download all live rows across all 7 Supabase tables into your browser application"
+              >
+                {isPullingAll ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Pulling Live Data ({pullAllProgress?.stage || 'Connecting'})...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4" />
+                    <span>📥 Pull All Live Data from Supabase</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                disabled={isLoadingCounts || !isSupabaseActive}
+                onClick={() => {
+                  fetchSupabaseCounts();
+                  refreshLocalCounts();
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                title="Refresh live row counts from Supabase"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${isLoadingCounts ? 'animate-spin text-indigo-500' : ''}`} />
+                <span>Refresh Counts</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 7-Table Live Counts Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 pt-2">
+            {[
+              { label: 'Production Ledger', supa: supabaseCounts.ledger, local: ledger.length, onPull: handlePullLedgerFromSupabase, isPulling: isPullingLedger },
+              { label: 'Yarn Allocations', supa: supabaseCounts.yarn, local: yarnAllocations.length, onPull: handlePullYarnFromSupabase, isPulling: isPullingYarn },
+              { label: 'Plan Orders', supa: supabaseCounts.orders, local: orderPlans.length, onPull: handlePullOrdersFromSupabase, isPulling: isPullingOrders },
+              { label: 'Knitting Orders', supa: supabaseCounts.knitting, local: KnittingStatusStorage.getOrders().length, onPull: handlePullKnittingFromSupabase, isPulling: isPullingKnitting },
+              { label: 'Textile Close', supa: supabaseCounts.textileClose, local: TextileClosePMCStorage.getRecords().length, onPull: handlePullTextileCloseFromSupabase, isPulling: isPullingTextileClose },
+              { label: 'Grey Stock', supa: supabaseCounts.greyStock, local: GreyStockStorage.getRecords().length, onPull: handlePullGreyStockFromSupabase, isPulling: isPullingGreyStock },
+              { label: 'Grey Yarn Stock', supa: supabaseCounts.greyYarnStock, local: GreyYarnStockStorage.getRecords().length, onPull: handlePullGreyYarnStockFromSupabase, isPulling: isPullingGreyYarnStock },
+            ].map((col, idx) => (
+              <div key={idx} className="bg-white/90 dark:bg-slate-900/90 p-2.5 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-2xs flex flex-col justify-between">
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 truncate">{col.label}</div>
+                  <div className="mt-1 flex items-baseline gap-1">
+                    <span className="text-sm font-black text-indigo-600 dark:text-indigo-400">
+                      {col.supa !== null ? col.supa.toLocaleString() : '—'}
+                    </span>
+                    <span className="text-[9px] text-slate-400">in cloud</span>
+                  </div>
+                  <div className="text-[9.5px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    Local: {col.local.toLocaleString()}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={col.isPulling || !isSupabaseActive}
+                  onClick={col.onPull}
+                  className="mt-2 w-full py-1 px-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-[10.5px] font-bold border border-indigo-200 dark:border-indigo-800 flex items-center justify-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                  title={`Pull live ${col.label} from Supabase`}
+                >
+                  {col.isPulling ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                  <span>Pull</span>
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {pullAllStatus && (
+            <div className="text-xs font-semibold px-3.5 py-2.5 rounded-xl bg-indigo-100 dark:bg-indigo-950/80 text-indigo-900 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-800 animate-fade-in flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span>{pullAllStatus}</span>
+            </div>
+          )}
+        </div>
+
         {/* Production Ledger Supabase Transfer & Real-time Status Card */}
         <div className="rounded-xl border border-emerald-200 dark:border-emerald-900 bg-white/80 dark:bg-slate-900/80 p-4 space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -652,33 +1130,63 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                All devices viewing <code>knitproduction.vercel.app</code> receive instant live updates via Supabase WebSockets with zero polling and zero Vercel bandwidth limits. Orders & Yarn remain connected to Google Sheets.
+                All devices viewing <code>knitproduction.vercel.app</code> receive instant live updates via Supabase WebSockets with zero polling and zero Vercel bandwidth limits.
               </p>
-              <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
-                ✨ <strong>Automatic Real-Time Sync:</strong> Once your initial data is in Supabase, you do <u>not</u> need to click migration again. Every new entry, inline edit, Excel upload, or row deletion automatically syncs to Supabase immediately.
-              </p>
+              <div className="flex items-center gap-2 text-[11px] text-emerald-700 dark:text-emerald-300 font-semibold">
+                <span>Cloud: <strong>{supabaseCounts.ledger !== null ? supabaseCounts.ledger.toLocaleString() : 'Checking...'}</strong> rows</span>
+                <span>•</span>
+                <span>Local: <strong>{ledger.length.toLocaleString()}</strong> records</span>
+              </div>
             </div>
 
-            <button
-              type="button"
-              disabled={isMigratingLedger || !isSupabaseActive}
-              onClick={handleMigrateLedgerToSupabase}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-xs whitespace-nowrap shrink-0"
-              title="Only needed once to seed your historical records into Supabase"
-            >
-              {isMigratingLedger ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  <span>Transferring Data...</span>
-                </>
-              ) : (
-                <>
-                  <ArrowRight className="h-3.5 w-3.5" />
-                  <span>One-Time Initial Migration ({ledger.length} records)</span>
-                </>
-              )}
-            </button>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                disabled={isPullingLedger || !isSupabaseActive}
+                onClick={handlePullLedgerFromSupabase}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-indigo-300 dark:border-indigo-700 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950 dark:hover:bg-indigo-900 text-indigo-800 dark:text-indigo-200 text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-2xs whitespace-nowrap"
+                title="Pull and download live Production Ledger records from Supabase"
+              >
+                {isPullingLedger ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Pulling...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-3.5 w-3.5" />
+                    <span>📥 Pull from Supabase ({supabaseCounts.ledger !== null ? supabaseCounts.ledger.toLocaleString() : 'Live'} rows)</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                disabled={isMigratingLedger || !isSupabaseActive}
+                onClick={handleMigrateLedgerToSupabase}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-xs whitespace-nowrap"
+                title="Only needed once to seed your historical records into Supabase"
+              >
+                {isMigratingLedger ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Transferring Data...</span>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-3.5 w-3.5" />
+                    <span>📤 Migrate to Supabase ({ledger.length} records)</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
+
+          {pullLedgerStatus && (
+            <div className="text-xs font-semibold px-3 py-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 animate-fade-in">
+              {pullLedgerStatus}
+            </div>
+          )}
 
           {migrateStatus && (
             <div className="text-xs font-semibold px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 animate-fade-in">
