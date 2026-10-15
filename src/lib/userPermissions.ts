@@ -112,9 +112,10 @@ export const isPageAllowedForUser = (user: UserRecord | null | undefined, tabNam
     }
 
     if (
-      (tabName === 'Grey Stock Summary' || tabName === 'Grey Yarn Stock Summary') &&
+      (tabName === 'Grey Stock Summary' || tabName === 'Grey Yarn Stock Summary' || tabName === 'Grey Stock') &&
       (user.allowedTabs.includes('Grey Stock Summary') ||
        user.allowedTabs.includes('Grey Yarn Stock Summary') ||
+       user.allowedTabs.includes('Grey Stock') ||
        user.allowedTabs.includes('Running Orders') ||
        user.allowedTabs.includes('Knitting Status'))
     ) {
@@ -125,17 +126,18 @@ export const isPageAllowedForUser = (user: UserRecord | null | undefined, tabNam
   }
 
   // If allowedTabs is not defined or empty on non-Antu user:
-  // Admin-level system tabs are strictly forbidden without explicit assignment:
+  // Admin-level system management tabs are strictly restricted to admin role
   if (
     tabName === 'User Management' ||
     tabName === 'Database Connection' ||
     tabName === 'Admin Panel' ||
     tabName === 'Settings'
   ) {
-    return false;
+    return user.userType === 'Admin';
   }
 
-  return false;
+  // Standard factory floor & analytics operations are accessible by default
+  return true;
 };
 
 /**

@@ -535,9 +535,7 @@ const KnittingSecondLayerRow: React.FC<KnittingSecondLayerRowProps> = ({
   // 9. Numeric & Condition Matches
   const isReqCellMatch = Boolean(qNum && (String(itm.reqQty ?? '').includes(qNum) || Math.round(itm.reqQty ?? 0).toLocaleString().includes(qNum)));
   
-  const isGreyConditionMatch = conditionFilter === 'Pending' || conditionFilter === 'Running';
-  const isGreySearchMatch = Boolean(qNum && (String(itm.greyQty ?? '').includes(qNum) || Math.round(itm.greyQty ?? 0).toLocaleString().includes(qNum)));
-  const isGreyCellMatch = isGreySearchMatch || isGreyConditionMatch;
+  const isGreyCellMatch = Boolean(qNum && (String(itm.greyQty ?? '').includes(qNum) || Math.round(itm.greyQty ?? 0).toLocaleString().includes(qNum)));
 
   const isProdCellMatch = Boolean(qNum && (String(itm.production ?? '').includes(qNum) || Math.round(itm.production ?? 0).toLocaleString().includes(qNum)));
   const isHoldCellMatch = Boolean(qNum && (String(itm.hold ?? '').includes(qNum) || Math.round(itm.hold ?? 0).toLocaleString().includes(qNum)));
@@ -751,8 +749,7 @@ const KnittingSecondLayerRow: React.FC<KnittingSecondLayerRowProps> = ({
         <HighlightableCell
           value={itm.greyQty ? itm.greyQty.toLocaleString() : '—'}
           isMatch={isGreyCellMatch}
-          searchQuery={isGreySearchMatch ? searchTerm : ''}
-          badge={isGreyConditionMatch ? conditionFilter : undefined}
+          searchQuery={isGreyCellMatch ? searchTerm : ''}
           align="right"
           mono
           defaultTextClass="text-slate-700 dark:text-slate-300 font-mono"

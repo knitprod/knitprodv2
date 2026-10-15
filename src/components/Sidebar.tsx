@@ -98,7 +98,8 @@ export default function Sidebar({
     'Knitting Status',
     'Running Orders',
     'Textile Close By PMC',
-    'Grey Stock Summary'
+    'Grey Stock Summary',
+    'Grey Yarn Stock Summary'
   ];
   const adminPanelItems = ['Admin Panel', 'User Management', 'Database Connection', 'Settings'];
 

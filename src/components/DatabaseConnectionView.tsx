@@ -33,7 +33,9 @@ import {
   CloudUpload,
   Zap,
   Boxes,
-  Download
+  Download,
+  Upload,
+  CheckCircle2
 } from 'lucide-react';
 import { GasClient } from '../lib/gasClient';
 import { SupabaseSync } from '../lib/supabaseClient';
@@ -114,6 +116,7 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
   // Pull states for each table
   const [isPullingAll, setIsPullingAll] = useState(false);
   const [pullAllProgress, setPullAllProgress] = useState<{ current: number; total: number; stage: string } | null>(null);
+  const [pullAllStatus, setPullAllStatus] = useState<string | null>(null);
   const [isPullingLedger, setIsPullingLedger] = useState(false);
   const [pullLedgerStatus, setPullLedgerStatus] = useState<string | null>(null);
   const [isPullingYarn, setIsPullingYarn] = useState(false);
@@ -701,9 +704,12 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
 
       const msg = `Successfully pulled all ${totalRows.toLocaleString()} live records across 7 tables from Supabase Cloud!`;
       setSyncNotice(msg);
+      setPullAllStatus(msg);
       if (onSuccessNotice) onSuccessNotice(msg);
     } catch (err: any) {
-      setSyncNotice(`Pull notice: ${err.message || String(err)}`);
+      const errNotice = `Pull notice: ${err.message || String(err)}`;
+      setSyncNotice(errNotice);
+      setPullAllStatus(errNotice);
     } finally {
       setIsPullingAll(false);
       setPullAllProgress(null);
