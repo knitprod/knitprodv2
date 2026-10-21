@@ -26,15 +26,23 @@ import {
   Camera
 } from 'lucide-react';
 import { UserRecord } from './UserManagementView';
-import { KnittingStatusStorage, enrichKnittingOrderWithPlanData } from '../lib/knittingStatusStore';
+import { KnittingStatusStorage, enrichKnittingOrderWithPlanData, resolveKnittingOrderForSnipping } from '../lib/knittingStatusStore';
 import { TextileClosePMCStorage } from '../lib/textileClosePMCStore';
 import { useGlobalData } from '../context/GlobalDataContext';
 import { RaihanAvatar } from './RaihanAvatar';
 import { generateInitialLedger } from './ProductionLedgerView';
 import { RaihanSnippingModal } from './RaihanSnippingModal';
 import { KnittingOrderSnippingModal, SnipDisplayMode } from './KnittingOrderSnippingModal';
+import { GreyYarnStockSnippingModal } from './GreyYarnStockSnippingModal';
 import { RaihanOrderCard } from './RaihanOrderCard';
 import { KnittingStatusOrder, GreyStockItem } from '../types';
+import { 
+  GreyYarnStockStorage, 
+  GreyYarnStockItem, 
+  GreyYarnStockOrderGroup, 
+  groupGreyYarnStockRecords, 
+  normOrder 
+} from '../lib/greyYarnStockStore';
 import { 
   handleSmartProductionLedgerQuery, 
   handleSmartOrderQuery, 
@@ -51,7 +59,9 @@ interface ChatMessage {
   orderData?: KnittingStatusOrder | null;
   yarnAllocations?: any[];
   greyStockItems?: GreyStockItem[];
-  viewMode?: 'all' | 'production' | 'allocation' | 'prediction' | 'grey_stock';
+  greyYarnStockItems?: GreyYarnStockItem[];
+  greyYarnOrderGroup?: GreyYarnStockOrderGroup | null;
+  viewMode?: 'all' | 'knitting' | 'production' | 'allocation' | 'combine' | 'grey_stock' | 'grey_yarn_stock';
   filterColor?: string;
 }
 
@@ -91,17 +101,65 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
   const [snipTitle, setSnipTitle] = useState('Raihan ERP Summary');
   const [snipRawText, setSnipRawText] = useState('');
   const [snipOrder, setSnipOrder] = useState<KnittingStatusOrder | null>(null);
+  const [snipGreyYarnGroup, setSnipGreyYarnGroup] = useState<GreyYarnStockOrderGroup | null>(null);
   const [snipInitialMode, setSnipInitialMode] = useState<SnipDisplayMode>('combine');
 
-  const handleSnipMessage = (_msgId: string, text: string, msgOrderData?: KnittingStatusOrder | null) => {
+  const handleSnipMessage = (
+    _msgId: string, 
+    text: string, 
+    msgOrderData?: KnittingStatusOrder | null,
+    msgGreyYarnOrderGroup?: GreyYarnStockOrderGroup | null
+  ) => {
+    if (msgGreyYarnOrderGroup) {
+      setSnipGreyYarnGroup(msgGreyYarnOrderGroup);
+      return;
+    }
+
     if (msgOrderData) {
       setSnipOrder(msgOrderData);
       return;
     }
 
-    // 1. Check if message is regarding a specific order (e.g. Order #272767 or Order #272074)
+    // 1. Check if message is regarding Grey Yarn Stock
+    const isGreyYarnStock = text.toLowerCase().includes('grey yarn stock');
+    const isMultiOrderGreyYarn = isGreyYarnStock && (
+      text.includes('Executive Grey Yarn Stock Summary') ||
+      text.includes('Order-wise Grey Yarn Stock Overview') ||
+      text.includes('Registered Orders') ||
+      text.includes('across **')
+    );
+
+    if (isMultiOrderGreyYarn) {
+      setSnipTitle(text.includes('for **') ? 'Grey Yarn Stock Report' : 'Grey Yarn Stock Summary Report');
+      setSnipRawText(text);
+      setSnipModalOpen(true);
+      return;
+    }
+
     const orderMatch = text.match(/Order Details:? #?(\d+)/i) || text.match(/Order #?(\d+)/i) || text.match(/#(\d{5,7})/);
+
+    if (isGreyYarnStock && (orderMatch || msgGreyYarnOrderGroup)) {
+      if (msgGreyYarnOrderGroup) {
+        setSnipGreyYarnGroup(msgGreyYarnOrderGroup);
+        return;
+      }
+      if (orderMatch) {
+        const orderNum = orderMatch[1];
+        const allGys = GreyYarnStockStorage.getRecords();
+        const gysGroups = groupGreyYarnStockRecords(allGys);
+        const foundGroup = gysGroups.find(g => normOrder(g.orderNo) === normOrder(orderNum) || g.orderNo.includes(orderNum));
+        if (foundGroup) {
+          setSnipGreyYarnGroup(foundGroup);
+          return;
+        }
+      }
+    }
+
+    // 2. Check if message is regarding a specific order (e.g. Order #272767 or Order #272074)
     if (orderMatch) {
+      if (isGreyYarnStock) {
+        setSnipInitialMode('grey_yarn_stock');
+      }
       const orderNum = orderMatch[1];
       const allOrders = KnittingStatusStorage.getOrders();
       let matched = allOrders.find(o => String(o.orderNo || '').trim() === orderNum || String(o.orderNo || '').includes(orderNum));
@@ -240,9 +298,11 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
       }
     }
 
-    // 2. Default to RaihanSnippingModal for non-order summaries
+    // 3. Default to RaihanSnippingModal for non-order summaries
     let title = 'Raihan ERP Summary';
-    if (orderMatch) {
+    if (isGreyYarnStock) {
+      title = orderMatch ? `Grey Yarn Stock · Order #${orderMatch[1]}` : 'Grey Yarn Stock Summary Report';
+    } else if (orderMatch) {
       title = `Order #${orderMatch[1]} Summary`;
     } else if (text.toLowerCase().includes('daily production') || text.toLowerCase().includes('knitting status')) {
       title = 'Knitting Floor Production Report';
@@ -279,6 +339,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
 
   // Quick prompt suggestions
   const SUGGESTIONS = [
+    "Grey Yarn Stock Report",
     "Datewise Production Update missing unit by unit",
     "Missing production update unit by unit for last 7 days",
     "Monthly missing production update unit by unit",
@@ -287,7 +348,8 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
     "Yesterday's production floor by floor",
     "Which floor did not update today?",
     "Last 7 days production of EFL",
-    "What is the total knitting balance?"
+    "What is the total knitting balance?",
+    "What is the total Grey Yarn Stock?"
   ];
 
   const STANDARD_FLOORS = ['EFL', 'EFL-2', 'KDL', 'Unit-2'];
@@ -312,22 +374,38 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
       return prodResult.reply;
     }
 
-    // 2. Check if asking about total allocation or total knitting balance / production summary without specific order number
+    // 2. Check if asking about total allocation, grey yarn stock, or total knitting balance / production summary without specific order number
     const normalized = normalizeQueryString(query);
     const numMatches = normalized.match(/\b\d{4,8}(?:-[A-Za-z0-9-]+)?\b/g) || [];
     const lowerQ = query.toLowerCase().trim();
 
+    const isGreyYarnStockQuery = 
+      lowerQ.includes('grey yarn stock') ||
+      lowerQ.includes('grey yarn report') ||
+      lowerQ.includes('yarn stock report') ||
+      lowerQ.includes('grey yarn summary') ||
+      lowerQ.includes('yarn stock summary') ||
+      lowerQ.includes('grey yarn stock report') ||
+      lowerQ.includes('grey yarn inventory') ||
+      lowerQ.includes('yarn stock inventory') ||
+      lowerQ.includes('reply with the grey yarn stock report') ||
+      (lowerQ.includes('grey yarn') && (lowerQ.includes('stock') || lowerQ.includes('report') || lowerQ.includes('summary') || lowerQ.includes('total') || lowerQ.includes('balance') || lowerQ.includes('overview') || lowerQ.includes('lot') || lowerQ.trim() === 'grey yarn')) ||
+      (lowerQ.includes('yarn stock') && (lowerQ.includes('report') || lowerQ.includes('summary') || lowerQ.includes('total') || lowerQ.includes('balance') || lowerQ.trim() === 'yarn stock')) ||
+      (lowerQ.includes('grey') && lowerQ.includes('yarn') && lowerQ.includes('report'));
+
     const isTotalAllocationQuery = 
+      !isGreyYarnStockQuery &&
       (lowerQ.includes('alloc') || lowerQ.includes('yarn req') || lowerQ.includes('allocated yarn')) &&
       !numMatches.length;
 
     const isTotalKnittingQuery = 
       !isTotalAllocationQuery &&
+      !isGreyYarnStockQuery &&
       ((lowerQ.includes('total') && (lowerQ.includes('balance') || lowerQ.includes('knit') || lowerQ.includes('prod') || lowerQ.includes('summary'))) ||
       (lowerQ.includes('knitting balance') && !numMatches.length) ||
       (lowerQ.includes('total balance') && !numMatches.length));
 
-    if ((isTotalAllocationQuery || isTotalKnittingQuery) && numMatches.length === 0) {
+    if ((isTotalAllocationQuery || isTotalKnittingQuery || isGreyYarnStockQuery) && numMatches.length === 0) {
       const summaryResult = handleSmartSummaryQuery(query, context?.summaryStats, knittingOrders.length, activeTab);
       if (summaryResult.handled && summaryResult.reply) {
         return summaryResult.reply;
@@ -706,6 +784,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
       ? textileRecords
       : storedTextile;
     const effectiveLedger = (Array.isArray(ledger) && ledger.length > 0) ? ledger : generateInitialLedger();
+    let activeOrderNum: string | null = null;
 
     try {
       const historyPayload = messages.slice(-4).map(m => ({
@@ -788,11 +867,27 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         ORDER_FOLLOWUP_COLORS.some(c => lowerQ === c || lowerQ.startsWith(c))
       );
 
-      let activeOrderNum: string | null = numMatches[0] || (isOrderFollowUp ? lastActiveOrderNum : null);
+      activeOrderNum = numMatches[0] || (isOrderFollowUp ? lastActiveOrderNum : null);
       let isFollowUp = isOrderFollowUp;
+
+      const isGreyYarnStockQuery = 
+        !isOrderFollowUp &&
+        !numMatches.length &&
+        (lowerQ.includes('grey yarn stock') ||
+        lowerQ.includes('grey yarn report') ||
+        lowerQ.includes('yarn stock report') ||
+        lowerQ.includes('grey yarn summary') ||
+        lowerQ.includes('yarn stock summary') ||
+        lowerQ.includes('grey yarn stock report') ||
+        lowerQ.includes('grey yarn inventory') ||
+        lowerQ.includes('yarn stock inventory') ||
+        lowerQ.includes('reply with the grey yarn stock report') ||
+        (lowerQ.includes('grey yarn') && (lowerQ.includes('stock') || lowerQ.includes('report') || lowerQ.includes('summary') || lowerQ.includes('total') || lowerQ.includes('balance') || lowerQ.trim() === 'grey yarn')) ||
+        (lowerQ.includes('yarn stock') && (lowerQ.includes('report') || lowerQ.includes('summary') || lowerQ.includes('total') || lowerQ.includes('balance') || lowerQ.trim() === 'yarn stock')));
 
       const isTotalAllocationQuery = 
         !isOrderFollowUp &&
+        !isGreyYarnStockQuery &&
         !numMatches.length &&
         (lowerQ.includes('alloc') || lowerQ.includes('yarn req') || lowerQ.includes('allocated yarn')) &&
         (lowerQ.includes('total') || lowerQ.includes('all') || lowerQ.includes('company') || !lastActiveOrderNum);
@@ -800,6 +895,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
       const isTotalKnittingQuery = 
         !isOrderFollowUp &&
         !isTotalAllocationQuery &&
+        !isGreyYarnStockQuery &&
         !numMatches.length &&
         ((lowerQ.includes('total') && (lowerQ.includes('balance') || lowerQ.includes('knit') || lowerQ.includes('prod') || lowerQ.includes('summary'))) ||
         (lowerQ.includes('knitting balance') && (lowerQ.includes('total') || !lastActiveOrderNum)) ||
@@ -837,7 +933,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
 
       const context = getERPContext(query, currentTextileRecords);
 
-      if ((isTotalAllocationQuery || isTotalKnittingQuery) && numMatches.length === 0) {
+      if ((isTotalAllocationQuery || isTotalKnittingQuery || isGreyYarnStockQuery) && numMatches.length === 0) {
         const summaryResult = handleSmartSummaryQuery(query, context?.summaryStats, knittingOrders.length, activeTab);
         if (summaryResult.handled && summaryResult.reply) {
           await new Promise(r => setTimeout(r, 120));
@@ -847,7 +943,11 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
               id: `msg-${Date.now() + 1}`,
               role: 'model',
               text: summaryResult.reply!,
-              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              greyStockItems: summaryResult.greyStockItems || [],
+              greyYarnStockItems: summaryResult.greyYarnStockItems || [],
+              greyYarnOrderGroup: summaryResult.greyYarnOrderGroup || null,
+              viewMode: summaryResult.viewMode || 'all'
             }
           ]);
           setIsLoading(false);
@@ -868,6 +968,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         );
         if (orderResult.handled && orderResult.reply) {
           await new Promise(r => setTimeout(r, 120));
+          const finalOrderData = orderResult.orderData || resolveKnittingOrderForSnipping(activeOrderNum, undefined, orderPlans, currentTextileRecords, yarnAllocations);
           setMessages(prev => [
             ...prev,
             {
@@ -875,9 +976,11 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
               role: 'model',
               text: orderResult.reply!,
               timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              orderData: orderResult.orderData || null,
-              yarnAllocations: orderResult.yarnAllocations || [],
+              orderData: finalOrderData,
+              yarnAllocations: orderResult.yarnAllocations || yarnAllocations,
               greyStockItems: orderResult.greyStockItems || [],
+              greyYarnStockItems: orderResult.greyYarnStockItems || [],
+              greyYarnOrderGroup: orderResult.greyYarnOrderGroup || null,
               viewMode: orderResult.viewMode || 'all',
               filterColor: orderResult.filterColor
             }
@@ -898,7 +1001,10 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
             role: 'model',
             text: summaryResult.reply!,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            greyStockItems: summaryResult.greyStockItems || []
+            greyStockItems: summaryResult.greyStockItems || [],
+            greyYarnStockItems: summaryResult.greyYarnStockItems || [],
+            greyYarnOrderGroup: summaryResult.greyYarnOrderGroup || null,
+            viewMode: summaryResult.viewMode || 'all'
           }
         ]);
         setIsLoading(false);
@@ -954,11 +1060,17 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         );
       }
 
+      const resolvedFallbackOrder = activeOrderNum
+        ? resolveKnittingOrderForSnipping(activeOrderNum, undefined, orderPlans, currentTextileRecords, yarnAllocations)
+        : null;
+
       const botMsg: ChatMessage = {
         id: `msg-${Date.now() + 1}`,
         role: 'model',
         text: botReply,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        orderData: resolvedFallbackOrder || undefined,
+        yarnAllocations: yarnAllocations
       };
 
       setMessages(prev => [...prev, botMsg]);
@@ -976,13 +1088,18 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         effectiveLedger,
         floors
       );
+      const emergencyOrder = activeOrderNum
+        ? resolveKnittingOrderForSnipping(activeOrderNum, undefined, orderPlans, currentTextileRecords, yarnAllocations)
+        : null;
       setMessages(prev => [
         ...prev,
         {
           id: `msg-${Date.now() + 1}`,
           role: 'model',
           text: emergencyReply,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          orderData: emergencyOrder || undefined,
+          yarnAllocations: yarnAllocations
         }
       ]);
     } finally {
@@ -1384,26 +1501,44 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
               const isBot = msg.role === 'model';
               const isWelcome = msg.id.startsWith('welcome-');
 
-              // Identify if this message represents an order status card
-              const cardOrder = msg.orderData || (() => {
+              // Identify if this message represents a multi-order aggregate report (which should NOT show a single order card)
+              const isMultiOrderSummaryReport = 
+                !msg.orderData && (
+                  msg.text.includes('Executive Grey Yarn Stock Summary') ||
+                  msg.text.includes('Order-wise Grey Yarn Stock Overview') ||
+                  msg.text.includes('Datewise Production Update Missing Report') ||
+                  msg.text.includes('Monthly Production Update') ||
+                  msg.text.includes('Missing Production Update') ||
+                  msg.text.includes('Datewise Production Update') ||
+                  msg.text.includes('Total Grey Stock Summary') ||
+                  msg.text.includes('Total Grey Yarn Stock Summary') ||
+                  msg.text.includes("Summary Today's Production Entry")
+                );
+
+              const cardOrder = isMultiOrderSummaryReport ? null : (msg.orderData || (() => {
                 if (!isBot || isWelcome) return null;
-                const match = msg.text.match(/Order Details:? #?(\d+)/i) || msg.text.match(/Order #?(\d{5,7})/i) || msg.text.match(/#(\d{5,7})/);
+                const match = msg.text.match(/\*\*Knitting Status Report • Order Details:\s*#?([A-Za-z0-9-]+)\*\*/i) ||
+                              msg.text.match(/\*\*Order Details:\s*#?([A-Za-z0-9-]+)\*\*/i) ||
+                              msg.text.match(/\bOrder\s*(?:#|No\.?|Number)?\s*([A-Za-z0-9-]+)\b/i) ||
+                              msg.text.match(/\b#(\d{4,9}(?:-[A-Za-z0-9-]+)?)\b/) ||
+                              msg.text.match(/\b(\d{5,8})\b/);
                 if (!match) return null;
                 const orderNum = match[1];
-                const allOrders = KnittingStatusStorage.getOrders();
-                const rawOrd = allOrders.find(o => String(o.orderNo || '').trim() === orderNum || String(o.orderNo || '').includes(orderNum)) || null;
-                return rawOrd ? enrichKnittingOrderWithPlanData(rawOrd, orderPlans) : null;
-              })();
+                if (orderNum === '2024' || orderNum === '2025' || orderNum === '2026') return null;
+                return resolveKnittingOrderForSnipping(orderNum, undefined, orderPlans, textileRecords, yarnAllocations);
+              })());
 
               // Infer viewMode and filterColor if not explicitly set on legacy or fallback messages
               const currentViewMode = msg.viewMode || (
-                msg.text.includes('Completion Date Prediction') || msg.text.includes('Projected Completion') || msg.text.includes('Forecast')
-                  ? 'prediction'
-                  : msg.text.includes('Allocated Yarn Details') && !msg.text.includes('Production Data')
-                    ? 'allocation'
-                    : msg.text.includes('Production Data') && !msg.text.includes('Allocated Yarn Details')
-                      ? 'production'
-                      : 'all'
+                msg.text.includes('Grey Yarn Stock')
+                  ? 'grey_yarn_stock'
+                  : msg.text.includes('Grey Stock')
+                    ? 'grey_stock'
+                    : msg.text.includes('Allocated Yarn Details') && !msg.text.includes('Production Data')
+                      ? 'allocation'
+                      : msg.text.includes('Production Data') && !msg.text.includes('Allocated Yarn Details')
+                        ? 'production'
+                        : 'all'
               );
               const currentColor = msg.filterColor || (() => {
                 const cMatch = msg.text.match(/Color \*\*([^*]+)\*\*/i) || msg.text.match(/Allocated Yarn Details \(([^)]+)\)/i) || msg.text.match(/Production Data \(([^)]+)\)/i);
@@ -1436,12 +1571,14 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
                           order={cardOrder}
                           allocations={msg.yarnAllocations || yarnAllocations}
                           greyStockItems={msg.greyStockItems}
+                          greyYarnStockItems={msg.greyYarnStockItems}
                           onOpenSnippingTool={(ord, mode) => {
                             setSnipInitialMode(
                               mode || (
+                                currentViewMode === 'grey_yarn_stock' ? 'grey_yarn_stock' :
                                 currentViewMode === 'grey_stock' ? 'grey_stock' :
                                 (currentViewMode === 'allocation' ? 'allocation' :
-                                (currentViewMode === 'production' ? 'knitting' : 'combine'))
+                                (currentViewMode === 'production' || currentViewMode === 'knitting' ? 'knitting' : 'combine'))
                               )
                             );
                             setSnipOrder(ord);
@@ -1465,7 +1602,7 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
                       {isBot && !isWelcome && !cardOrder && (
                         <button
                           type="button"
-                          onClick={() => handleSnipMessage(msg.id, msg.text, msg.orderData)}
+                          onClick={() => handleSnipMessage(msg.id, msg.text, msg.orderData, msg.greyYarnOrderGroup)}
                           className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/70 hover:bg-teal-100 dark:hover:bg-teal-900/80 border border-teal-300/80 dark:border-teal-700/80 transition-all cursor-pointer shadow-2xs group"
                           title="Snipping Tool · Save & share clear summary image"
                         >
@@ -1592,6 +1729,13 @@ export const RaihanChatBot: React.FC<RaihanChatBotProps> = ({ currentUser, activ
         onClose={() => setSnipOrder(null)}
         includeAllocation={true}
         initialMode={snipInitialMode}
+      />
+
+      {/* Official Grey Yarn Stock Snipping Modal */}
+      <GreyYarnStockSnippingModal
+        orderGroup={snipGreyYarnGroup}
+        isOpen={Boolean(snipGreyYarnGroup)}
+        onClose={() => setSnipGreyYarnGroup(null)}
       />
 
       {/* High-Definition Snipping Tool Modal for General ERP summaries */}

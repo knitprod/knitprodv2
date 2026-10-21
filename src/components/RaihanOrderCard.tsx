@@ -20,6 +20,7 @@ import { KnittingStatusOrder } from '../types';
 import { calculateKnittingCondition } from '../lib/knittingStatusStore';
 import { getCompanyLogo } from '../lib/logoStore';
 import { GreyStockStorage, getOrderLookupKeys, GreyStockItem } from '../lib/greyStockStore';
+import { GreyYarnStockStorage, normOrder, GreyYarnStockItem } from '../lib/greyYarnStockStore';
 import { SnipDisplayMode } from './KnittingOrderSnippingModal';
 import { safeCopyText } from '../lib/clipboardHelper';
 
@@ -60,10 +61,11 @@ interface RaihanOrderCardProps {
   order: KnittingStatusOrder;
   allocations?: any[];
   greyStockItems?: GreyStockItem[];
+  greyYarnStockItems?: GreyYarnStockItem[];
   onOpenSnippingTool?: (order: KnittingStatusOrder, mode?: SnipDisplayMode) => void;
   onOpenGreyStockSnippingTool?: (group: any) => void;
   className?: string;
-  viewMode?: 'all' | 'production' | 'allocation' | 'prediction' | 'grey_stock';
+  viewMode?: 'all' | 'knitting' | 'production' | 'allocation' | 'combine' | 'grey_stock' | 'grey_yarn_stock';
   filterColor?: string;
 }
 
@@ -71,6 +73,7 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
   order,
   allocations = [],
   greyStockItems = [],
+  greyYarnStockItems = [],
   onOpenSnippingTool,
   onOpenGreyStockSnippingTool,
   className = '',
@@ -79,7 +82,8 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [isSnipMenuOpen, setIsSnipMenuOpen] = useState(false);
-  const [activeMode, setActiveMode] = useState<'all' | 'production' | 'allocation' | 'prediction' | 'grey_stock'>(viewMode || 'all');
+  const [activeMode, setActiveMode] = useState<'all' | 'knitting' | 'production' | 'allocation' | 'combine' | 'grey_stock' | 'grey_yarn_stock'>(viewMode || 'all');
+  const [selectedSpinner, setSelectedSpinner] = useState<string>('All');
   const customLogo = getCompanyLogo();
 
   useEffect(() => {
@@ -202,13 +206,12 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
     }
   }
 
-  const sortedAllocations = Array.from(allocGroups.values()).sort((a, b) => {
+  const rawSortedAllocations = Array.from(allocGroups.values()).sort((a, b) => {
     const c = a.color.localeCompare(b.color);
     if (c !== 0) return c;
     return a.fabricType.localeCompare(b.fabricType);
   });
 
-  const totalAllocatedQty = sortedAllocations.reduce((sum, a) => sum + a.allocatedQty, 0);
   const conditionText = condition === 'Running' ? 'currently running' : condition.toLowerCase();
 
   const resolvedGreyItems = React.useMemo(() => {
@@ -237,7 +240,71 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
   const totalGreyStock = resolvedGreyItems.reduce((acc, it) => acc + (it.stockQty !== undefined ? Number(it.stockQty) : Math.max(0, (Number(it.netReceivedQty) || 0) - (Number(it.netIssuedQty) || 0))), 0);
   const orderGreyTotal = totals.grey || Number(order.greyQty) || resolvedGreyItems.reduce((acc, it) => acc + (Number(it.matchedGreyQty) || 0), 0);
 
+  const rawResolvedGreyYarnItems = React.useMemo(() => {
+    if (greyYarnStockItems && greyYarnStockItems.length > 0) {
+      return greyYarnStockItems;
+    }
+    const all = GreyYarnStockStorage.getRecords();
+    const cleanOrd = normOrder(order.orderNo);
+    return all.filter(r => {
+      const o = normOrder(r.orderNo);
+      return o === cleanOrd || o.includes(cleanOrd) || cleanOrd.includes(o);
+    });
+  }, [order.orderNo, greyYarnStockItems]);
+
+  // Extract distinct spinning options / spinners
+  const availableSpinners = React.useMemo(() => {
+    const set = new Set<string>();
+    for (const a of rawSortedAllocations) {
+      const sp = (a.spinner || '').trim();
+      if (sp && sp !== 'N/A' && sp !== '-' && sp !== '—') set.add(sp);
+    }
+    for (const itm of rawResolvedGreyYarnItems) {
+      const sp = (itm.spinner || '').trim();
+      if (sp && sp !== 'N/A' && sp !== '-' && sp !== '—') set.add(sp);
+    }
+    return Array.from(set).sort();
+  }, [rawSortedAllocations, rawResolvedGreyYarnItems]);
+
+  // Filter by selectedSpinner if specified
+  const sortedAllocations = React.useMemo(() => {
+    if (selectedSpinner === 'All') return rawSortedAllocations;
+    return rawSortedAllocations.filter(a => (a.spinner || '').toLowerCase().trim() === selectedSpinner.toLowerCase().trim());
+  }, [rawSortedAllocations, selectedSpinner]);
+
+  const totalAllocatedQty = sortedAllocations.reduce((sum, a) => sum + a.allocatedQty, 0);
+
+  const resolvedGreyYarnItems = React.useMemo(() => {
+    if (selectedSpinner === 'All') return rawResolvedGreyYarnItems;
+    return rawResolvedGreyYarnItems.filter(itm => (itm.spinner || '').toLowerCase().trim() === selectedSpinner.toLowerCase().trim());
+  }, [rawResolvedGreyYarnItems, selectedSpinner]);
+
+  const totalGreyYarnBooking = resolvedGreyYarnItems.reduce((acc, it) => acc + (Number(it.bookingQty) || 0), 0);
+  const totalGreyYarnReq = resolvedGreyYarnItems.reduce((acc, it) => acc + (Number(it.yarnRequired) || 0), 0);
+  const totalGreyYarnRec = resolvedGreyYarnItems.reduce((acc, it) => acc + (Number(it.totalReceived) || 0), 0);
+  const totalGreyYarnIss = resolvedGreyYarnItems.reduce((acc, it) => acc + (Number(it.totalIssued) || 0), 0);
+  const totalGreyYarnExc = resolvedGreyYarnItems.reduce((acc, it) => acc + (Number(it.excessIssued) || 0), 0);
+  const totalGreyYarnStock = resolvedGreyYarnItems.reduce((acc, it) => acc + (it.totalStockQty !== undefined ? Number(it.totalStockQty) : Math.max(0, (Number(it.totalReceived) || 0) - (Number(it.totalIssued) || 0))), 0);
+  const totalGreyYarnBal = resolvedGreyYarnItems.reduce((acc, it) => acc + (it.issuedBalance !== undefined ? Number(it.issuedBalance) : Math.max(0, (Number(it.yarnRequired) || 0) - (Number(it.totalIssued) || 0))), 0);
+
   const handleCopySummary = () => {
+    if (activeMode === 'grey_yarn_stock') {
+      let gysText = `🧵 Grey Yarn Stock Summary • Order #${order.orderNo}\n`;
+      gysText += `Buyer: ${order.buyerName || 'Epyllion'} | Status: ${(order as any).status || 'Running'}\n`;
+      gysText += `Booking: ${Math.round(totalGreyYarnBooking).toLocaleString()} kg | Required: ${Math.round(totalGreyYarnReq).toLocaleString()} kg | Received: ${Math.round(totalGreyYarnRec).toLocaleString()} kg | Issued: ${Math.round(totalGreyYarnIss).toLocaleString()} kg | Stock: ${Math.round(totalGreyYarnStock).toLocaleString()} kg | Balance: ${Math.round(totalGreyYarnBal).toLocaleString()} kg\n\n`;
+      gysText += `Physical Yarn Count | Physical Yarn Lot | Spinner | Booking Qty | Yarn Required | Net Received | Net Issued | Excess Issued | Stock Qty | Issue Balance\n`;
+      resolvedGreyYarnItems.forEach(it => {
+        gysText += `${it.physicalYarnCount || '-'} | ${it.physicalYarnLot || '-'} | ${it.spinner || '-'} | ${Math.round(it.bookingQty || 0)} kg | ${Math.round(it.yarnRequired || 0)} kg | ${Math.round(it.totalReceived || 0)} kg | ${Math.round(it.totalIssued || 0)} kg | ${Math.round(it.excessIssued || 0)} kg | ${Math.round(it.totalStockQty || 0)} kg | ${Math.round(it.issuedBalance || 0)} kg\n`;
+      });
+      safeCopyText(gysText.trim()).then((ok) => {
+        if (ok) {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }
+      });
+      return;
+    }
+
     if (activeMode === 'grey_stock') {
       let gsText = `📦 Grey Stock Summary • Order #${order.orderNo}\n`;
       gsText += `Buyer: ${order.buyerName || 'Epyllion'} | Status: ${(order as any).status || 'Running'}\n`;
@@ -259,27 +326,7 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
       return;
     }
 
-    if (activeMode === 'prediction') {
-      let predText = `⏱️ Completion Date Prediction • Order #${order.orderNo}\n`;
-      predText += `Buyer: ${order.buyerName || 'Epyllion'} | Team Leader: ${order.teamLeader || 'Unassigned'}\n`;
-      predText += `PMC Knit Dates: ${order.pmcKnitStartDate || 'N/A'} to ${order.pmcKnitEndDate || 'N/A'}\n`;
-      predText += `Actual Knit Dates: ${order.actualKnitStartDate || 'Not started'} to ${order.actualKnitEndDate || 'Not finished'}\n\n`;
-      predText += `• Progress: ${pctDone}% (${totals.prod.toLocaleString()} kg produced / ${totals.grey.toLocaleString()} kg grey)\n`;
-      predText += `• Remaining Balance: ${totals.bal.toLocaleString()} kg\n`;
-      predText += `• Active Floor Run-Rate: ${activeDailyRate > 0 ? `${Math.ceil(activeDailyRate).toLocaleString()} kg/day` : '0 kg/day'}\n`;
-      predText += `• Projected Completion Date: ${finishAtCurrentStr} (${varianceBadge.text})\n\n`;
-      predText += `Itemized Breakdown:\n`;
-      items.forEach(it => {
-        predText += `• ${it.color} (${it.fabType}): ${Number(it.knitBalance || 0).toLocaleString()} kg remaining | Daily: ${Math.ceil(Number(it.avgProdPerDay || 0))} kg/d | PMC: ${it.pmcKnitStartDate || '-'}\n`;
-      });
-      safeCopyText(predText).then((ok) => {
-        if (ok) {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 2500);
-        }
-      });
-      return;
-    }
+
 
     let summaryText = `Sure! I found it. Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} is ${conditionText} (${order.buyerName || 'Epyllion'}):\n`;
     summaryText += `👤 Buyer: ${order.buyerName || 'Epyllion'} | 👔 Team Leader: ${order.teamLeader || 'Unassigned'}\n`;
@@ -354,7 +401,7 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
                 <span>Ask Raihan · Production Guide</span>
                 <span className="text-slate-300 dark:text-slate-600">•</span>
                 <span className="text-slate-700 dark:text-slate-300 font-semibold">
-                  Order #{order.orderNo} {filterColor ? `(${filterColor})` : ''} {activeMode === 'prediction' ? '• Completion Date Prediction' : activeMode === 'production' ? '• Production Data' : activeMode === 'allocation' ? '• Yarn Allocation' : 'Summary'}
+                  Order #{order.orderNo} {filterColor ? `(${filterColor})` : ''} {activeMode === 'production' ? '• Production Data' : activeMode === 'allocation' ? '• Yarn Allocation' : activeMode === 'grey_stock' ? '• Grey Stock' : activeMode === 'grey_yarn_stock' ? '• Grey Yarn Stock' : activeMode === 'combine' ? '• All Combine' : 'Summary'}
                 </span>
               </div>
             </div>
@@ -403,6 +450,28 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
           </button>
           <button
             type="button"
+            onClick={() => setActiveMode('knitting')}
+            className={`px-2.5 py-1 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
+              activeMode === 'knitting'
+                ? 'bg-teal-600 text-white shadow-2xs'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            📋 1. Knitting Status
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveMode('allocation')}
+            className={`px-2.5 py-1 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
+              activeMode === 'allocation'
+                ? 'bg-teal-600 text-white shadow-2xs'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            🧶 2. Yarn Allocation
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveMode('grey_stock')}
             className={`px-2.5 py-1 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
               activeMode === 'grey_stock'
@@ -410,18 +479,18 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
             }`}
           >
-            📦 Grey Stock
+            📦 3. Grey Stock
           </button>
           <button
             type="button"
-            onClick={() => setActiveMode('prediction')}
+            onClick={() => setActiveMode('grey_yarn_stock')}
             className={`px-2.5 py-1 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
-              activeMode === 'prediction'
+              activeMode === 'grey_yarn_stock'
                 ? 'bg-teal-600 text-white shadow-2xs'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
             }`}
           >
-            ⏱️ Completion Prediction
+            🧵 4. Grey Yarn Stock
           </button>
           <button
             type="button"
@@ -436,15 +505,43 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setActiveMode('allocation')}
+            onClick={() => setActiveMode('combine')}
             className={`px-2.5 py-1 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
-              activeMode === 'allocation'
+              activeMode === 'combine'
                 ? 'bg-teal-600 text-white shadow-2xs'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
             }`}
           >
-            🧶 Allocated Yarn
+            ✂️ 5. All Combine
           </button>
+
+          {/* Spinning Option Selector */}
+          {availableSpinners.length > 0 && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50/80 dark:bg-amber-950/40 rounded-lg border border-amber-200 dark:border-amber-800/60 text-xs shrink-0 ml-auto">
+              <Factory className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span className="font-bold text-slate-700 dark:text-slate-300">Spinning:</span>
+              <select
+                value={selectedSpinner}
+                onChange={(e) => setSelectedSpinner(e.target.value)}
+                className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 text-xs font-bold px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-700 cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-500"
+              >
+                <option value="All">All Spinning Options ({availableSpinners.length})</option>
+                {availableSpinners.map(sp => (
+                  <option key={sp} value={sp}>{sp}</option>
+                ))}
+              </select>
+              {selectedSpinner !== 'All' && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedSpinner('All')}
+                  className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-200 text-amber-900 hover:bg-amber-300 cursor-pointer"
+                  title="Clear filter"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -496,20 +593,20 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
 
         {/* Intro text line */}
         <p className="text-xs sm:text-[13px] text-slate-800 dark:text-slate-200 leading-relaxed font-normal">
-          {activeMode === 'prediction'
-            ? `Sure! Here is the completion date prediction & timeline forecast for Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} (${order.buyerName || 'Stanley Stella'}):`
-            : activeMode === 'allocation'
-              ? `Sure! I found it. Here is the allocated yarn for Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} (${order.buyerName || 'Stanley Stella'}):`
-              : activeMode === 'production'
-                ? `Sure! I found it. Here is the production data for Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} (${order.buyerName || 'Stanley Stella'}):`
-                : activeMode === 'grey_stock'
-                  ? `Sure! I found it. Here is the Grey Stock data for Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} (${order.buyerName || 'Stanley Stella'}):`
-                  : `Sure! I found it. Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} is ${conditionText} (${order.buyerName || 'Stanley Stella'}):`
+          {activeMode === 'allocation'
+            ? `Sure! I found it. Here is the allocated yarn for Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} (${order.buyerName || 'Stanley Stella'}):`
+            : activeMode === 'production' || activeMode === 'knitting'
+              ? `Sure! I found it. Here is the production data for Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} (${order.buyerName || 'Stanley Stella'}):`
+              : activeMode === 'grey_yarn_stock'
+                ? `Sure! I found it. Here is the verified Grey Yarn Stock data for Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} (${order.buyerName || 'Epyllion'}):`
+              : activeMode === 'grey_stock'
+                ? `Sure! I found it. Here is the Grey Stock data for Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} (${order.buyerName || 'Stanley Stella'}):`
+                : `Sure! I found it. Order #${order.orderNo}${filterColor ? ` (${filterColor})` : ''} is ${conditionText} (${order.buyerName || 'Stanley Stella'}):`
           }
         </p>
 
-        {/* SECTION: COMPLETION DATE PREDICTION DASHBOARD (When activeMode is 'prediction') */}
-        {activeMode === 'prediction' && (
+        {/* SECTION: COMPLETION DATE PREDICTION DASHBOARD */}
+        {false && (
           <div className="space-y-4">
             {/* KPI Cards Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
@@ -688,8 +785,8 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
           </div>
         )}
 
-        {/* Section: Production Data (Shown when activeMode is 'all' or 'production') */}
-        {activeMode !== 'allocation' && activeMode !== 'prediction' && activeMode !== 'grey_stock' && (
+        {/* Section: Production Data (Shown when activeMode is 'all', 'combine', 'knitting', or 'production') */}
+        {(activeMode === 'all' || activeMode === 'combine' || activeMode === 'knitting' || activeMode === 'production') && (
           <div>
             <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5 mb-2">
               <span>🏭</span>
@@ -844,8 +941,8 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
           </div>
         )}
 
-        {/* Section: Allocated Yarn Details (Shown when activeMode is 'all' or 'allocation') */}
-        {activeMode !== 'production' && activeMode !== 'prediction' && activeMode !== 'grey_stock' && sortedAllocations.length > 0 && (
+        {/* Section: Allocated Yarn Details (Shown when activeMode is 'all', 'combine', or 'allocation') */}
+        {(activeMode === 'all' || activeMode === 'combine' || activeMode === 'allocation') && sortedAllocations.length > 0 && (
           <div className="pt-2">
             <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white flex items-center justify-between mb-2">
               <span className="flex items-center gap-1.5">
@@ -895,8 +992,8 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
           </div>
         )}
 
-        {/* Section: Grey Stock Details (Shown when activeMode is 'all' or 'grey_stock') */}
-        {activeMode !== 'production' && activeMode !== 'prediction' && activeMode !== 'allocation' && resolvedGreyItems.length > 0 && (
+        {/* Section: Grey Stock Details (Shown when activeMode is 'all', 'combine', or 'grey_stock') */}
+        {(activeMode === 'all' || activeMode === 'combine' || activeMode === 'grey_stock') && resolvedGreyItems.length > 0 && (
           <div className="pt-2">
             <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white flex items-center justify-between mb-2">
               <span className="flex items-center gap-1.5">
@@ -996,6 +1093,113 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
           </div>
         )}
 
+        {/* Section: Grey Yarn Stock Details (Shown when activeMode is 'all', 'combine', or 'grey_yarn_stock') */}
+        {(activeMode === 'all' || activeMode === 'combine' || activeMode === 'grey_yarn_stock') && resolvedGreyYarnItems.length > 0 && (
+          <div className="pt-2">
+            <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white flex items-center justify-between mb-2 flex-wrap gap-1.5">
+              <span className="flex items-center gap-1.5">
+                <span>🧵</span>
+                <span>Grey Yarn Stock Summary: {filterColor ? `(${filterColor})` : ''}</span>
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold text-teal-600 dark:text-teal-400">
+                  Stock: {Math.round(totalGreyYarnStock).toLocaleString()} kg
+                </span>
+                {onOpenSnippingTool && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenSnippingTool(order, 'grey_yarn_stock')}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10.5px] font-bold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 dark:hover:bg-teal-900/60 border border-teal-200 dark:border-teal-800 transition-colors cursor-pointer"
+                    title="Open in Snipping Tool (Grey Yarn Stock Mode)"
+                  >
+                    <Scissors className="w-3 h-3 text-teal-600 dark:text-teal-400" />
+                    <span>Snipping Tool</span>
+                  </button>
+                )}
+              </div>
+            </h4>
+
+            {/* KPI Cards Strip */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-2.5">
+              <div className="p-2.5 rounded-xl bg-teal-50/70 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800">
+                <span className="text-[10px] font-bold uppercase text-teal-700 dark:text-teal-400">Yarn Required</span>
+                <div className="text-base font-black font-mono text-teal-950 dark:text-teal-200 mt-0.5">
+                  {Math.round(totalGreyYarnReq).toLocaleString()} kg
+                </div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800">
+                <span className="text-[10px] font-bold uppercase text-emerald-700 dark:text-emerald-400">Net Received</span>
+                <div className="text-base font-black font-mono text-emerald-950 dark:text-emerald-200 mt-0.5">
+                  {Math.round(totalGreyYarnRec).toLocaleString()} kg
+                </div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800">
+                <span className="text-[10px] font-bold uppercase text-blue-700 dark:text-blue-400">Net Issued</span>
+                <div className="text-base font-black font-mono text-blue-950 dark:text-blue-200 mt-0.5">
+                  {Math.round(totalGreyYarnIss).toLocaleString()} kg
+                </div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800">
+                <span className="text-[10px] font-bold uppercase text-amber-700 dark:text-amber-400">Stock QTY</span>
+                <div className="text-base font-black font-mono text-amber-950 dark:text-amber-200 mt-0.5">
+                  {Math.round(totalGreyYarnStock).toLocaleString()} kg
+                </div>
+              </div>
+            </div>
+
+            {/* 10-Column Grey Yarn Stock Table */}
+            <div className="rounded-xl border border-teal-200/80 dark:border-teal-900/60 overflow-x-auto bg-teal-50/10 dark:bg-teal-950/10 shadow-2xs">
+              <table className="w-full text-xs text-left border-collapse table-auto min-w-[760px]">
+                <thead>
+                  <tr className="bg-teal-100/70 dark:bg-teal-950/60 text-teal-950 dark:text-teal-200 font-bold border-b border-teal-200 dark:border-teal-900/60">
+                    <th className="px-3 py-2">Physical Yarn Count</th>
+                    <th className="px-3 py-2">Physical Yarn Lot</th>
+                    <th className="px-3 py-2">Spinner</th>
+                    <th className="px-3 py-2 text-right">Booking Qty</th>
+                    <th className="px-3 py-2 text-right">Yarn Required</th>
+                    <th className="px-3 py-2 text-right text-emerald-700 dark:text-emerald-300">Net Received</th>
+                    <th className="px-3 py-2 text-right text-blue-700 dark:text-blue-300">Net Issued</th>
+                    <th className="px-3 py-2 text-right">Excess Issued</th>
+                    <th className="px-3 py-2 text-right text-amber-800 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-950/30">Stock Qty</th>
+                    <th className="px-3 py-2 text-right text-rose-700 dark:text-rose-300">Issue Balance</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-teal-100/60 dark:divide-teal-900/40">
+                  {resolvedGreyYarnItems.map((itm, i) => (
+                    <tr key={itm.id || i} className="hover:bg-teal-50/50 dark:hover:bg-teal-900/20">
+                      <td className="px-3 py-2 font-mono font-bold">{itm.physicalYarnCount || '—'}</td>
+                      <td className="px-3 py-2 font-mono text-slate-700 dark:text-slate-300">{itm.physicalYarnLot || '—'}</td>
+                      <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{itm.spinner || '—'}</td>
+                      <td className="px-3 py-2 text-right font-mono">{Math.round(itm.bookingQty || 0).toLocaleString()} kg</td>
+                      <td className="px-3 py-2 text-right font-mono">{Math.round(itm.yarnRequired || 0).toLocaleString()} kg</td>
+                      <td className="px-3 py-2 text-right font-mono text-emerald-800 dark:text-emerald-300">{Math.round(itm.totalReceived || 0).toLocaleString()} kg</td>
+                      <td className="px-3 py-2 text-right font-mono text-blue-800 dark:text-blue-300">{Math.round(itm.totalIssued || 0).toLocaleString()} kg</td>
+                      <td className="px-3 py-2 text-right font-mono">{Math.round(itm.excessIssued || 0).toLocaleString()} kg</td>
+                      <td className="px-3 py-2 text-right font-mono font-bold text-amber-900 dark:text-amber-300 bg-amber-50/30 dark:bg-amber-950/20">{Math.round(itm.totalStockQty || 0).toLocaleString()} kg</td>
+                      <td className="px-3 py-2 text-right font-mono font-bold text-rose-700 dark:text-rose-400">{Math.round(itm.issuedBalance || 0).toLocaleString()} kg</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-teal-100/90 dark:bg-teal-950/80 font-black text-teal-950 dark:text-teal-100 border-t-2 border-teal-300 dark:border-teal-800">
+                    <td colSpan={3} className="px-3 py-2.5 uppercase tracking-wider text-xs">Total Order Sum</td>
+                    <td className="px-3 py-2.5 text-right font-mono">{Math.round(totalGreyYarnBooking).toLocaleString()} kg</td>
+                    <td className="px-3 py-2.5 text-right font-mono">{Math.round(totalGreyYarnReq).toLocaleString()} kg</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-emerald-800 dark:text-emerald-200">{Math.round(totalGreyYarnRec).toLocaleString()} kg</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-blue-800 dark:text-blue-200">{Math.round(totalGreyYarnIss).toLocaleString()} kg</td>
+                    <td className="px-3 py-2.5 text-right font-mono">{Math.round(totalGreyYarnExc).toLocaleString()} kg</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-amber-900 dark:text-amber-200 bg-amber-100/60 dark:bg-amber-900/40">{Math.round(totalGreyYarnStock).toLocaleString()} kg</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-rose-800 dark:text-rose-300">{Math.round(totalGreyYarnBal).toLocaleString()} kg</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Total Summary Row */}
+            <div className="text-xs sm:text-[12.5px] font-bold text-slate-800 dark:text-slate-200 leading-relaxed pt-2">
+              <span>🧵 Total Grey Yarn Stock Summary:</span> Required: <strong className="text-teal-600 dark:text-teal-400">{Math.round(totalGreyYarnReq).toLocaleString()} kg</strong> | Received: <strong className="text-emerald-600 dark:text-emerald-400">{Math.round(totalGreyYarnRec).toLocaleString()} kg</strong> | Issued: <strong className="text-blue-600 dark:text-blue-400">{Math.round(totalGreyYarnIss).toLocaleString()} kg</strong> | Available Stock: <strong className="text-amber-600 dark:text-amber-400">{Math.round(totalGreyYarnStock).toLocaleString()} kg</strong> | Balance: <strong className="text-rose-600 dark:text-rose-400">{Math.round(totalGreyYarnBal).toLocaleString()} kg</strong>
+            </div>
+          </div>
+        )}
+
         {/* Card Footer Matching image.png */}
         <div className="mt-4 pt-3 border-t border-dashed border-slate-300 dark:border-slate-700 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 flex-wrap gap-2">
           <span className="flex items-center gap-1.5">
@@ -1014,7 +1218,7 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
               <div className="relative inline-flex items-center rounded-xl shadow-xs overflow-visible bg-teal-600 hover:bg-teal-700 transition-all">
                 <button
                   type="button"
-                  onClick={() => onOpenSnippingTool(order, activeMode === 'grey_stock' ? 'grey_stock' : (activeMode === 'allocation' ? 'allocation' : (activeMode === 'production' ? 'knitting' : 'combine')))}
+                  onClick={() => onOpenSnippingTool(order, activeMode === 'grey_stock' ? 'grey_stock' : (activeMode === 'grey_yarn_stock' ? 'grey_yarn_stock' : (activeMode === 'allocation' ? 'allocation' : (activeMode === 'knitting' || activeMode === 'production' ? 'knitting' : 'combine'))))}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-700 cursor-pointer active:scale-98 rounded-l-xl"
                   title="Open Snipping Tool (HD Snapshot)"
                 >
@@ -1029,14 +1233,14 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
                     setIsSnipMenuOpen(prev => !prev);
                   }}
                   className="px-2 py-1.5 text-white/90 hover:text-white hover:bg-teal-800 border-l border-teal-500/80 cursor-pointer rounded-r-xl"
-                  title="Choose Screenshot Option: 1. Knitting Status, 2. Yarn Allocation, 3. Grey Stock, 4. All Combine"
+                  title="Choose Screenshot Option: 1. Knitting Status, 2. Yarn Allocation, 3. Grey Stock, 4. Grey Yarn Stock, 5. All Combine"
                 >
                   <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isSnipMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
 
                 {isSnipMenuOpen && (
                   <div 
-                    className="absolute left-0 bottom-full mb-1.5 w-56 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1 z-30 animate-in fade-in"
+                    className="absolute left-0 bottom-full mb-1.5 w-60 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1 z-30 animate-in fade-in"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div className="px-3 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-800">
@@ -1079,12 +1283,23 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
                       type="button"
                       onClick={() => {
                         setIsSnipMenuOpen(false);
+                        onOpenSnippingTool(order, 'grey_yarn_stock');
+                      }}
+                      className="w-full text-left px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer transition-colors"
+                    >
+                      <Layers className="w-3.5 h-3.5 text-teal-600" />
+                      <span>4. Grey Yarn Stock</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsSnipMenuOpen(false);
                         onOpenSnippingTool(order, 'combine');
                       }}
                       className="w-full text-left px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-t border-slate-100 dark:border-slate-800 transition-colors"
                     >
                       <Scissors className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>4. All Combine</span>
+                      <span>5. All Combine</span>
                     </button>
                   </div>
                 )}
@@ -1105,7 +1320,7 @@ export const RaihanOrderCard: React.FC<RaihanOrderCardProps> = ({
               ) : (
                 <>
                   <Copy className="w-3.5 h-3.5 text-slate-500" />
-                  <span>{activeMode === 'prediction' ? 'Copy Prediction' : 'Copy Summary'}</span>
+                  <span>Copy Summary</span>
                 </>
               )}
             </button>

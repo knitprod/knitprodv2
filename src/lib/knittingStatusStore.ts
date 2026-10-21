@@ -8,6 +8,8 @@
 import { KnittingStatusOrder, KnittingStatusItem, OrderPlan } from '../types';
 import * as XLSX from 'xlsx';
 import { SupabaseSync } from './supabaseClient';
+import { GreyStockStorage } from './greyStockStore';
+import { GreyYarnStockStorage } from './greyYarnStockStore';
 
 export type KnittingCondition = 'Pending' | 'Running' | 'Complete';
 
@@ -1520,4 +1522,231 @@ export function deduplicateOrderPlans(orders: OrderPlan[]): OrderPlan[] {
   });
 
   return finalResults;
+}
+
+/**
+ * Resolves or synthesizes a full KnittingStatusOrder for high-fidelity Snipping Tool usage across all modules.
+ */
+export function resolveKnittingOrderForSnipping(
+  orderNo: string,
+  fallback?: { buyerName?: string; items?: any[] },
+  orderPlans?: any[],
+  textileRecords?: any[],
+  yarnAllocations?: any[]
+): KnittingStatusOrder {
+  const norm = (s?: string) => (s || '').replace(/\D+/g, '').replace(/^0+/, '');
+  const clean = norm(orderNo);
+  const allOrders = KnittingStatusStorage.getOrders();
+  const matched = allOrders.find(o => {
+    const c = norm(o.orderNo || o.id);
+    return c === clean || (c && clean && (c.includes(clean) || clean.includes(c)));
+  });
+
+  if (matched) {
+    return orderPlans && orderPlans.length > 0 ? enrichKnittingOrderWithPlanData(matched, orderPlans) : matched;
+  }
+
+  // Synthesize from plans and fallback
+  const matchingOp = (orderPlans || []).filter(p => norm(p.ewo || p.id) === clean);
+  const matchingTcp = (textileRecords || []).filter(t => norm(t.orderNo) === clean);
+  const matchingYa = (yarnAllocations || []).filter(y => norm(y.orderNumber || y.order_number) === clean);
+
+  const opFirst = matchingOp[0] as any;
+  const buyer = fallback?.buyerName || matchingTcp[0]?.buyerName || matchingOp[0]?.buyer || matchingYa[0]?.buyer || 'Epyllion Knitex';
+  const teamLeader = matchingTcp[0]?.teamLeader || matchingOp[0]?.knitTeamLeaders || 'Unassigned';
+  const pmcStart = opFirst?.pmcKnitStartDate || opFirst?.pmcKnitStart || opFirst?.knitStart || '-';
+  const pmcEnd = opFirst?.pmcKnitEndDate || opFirst?.pmcKnitEnd || opFirst?.knitEnd || '-';
+  const actStart = opFirst?.actualKnitStartDate || opFirst?.aKnitStart || '-';
+  const actEnd = opFirst?.actualKnitEndDate || opFirst?.lastProductionDate || '-';
+  const knitStart = actStart !== '-' ? actStart : pmcStart;
+  const knitEnd = actEnd !== '-' ? actEnd : pmcEnd;
+
+  let items: KnittingStatusItem[] = [];
+  if (fallback?.items && fallback.items.length > 0) {
+    items = fallback.items.map((it: any, idx: number) => ({
+      id: `itm-${orderNo}-${idx}`,
+      color: it.colour || it.color || it.fabricShade || 'Standard Shade',
+      mcType: it.mcType || it.machineType || '-',
+      fabType: it.fabricsType || it.fabricStyle || it.fabricType || 'Knitted Fabric',
+      fgsm: it.fgsm || it.finishedGsm || '-',
+      fWidth: it.fWidth || it.finishedWidth || '-',
+      yarnCount: it.yarnCount || it.physicalYarnCount || it.yarnRequired || '-',
+      gaugeDia: it.gaugeDia || '-',
+      pmcKnitStartDate: pmcStart,
+      actualKnitStartDate: actStart,
+      pmcKnitEndDate: pmcEnd,
+      actualKnitEndDate: actEnd,
+      knitStartDate: knitStart,
+      knitEndDate: knitEnd,
+      reqQty: Number(it.reqQty || it.yarnRequired || it.bookingQty || 0),
+      greyQty: Number(it.matchedGreyQty || it.greyQty || it.greyRequired || it.totalReceived || 0),
+      production: Number(it.production || it.netIssuedQty || it.totalIssued || 0),
+      hold: Number(it.hold || 0),
+      reject: Number(it.reject || 0),
+      itmQty: 0,
+      knitBalance: Number(it.stockQty || it.totalStockQty || it.knitBal || 0),
+      productionUnit: it.ownerUnit || '',
+      avgProdPerDay: 0
+    }));
+  } else if (matchingTcp.length > 0) {
+    items = matchingTcp.map((t: any, idx: number) => ({
+      id: `itm-${orderNo}-${idx}`,
+      color: t.color || 'Standard',
+      mcType: '-',
+      fabType: t.fabType || 'Knitted Fabric',
+      fgsm: t.fgsm || '-',
+      fWidth: t.fWidth || '-',
+      yarnCount: matchingYa[0]?.allocatedYarn || matchingYa[0]?.yarnRequired || '-',
+      gaugeDia: '-',
+      pmcKnitStartDate: pmcStart,
+      actualKnitStartDate: actStart,
+      pmcKnitEndDate: pmcEnd,
+      actualKnitEndDate: actEnd,
+      knitStartDate: knitStart,
+      knitEndDate: knitEnd,
+      reqQty: Number(t.reqQty || 0),
+      greyQty: Number(t.greyQty || 0),
+      production: Number(t.production || 0),
+      hold: Number(t.hold || 0),
+      reject: Number(t.reject || 0),
+      itmQty: 0,
+      knitBalance: Number(t.knitBal ?? Math.max(0, Number(t.greyQty || 0) - Number(t.production || 0))),
+      productionUnit: '',
+      avgProdPerDay: 0
+    }));
+  } else if (matchingOp.length > 0) {
+    items = matchingOp.map((p: any, idx: number) => ({
+      id: `itm-${orderNo}-${idx}`,
+      color: p.color || 'Standard',
+      mcType: '-',
+      fabType: p.fabrication || p.fabType || 'Knitted Fabric',
+      fgsm: p.fgsm || '-',
+      fWidth: p.finishedDia || '-',
+      yarnCount: matchingYa[0]?.allocatedYarn || matchingYa[0]?.yarnRequired || '-',
+      gaugeDia: '-',
+      pmcKnitStartDate: p.pmcKnitStartDate || p.knitStart || pmcStart,
+      actualKnitStartDate: p.actualKnitStartDate || p.aKnitStart || actStart,
+      pmcKnitEndDate: p.pmcKnitEndDate || p.knitEnd || pmcEnd,
+      actualKnitEndDate: p.actualKnitEndDate || p.lastProductionDate || actEnd,
+      knitStartDate: p.aKnitStart || p.knitStart || '',
+      knitEndDate: p.lastProductionDate || p.knitEnd || p.expectedKnitEnd || '',
+      reqQty: Number(p.target || p.reqQty || 0),
+      greyQty: Number(p.allocatedQty || p.greyQty || 0),
+      production: Number(p.knitPro || p.production || 0),
+      hold: 0,
+      reject: 0,
+      itmQty: 0,
+      knitBalance: Number(p.knitBal ?? Math.max(0, Number(p.allocatedQty || 0) - Number(p.knitPro || 0))),
+      productionUnit: '',
+      avgProdPerDay: Number(p.avgProdDay || 0)
+    }));
+  } else if (matchingYa.length > 0) {
+    items = matchingYa.map((y: any, idx: number) => ({
+      id: `itm-${orderNo}-${idx}`,
+      color: y.fabricShade || y.color || 'Standard',
+      mcType: '-',
+      fabType: y.fabricsType || y.fabrication || 'Knitted Fabric',
+      fgsm: y.fabricGsm || '-',
+      fWidth: '-',
+      yarnCount: y.allocatedYarn || y.yarnRequired || '-',
+      gaugeDia: '-',
+      pmcKnitStartDate: pmcStart,
+      actualKnitStartDate: actStart,
+      pmcKnitEndDate: pmcEnd,
+      actualKnitEndDate: actEnd,
+      knitStartDate: '',
+      knitEndDate: '',
+      reqQty: Number(y.yarnRqQty || 0),
+      greyQty: Number(y.allocatedQty || 0),
+      production: 0,
+      hold: 0,
+      reject: 0,
+      itmQty: 0,
+      knitBalance: Number(y.allocatedQty || y.yarnRqQty || 0),
+      productionUnit: '',
+      avgProdPerDay: 0
+    }));
+  } else {
+    const gs = GreyStockStorage.getRecords().filter(g => norm(g.orderNo) === clean);
+    const gys = GreyYarnStockStorage.getRecords().filter(g => norm(g.orderNo) === clean);
+    if (gs.length > 0) {
+      items = gs.map((g: any, idx: number) => ({
+        id: `itm-${orderNo}-${idx}`,
+        color: g.color || 'Standard',
+        mcType: '-',
+        fabType: g.fabrication || 'Knitted Fabric',
+        fgsm: g.fgsm || '-',
+        fWidth: g.fWidth || '-',
+        yarnCount: '-',
+        gaugeDia: '-',
+        pmcKnitStartDate: pmcStart,
+        actualKnitStartDate: actStart,
+        pmcKnitEndDate: pmcEnd,
+        actualKnitEndDate: actEnd,
+        knitStartDate: '',
+        knitEndDate: '',
+        reqQty: Number(g.orderQty || 0),
+        greyQty: Number(g.totalReceived || 0),
+        production: Number(g.totalIssued || 0),
+        hold: 0,
+        reject: 0,
+        itmQty: 0,
+        knitBalance: Number(g.stockQty || 0),
+        productionUnit: '',
+        avgProdPerDay: 0
+      }));
+    } else if (gys.length > 0) {
+      items = gys.map((g: any, idx: number) => ({
+        id: `itm-${orderNo}-${idx}`,
+        color: g.shade || g.color || 'Standard',
+        mcType: '-',
+        fabType: g.yarnType || 'Knitted Fabric',
+        fgsm: '-',
+        fWidth: '-',
+        yarnCount: g.yarnCount || '-',
+        gaugeDia: '-',
+        pmcKnitStartDate: pmcStart,
+        actualKnitStartDate: actStart,
+        pmcKnitEndDate: pmcEnd,
+        actualKnitEndDate: actEnd,
+        knitStartDate: '',
+        knitEndDate: '',
+        reqQty: Number(g.requiredQty || 0),
+        greyQty: Number(g.receivedQty || 0),
+        production: Number(g.issueQty || 0),
+        hold: 0,
+        reject: 0,
+        itmQty: 0,
+        knitBalance: Number(g.stockQty || g.balanceQty || 0),
+        productionUnit: '',
+        avgProdPerDay: 0
+      }));
+    }
+  }
+
+  const reqTotal = items.reduce((s, it) => s + (Number(it.reqQty) || 0), 0);
+  const greyTotal = items.reduce((s, it) => s + (Number(it.greyQty) || 0), 0);
+  const prodTotal = items.reduce((s, it) => s + (Number(it.production) || 0), 0);
+  const balTotal = items.reduce((s, it) => s + (Number(it.knitBalance) || 0), 0);
+
+  return {
+    id: `ord-${orderNo}`,
+    orderNo: orderNo,
+    buyerName: buyer,
+    teamLeader: teamLeader,
+    status: balTotal < 3 && prodTotal > 0 ? 'Complete' : 'Running',
+    reqQty: reqTotal,
+    greyQty: greyTotal,
+    production: prodTotal,
+    knitBalance: balTotal,
+    items: items,
+    pmcKnitStartDate: pmcStart,
+    actualKnitStartDate: actStart,
+    pmcKnitEndDate: pmcEnd,
+    actualKnitEndDate: actEnd,
+    knitStartDate: knitStart,
+    knitEndDate: knitEnd,
+    proPerMc: 0,
+    dailyProdAverage: 0
+  } as KnittingStatusOrder;
 }

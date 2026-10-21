@@ -15,19 +15,24 @@ import {
   Calendar,
   Smartphone,
   MoveHorizontal,
-  Boxes
+  Boxes,
+  TrendingUp,
+  Factory,
+  ChevronDown,
+  Filter
 } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import html2canvas from 'html2canvas';
 import { KnittingStatusOrder, GreyStockItem } from '../types';
 import { calculateKnittingCondition, sortKnittingItems } from '../lib/knittingStatusStore';
 import { GreyStockStorage, getOrderLookupKeys, normOrder } from '../lib/greyStockStore';
+import { GreyYarnStockStorage, GreyYarnStockItem } from '../lib/greyYarnStockStore';
 import { SupabaseSync } from '../lib/supabaseClient';
 import { getCompanyLogo } from '../lib/logoStore';
 import { useGlobalData } from '../context/GlobalDataContext';
 import { safeCopyImageBlob } from '../lib/clipboardHelper';
 
-export type SnipDisplayMode = 'knitting' | 'allocation' | 'grey_stock' | 'combine';
+export type SnipDisplayMode = 'knitting' | 'allocation' | 'grey_stock' | 'grey_yarn_stock' | 'combine';
 
 interface KnittingOrderSnippingModalProps {
   order: KnittingStatusOrder | null;
@@ -89,10 +94,13 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
   const showAllocations = activeScope === 'allocation' || activeScope === 'combine';
   const showKnitting = activeScope === 'knitting' || activeScope === 'combine';
   const showGreyStock = activeScope === 'grey_stock' || activeScope === 'combine';
+  const showGreyYarnStock = activeScope === 'grey_yarn_stock' || activeScope === 'combine';
+  const showPrediction = false;
 
-  const allYarn = showAllocations
-    ? (allocations && allocations.length > 0 ? allocations : yarnAllocations)
-    : [];
+  // Spinning Option selection (filters Yarn Allocation & Grey Yarn Stock)
+  const [selectedSpinner, setSelectedSpinner] = useState<string>('All');
+
+  const allYarn = allocations && allocations.length > 0 ? allocations : yarnAllocations;
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -157,9 +165,15 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
   }, [isOpen, order]);
 
   const fileName = order
-    ? showAllocations
-      ? `Order_${order.orderNo}_Knitting_&_Allocations_${new Date().toISOString().slice(0, 10)}.png`
-      : `Order_${order.orderNo}_Knitting_Status_${new Date().toISOString().slice(0, 10)}.png`
+    ? activeScope === 'grey_yarn_stock'
+      ? `Order_${order.orderNo}_Grey_Yarn_Stock_${new Date().toISOString().slice(0, 10)}.png`
+        : activeScope === 'grey_stock'
+          ? `Order_${order.orderNo}_Grey_Stock_${new Date().toISOString().slice(0, 10)}.png`
+          : activeScope === 'allocation'
+            ? `Order_${order.orderNo}_Yarn_Allocation_${new Date().toISOString().slice(0, 10)}.png`
+            : activeScope === 'combine'
+              ? `Order_${order.orderNo}_Full_Combine_${new Date().toISOString().slice(0, 10)}.png`
+              : `Order_${order.orderNo}_Knitting_Status_${new Date().toISOString().slice(0, 10)}.png`
     : 'Order_Knitting_Status.png';
 
   // Live Grey Stock Records State (persisted from local storage & Supabase Cloud)
@@ -292,6 +306,42 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
     }, { grey: 0, rec: 0, iss: 0, stock: 0 });
   }, [displayGreyItems]);
 
+  // Live Grey Yarn Stock Records State (persisted from local storage & Supabase Cloud)
+  const [greyYarnRecords, setGreyYarnRecords] = useState<GreyYarnStockItem[]>(() => GreyYarnStockStorage.getRecords());
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const current = GreyYarnStockStorage.getRecords();
+    if (current && current.length > 0) {
+      setGreyYarnRecords(current);
+    }
+    const handleUpdate = (e: any) => {
+      if (e?.detail) setGreyYarnRecords(e.detail);
+    };
+    window.addEventListener('epyllion_grey_yarn_stock_updated', handleUpdate);
+    return () => window.removeEventListener('epyllion_grey_yarn_stock_updated', handleUpdate);
+  }, [order?.orderNo, isOpen]);
+
+  // Raw matched individual Grey Yarn Stock items from spinning mill / yarn warehouse
+  const rawMatchedGreyYarnItems = useMemo(() => {
+    if (!order?.orderNo) return [];
+    const all = greyYarnRecords && greyYarnRecords.length > 0 ? greyYarnRecords : GreyYarnStockStorage.getRecords();
+    const cleanOrd = normOrder(order.orderNo);
+    const rawTarget = String(order.orderNo || '').trim().toLowerCase();
+    const keys = getOrderLookupKeys(order.orderNo);
+    return all.filter(r => {
+      const o = normOrder(r.orderNo);
+      const rawR = String(r.orderNo || '').trim().toLowerCase();
+      return (
+        o === cleanOrd ||
+        o.includes(cleanOrd) ||
+        cleanOrd.includes(o) ||
+        rawR === rawTarget ||
+        keys.some(k => rawR === k || rawR.includes(k) || k.includes(rawR) || o === k || o.includes(k) || k.includes(o))
+      );
+    });
+  }, [order?.orderNo, greyYarnRecords]);
+
   // Capture the rendered card into image data
   const captureCard = async (): Promise<{ dataUrl: string; blob: Blob } | null> => {
     if (!cardRef.current) return null;
@@ -363,10 +413,8 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
     }
   }, [isOpen, order, activeScope, showAllocations, greyRecords.length, greyStockData.totalGreyStock]);
 
-  if (!isOpen || !order) return null;
-
-  const items = sortKnittingItems(order.items || []);
-  const condition = calculateKnittingCondition(order.greyQty, order.knitBalance);
+  const items = sortKnittingItems(order?.items || []);
+  const condition = calculateKnittingCondition(order?.greyQty ?? 0, order?.knitBalance ?? 0);
 
   const totals = items.reduce(
     (acc, itm) => ({
@@ -382,16 +430,14 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
     { reqQty: 0, greyQty: 0, production: 0, hold: 0, reject: 0, itmQty: 0, knitBalance: 0, avgProdPerDay: 0 }
   );
 
-  // Filter and group allocated yarn for this order (only if showAllocations is active)
-  const validAllocations = showAllocations
-    ? (Array.isArray(allYarn) ? allYarn : []).filter(y => {
-        if (!order) return false;
-        const ordMatch = String(y.orderNumber || y.order_number || '').trim();
-        const qty = Number(y.allocatedQty ?? y.allocated_qty ?? 0);
-        const yarn = String(y.allocatedYarn || y.allocated_yarn || y.yarnRequired || '').trim();
-        return ordMatch.includes(order.orderNo) && (qty > 0 || yarn.length > 0);
-      })
-    : [];
+  // Filter allocated yarn for this order
+  const validAllocations = (Array.isArray(allYarn) ? allYarn : []).filter(y => {
+    if (!order) return false;
+    const ordMatch = String(y.orderNumber || y.order_number || '').trim();
+    const qty = Number(y.allocatedQty ?? y.allocated_qty ?? 0);
+    const yarn = String(y.allocatedYarn || y.allocated_yarn || y.yarnRequired || '').trim();
+    return ordMatch.includes(order.orderNo) && (qty > 0 || yarn.length > 0);
+  });
 
   const allocGroups = new Map<string, {
     color: string;
@@ -402,16 +448,34 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
     allocatedQty: number;
   }>();
 
-  if (showAllocations) {
-    for (const y of validAllocations) {
-      const color = String(y.fabricShade || y.fabric_shade || y.color || 'Standard Shade').trim();
-      const fabricType = String(y.fabricsType || y.fabrics_type || y.fabrication || 'Knitted Fabric').trim();
-      const allocatedYarn = String(y.allocatedYarn || y.allocated_yarn || y.yarnRequired || '').trim();
-      const lot = String(y.lotNo || y.lot_no || 'N/A').trim();
-      const spinner = String(y.spinnersName || y.spinners_name || 'N/A').trim();
-      const qty = Number(y.allocatedQty ?? y.allocated_qty ?? 0);
+  for (const y of validAllocations) {
+    const color = String(y.fabricShade || y.fabric_shade || y.color || 'Standard Shade').trim();
+    const fabricType = String(y.fabricsType || y.fabrics_type || y.fabrication || 'Knitted Fabric').trim();
+    const allocatedYarn = String(y.allocatedYarn || y.allocated_yarn || y.yarnRequired || '').trim();
+    const lot = String(y.lotNo || y.lot_no || 'N/A').trim();
+    const spinner = String(y.spinnersName || y.spinners_name || 'N/A').trim();
+    const qty = Number(y.allocatedQty ?? y.allocated_qty ?? 0);
 
-      const key = `${color.toLowerCase()}__${fabricType.toLowerCase()}__${allocatedYarn.toLowerCase()}__${lot.toLowerCase()}__${spinner.toLowerCase()}`;
+    const key = `${color.toLowerCase()}__${fabricType.toLowerCase()}__${allocatedYarn.toLowerCase()}__${lot.toLowerCase()}__${spinner.toLowerCase()}`;
+    const existing = allocGroups.get(key);
+    if (existing) {
+      existing.allocatedQty += qty;
+    } else {
+      allocGroups.set(key, { color, fabricType, allocatedYarn, lot, spinner, allocatedQty: qty });
+    }
+  }
+
+  // Intelligent fallback: if no yarn allocation records exist in yarn allocations store, derive from order.items
+  if (allocGroups.size === 0 && items.length > 0) {
+    for (const itm of items) {
+      const color = String(itm.color || 'Standard').trim();
+      const fabricType = String(itm.fabType || itm.mcType || 'Knitted Fabric').trim();
+      const allocatedYarn = String(itm.yarnCount || 'Allocated Ring Spun Cotton').trim();
+      const lot = 'Allocated';
+      const spinner = 'Epyllion Spinning / Associated';
+      const qty = Number(itm.greyQty || itm.reqQty || 0);
+
+      const key = `${color.toLowerCase()}__${fabricType.toLowerCase()}__${allocatedYarn.toLowerCase()}`;
       const existing = allocGroups.get(key);
       if (existing) {
         existing.allocatedQty += qty;
@@ -419,35 +483,102 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
         allocGroups.set(key, { color, fabricType, allocatedYarn, lot, spinner, allocatedQty: qty });
       }
     }
-
-    // Intelligent fallback: if no yarn allocation records exist in yarn allocations store, derive from order.items
-    if (allocGroups.size === 0 && items.length > 0) {
-      for (const itm of items) {
-        const color = String(itm.color || 'Standard').trim();
-        const fabricType = String(itm.fabType || itm.mcType || 'Knitted Fabric').trim();
-        const allocatedYarn = String(itm.yarnCount || 'Allocated Ring Spun Cotton').trim();
-        const lot = 'Allocated';
-        const spinner = 'Epyllion Spinning / Associated';
-        const qty = Number(itm.greyQty || itm.reqQty || 0);
-
-        const key = `${color.toLowerCase()}__${fabricType.toLowerCase()}__${allocatedYarn.toLowerCase()}`;
-        const existing = allocGroups.get(key);
-        if (existing) {
-          existing.allocatedQty += qty;
-        } else {
-          allocGroups.set(key, { color, fabricType, allocatedYarn, lot, spinner, allocatedQty: qty });
-        }
-      }
-    }
   }
 
-  const sortedAllocations = Array.from(allocGroups.values()).sort((a, b) => {
+  const rawSortedAllocations = Array.from(allocGroups.values()).sort((a, b) => {
     const c = a.color.localeCompare(b.color);
     if (c !== 0) return c;
     return a.fabricType.localeCompare(b.fabricType);
   });
 
-  const totalAllocatedQty = sortedAllocations.reduce((sum, a) => sum + a.allocatedQty, 0);
+  // Extract all distinct spinning options from allocated yarn & grey yarn stock
+  const availableSpinners = useMemo(() => {
+    const set = new Set<string>();
+    for (const a of rawSortedAllocations) {
+      const sp = (a.spinner || '').trim();
+      if (sp && sp !== 'N/A' && sp !== '-' && sp !== '—') {
+        set.add(sp);
+      }
+    }
+    for (const itm of rawMatchedGreyYarnItems) {
+      const sp = (itm.spinner || '').trim();
+      if (sp && sp !== 'N/A' && sp !== '-' && sp !== '—') {
+        set.add(sp);
+      }
+    }
+    return Array.from(set).sort();
+  }, [rawSortedAllocations, rawMatchedGreyYarnItems]);
+
+  // Apply selected spinning option filter
+  const sortedAllocations = useMemo(() => {
+    if (selectedSpinner === 'All') return rawSortedAllocations;
+    return rawSortedAllocations.filter(a => (a.spinner || '').toLowerCase().trim() === selectedSpinner.toLowerCase().trim());
+  }, [rawSortedAllocations, selectedSpinner]);
+
+  const totalAllocatedQty = useMemo(() => {
+    return sortedAllocations.reduce((sum, a) => sum + a.allocatedQty, 0);
+  }, [sortedAllocations]);
+
+  const matchedGreyYarnItems = useMemo(() => {
+    if (selectedSpinner === 'All') return rawMatchedGreyYarnItems;
+    return rawMatchedGreyYarnItems.filter(itm => (itm.spinner || '').toLowerCase().trim() === selectedSpinner.toLowerCase().trim());
+  }, [rawMatchedGreyYarnItems, selectedSpinner]);
+
+  const greyYarnSums = useMemo(() => {
+    const booking = matchedGreyYarnItems.reduce((acc, it) => acc + (Number(it.bookingQty) || 0), 0);
+    const req = matchedGreyYarnItems.reduce((acc, it) => acc + (Number(it.yarnRequired) || 0), 0);
+    const rec = matchedGreyYarnItems.reduce((acc, it) => acc + (Number(it.totalReceived) || 0), 0);
+    const iss = matchedGreyYarnItems.reduce((acc, it) => acc + (Number(it.totalIssued) || 0), 0);
+    const exc = matchedGreyYarnItems.reduce((acc, it) => acc + (Number(it.excessIssued) || 0), 0);
+    const stock = matchedGreyYarnItems.reduce((acc, it) => acc + (it.totalStockQty !== undefined ? Number(it.totalStockQty) : Math.max(0, (Number(it.totalReceived) || 0) - (Number(it.totalIssued) || 0))), 0);
+    const bal = matchedGreyYarnItems.reduce((acc, it) => acc + (it.issuedBalance !== undefined ? Number(it.issuedBalance) : Math.max(0, (Number(it.yarnRequired) || 0) - (Number(it.totalIssued) || 0))), 0);
+    return { booking, req, rec, iss, exc, stock, bal };
+  }, [matchedGreyYarnItems]);
+
+  // ⏱️ Completion Forecast & Delivery Prediction calculations
+  const predActiveDailyRate = totals.avgProdPerDay > 0 ? roundUpAvg(totals.avgProdPerDay) : (totals.production > 0 ? Math.ceil(totals.production / 10) : 180);
+  const predStandardMachineRate = 180;
+  const predTotalItemCount = Math.max(1, items.length);
+  const predFullCapacityRate = Math.max(predTotalItemCount * predStandardMachineRate, predActiveDailyRate);
+
+  const predDaysAtCurrent = predActiveDailyRate > 0 ? Math.ceil(totals.knitBalance / predActiveDailyRate) : (totals.knitBalance > 0 ? Math.ceil(totals.knitBalance / 180) : 0);
+  const predFinishDateCurrent = new Date();
+  predFinishDateCurrent.setDate(predFinishDateCurrent.getDate() + predDaysAtCurrent);
+  const predFinishDateCurrentStr = predFinishDateCurrent.toISOString().slice(0, 10);
+
+  const predDaysAtFull = Math.ceil(totals.knitBalance / predFullCapacityRate);
+  const predFinishDateFull = new Date();
+  predFinishDateFull.setDate(predFinishDateFull.getDate() + predDaysAtFull);
+  const predFinishDateFullStr = predFinishDateFull.toISOString().slice(0, 10);
+
+  const predTargetEndStr = order?.pmcKnitEndDate || order?.knitEndDate || '';
+  const predPctDone = totals.greyQty > 0 ? ((totals.production / totals.greyQty) * 100).toFixed(1) : '0';
+
+  let predDiffDays = 0;
+  let predVarianceText = 'On Track';
+  let predVarianceStatus: 'on-track' | 'delay' | 'ahead' | 'completed' = 'on-track';
+
+  if (predTargetEndStr && predTargetEndStr !== '-' && totals.knitBalance > 0) {
+    const targetD = new Date(predTargetEndStr);
+    if (!isNaN(targetD.getTime())) {
+      const diffMs = predFinishDateCurrent.getTime() - targetD.getTime();
+      const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      predDiffDays = diffDays;
+      if (diffDays > 0) {
+        predVarianceText = `Delayed by ${diffDays} day(s) past PMC End`;
+        predVarianceStatus = 'delay';
+      } else if (diffDays < 0) {
+        predVarianceText = `On Track (${Math.abs(diffDays)} day(s) ahead of PMC)`;
+        predVarianceStatus = 'ahead';
+      } else {
+        predVarianceText = 'Exact On-Schedule delivery';
+        predVarianceStatus = 'on-track';
+      }
+    }
+  } else if (totals.knitBalance <= 0) {
+    predVarianceText = '100% Completed';
+    predVarianceStatus = 'completed';
+  }
 
   const handleDownload = async () => {
     setIsGenerating(true);
@@ -719,6 +850,8 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
     }
   };
 
+  if (!isOpen || !order) return null;
+
   return (
     <div
       className="fixed inset-0 z-60 flex items-center justify-center p-3 sm:p-5 bg-slate-950/80 backdrop-blur-xs animate-fade-in"
@@ -825,7 +958,7 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
             {/* View Mode Toolbar */}
             <div className="w-full max-w-[1220px] mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
               <div className="flex flex-wrap items-center gap-2">
-                {/* 4 Options Scope Toggle: 1. Knitting Status | 2. Yarn Allocation | 3. Grey Stock | 4. All Combine */}
+                {/* 5 Options Scope Toggle: 1. Knitting Status | 2. Yarn Allocation | 3. Grey Stock | 4. Grey Yarn Stock | 5. All Combine */}
                 <div className="flex flex-wrap items-center gap-1 bg-slate-200/90 dark:bg-slate-800/90 p-1 rounded-xl shadow-xs border border-slate-300 dark:border-slate-700">
                   <button
                     type="button"
@@ -858,7 +991,7 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
                         ? 'bg-amber-700 text-white shadow-xs'
                         : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white'
                     }`}
-                    title="2. Yarn Allocation Details"
+                    title="2. Yarn Allocation Details & Spinning Option"
                     id="snip-mode-with-allocation-btn"
                   >
                     <Layers className="w-3.5 h-3.5" />
@@ -887,6 +1020,25 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
                   <button
                     type="button"
                     onClick={() => {
+                      setActiveScope('grey_yarn_stock');
+                      setImageDataUrl(null);
+                      setImageBlob(null);
+                    }}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      activeScope === 'grey_yarn_stock'
+                        ? 'bg-teal-700 text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white'
+                    }`}
+                    title="4. Grey Yarn Stock Summary & Specifications"
+                    id="snip-mode-grey-yarn-stock-btn"
+                  >
+                    <Layers className="w-3.5 h-3.5 text-teal-300" />
+                    <span>4. Grey Yarn Stock</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
                       setActiveScope('combine');
                       setImageDataUrl(null);
                       setImageBlob(null);
@@ -896,12 +1048,49 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
                         ? 'bg-emerald-700 text-white shadow-xs'
                         : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white'
                     }`}
-                    title="4. All Combine (Knitting + Yarn + Grey Stock)"
+                    title="5. All Combine (Knitting + Yarn Allocation + Grey Stock + Grey Yarn Stock)"
                     id="snip-mode-combine-btn"
                   >
                     <Scissors className="w-3.5 h-3.5" />
-                    <span>4. All Combine</span>
+                    <span>5. All Combine</span>
                   </button>
+                </div>
+
+                {/* Spinning Option Filter Control */}
+                <div className="flex items-center gap-1.5 bg-slate-200/90 dark:bg-slate-800/90 px-2 py-1 rounded-xl shadow-xs border border-slate-300 dark:border-slate-700">
+                  <div className="flex items-center gap-1 text-[11px] font-bold text-slate-700 dark:text-slate-300 shrink-0">
+                    <Factory className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                    <span>Spinning Option:</span>
+                  </div>
+                  <select
+                    value={selectedSpinner}
+                    onChange={(e) => {
+                      setSelectedSpinner(e.target.value);
+                      setImageDataUrl(null);
+                      setImageBlob(null);
+                    }}
+                    className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 text-xs font-bold px-2 py-0.5 rounded-lg border border-slate-300 dark:border-slate-700 cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-500 max-w-[190px] truncate"
+                    title="Filter by Spinning Mill / Spinner specifications"
+                  >
+                    <option value="All">All Spinning Options ({availableSpinners.length > 0 ? availableSpinners.length : 'All'})</option>
+                    {availableSpinners.map(sp => (
+                      <option key={sp} value={sp}>{sp}</option>
+                    ))}
+                  </select>
+                  {selectedSpinner !== 'All' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedSpinner('All');
+                        setImageDataUrl(null);
+                        setImageBlob(null);
+                      }}
+                      className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200 hover:bg-amber-200 border border-amber-300 cursor-pointer"
+                      title="Reset spinning filter"
+                    >
+                      Reset
+                    </button>
+                  )}
                 </div>
 
                 {/* Mobile Fit & Full View Controls */}
@@ -952,9 +1141,19 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
                     <span>3. Grey Stock Warehouse Mode</span>
                   </span>
                 )}
+                {activeScope === 'grey_yarn_stock' && (
+                  <span className="flex items-center gap-1 text-teal-800 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 px-2.5 py-0.5 rounded-md border border-teal-200 dark:border-teal-800">
+                    <span>4. Grey Yarn Stock Mode</span>
+                  </span>
+                )}
                 {activeScope === 'combine' && (
                   <span className="flex items-center gap-1 text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
-                    <span>4. All Combine (Knitting + Yarn + Grey Stock)</span>
+                    <span>5. All Combine (Knitting + Yarn + Grey Stock + Grey Yarn)</span>
+                  </span>
+                )}
+                {selectedSpinner !== 'All' && (
+                  <span className="flex items-center gap-1 text-amber-900 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/60 px-2.5 py-0.5 rounded-md border border-amber-300 dark:border-amber-700">
+                    <span>Spinning: {selectedSpinner}</span>
                   </span>
                 )}
                 {viewMode === 'fit' && isMobile && scale < 1 ? (
@@ -1067,7 +1266,22 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
                     EPYLLION KNITEX LIMITED
                   </div>
                   <div className="text-xs font-bold text-emerald-800 flex items-center gap-1.5" style={{ color: '#166534' }}>
-                    <span>Knitting Status Report</span>
+                    <span>
+                      {activeScope === 'grey_yarn_stock'
+                        ? 'Grey Yarn Stock Report'
+                        : activeScope === 'grey_stock'
+                        ? 'Grey Stock Report'
+                        : activeScope === 'allocation'
+                        ? 'Yarn Allocation Report'
+                        : activeScope === 'combine'
+                        ? 'All Combine Comprehensive Report'
+                        : 'Knitting Status Report'}
+                    </span>
+                    {selectedSpinner !== 'All' && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+                        Spinning: {selectedSpinner}
+                      </span>
+                    )}
                     <span className="text-slate-300">•</span>
                     <span className="text-slate-700 font-semibold" style={{ color: '#334155' }}>
                       Order Details: {order.orderNo}
@@ -1164,6 +1378,14 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
                 <span className="font-semibold text-slate-600">Total Grey Stock:</span>
                 <strong className="font-mono text-amber-900 font-bold" style={{ color: '#78350f' }}>
                   {greyStockData.totalGreyStock.toLocaleString()} kg
+                </strong>
+              </div>
+              <span>•</span>
+              <div className="flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-teal-700" />
+                <span className="font-semibold text-slate-600">Grey Yarn Stock:</span>
+                <strong className="font-mono text-teal-900 font-bold" style={{ color: '#134e4a' }}>
+                  {Math.round(greyYarnSums.stock).toLocaleString()} kg
                 </strong>
               </div>
             </div>
@@ -1443,6 +1665,123 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
           </React.Fragment>
         )}
 
+            {/* Completion Prediction & Delay Forecast Section (Shown when showPrediction is active) */}
+            {showPrediction && (
+              <div className="mt-4 p-4 rounded-xl border border-purple-200 bg-purple-50/20 shadow-xs" style={{ backgroundColor: '#faf5ff', borderColor: '#e9d5ff' }}>
+                <div className="flex items-center justify-between mb-3 pb-2 border-b border-purple-200" style={{ borderBottomColor: '#f3e8ff' }}>
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-violet-100 text-violet-800">
+                      <Clock className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black uppercase tracking-wider text-violet-950">
+                        {activeScope === 'combine' ? 'Prediction Layer: ' : ''}Completion Date Forecast &amp; Delivery Risk Prediction
+                      </h4>
+                      <p className="text-[10px] text-violet-700 font-medium">
+                        Target PMC Knit End Date: <strong className="font-mono">{predTargetEndStr || 'Not Set'}</strong>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black shadow-2xs"
+                      style={{
+                        backgroundColor: predVarianceStatus === 'delay' ? '#fff1f2' : (predVarianceStatus === 'ahead' ? '#ecfdf5' : '#f0fdf4'),
+                        color: predVarianceStatus === 'delay' ? '#9f1239' : '#065f46',
+                        border: `1px solid ${predVarianceStatus === 'delay' ? '#fecdd3' : '#a7f3d0'}`
+                      }}
+                    >
+                      <TrendingUp className="w-3.5 h-3.5" />
+                      <span>{predVarianceText}</span>
+                    </span>
+                  </div>
+                </div>
+
+                {/* 4 KPI Cards for Prediction */}
+                <div className="grid grid-cols-4 gap-2.5 mb-3.5">
+                  <div className="p-2.5 rounded-xl border border-violet-200 bg-white shadow-2xs text-center" style={{ borderColor: '#ddd6fe' }}>
+                    <div className="text-[9.5px] font-bold uppercase text-violet-700">Projected Completion</div>
+                    <div className="text-base font-black text-violet-950 mt-0.5 font-mono">
+                      {predFinishDateCurrentStr}
+                    </div>
+                    <div className="text-[9.5px] font-bold text-violet-600 mt-0.5">
+                      ~{predDaysAtCurrent} day(s) remaining
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl border border-slate-200 bg-white shadow-2xs text-center" style={{ borderColor: '#e2e8f0' }}>
+                    <div className="text-[9.5px] font-bold uppercase text-slate-500">PMC Target Date</div>
+                    <div className="text-base font-black text-slate-900 mt-0.5 font-mono">
+                      {predTargetEndStr || '-'}
+                    </div>
+                    <div className="text-[9.5px] text-slate-500 mt-0.5">
+                      {predDiffDays > 0 ? `+${predDiffDays}d variance` : `${predDiffDays}d variance`}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl border border-amber-200 bg-white shadow-2xs text-center" style={{ borderColor: '#fde68a' }}>
+                    <div className="text-[9.5px] font-bold uppercase text-amber-800">Knit Balance Left</div>
+                    <div className="text-base font-black text-amber-950 mt-0.5 font-mono">
+                      {totals.knitBalance.toLocaleString()} <span className="text-[9px] font-normal text-amber-700">kg</span>
+                    </div>
+                    <div className="text-[9.5px] font-bold text-amber-700 mt-0.5">
+                      {predPctDone}% completed
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl border border-emerald-200 bg-white shadow-2xs text-center" style={{ borderColor: '#a7f3d0' }}>
+                    <div className="text-[9.5px] font-bold uppercase text-emerald-800">Floor Output Speed</div>
+                    <div className="text-base font-black text-emerald-950 mt-0.5 font-mono">
+                      {predActiveDailyRate.toLocaleString()} <span className="text-[9px] font-normal text-emerald-700">kg/day</span>
+                    </div>
+                    <div className="text-[9.5px] font-bold text-emerald-600 mt-0.5">
+                      active run-rate
+                    </div>
+                  </div>
+                </div>
+
+                {/* Production Progress Bar */}
+                <div className="bg-white rounded-xl p-2.5 border border-slate-200 shadow-2xs mb-3" style={{ borderColor: '#e2e8f0' }}>
+                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-700 mb-1">
+                    <span>Knitting Progress Breakdown</span>
+                    <span className="font-mono text-violet-900 font-black">
+                      {predPctDone}% ({totals.production.toLocaleString()} kg / {totals.greyQty.toLocaleString()} kg)
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                    <div
+                      className="bg-violet-600 h-2.5 rounded-full"
+                      style={{ width: `${Math.min(100, Math.max(0, Number(predPctDone)))}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* 2 Scenarios Comparison Strip */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-2.5 rounded-lg border border-teal-200 bg-teal-50/50" style={{ backgroundColor: '#f0fdfa', borderColor: '#99f6e4' }}>
+                    <div className="text-[10px] font-bold text-teal-900 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" />
+                      <span>Scenario A (Current Daily Pace @ {predActiveDailyRate.toLocaleString()} kg/day)</span>
+                    </div>
+                    <div className="text-xs font-bold text-slate-800 mt-1">
+                      Projected Completion: <strong className="font-mono text-teal-950">{predFinishDateCurrentStr}</strong> ({predDaysAtCurrent} days)
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg border border-indigo-200 bg-indigo-50/50" style={{ backgroundColor: '#eef2ff', borderColor: '#c7d2fe' }}>
+                    <div className="text-[10px] font-bold text-indigo-900 flex items-center gap-1">
+                      <Factory className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Scenario B (Full Capacity @ {predFullCapacityRate.toLocaleString()} kg/day)</span>
+                    </div>
+                    <div className="text-xs font-bold text-slate-800 mt-1">
+                      Projected Completion: <strong className="font-mono text-indigo-950">{predFinishDateFullStr}</strong> ({predDaysAtFull} days)
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
               {/* Total Grey Stock Summary Banner for Snap */}
               <div 
                 className="mt-2.5 flex items-center justify-between px-3.5 py-2 rounded-lg border shadow-2xs"
@@ -1469,6 +1808,11 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
                   <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-700" style={{ color: '#334155' }}>
                     <Layers className="w-3.5 h-3.5 text-amber-700" />
                     <span>{activeScope === 'combine' ? 'Layer 3: ' : ''}Allocated Yarn Details ({sortedAllocations.length} items)</span>
+                    {selectedSpinner !== 'All' && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 border border-amber-300">
+                        Spinner: {selectedSpinner}
+                      </span>
+                    )}
                   </div>
                   {totalAllocatedQty > 0 && (
                     <div className="text-[10.5px] font-bold text-amber-800" style={{ color: '#92400e' }}>
@@ -1689,6 +2033,178 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
                     </tfoot>
                   </table>
                 </div>
+              </div>
+            )}
+
+            {/* Layer 5: Grey Yarn Stock Summary & Breakdown (Shown when showGreyYarnStock is active) */}
+            {showGreyYarnStock && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-700" style={{ color: '#334155' }}>
+                    <Layers className="w-3.5 h-3.5 text-teal-700" />
+                    <span>{activeScope === 'combine' ? 'Layer 5: ' : ''}Grey Yarn Stock Summary &amp; Breakdown ({matchedGreyYarnItems.length} specifications)</span>
+                    {selectedSpinner !== 'All' && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-teal-100 text-teal-800 border border-teal-300">
+                        Spinner: {selectedSpinner}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10px] font-semibold text-teal-800" style={{ color: '#115e59' }}>
+                    {selectedSpinner !== 'All' ? `Filtered by ${selectedSpinner}` : 'Verified Spinning Mill Dataset'}
+                  </div>
+                </div>
+
+                {/* 7 KPI Cards for Grey Yarn Stock */}
+                <div className="grid grid-cols-7 gap-2 mb-3">
+                  <div className="p-2 rounded-lg border border-slate-200 bg-slate-50 text-center" style={{ backgroundColor: '#f8fafc', borderColor: '#e2e8f0' }}>
+                    <div className="text-[9px] font-bold uppercase text-slate-500">Booking QTY</div>
+                    <div className="text-sm font-black text-slate-900 mt-0.5 font-mono">
+                      {Math.round(greyYarnSums.booking).toLocaleString()} <span className="text-[9px] font-normal text-slate-500">kg</span>
+                    </div>
+                  </div>
+
+                  <div className="p-2 rounded-lg border border-indigo-200 bg-indigo-50/70 text-center" style={{ backgroundColor: '#eef2ff', borderColor: '#c7d2fe' }}>
+                    <div className="text-[9px] font-bold uppercase text-indigo-700">Yarn Required</div>
+                    <div className="text-sm font-black text-indigo-950 mt-0.5 font-mono">
+                      {Math.round(greyYarnSums.req).toLocaleString()} <span className="text-[9px] font-normal text-indigo-600">kg</span>
+                    </div>
+                  </div>
+
+                  <div className="p-2 rounded-lg border border-emerald-200 bg-emerald-50/70 text-center" style={{ backgroundColor: '#ecfdf5', borderColor: '#a7f3d0' }}>
+                    <div className="text-[9px] font-bold uppercase text-emerald-700">Net Received</div>
+                    <div className="text-sm font-black text-emerald-950 mt-0.5 font-mono">
+                      {Math.round(greyYarnSums.rec).toLocaleString()} <span className="text-[9px] font-normal text-emerald-600">kg</span>
+                    </div>
+                  </div>
+
+                  <div className="p-2 rounded-lg border border-blue-200 bg-blue-50/70 text-center" style={{ backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }}>
+                    <div className="text-[9px] font-bold uppercase text-blue-700">Net Issued</div>
+                    <div className="text-sm font-black text-blue-950 mt-0.5 font-mono">
+                      {Math.round(greyYarnSums.iss).toLocaleString()} <span className="text-[9px] font-normal text-blue-600">kg</span>
+                    </div>
+                  </div>
+
+                  <div className="p-2 rounded-lg border border-rose-200 bg-rose-50/70 text-center" style={{ backgroundColor: '#fff1f2', borderColor: '#fecdd3' }}>
+                    <div className="text-[9px] font-bold uppercase text-rose-700">Excess Issued</div>
+                    <div className="text-sm font-black text-rose-950 mt-0.5 font-mono">
+                      {Math.round(greyYarnSums.exc).toLocaleString()} <span className="text-[9px] font-normal text-rose-600">kg</span>
+                    </div>
+                  </div>
+
+                  <div className="p-2 rounded-lg border border-teal-300 bg-teal-50/80 text-center" style={{ backgroundColor: '#f0fdfa', borderColor: '#5eead4' }}>
+                    <div className="text-[9px] font-black uppercase text-teal-900">Total Stock QTY</div>
+                    <div className="text-sm font-black text-teal-950 mt-0.5 font-mono">
+                      {Math.round(greyYarnSums.stock).toLocaleString()} <span className="text-[9px] font-normal text-teal-800">kg</span>
+                    </div>
+                  </div>
+
+                  <div className="p-2 rounded-lg border border-purple-200 bg-purple-50/70 text-center" style={{ backgroundColor: '#faf5ff', borderColor: '#e9d5ff' }}>
+                    <div className="text-[9px] font-bold uppercase text-purple-700">Issue Balance</div>
+                    <div className="text-sm font-black text-purple-950 mt-0.5 font-mono">
+                      {Math.round(greyYarnSums.bal).toLocaleString()} <span className="text-[9px] font-normal text-purple-600">kg</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Grey Yarn Stock 10-Column Table */}
+                {matchedGreyYarnItems.length > 0 ? (
+                  <div className="rounded-lg border border-slate-300 overflow-visible" style={{ borderColor: '#cbd5e1' }}>
+                    <table className="w-full text-left text-[10px] border-collapse" style={{ width: '100%', tableLayout: 'auto' }}>
+                      <thead>
+                        <tr
+                          style={{ backgroundColor: '#f1f5f9', color: '#1e293b', borderBottom: '2px solid #cbd5e1' }}
+                          className="font-bold uppercase tracking-wider text-[9px]"
+                        >
+                          <th className="py-2 px-2 text-center" style={{ width: '30px' }}>#</th>
+                          <th className="py-2 px-2">Physical Yarn Count</th>
+                          <th className="py-2 px-2 font-mono">Physical Yarn Lot</th>
+                          <th className="py-2 px-2">Spinner</th>
+                          <th className="py-2 px-2 text-right">Booking QTY</th>
+                          <th className="py-2 px-2 text-right font-black text-indigo-900 bg-indigo-50/70">Yarn Required</th>
+                          <th className="py-2 px-2 text-right font-black text-emerald-900 bg-emerald-50/70">Net Received</th>
+                          <th className="py-2 px-2 text-right font-black text-blue-900 bg-blue-50/70">Net Issued</th>
+                          <th className="py-2 px-2 text-right font-black text-rose-900 bg-rose-50/70">Excess Issued</th>
+                          <th className="py-2 px-2 text-right font-black text-teal-950 bg-teal-100/80">Stock QTY</th>
+                          <th className="py-2 px-2 text-right font-black text-purple-900 bg-purple-50/70">Issue Balance</th>
+                        </tr>
+                      </thead>
+                      <tbody style={{ color: '#0f172a' }}>
+                        {matchedGreyYarnItems.map((itm, idx) => {
+                          const isEven = idx % 2 === 0;
+                          const bQty = Math.round(Number(itm.bookingQty) || 0);
+                          const yReq = Math.round(Number(itm.yarnRequired) || 0);
+                          const nRec = Math.round(Number(itm.totalReceived) || 0);
+                          const nIss = Math.round(Number(itm.totalIssued) || 0);
+                          const eIss = Math.round(Number(itm.excessIssued) || 0);
+                          const sQty = Math.round(itm.totalStockQty !== undefined ? Number(itm.totalStockQty) : Math.max(0, nRec - nIss));
+                          const iBal = Math.round(itm.issuedBalance !== undefined ? Number(itm.issuedBalance) : Math.max(0, yReq - nIss));
+
+                          return (
+                            <tr
+                              key={itm.id || idx}
+                              style={{
+                                backgroundColor: isEven ? '#ffffff' : '#f8fafc',
+                                borderBottom: '1px solid #e2e8f0'
+                              }}
+                            >
+                              <td className="py-1.5 px-2 text-center font-mono text-slate-400">{idx + 1}</td>
+                              <td className="py-1.5 px-2 font-semibold text-slate-900">{itm.physicalYarnCount}</td>
+                              <td className="py-1.5 px-2 font-mono font-bold text-slate-800">{itm.physicalYarnLot || '—'}</td>
+                              <td className="py-1.5 px-2 text-slate-700">{itm.spinner || '—'}</td>
+                              <td className="py-1.5 px-2 text-right font-mono text-slate-700">{bQty.toLocaleString()} kg</td>
+                              <td className="py-1.5 px-2 text-right font-mono font-bold text-indigo-800 bg-indigo-50/40">{yReq.toLocaleString()} kg</td>
+                              <td className="py-1.5 px-2 text-right font-mono font-bold text-emerald-800 bg-emerald-50/40">{nRec.toLocaleString()} kg</td>
+                              <td className="py-1.5 px-2 text-right font-mono font-bold text-blue-800 bg-blue-50/40">{nIss.toLocaleString()} kg</td>
+                              <td className="py-1.5 px-2 text-right font-mono font-semibold text-rose-800 bg-rose-50/40">{eIss.toLocaleString()} kg</td>
+                              <td className="py-1.5 px-2 text-right font-mono font-black text-teal-950 bg-teal-100/60">{sQty.toLocaleString()} kg</td>
+                              <td className="py-1.5 px-2 text-right font-mono font-bold text-purple-800 bg-purple-50/40">{iBal.toLocaleString()} kg</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr
+                          style={{
+                            backgroundColor: '#f1f5f9',
+                            borderTop: '2px solid #cbd5e1',
+                            fontWeight: 'bold',
+                            color: '#0f172a'
+                          }}
+                        >
+                          <td colSpan={4} className="py-2 px-2 text-right uppercase tracking-wider text-[9px] font-black text-slate-600">
+                            Total Grey Yarn Stock Sum:
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono font-black text-slate-800">
+                            {Math.round(greyYarnSums.booking).toLocaleString()} kg
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono font-black text-indigo-900 bg-indigo-50/70">
+                            {Math.round(greyYarnSums.req).toLocaleString()} kg
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono font-black text-emerald-900 bg-emerald-50/70">
+                            {Math.round(greyYarnSums.rec).toLocaleString()} kg
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono font-black text-blue-900 bg-blue-50/70">
+                            {Math.round(greyYarnSums.iss).toLocaleString()} kg
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono font-black text-rose-900 bg-rose-50/70">
+                            {Math.round(greyYarnSums.exc).toLocaleString()} kg
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono font-black text-teal-950 bg-teal-100/80">
+                            {Math.round(greyYarnSums.stock).toLocaleString()} kg
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono font-black text-purple-900 bg-purple-50/70">
+                            {Math.round(greyYarnSums.bal).toLocaleString()} kg
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600 flex items-center justify-between">
+                    <span>No direct yarn lot records found in Grey Yarn Stock database for Order #{order.orderNo}.</span>
+                    <span className="text-[10px] text-slate-400 font-mono">Dataset: Grey Yarn Stock Module</span>
+                  </div>
+                )}
               </div>
             )}
 

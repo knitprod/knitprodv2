@@ -9,6 +9,13 @@
 
 import { generateInitialLedger } from '../components/ProductionLedgerView';
 import { GreyStockStorage, getOrderLookupKeys, GreyStockItem } from './greyStockStore';
+import { 
+  GreyYarnStockStorage, 
+  GreyYarnStockItem, 
+  GreyYarnStockOrderGroup, 
+  groupGreyYarnStockRecords, 
+  normOrder 
+} from './greyYarnStockStore';
 import appDb from '../../app_db.json';
 
 export const STANDARD_FACTORY_FLOORS = [
@@ -140,7 +147,9 @@ export interface SmartQueryResult {
   orderData?: any;
   yarnAllocations?: any[];
   greyStockItems?: GreyStockItem[];
-  viewMode?: 'all' | 'production' | 'allocation' | 'prediction' | 'grey_stock';
+  greyYarnStockItems?: GreyYarnStockItem[];
+  greyYarnOrderGroup?: GreyYarnStockOrderGroup | null;
+  viewMode?: 'all' | 'knitting' | 'production' | 'allocation' | 'combine' | 'grey_stock' | 'grey_yarn_stock';
   filterColor?: string;
 }
 
@@ -1878,13 +1887,19 @@ export function handleSmartOrderQuery(
     return orderLookupKeys.some(k => rawG === k || rawG.includes(k) || k.includes(rawG));
   });
 
-  if (!ko && opList.length === 0 && tcpList.length === 0 && yaList.length === 0 && gsList.length === 0) {
+  const allGysRecords = GreyYarnStockStorage.getRecords();
+  const gysList = allGysRecords.filter(g => {
+    const rawG = String(g.orderNo || '').trim().toLowerCase();
+    return orderLookupKeys.some(k => rawG === k || rawG.includes(k) || k.includes(rawG));
+  });
+
+  if (!ko && opList.length === 0 && tcpList.length === 0 && yaList.length === 0 && gsList.length === 0 && gysList.length === 0) {
     // If not found in current local arrays, do not block fallback search!
     return { handled: false };
   }
 
   // 2. Extract shared order metadata
-  const buyer = ko?.buyerName || yaList[0]?.buyer || opList[0]?.buyer || gsList[0]?.buyerName || tcp?.buyerName || 'Epyllion Buyer';
+  const buyer = ko?.buyerName || yaList[0]?.buyer || opList[0]?.buyer || gsList[0]?.buyerName || gysList[0]?.buyerName || tcp?.buyerName || 'Epyllion Buyer';
   const teamLeader = ko?.teamLeader || opList[0]?.knitTeamLeaders || tcp?.teamLeader || 'Unassigned';
   let items: any[] = Array.isArray(ko?.items) ? [...ko.items] : [];
 
@@ -2106,6 +2121,79 @@ export function handleSmartOrderQuery(
     };
   };
 
+  // Helper: Build Grey Yarn Stock Table matching official 2nd Layer breakdown
+  const buildGreyYarnStockOrderTable = (
+    orderNo: string,
+    buyerName?: string
+  ): { table: string; summaryLine: string; items: GreyYarnStockItem[]; orderGroup: GreyYarnStockOrderGroup | null } => {
+    const allRecords = GreyYarnStockStorage.getRecords();
+    const cleanOrder = normOrder(orderNo);
+    const orderItems = allRecords.filter(r => {
+      const o = normOrder(r.orderNo);
+      return o === cleanOrder || o.includes(cleanOrder) || cleanOrder.includes(o);
+    });
+
+    if (orderItems.length === 0) {
+      return { table: '', summaryLine: '', items: [], orderGroup: null };
+    }
+
+    const groups = groupGreyYarnStockRecords(orderItems);
+    const group = groups.find(g => normOrder(g.orderNo) === cleanOrder) || groups[0] || null;
+
+    let sumBook = 0;
+    let sumReq = 0;
+    let sumRec = 0;
+    let sumIss = 0;
+    let sumExc = 0;
+    let sumStk = 0;
+    let sumBal = 0;
+
+    let table = `| Physical Yarn Count | Physical Yarn Lot | Spinner | Booking Qty | Yarn Required | Net Received | Net Issued | Excess Issued | Stock Qty | Issue Balance |\n`;
+    table += `| :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n`;
+
+    for (let i = 0; i < orderItems.length; i++) {
+      const it = orderItems[i];
+      const b = Math.round(Number(it.bookingQty || 0));
+      const r = Math.round(Number(it.yarnRequired || 0));
+      const rec = Math.round(Number(it.totalReceived || 0));
+      const iss = Math.round(Number(it.totalIssued || 0));
+      const exc = Math.round(Number(it.excessIssued || 0));
+      const stk = it.totalStockQty !== undefined ? Math.round(Number(it.totalStockQty)) : Math.max(0, rec - iss);
+      const bal = it.issuedBalance !== undefined ? Math.round(Number(it.issuedBalance)) : Math.max(0, r - iss);
+
+      sumBook += b;
+      sumReq += r;
+      sumRec += rec;
+      sumIss += iss;
+      sumExc += exc;
+      sumStk += stk;
+      sumBal += bal;
+
+      table += `| ${it.physicalYarnCount || '—'} | ${it.physicalYarnLot || '—'} | ${it.spinner || '—'} | ${b.toLocaleString()} kg | ${r.toLocaleString()} kg | ${rec.toLocaleString()} kg | ${iss.toLocaleString()} kg | ${exc.toLocaleString()} kg | ${stk.toLocaleString()} kg | ${bal.toLocaleString()} kg |\n`;
+    }
+
+    table += `| **Total** | - | - | **${sumBook.toLocaleString()} kg** | **${sumReq.toLocaleString()} kg** | **${sumRec.toLocaleString()} kg** | **${sumIss.toLocaleString()} kg** | **${sumExc.toLocaleString()} kg** | **${sumStk.toLocaleString()} kg** | **${sumBal.toLocaleString()} kg** |\n\n`;
+
+    const fulfillmentRate = sumReq > 0 ? ((sumRec / sumReq) * 100).toFixed(1) : (sumRec > 0 ? '100' : '0');
+    const issueRate = sumReq > 0 ? ((sumIss / sumReq) * 100).toFixed(1) : (sumIss > 0 ? '100' : '0');
+
+    const summaryLine = 
+      `📊 **Order #${orderNo} Grey Yarn Stock Analytics:**\n` +
+      `• **Status**: \`● ${group?.status || 'Running'}\` | **Buyer**: **${buyerName || group?.buyerName || 'Epyllion'}**\n` +
+      `• **Warehouse Fulfillment**: **${fulfillmentRate}%** (${sumRec.toLocaleString()} kg received / ${sumReq.toLocaleString()} kg required)\n` +
+      `• **Floor Issue Progress**: **${issueRate}%** (${sumIss.toLocaleString()} kg issued to circular knitting machines)\n` +
+      `• **Unissued Stock Available**: **${sumStk.toLocaleString()} kg** in warehouse\n` +
+      `• **Remaining Issue Balance**: **${sumBal.toLocaleString()} kg**\n\n` +
+      `🧵 **Total Grey Yarn Stock Summary:** Required: **${sumReq.toLocaleString()} kg** | Net Received: **${sumRec.toLocaleString()} kg** | Net Issued: **${sumIss.toLocaleString()} kg** | Stock: **${sumStk.toLocaleString()} kg** | Balance: **${sumBal.toLocaleString()} kg**`;
+
+    return {
+      table,
+      summaryLine,
+      items: orderItems,
+      orderGroup: group
+    };
+  };
+
   // Helper: Build executive 2-Layer Production data report matching official factory floor format (Photo 2)
   const buildExecutiveOrderReport = (rawItemList: any[], orderFallback?: any, filterColor?: string) => {
     let itemList = Array.isArray(rawItemList) ? [...rawItemList] : [];
@@ -2301,11 +2389,18 @@ export function handleSmartOrderQuery(
     lower.includes('forecast') ||
     lower.includes('delay');
 
-  const asksAllocOnly = !asksPredictCompletion && (lower.includes('alloc') || lower.includes('yarn') || lower.includes('lot') || lower.includes('spinner')) &&
+  const asksGreyYarnStockOnly = !asksPredictCompletion && (
+    lower.includes('grey yarn') ||
+    lower.includes('yarn stock') ||
+    (lower.includes('yarn') && lower.includes('stock')) ||
+    lower.includes('physical yarn')
+  );
+
+  const asksAllocOnly = !asksPredictCompletion && !asksGreyYarnStockOnly && (lower.includes('alloc') || lower.includes('yarn req')) &&
     !lower.includes('prod') && !lower.includes('knit') && !lower.includes('grey') && !lower.includes('stock');
   const asksProdOnly = !asksPredictCompletion && (lower.includes('prod') || lower.includes('production') || lower.includes('knitting')) &&
     !lower.includes('alloc') && !lower.includes('yarn') && !lower.includes('grey') && !lower.includes('stock');
-  const asksGreyStockOnly = !asksPredictCompletion && (lower.includes('grey') || lower.includes('stock') || lower.includes('net received') || lower.includes('net issued')) &&
+  const asksGreyStockOnly = !asksPredictCompletion && !asksGreyYarnStockOnly && (lower.includes('grey') || lower.includes('stock') || lower.includes('net received') || lower.includes('net issued')) &&
     !lower.includes('alloc') && !lower.includes('yarn') && !lower.includes('prod') && !lower.includes('knit');
 
   const fallbackSource = ko || opList[0] || tcp || yaList[0];
@@ -2322,6 +2417,7 @@ export function handleSmartOrderQuery(
   const { totals } = execReport;
   const allocTable = buildAllocatedYarnTable(yaList, matchedColor || undefined);
   const greyReport = buildGreyStockOrderTable(gsList, activeOrderNum, buyer, Number(totals.sumGrey || grey || ko?.greyQty || 0), matchedColor || undefined);
+  const greyYarnReport = buildGreyYarnStockOrderTable(activeOrderNum, buyer);
   const isKnittingStatusRecorded = Boolean(ko);
   const isPmcClosed = tcpList.length > 0;
   const conditionBadge = isPmcClosed
@@ -2381,13 +2477,38 @@ export function handleSmartOrderQuery(
   // If the order has NOT been added to Knitting Status (and is not closed in Textile Close),
   // DO NOT show any production data! It is missing from the production directory, so it has NO production data.
   if (!isKnittingStatusRecorded && !isPmcClosed) {
+    // 0.A Grey Yarn Stock request
+    if (asksGreyYarnStockOnly) {
+      if (!greyYarnReport.table) {
+        return {
+          handled: true,
+          reply: `Looks like there isn't any data for that. No Grey Yarn Stock records were found for **Order #${activeOrderNum}** (${buyer}). Also, this order is not yet in Knitting Status.`,
+          orderData: completeOrder,
+          yarnAllocations: yaList,
+          greyStockItems: [],
+          greyYarnStockItems: [],
+          viewMode: 'grey_yarn_stock'
+        };
+      }
+      return {
+        handled: true,
+        reply: `Sure! Here is the **Grey Yarn Stock Report** for **Order #${activeOrderNum}** (${buyer}):\n\n### 🧵 Grey Yarn Stock Details:\n\n${greyYarnReport.table}${greyYarnReport.summaryLine}\n\n*(Note: Order #${activeOrderNum} has not been added to Knitting Status yet).*`,
+        orderData: completeOrder,
+        yarnAllocations: yaList,
+        greyStockItems: [],
+        greyYarnStockItems: greyYarnReport.items,
+        greyYarnOrderGroup: greyYarnReport.orderGroup || undefined,
+        viewMode: 'grey_yarn_stock'
+      };
+    }
+
     // 0. Grey Stock request
     if (asksGreyStockOnly) {
       if (!greyReport.table) {
         return {
           handled: true,
           reply: `Looks like there isn't any data for that. No Grey Stock records were found for **Order #${activeOrderNum}** (${buyer}). Also, this order is not yet in Knitting Status.`,
-          orderData: null,
+          orderData: completeOrder,
           yarnAllocations: yaList,
           greyStockItems: [],
           viewMode: 'grey_stock'
@@ -2396,7 +2517,7 @@ export function handleSmartOrderQuery(
       return {
         handled: true,
         reply: `Sure! Here is the Grey Stock data for **Order #${activeOrderNum}** (${buyer}):\n\n### 📦 Grey Stock Details:\n\n${greyReport.table}${greyReport.summaryLine}\n\n*(Note: Order #${activeOrderNum} has not been added to Knitting Status yet).*`,
-        orderData: null,
+        orderData: completeOrder,
         yarnAllocations: yaList,
         greyStockItems: greyReport.items,
         viewMode: 'grey_stock'
@@ -2415,9 +2536,10 @@ export function handleSmartOrderQuery(
       return {
         handled: true,
         reply: reply.trim(),
-        orderData: null,
+        orderData: completeOrder,
         yarnAllocations: yaList,
         greyStockItems: greyReport.items,
+        greyYarnStockItems: greyYarnReport.items,
         viewMode: 'allocation'
       };
     }
@@ -2427,9 +2549,10 @@ export function handleSmartOrderQuery(
       return {
         handled: true,
         reply: `**Order #${activeOrderNum}** has not been added to Knitting Status yet. Since this order is missing from the production directory, there is no production data recorded for it.`,
-        orderData: null,
+        orderData: completeOrder,
         yarnAllocations: yaList,
         greyStockItems: greyReport.items,
+        greyYarnStockItems: greyYarnReport.items,
         viewMode: 'allocation'
       };
     }
@@ -2440,18 +2563,20 @@ export function handleSmartOrderQuery(
         return {
           handled: true,
           reply: `No yarn has been allocated yet for **Order #${activeOrderNum}** (${buyer}). Also, this order is not yet added to Knitting Status.`,
-          orderData: null,
+          orderData: completeOrder,
           yarnAllocations: yaList,
           greyStockItems: greyReport.items,
+          greyYarnStockItems: greyYarnReport.items,
           viewMode: 'allocation'
         };
       }
       return {
         handled: true,
         reply: `Sure! Here is the allocated yarn for **Order #${activeOrderNum}** (${buyer}):\n\n### 🧶 Allocated Yarn Details:\n\n${allocTable}\n\n*(Note: Order #${activeOrderNum} is not yet added to Knitting Status, so no production data exists).*`,
-        orderData: null,
+        orderData: completeOrder,
         yarnAllocations: yaList,
         greyStockItems: greyReport.items,
+        greyYarnStockItems: greyYarnReport.items,
         viewMode: 'allocation'
       };
     }
@@ -2471,9 +2596,10 @@ export function handleSmartOrderQuery(
         return {
           handled: true,
           reply: reply.trim(),
-          orderData: null,
+          orderData: completeOrder,
           yarnAllocations: yaList,
           greyStockItems: colorGreyReport.items,
+          greyYarnStockItems: greyYarnReport.items,
           viewMode: 'all',
           filterColor: matchedColor
         };
@@ -2481,8 +2607,10 @@ export function handleSmartOrderQuery(
       return {
         handled: true,
         reply: `**Order #${activeOrderNum}** has not been added to Knitting Status yet (no production data exists), and no yarn allocation or grey stock was found for color **${matchedColor}**.`,
-        orderData: null,
+        orderData: completeOrder,
         yarnAllocations: yaList,
+        greyStockItems: greyReport.items,
+        greyYarnStockItems: greyYarnReport.items,
         viewMode: 'allocation'
       };
     }
@@ -2496,9 +2624,10 @@ export function handleSmartOrderQuery(
       return {
         handled: true,
         reply: reply.trim(),
-        orderData: null,
+        orderData: completeOrder,
         yarnAllocations: yaList,
         greyStockItems: greyReport.items,
+        greyYarnStockItems: greyYarnReport.items,
         viewMode: 'all'
       };
     }
@@ -2507,9 +2636,10 @@ export function handleSmartOrderQuery(
       return {
         handled: true,
         reply: `**Order #${activeOrderNum}** has **not been added to Knitting Status yet**, so there is **no production data** available.\n\nHere are the **Yarn Allocation** details on record for **Order #${activeOrderNum}** (${buyer}):\n\n### 🧶 Allocated Yarn Details:\n\n${allocTable}`,
-        orderData: null,
+        orderData: completeOrder,
         yarnAllocations: yaList,
-        greyStockItems: [],
+        greyStockItems: greyReport.items,
+        greyYarnStockItems: greyYarnReport.items,
         viewMode: 'allocation'
       };
     }
@@ -2519,8 +2649,10 @@ export function handleSmartOrderQuery(
       return {
         handled: true,
         reply: `**Order #${activeOrderNum}** has **not been added to Knitting Status yet** (no floor production data exists).\n\nIt is registered in **Plan Order Followup** with a target of **${(Number(op.target || op.allocatedQty) || 0).toLocaleString()} kg** (${buyer}, Delivery Month: ${op.planMonth || 'N/A'}), but knitting production has not started or been entered.`,
-        orderData: null,
+        orderData: completeOrder,
         yarnAllocations: yaList,
+        greyStockItems: greyReport.items,
+        greyYarnStockItems: greyYarnReport.items,
         viewMode: 'all'
       };
     }
@@ -2528,8 +2660,11 @@ export function handleSmartOrderQuery(
     return {
       handled: true,
       reply: `**Order #${activeOrderNum}** has not been added to Knitting Status yet, and no production data, yarn allocation, or grey stock records were found in the system.`,
-      orderData: null,
-      yarnAllocations: yaList
+      orderData: completeOrder,
+      yarnAllocations: yaList,
+      greyStockItems: greyReport.items,
+      greyYarnStockItems: greyYarnReport.items,
+      viewMode: 'all'
     };
   }
 
@@ -2586,7 +2721,7 @@ export function handleSmartOrderQuery(
       orderData: completeOrder,
       yarnAllocations: yaList,
       greyStockItems: greyReport.items,
-      viewMode: 'prediction'
+      viewMode: 'all'
     };
   }
 
@@ -2731,6 +2866,35 @@ export function handleSmartOrderQuery(
   }
 
   // =========================================================================
+  // CASE 2.6: "Grey Yarn Stock" only (e.g. "Grey Yarn Stock", "271891 Grey Yarn Stock", "Yarn Stock Report")
+  // =========================================================================
+  if (asksGreyYarnStockOnly) {
+    if (!greyYarnReport.table) {
+      return {
+        handled: true,
+        reply: `Looks like there isn't any data for that. No Grey Yarn Stock records were found for **Order #${activeOrderNum}** (${buyer}).`,
+        orderData: completeOrder,
+        yarnAllocations: yaList,
+        greyStockItems: greyReport.items,
+        greyYarnStockItems: [],
+        viewMode: 'grey_yarn_stock'
+      };
+    }
+    let reply = `Sure! I found it. Here is the verified **Grey Yarn Stock Report** for **Order #${activeOrderNum}** (${buyer}):\n\n`;
+    reply += `${greyYarnReport.table}${greyYarnReport.summaryLine}\n`;
+    return {
+      handled: true,
+      reply: reply.trim(),
+      orderData: completeOrder,
+      yarnAllocations: yaList,
+      greyStockItems: greyReport.items,
+      greyYarnStockItems: greyYarnReport.items,
+      greyYarnOrderGroup: greyYarnReport.orderGroup || undefined,
+      viewMode: 'grey_yarn_stock'
+    };
+  }
+
+  // =========================================================================
   // CASE 3: "Production" only (e.g. "Production", "272767 Production")
   // =========================================================================
   if (asksProdOnly) {
@@ -2775,13 +2939,115 @@ export function handleSmartOrderQuery(
     combinedReport += `\n### 📦 Grey Stock Details:\n\n${greyReport.table}${greyReport.summaryLine}\n`;
   }
 
+  if (greyYarnReport.table) {
+    combinedReport += `\n### 🧵 Grey Yarn Stock Details:\n\n${greyYarnReport.table}${greyYarnReport.summaryLine}\n`;
+  }
+
   return {
     handled: true,
     reply: combinedReport.trim(),
     orderData: completeOrder,
     yarnAllocations: yaList,
     greyStockItems: greyReport.items,
+    greyYarnStockItems: greyYarnReport.items,
+    greyYarnOrderGroup: greyYarnReport.orderGroup || undefined,
     viewMode: 'all'
+  };
+}
+
+/**
+ * Builds the official executive Grey Yarn Stock Report across orders or filtered by buyer.
+ */
+export function buildTotalGreyYarnStockReport(buyerFilter?: string): {
+  reply: string;
+  items: GreyYarnStockItem[];
+  groups: GreyYarnStockOrderGroup[];
+} {
+  let records = GreyYarnStockStorage.getRecords();
+  if (buyerFilter) {
+    const bf = buyerFilter.toLowerCase().trim();
+    records = records.filter(r => (r.buyerName || '').toLowerCase().includes(bf));
+  }
+
+  const groups = groupGreyYarnStockRecords(records);
+
+  let totalBooking = 0;
+  let totalRequired = 0;
+  let totalReceived = 0;
+  let totalIssued = 0;
+  let totalExcess = 0;
+  let totalStock = 0;
+  let totalBalance = 0;
+
+  let completeOrders = 0;
+  let runningOrders = 0;
+  let ordersWithBalance = 0;
+  let ordersWithStock = 0;
+
+  groups.forEach(g => {
+    totalBooking += g.totalBookingQty;
+    totalRequired += g.totalYarnRequired;
+    totalReceived += g.totalNetReceived;
+    totalIssued += g.totalNetIssued;
+    totalExcess += g.totalExcessIssued;
+    totalStock += g.totalStockQty;
+    totalBalance += g.totalIssuedBalance;
+
+    if (g.status === 'Complete') completeOrders++;
+    else runningOrders++;
+
+    if (g.totalIssuedBalance > 0) ordersWithBalance++;
+    if (g.totalStockQty > 0) ordersWithStock++;
+  });
+
+  const fulfillmentRate = totalRequired > 0 ? ((totalReceived / totalRequired) * 100).toFixed(1) : '100';
+  const issueRate = totalRequired > 0 ? ((totalIssued / totalRequired) * 100).toFixed(1) : '100';
+
+  const buyerHeader = buyerFilter ? ` for **${buyerFilter}**` : '';
+  let reply = `Here is the verified **Grey Yarn Stock Report**${buyerHeader} across **${groups.length} Registered Orders** (${records.length.toLocaleString()} physical yarn specifications):\n\n`;
+
+  reply += `### 🧵 Executive Grey Yarn Stock Summary:\n`;
+  reply += `| Metric | Overall Total (kg) | Status / Metric Assessment |\n`;
+  reply += `| :--- | :---: | :--- |\n`;
+  reply += `| **Total Registered Orders** | **${groups.length} Orders** | 🏢 Active & Completed ERP Orders |\n`;
+  reply += `| **Total Booking QTY** | **${Math.round(totalBooking).toLocaleString()} kg** | 📋 Master Commercial Booking |\n`;
+  reply += `| **Total Yarn Required** | **${Math.round(totalRequired).toLocaleString()} kg** | 🧶 Gross Requisition Requirement |\n`;
+  reply += `| **Total Net Received** | **${Math.round(totalReceived).toLocaleString()} kg** | 🚚 Received at Yarn Warehouse (${fulfillmentRate}% Fulfilled) |\n`;
+  reply += `| **Total Net Issued** | **${Math.round(totalIssued).toLocaleString()} kg** | 🏭 Issued to Knitting Floor (${issueRate}% Issued) |\n`;
+  reply += `| **Total Excess Issued** | **${Math.round(totalExcess).toLocaleString()} kg** | ⚠️ Over-Requisition / Samples / Collars |\n`;
+  reply += `| **Total Available Stock QTY** | **${Math.round(totalStock).toLocaleString()} kg** | 📦 Floor-Ready Unissued Warehouse Stock |\n`;
+  reply += `| **Total Issue Balance** | **${Math.round(totalBalance).toLocaleString()} kg** | ⏳ Remaining Requisition to be Issued |\n\n`;
+
+  reply += `### 📋 Order-wise Grey Yarn Stock Overview:\n`;
+  reply += `| Order No. | Buyer | Status | Yarn Required | Net Received | Net Issued | Excess Issued | Available Stock | Issue Balance |\n`;
+  reply += `| :--- | :--- | :---: | ---: | ---: | ---: | ---: | ---: | ---: |\n`;
+
+  // Display all order groups or top groups
+  const displayGroups = groups.slice(0, 15);
+  displayGroups.forEach(g => {
+    reply += `| **#${g.orderNo}** | ${g.buyerName || '—'} | \`● ${g.status}\` | ${Math.round(g.totalYarnRequired).toLocaleString()} kg | ${Math.round(g.totalNetReceived).toLocaleString()} kg | ${Math.round(g.totalNetIssued).toLocaleString()} kg | ${Math.round(g.totalExcessIssued).toLocaleString()} kg | **${Math.round(g.totalStockQty).toLocaleString()} kg** | ${Math.round(g.totalIssuedBalance).toLocaleString()} kg |\n`;
+  });
+
+  if (groups.length > 15) {
+    reply += `| *... and ${groups.length - 15} more orders* | - | - | - | - | - | - | - | - |\n`;
+  }
+
+  reply += `| **Total** | - | - | **${Math.round(totalRequired).toLocaleString()} kg** | **${Math.round(totalReceived).toLocaleString()} kg** | **${Math.round(totalIssued).toLocaleString()} kg** | **${Math.round(totalExcess).toLocaleString()} kg** | **${Math.round(totalStock).toLocaleString()} kg** | **${Math.round(totalBalance).toLocaleString()} kg** |\n\n`;
+
+  reply += `📊 **Grey Yarn Inventory Analytics & Status:**\n` +
+    `• **Warehouse Fulfillment Rate**: **${fulfillmentRate}%** (${Math.round(totalReceived).toLocaleString()} kg received / ${Math.round(totalRequired).toLocaleString()} kg required)\n` +
+    `• **Floor Issue Progress**: **${issueRate}%** (${Math.round(totalIssued).toLocaleString()} kg issued to circular knitting machines)\n` +
+    `• **Available Floor-Ready Stock**: **${Math.round(totalStock).toLocaleString()} kg** physical yarn unissued in warehouse (${ordersWithStock} orders have stock)\n` +
+    `• **Pending Issue Balance**: **${Math.round(totalBalance).toLocaleString()} kg** remaining across **${ordersWithBalance} orders** pending requisition\n` +
+    `• **Order Status Breakdown**: **${completeOrders} Complete** (${groups.length > 0 ? Math.round((completeOrders / groups.length) * 100) : 0}%) | **${runningOrders} Running** (${groups.length > 0 ? Math.round((runningOrders / groups.length) * 100) : 0}%)\n` +
+    `• **Physical Lots & Counts**: Tracked across **${records.length.toLocaleString()} unique yarn specifications** (Kader, Aman, Akij, Square, etc.)\n\n` +
+    `🧵 **Total Grey Yarn Stock Summary:** Required: **${Math.round(totalRequired).toLocaleString()} kg** | Received: **${Math.round(totalReceived).toLocaleString()} kg** | Issued: **${Math.round(totalIssued).toLocaleString()} kg** | Available Stock: **${Math.round(totalStock).toLocaleString()} kg** | Balance: **${Math.round(totalBalance).toLocaleString()} kg**\n` +
+    `*(Click the **Snipping Tool** button below to capture or export an executive image of this report).*`;
+
+  return {
+    reply,
+    items: records,
+    groups
   };
 }
 
@@ -2797,11 +3063,42 @@ export function handleSmartSummaryQuery(
   const query = normalizeQueryString(rawQuery);
   const lower = query.toLowerCase();
 
+  // 0.A Check for Grey Yarn Stock Report query
+  const isGreyYarnStockQuery = 
+    lower.includes('grey yarn stock') || 
+    lower.includes('grey yarn report') || 
+    lower.includes('yarn stock report') || 
+    lower.includes('grey yarn summary') || 
+    lower.includes('yarn stock summary') || 
+    lower.includes('grey yarn stock report') ||
+    lower.includes('grey yarn inventory') ||
+    lower.includes('yarn stock inventory') ||
+    lower.includes('reply with the grey yarn stock report') ||
+    (lower.includes('grey yarn') && (lower.includes('stock') || lower.includes('report') || lower.includes('summary') || lower.includes('total') || lower.includes('balance') || lower.includes('overview') || lower.includes('lot') || lower.trim() === 'grey yarn')) ||
+    (lower.includes('yarn stock') && (lower.includes('report') || lower.includes('summary') || lower.includes('total') || lower.includes('balance') || lower.trim() === 'yarn stock')) ||
+    (lower.includes('grey') && lower.includes('yarn') && lower.includes('report'));
+
+  if (isGreyYarnStockQuery) {
+    const allRecords = GreyYarnStockStorage.getRecords();
+    const candidateBuyers = Array.from(new Set(allRecords.map(r => r.buyerName).filter(Boolean))) as string[];
+    const matchedBuyer = candidateBuyers.find(b => lower.includes(b.toLowerCase()));
+
+    const rep = buildTotalGreyYarnStockReport(matchedBuyer);
+    return {
+      handled: true,
+      reply: rep.reply,
+      greyYarnStockItems: rep.items,
+      viewMode: 'all'
+    };
+  }
+
   // 0. Check for Total Grey Stock query
   const isGreyStockQuery = 
-    lower.includes('grey stock') || 
-    lower.includes('greystock') || 
-    (lower.includes('stock') && (lower.includes('total') || lower.includes('summary') || lower.includes('all') || lower.includes('balance')));
+    !isGreyYarnStockQuery && (
+      lower.includes('grey stock') || 
+      lower.includes('greystock') || 
+      (!lower.includes('yarn') && lower.includes('stock') && (lower.includes('total') || lower.includes('summary') || lower.includes('all') || lower.includes('balance')))
+    );
 
   if (isGreyStockQuery) {
     const gsRecords = GreyStockStorage.getRecords();
