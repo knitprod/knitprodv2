@@ -139,3 +139,61 @@ export function formatCompletionDate(val: any): string {
 
   return s;
 }
+
+/**
+ * Parses date string or Date object into UTC timestamp for accurate chronological comparison.
+ */
+export function parseDateToTimestamp(val: any): number {
+  if (!val) return 0;
+  if (val instanceof Date) return isNaN(val.getTime()) ? 0 : val.getTime();
+  const s = String(val).trim();
+  if (!s || s === '—' || s === '-' || s.toLowerCase() === 'n/a') return 0;
+
+  // 1. "24-Oct-2024", "1-OCT-2026", "01-Oct-2026"
+  const dMmmY = s.match(/^(\d{1,2})[-\s/]([A-Za-z]{3,})[-\s/](\d{2,4})$/);
+  if (dMmmY) {
+    const d = parseInt(dMmmY[1], 10);
+    const monStr = dMmmY[2].toLowerCase();
+    let y = parseInt(dMmmY[3], 10);
+    if (y < 100) y += (y > 50 ? 1900 : 2000);
+    const mNum = MONTH_MAP[monStr] || MONTH_MAP[monStr.slice(0, 3)];
+    if (mNum && d >= 1 && d <= 31) {
+      return Date.UTC(y, mNum - 1, d, 12, 0, 0);
+    }
+  }
+
+  // 2. ISO "2026-10-01"
+  const isoMatch = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (isoMatch) {
+    const y = parseInt(isoMatch[1], 10);
+    const m = parseInt(isoMatch[2], 10);
+    const d = parseInt(isoMatch[3], 10);
+    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return Date.UTC(y, m - 1, d, 12, 0, 0);
+    }
+  }
+
+  // 3. DD/MM/YYYY
+  const dmyMatch = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
+  if (dmyMatch) {
+    const p1 = parseInt(dmyMatch[1], 10);
+    const p2 = parseInt(dmyMatch[2], 10);
+    let y = parseInt(dmyMatch[3], 10);
+    if (y < 100) y += (y > 50 ? 1900 : 2000);
+    let d = p1;
+    let m = p2;
+    if (p1 > 12 && p2 <= 12) {
+      d = p1;
+      m = p2;
+    } else if (p2 > 12 && p1 <= 12) {
+      d = p2;
+      m = p1;
+    }
+    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return Date.UTC(y, m - 1, d, 12, 0, 0);
+    }
+  }
+
+  const p = Date.parse(s);
+  return isNaN(p) ? 0 : p;
+}

@@ -45,8 +45,8 @@ export function normOrder(val: string | null | undefined): string {
   return String(val).trim().toLowerCase().replace(/^0+/, '');
 }
 
-import { formatCompletionDate } from './dateUtils';
-export { formatCompletionDate };
+import { formatCompletionDate, parseDateToTimestamp } from './dateUtils';
+export { formatCompletionDate, parseDateToTimestamp };
 
 /**
  * Initial Default Demo Records for Grey Stock (Full 12-header structure)
@@ -1000,14 +1000,23 @@ export function groupGreyStockRecords(
     if (dateCounts.size > 0) {
       let topDate = '';
       let topCount = -1;
+      let topTimestamp = -1;
       dateCounts.forEach((count, dt) => {
-        if (count > topCount) {
+        const ts = parseDateToTimestamp(dt);
+        if (count > topCount || (count === topCount && ts > topTimestamp)) {
           topCount = count;
           topDate = dt;
+          topTimestamp = ts;
         }
       });
       if (topDate) {
         grp.completionDate = topDate;
+        // Backfill any items that have placeholder completion dates in this order
+        grp.items.forEach(it => {
+          if (!it.completionDate || it.completionDate.trim() === '—' || it.completionDate.trim() === '') {
+            it.completionDate = topDate;
+          }
+        });
       }
     }
   });
@@ -1126,6 +1135,27 @@ export function parseGreyStockExcel(
         throw new Error('Uploaded sheet contains no readable data.');
       }
 
+      // Propagate merged cells across the target worksheet so merged Order No, Completion Date, etc. are preserved
+      const targetWs = workbook.Sheets[targetSheetName];
+      if (targetWs && Array.isArray(targetWs['!merges']) && targetWs['!merges'].length > 0) {
+        for (const merge of targetWs['!merges']) {
+          const originAddr = XLSX.utils.encode_cell(merge.s);
+          const originCell = targetWs[originAddr];
+          if (originCell && originCell.v !== undefined && originCell.v !== '') {
+            for (let R = merge.s.r; R <= merge.e.r; ++R) {
+              for (let C = merge.s.c; C <= merge.e.c; ++C) {
+                if (R === merge.s.r && C === merge.s.c) continue;
+                const cellAddr = XLSX.utils.encode_cell({ r: R, c: C });
+                if (!targetWs[cellAddr] || targetWs[cellAddr].v === undefined || targetWs[cellAddr].v === '') {
+                  targetWs[cellAddr] = { ...originCell };
+                }
+              }
+            }
+          }
+        }
+        bestAoa = XLSX.utils.sheet_to_json(targetWs, { header: 1, defval: '' });
+      }
+
       const headerRow = bestAoa[bestHeaderRowIdx] || [];
 
       if (onProgress) {
@@ -1236,6 +1266,9 @@ export function parseGreyStockExcel(
       const dataRows = bestAoa.slice(bestHeaderRowIdx + 1);
       const totalCount = dataRows.length;
       let lastSeenOrderNo = '';
+      let currentOrderBuyer = '';
+      let currentOrderStatus = '';
+      let currentOrderDate = '';
 
       for (let idx = 0; idx < totalCount; idx++) {
         const row = dataRows[idx] || [];
@@ -1253,17 +1286,20 @@ export function parseGreyStockExcel(
           continue;
         }
 
-        // Support merged order numbers across rows
-        if (rawOrder) {
+        // Detect order boundary and reset intra-order state
+        if (rawOrder && rawOrder !== lastSeenOrderNo) {
           lastSeenOrderNo = rawOrder;
+          currentOrderBuyer = '';
+          currentOrderStatus = '';
+          currentOrderDate = '';
         }
         const orderNo = rawOrder || lastSeenOrderNo;
 
         const codeFromFile = colCode >= 0 ? String(row[colCode] || '').trim() : undefined;
-        const buyerFromFile = colBuyer >= 0 ? String(row[colBuyer] || '').trim() : '';
+        let buyerFromFile = colBuyer >= 0 ? String(row[colBuyer] || '').trim() : '';
         const fabType = colFabType >= 0 ? String(row[colFabType] || '').trim() : '';
         const fabStyle = colFabStyle >= 0 ? String(row[colFabStyle] || '').trim() : '';
-        const statusFromFile = colStatus >= 0 ? String(row[colStatus] || '').trim() : '';
+        let statusFromFile = colStatus >= 0 ? String(row[colStatus] || '').trim() : '';
         
         let completionDateStr = '—';
         if (colCompletionDate >= 0 && row[colCompletionDate] !== undefined && row[colCompletionDate] !== null && row[colCompletionDate] !== '') {
@@ -1284,6 +1320,16 @@ export function parseGreyStockExcel(
           } catch {}
           completionDateStr = formatCompletionDate(dateInput);
         }
+
+        // Intentionally keep intra-order metadata consistent across multi-line order items without bleeding across orders
+        if (buyerFromFile) currentOrderBuyer = buyerFromFile;
+        else if (currentOrderBuyer) buyerFromFile = currentOrderBuyer;
+
+        if (statusFromFile) currentOrderStatus = statusFromFile;
+        else if (currentOrderStatus) statusFromFile = currentOrderStatus;
+
+        if (completionDateStr !== '—') currentOrderDate = completionDateStr;
+        else if (currentOrderDate) completionDateStr = currentOrderDate;
 
         const netReceived = colNetReceived >= 0 ? Math.round(parseNumericValue(row[colNetReceived])) : 0;
         const netIssued = colNetIssued >= 0 ? Math.round(parseNumericValue(row[colNetIssued])) : 0;
