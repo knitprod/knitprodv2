@@ -45,42 +45,8 @@ export function normOrder(val: string | null | undefined): string {
   return String(val).trim().toLowerCase().replace(/^0+/, '');
 }
 
-/**
- * Formats completion date cleanly into readable string (e.g. "15-Oct-2024" or clean text)
- */
-export function formatCompletionDate(val: any): string {
-  if (val === null || val === undefined || val === '') return '—';
-  if (val instanceof Date) {
-    if (isNaN(val.getTime())) return '—';
-    return val.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-  }
-  const s = String(val).trim();
-  if (!s || s === '0' || s === 'null' || s === 'undefined' || s === '—') return '—';
-
-  // Excel serial day number (e.g. 45200 ~ 2023)
-  const num = Number(s);
-  if (!isNaN(num) && num > 30000 && num < 60000) {
-    try {
-      const d = new Date((num - (25567 + 2)) * 86400 * 1000);
-      if (!isNaN(d.getTime())) {
-        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-      }
-    } catch {}
-  }
-
-  // ISO or standard date string
-  if (s.includes('-') || s.includes('/') || s.includes('.')) {
-    const parsed = Date.parse(s);
-    if (!isNaN(parsed) && !s.match(/^\d+$/)) {
-      try {
-        const d = new Date(parsed);
-        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-      } catch {}
-    }
-  }
-
-  return s;
-}
+import { formatCompletionDate } from './dateUtils';
+export { formatCompletionDate };
 
 /**
  * Initial Default Demo Records for Grey Stock (Full 12-header structure)
@@ -1250,7 +1216,22 @@ export function parseGreyStockExcel(
         
         let completionDateStr = '—';
         if (colCompletionDate >= 0 && row[colCompletionDate] !== undefined && row[colCompletionDate] !== null && row[colCompletionDate] !== '') {
-          completionDateStr = formatCompletionDate(row[colCompletionDate]);
+          let dateInput = row[colCompletionDate];
+          try {
+            const ws = workbook.Sheets[targetSheetName];
+            if (ws) {
+              const cellAddr = XLSX.utils.encode_cell({ r: bestHeaderRowIdx + 1 + idx, c: colCompletionDate });
+              const cell = ws[cellAddr];
+              if (cell) {
+                if (typeof cell.w === 'string' && cell.w.trim()) {
+                  dateInput = cell.w.trim();
+                } else if (cell.v !== undefined && cell.v !== null) {
+                  dateInput = cell.v;
+                }
+              }
+            }
+          } catch {}
+          completionDateStr = formatCompletionDate(dateInput);
         }
 
         const netReceived = colNetReceived >= 0 ? Math.round(parseNumericValue(row[colNetReceived])) : 0;

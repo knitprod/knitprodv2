@@ -80,42 +80,8 @@ export function normOrder(val: string | null | undefined): string {
   return String(val).trim().toLowerCase().replace(/^0+/, '');
 }
 
-/**
- * Formats completion date cleanly into readable string (e.g. "24-Oct-2024")
- */
-export function formatCompletionDate(val: any): string {
-  if (val === null || val === undefined || val === '') return '—';
-  if (val instanceof Date) {
-    if (isNaN(val.getTime())) return '—';
-    return val.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-  }
-  const s = String(val).trim();
-  if (!s || s === '0' || s === 'null' || s === 'undefined' || s === '—') return '—';
-
-  // Excel serial day number
-  const num = Number(s);
-  if (!isNaN(num) && num > 30000 && num < 60000) {
-    try {
-      const d = new Date((num - (25567 + 2)) * 86400 * 1000);
-      if (!isNaN(d.getTime())) {
-        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-      }
-    } catch {}
-  }
-
-  // ISO or standard date string
-  if (s.includes('-') || s.includes('/') || s.includes('.')) {
-    const parsed = Date.parse(s);
-    if (!isNaN(parsed) && !s.match(/^\d+$/)) {
-      try {
-        const d = new Date(parsed);
-        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-      } catch {}
-    }
-  }
-
-  return s;
-}
+import { formatCompletionDate } from './dateUtils';
+export { formatCompletionDate };
 
 /**
  * Initial Default Demo Records for Grey Yarn Stock Summary
@@ -555,7 +521,7 @@ export function groupGreyYarnStockRecords(records: GreyYarnStockItem[]): GreyYar
       // Determine Order Status:
       let resolvedStatus = item.status || '';
       let resolvedBuyer = item.buyerName || '';
-      let resolvedCompDate = item.completionDate || '';
+      let resolvedCompDate = item.completionDate ? formatCompletionDate(item.completionDate) : '';
 
       if (textileSet.has(cleanKey)) {
         resolvedStatus = 'Textile Close';
@@ -565,7 +531,7 @@ export function groupGreyYarnStockRecords(records: GreyYarnStockItem[]): GreyYar
           resolvedStatus = kData.status || resolvedStatus || 'Running';
         }
         if (!resolvedBuyer && kData.buyer) resolvedBuyer = kData.buyer;
-        if (!resolvedCompDate && kData.completionDate) resolvedCompDate = kData.completionDate;
+        if (!resolvedCompDate && kData.completionDate) resolvedCompDate = formatCompletionDate(kData.completionDate);
       }
 
       if (!resolvedStatus) {
@@ -582,7 +548,7 @@ export function groupGreyYarnStockRecords(records: GreyYarnStockItem[]): GreyYar
       orderMap.set(cleanKey, group);
     } else {
       if (!group.buyerName && item.buyerName) group.buyerName = item.buyerName;
-      if (!group.completionDate && item.completionDate) group.completionDate = item.completionDate;
+      if (!group.completionDate && item.completionDate) group.completionDate = formatCompletionDate(item.completionDate);
     }
 
     group.items.push(item);
@@ -879,7 +845,20 @@ export async function parseGreyYarnStockExcel(file: File): Promise<GreyYarnStock
 
     const getVal = (key: string): any => {
       const idx = colIndexMap[key];
-      return idx !== undefined ? row[idx] : undefined;
+      if (idx === undefined) return undefined;
+      if (key === 'completionDate' && ws) {
+        const cellAddress = XLSX.utils.encode_cell({ r, c: idx });
+        const cell = ws[cellAddress];
+        if (cell) {
+          if (typeof cell.w === 'string' && cell.w.trim()) {
+            return cell.w.trim();
+          }
+          if (cell.v !== undefined && cell.v !== null) {
+            return cell.v;
+          }
+        }
+      }
+      return row[idx];
     };
 
     const getNum = (key: string): number => {

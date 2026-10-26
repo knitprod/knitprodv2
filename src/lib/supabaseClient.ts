@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { UserRecord, LedgerRecord, YarnAllocationRecord, OrderPlan, KnittingStatusOrder, TextileCloseRecord, GreyStockItem, GreyYarnStockItem } from '../types';
 import { getOrderPlanCanonicalId, deduplicateOrderPlans } from './knittingStatusStore';
+import { formatCompletionDate } from './dateUtils';
 
 /**
  * Supabase Client & Sync Manager for Epyllion Knitex ERP
@@ -2524,7 +2525,7 @@ export class SupabaseSync {
 
     // Extract Completion Date
     const rawCompDate = getVal('completion_date', 'completionDate', 'comp_date', 'compdate', 'closing_date', 'closed_date', 'delivery_date', 'Completion Date');
-    const compDateStr = rawCompDate !== undefined && rawCompDate !== null && String(rawCompDate).trim() !== '' ? String(rawCompDate).trim() : undefined;
+    const compDateStr = rawCompDate !== undefined && rawCompDate !== null && String(rawCompDate).trim() !== '' ? formatCompletionDate(rawCompDate) : undefined;
 
     // Extract Numerical Quantities with fallbacks
     const rawNetRec = getVal('net_received_qty', 'netReceivedQty', 'net_received', 'netrec', 'total_received', 'totalreceived', 'received_qty', 'received', 'recieved', 'Net Received', 'Total Received');
@@ -2615,7 +2616,7 @@ export class SupabaseSync {
       fab_style: String(item.fabStyle || ''),
       fab_type: String(item.fabType || ''),
       status: String(item.status || 'Running'),
-      completion_date: item.completionDate || null,
+      completion_date: item.completionDate ? formatCompletionDate(item.completionDate) : null,
       net_received_qty: parseFloat(String(item.netReceivedQty || 0)) || 0,
       net_issued_qty: parseFloat(String(item.netIssuedQty || 0)) || 0,
       stock_qty: parseFloat(String(item.stockQty || 0)) || 0,
@@ -2965,7 +2966,9 @@ export class SupabaseSync {
       orderNo: String(row.order_no || row.allocated_order_wa || row.orderNo || raw.orderNo || 'Unknown').trim(),
       buyerName: row.buyer_name || row.buyer || row.buyerName || raw.buyerName || '',
       status: row.status || raw.status || 'Running',
-      completionDate: row.completion_date || row.completionDate || raw.completionDate || '',
+      completionDate: (row.completion_date || row.completionDate || raw.completionDate)
+        ? formatCompletionDate(row.completion_date || row.completionDate || raw.completionDate)
+        : '',
       physicalYarnCount: row.physical_yarn_count || row.physicalCount || row.physical_count || row.physicalYarnCount || raw.physicalYarnCount || '—',
       physicalYarnLot: row.physical_yarn_lot || row.physicalLot || row.physical_lot || row.physicalYarnLot || raw.physicalYarnLot || '—',
       spinner: row.spinner || row.spinners_name || row.spinnersName || raw.spinner || '—',
@@ -2997,7 +3000,7 @@ export class SupabaseSync {
     return {
       id: item.id || `gys-${rawOrder}-${Math.random().toString(36).substring(2, 8)}`,
       // Direct columns matching user file headers:
-      completion_date: item.completionDate || null,
+      completion_date: item.completionDate ? formatCompletionDate(item.completionDate) : null,
       buyer: rawBuyer || null,
       status: item.status || 'Running',
       allocated_order_wa: rawOrder,
