@@ -672,6 +672,11 @@ export async function parseGreyYarnStockExcel(file: File): Promise<GreyYarnStock
     ],
     completionDate: [
       'completion date', // Exact header from user's file
+      'completion',
+      'completio',
+      'complete date',
+      'comp date',
+      'comp. date',
       'delivery date',
       'ship date',
       'closing date',

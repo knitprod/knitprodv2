@@ -102,12 +102,13 @@ export function formatCompletionDate(val: any): string {
     }
   }
 
-  // 5. Standard DD/MM/YYYY or DD-MM-YYYY format: "24/10/2024", "24-10-2024"
-  const dmyMatch = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  // 5. Standard DD/MM/YYYY or DD-MM-YYYY format: "24/10/2024", "24-10-2024", "4/10/26", "4-10-26"
+  const dmyMatch = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
   if (dmyMatch) {
     const p1 = parseInt(dmyMatch[1], 10);
     const p2 = parseInt(dmyMatch[2], 10);
-    const y = parseInt(dmyMatch[3], 10);
+    let y = parseInt(dmyMatch[3], 10);
+    if (y < 100) y += (y > 50 ? 1900 : 2000);
     let d = p1;
     let m = p2;
     if (p1 > 12 && p2 <= 12) {

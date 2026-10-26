@@ -942,10 +942,14 @@ export function groupGreyStockRecords(
         Object.keys(item.customFields).forEach(k => customCols.add(k));
       }
 
+      const formattedCompDate = (item.completionDate && item.completionDate.trim() && item.completionDate.trim() !== '—')
+        ? formatCompletionDate(item.completionDate)
+        : '—';
+
       group = {
         orderNo: rawOrd,
         status: (item.status && item.status.trim() && item.status.trim() !== '—') ? item.status.trim() : 'Running',
-        completionDate: (item.completionDate && item.completionDate.trim() && item.completionDate.trim() !== '—') ? item.completionDate.trim() : '—',
+        completionDate: formattedCompDate,
         buyerName: (item.buyerName && item.buyerName.trim() && item.buyerName.trim() !== '—') ? item.buyerName.trim() : '—',
         totalNetReceived: netRec,
         totalNetIssued: netIss,
@@ -961,7 +965,7 @@ export function groupGreyStockRecords(
         group.status = item.status.trim();
       }
       if ((!group.completionDate || group.completionDate === '—') && item.completionDate && item.completionDate.trim() && item.completionDate.trim() !== '—') {
-        group.completionDate = item.completionDate.trim();
+        group.completionDate = formatCompletionDate(item.completionDate);
       }
       if ((!group.buyerName || group.buyerName === '—') && item.buyerName && item.buyerName.trim() && item.buyerName.trim() !== '—') {
         group.buyerName = item.buyerName.trim();
@@ -980,6 +984,33 @@ export function groupGreyStockRecords(
       group.items.push(item);
     }
   }
+
+  // Refine group-level completionDate so it represents the dominant valid completion date among all items
+  map.forEach(grp => {
+    const dateCounts = new Map<string, number>();
+    grp.items.forEach(it => {
+      if (it.completionDate && it.completionDate.trim() && it.completionDate.trim() !== '—') {
+        const d = formatCompletionDate(it.completionDate);
+        if (d && d !== '—') {
+          dateCounts.set(d, (dateCounts.get(d) || 0) + 1);
+        }
+      }
+    });
+
+    if (dateCounts.size > 0) {
+      let topDate = '';
+      let topCount = -1;
+      dateCounts.forEach((count, dt) => {
+        if (count > topCount) {
+          topCount = count;
+          topDate = dt;
+        }
+      });
+      if (topDate) {
+        grp.completionDate = topDate;
+      }
+    }
+  });
 
   return Array.from(map.values());
 }
@@ -1154,8 +1185,16 @@ export function parseGreyStockExcel(
         else if (colStatus === -1 && (hNorm === 'status' || hNorm === 'orderstatus' || hNorm === 'itemstatus')) {
           colStatus = c;
         }
-        // 8. Completion Date
-        else if (colCompletionDate === -1 && (hNorm.includes('completion') || hNorm.includes('completedate') || hNorm.includes('compdate') || hNorm.includes('closingdate') || hNorm.includes('closeddate') || hNorm.includes('deliverydate'))) {
+        // 8. Completion Date (Primary Match: Completion / Completio / Complete Date / Comp Date)
+        else if (colCompletionDate === -1 && (
+          hNorm.includes('complet') || 
+          hNorm.includes('compdate') || 
+          hNorm === 'comp' || 
+          hNorm === 'completion' || 
+          hNorm === 'completio' || 
+          hNorm.startsWith('complet') || 
+          hNorm.startsWith('comp')
+        )) {
           colCompletionDate = c;
         }
         // 9. Net Received (Sum of Total Received / Net Received)
@@ -1177,6 +1216,18 @@ export function parseGreyStockExcel(
         // Optional Owner Unit
         else if (colOwnerUnit === -1 && (hNorm.includes('owner') || hNorm.includes('unit') || hNorm === 'plant' || hNorm === 'factory')) {
           colOwnerUnit = c;
+        }
+      }
+
+      // Secondary fallback for colCompletionDate if no explicit Completion column was found
+      if (colCompletionDate === -1) {
+        for (let c = 0; c < headerRow.length; c++) {
+          if (c === colOrderNo || c === colBuyer || c === colFabType || c === colColour || c === colFabStyle || c === colStatus || c === colNetReceived || c === colNetIssued || c === colTotalStock) continue;
+          const hNorm = norm(headerRow[c]);
+          if (hNorm.includes('closing') || hNorm.includes('closed') || hNorm.includes('delivery') || hNorm.includes('shipdate') || hNorm.includes('pmcdate') || (hNorm.includes('date') && !hNorm.includes('update'))) {
+            colCompletionDate = c;
+            break;
+          }
         }
       }
 
