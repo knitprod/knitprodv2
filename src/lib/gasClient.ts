@@ -436,7 +436,7 @@ export class GasClient {
     if (!res || !res.success) {
       const altPasswords: Record<string, string[]> = {
         'EKL001': ['Password@2026', 'password123'],
-        'EKL002': ['GmKnitting99', 'password456'],
+        'EKL002': ['Tonoy123', 'password456'],
         'EKL003': ['AkilZaman#456', 'password789'],
         'EKL004': ['NasrinDyeing@1', 'password321']
       };
@@ -463,7 +463,7 @@ export class GasClient {
           id: 'usr-1',
           userName: 'Md. Raihan Hossain Antu',
           userType: 'Admin',
-          designation: 'Senior Manager',
+          designation: 'Officer',
           uid: 'EKL001',
           password: 'Password@2026',
           department: 'Knitting',
@@ -474,11 +474,11 @@ export class GasClient {
         },
         'EKL002': {
           id: 'usr-2',
-          userName: 'Zahirul Islam',
+          userName: 'Rezwanul Arefin Tonoy',
           userType: 'Admin',
-          designation: 'General Manager (GM)',
+          designation: 'Senior Manager',
           uid: 'EKL002',
-          password: 'GmKnitting99',
+          password: 'Tonoy123',
           department: 'Knitting',
           assignedUnits: ['EKL', 'EFL', 'EFL-2', 'Auto Stripe', 'EFL-Extension', 'ESL-Extension', 'Sub-Contact'],
           permission: 'Read / Write',
