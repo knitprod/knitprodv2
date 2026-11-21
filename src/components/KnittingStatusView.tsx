@@ -889,32 +889,38 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
     stage: ''
   });
 
-  // Supabase Real-time Cloud Synchronization
+  // Supabase Real-time Cloud Synchronization (shared server cache + Realtime + Broadcast signals)
   useEffect(() => {
     if (!SupabaseSync.isConfigured()) return;
+    let isCancelled = false;
 
-    // Fetch initial from Supabase
-    SupabaseSync.fetchKnittingOrders().then(remoteOrders => {
-      if (Array.isArray(remoteOrders) && remoteOrders.length > 0) {
-        const sanitized = remoteOrders.map(aggregateOrderValues);
-        setOrders(sanitized);
-        KnittingStatusStorage.saveOrders(sanitized);
-        const nowStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-        setLastSyncedAt(nowStr);
-        try {
-          localStorage.setItem('epyllion_knitting_status_last_sync', nowStr);
-        } catch {}
-      } else {
-        // Auto-seed to Supabase if empty
-        const current = KnittingStatusStorage.getOrders();
-        if (current && current.length > 0) {
-          SupabaseSync.bulkSaveKnittingOrders(current, false).catch(() => {});
+    const pullFromCache = () =>
+      SupabaseSync.fetchKnittingOrders(undefined, false).then(remoteOrders => {
+        if (isCancelled) return;
+        if (Array.isArray(remoteOrders) && remoteOrders.length > 0) {
+          const sanitized = remoteOrders.map(aggregateOrderValues);
+          setOrders(sanitized);
+          KnittingStatusStorage.saveOrders(sanitized);
+          const nowStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+          setLastSyncedAt(nowStr);
+          try {
+            localStorage.setItem('epyllion_knitting_status_last_sync', nowStr);
+          } catch {}
+        } else if (!SupabaseSync.isServiceRestricted() && !SupabaseSync.hasFetchFailed('knitting_orders')) {
+          // Auto-seed to Supabase ONLY if connected cleanly and genuinely empty
+          const current = KnittingStatusStorage.getOrders();
+          if (current && current.length > 0) {
+            SupabaseSync.bulkSaveKnittingOrders(current, false).catch(() => {});
+          }
         }
-      }
-    });
+      }).catch(() => {});
 
-    // Real-time subscription
+    // 1. Initial load via shared server/client cache
+    pullFromCache();
+
+    // 2. Real-time single-row subscription
     const unsub = SupabaseSync.subscribeToKnittingOrders(({ eventType, record, id }) => {
+      if (isCancelled) return;
       if (eventType === 'DELETE') {
         setOrders(prev => {
           const next = prev.filter(o => o.id !== id && o.orderNo !== id);
@@ -932,8 +938,17 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
       }
     });
 
+    // 3. Cross-device Broadcast listener for instant bulk Excel upload updates
+    const unsubSignals = SupabaseSync.subscribeToSyncSignals(({ table }) => {
+      if (!isCancelled && table === 'knitting_orders') {
+        pullFromCache();
+      }
+    });
+
     return () => {
+      isCancelled = true;
       unsub();
+      unsubSignals();
     };
   }, []);
 
@@ -1667,7 +1682,7 @@ export default function KnittingStatusView({ currentUser, initialTab, onNavigate
           current: loaded,
           total
         });
-      });
+      }, true);
 
       if (Array.isArray(remote) && remote.length > 0) {
         const sanitized = remote.map(aggregateOrderValues);

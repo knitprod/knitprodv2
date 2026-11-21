@@ -180,22 +180,32 @@ export const KnittingOrderSnippingModal: React.FC<KnittingOrderSnippingModalProp
   const [greyRecords, setGreyRecords] = useState<GreyStockItem[]>(() => GreyStockStorage.getRecords());
 
   useEffect(() => {
-    if (!isOpen) return;
-    // 1. Immediately read from local storage
+    if (!isOpen || !order?.orderNo) return;
+    let isCancelled = false;
+
+    // 1. Immediately read from local cache
     const current = GreyStockStorage.getRecords();
     if (current && current.length > 0) {
       setGreyRecords(current);
     }
 
-    // 2. Fetch latest from Supabase cloud
-    if (SupabaseSync.isConfigured() && SupabaseSync.isGreyStockTableAvailable()) {
-      SupabaseSync.fetchGreyStockRecords().then(remote => {
-        if (Array.isArray(remote) && remote.length > 0) {
-          GreyStockStorage.saveRecords(remote, false);
-          setGreyRecords(remote);
-        }
+    // 2. Targeted single-order lookup ONLY (never downloads the full grey_stock_summary table!)
+    if (SupabaseSync.isConfigured() && !SupabaseSync.isServiceRestricted() && SupabaseSync.isGreyStockTableAvailable()) {
+      SupabaseSync.fetchGreyStockByOrder(order.orderNo).then(orderRows => {
+        if (isCancelled || !Array.isArray(orderRows) || orderRows.length === 0) return;
+        setGreyRecords(prev => {
+          const base = prev && prev.length > 0 ? prev : GreyStockStorage.getRecords();
+          const byId = new Map<string, GreyStockItem>();
+          for (const item of base) byId.set(item.id, item);
+          for (const item of orderRows) byId.set(item.id, item);
+          return Array.from(byId.values());
+        });
       }).catch(() => {});
     }
+
+    return () => {
+      isCancelled = true;
+    };
   }, [order?.orderNo, isOpen]);
 
   const greyStockData = useMemo(() => {

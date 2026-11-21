@@ -168,35 +168,40 @@ export default function TextileClosePMCView({ currentUser, onNavigateTab }: Text
     setTimeout(() => setToastMessage(null), 4000);
   };
 
-  // 1. Initial Load & Real-time Cloud Synchronization
+  // 1. Initial Load & Real-time Cloud Synchronization (shared server cache + Realtime + Broadcast)
   useEffect(() => {
     if (!SupabaseSync.isConfigured()) return;
+    let isCancelled = false;
 
-    // Fetch initial from Supabase Cloud
-    SupabaseSync.fetchTextileCloseRecords()
-      .then(remoteRecords => {
-        if (Array.isArray(remoteRecords) && remoteRecords.length > 0) {
-          setRecords(remoteRecords);
-          TextileClosePMCStorage.saveRecords(remoteRecords);
-          const nowStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-          setLastSyncedAt(nowStr);
-          try {
-            localStorage.setItem('epyllion_tc_pmc_last_sync', nowStr);
-          } catch {}
-        } else {
-          // If remote is empty, seed demo records to Supabase
-          const local = TextileClosePMCStorage.getRecords();
-          if (local && local.length > 0) {
-            SupabaseSync.bulkSaveTextileCloseRecords(local, false).catch(() => {});
+    const pullFromCache = () =>
+      SupabaseSync.fetchTextileCloseRecords(undefined, false)
+        .then(remoteRecords => {
+          if (isCancelled) return;
+          if (Array.isArray(remoteRecords) && remoteRecords.length > 0) {
+            setRecords(remoteRecords);
+            TextileClosePMCStorage.saveRecords(remoteRecords);
+            const nowStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+            setLastSyncedAt(nowStr);
+            try {
+              localStorage.setItem('epyllion_tc_pmc_last_sync', nowStr);
+            } catch {}
+          } else if (!SupabaseSync.isServiceRestricted() && !SupabaseSync.hasFetchFailed('textile_close_pmc')) {
+            // Only seed demo records if Supabase is healthy and genuinely empty
+            const local = TextileClosePMCStorage.getRecords();
+            if (local && local.length > 0) {
+              SupabaseSync.bulkSaveTextileCloseRecords(local, false).catch(() => {});
+            }
           }
-        }
-      })
-      .catch(err => {
-        console.warn('Textile Close By PMC Supabase fetch error:', err);
-      });
+        })
+        .catch(err => {
+          console.warn('Textile Close By PMC Supabase fetch error:', err);
+        });
+
+    pullFromCache();
 
     // Real-time WebSocket Subscription
     const unsub = SupabaseSync.subscribeToTextileCloseRecords(({ eventType, record, id }) => {
+      if (isCancelled) return;
       if (eventType === 'DELETE') {
         setRecords(prev => {
           const next = prev.filter(r => r.id !== id);
@@ -214,8 +219,17 @@ export default function TextileClosePMCView({ currentUser, onNavigateTab }: Text
       }
     });
 
+    // Cross-device Broadcast listener for bulk Excel uploads
+    const unsubSignals = SupabaseSync.subscribeToSyncSignals(({ table }) => {
+      if (!isCancelled && table === 'textile_close_pmc') {
+        pullFromCache();
+      }
+    });
+
     return () => {
+      isCancelled = true;
       unsub();
+      unsubSignals();
     };
   }, []);
 
@@ -242,7 +256,7 @@ export default function TextileClosePMCView({ currentUser, onNavigateTab }: Text
           current: loaded,
           total
         });
-      });
+      }, true);
 
       if (Array.isArray(remote) && remote.length > 0) {
         setRecords(remote);

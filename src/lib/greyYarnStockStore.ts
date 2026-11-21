@@ -381,7 +381,8 @@ export const GreyYarnStockStorage = {
    */
   async syncTwoWay(
     forcePushLocal: boolean = false,
-    onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void
+    onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void,
+    forceCloudRefresh: boolean = false
   ): Promise<{ records: GreyYarnStockItem[]; source: string; count: number }> {
     if (forcePushLocal) {
       const localRecords = this.getRecords();
@@ -396,7 +397,8 @@ export const GreyYarnStockStorage = {
         const remoteRecords = await SupabaseSync.fetchGreyYarnStockRecords(
           (loaded, total, percent) => {
             if (onProgress) onProgress(loaded, total, percent, `Loaded ${loaded} of ${total} records from Supabase...`);
-          }
+          },
+          forceCloudRefresh
         );
         if (Array.isArray(remoteRecords) && remoteRecords.length > 0) {
           this.saveRecords(remoteRecords, false);

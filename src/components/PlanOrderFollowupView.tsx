@@ -761,7 +761,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
               : `Downloading ${loaded.toLocaleString()} records...`
           });
         }
-      });
+      }, forceRefresh);
 
       if (data && Array.isArray(data) && data.length > 0) {
         const cleaned = deduplicateOrderPlans(data);
@@ -810,32 +810,23 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
     }
   };
 
-  // Both Automated Background Sync AND On-Demand Sync Data Button:
-  // Automatically loads on mount, polls every 25 seconds while active, syncs on tab visibility / focus,
-  // and listens to live Supabase postgres changes.
+  // Automated Live Multi-User Sync (Zero Wasteful Polling):
+  // - Uses shared server cache on mount (avoids redundant full-table downloads if GlobalDataContext already hydrated)
+  // - Listens to live Supabase Postgres Realtime events for single-row edits
+  // - Listens to tiny Broadcast sync signals for instant bulk Excel upload refreshes across all devices
   useEffect(() => {
     let isMounted = true;
 
-    // 1. Initial automatic load from database on mount without requiring button click
+    // 1. Initial load via shared server/client cache (fast, deduplicated, zero duplicate egress)
     loadOrders(false, true);
 
-    // 2. Periodic background check every 90 seconds while tab is active (Realtime subscription handles instant live changes)
-    const timer = setInterval(() => {
-      if (typeof document !== 'undefined' && !document.hidden && !isSyncingRef.current) {
-        loadOrders(false, true);
-      }
-    }, 90000);
+    // 2. Live Broadcast listener for instant cross-device refresh after bulk Excel uploads
+    const unsubSignals = SupabaseSync.subscribeToSyncSignals(({ table }) => {
+      if (!isMounted || table !== 'order_plans') return;
+      loadOrders(false, true);
+    });
 
-    // 3. Tab visibility / Window focus handler: sync when user returns to this tab
-    const handleFocus = () => {
-      if (typeof document !== 'undefined' && !document.hidden && !isSyncingRef.current) {
-        loadOrders(false, true);
-      }
-    };
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleFocus);
-
-    // 4. Live Postgres Realtime subscription for instant multi-user order plan updates
+    // 3. Live Postgres Realtime subscription for instant multi-user single-row edits
     const client = SupabaseSync.getClient();
     let channel: any = null;
     if (client) {
@@ -876,9 +867,7 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
 
     return () => {
       isMounted = false;
-      clearInterval(timer);
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleFocus);
+      unsubSignals();
       if (channel && client) {
         try { client.removeChannel(channel); } catch (e) {}
       }

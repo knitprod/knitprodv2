@@ -72,22 +72,411 @@ export class SupabaseSync {
     return this.getStoredConfig();
   }
 
+  private static _serviceRestrictedUntil: number = 0;
+  private static _serviceRestrictedReason: string | null = null;
+  private static _failedTables = new Set<string>();
+
+  static isQuotaOrRestrictionError(err: any): boolean {
+    if (!err) return false;
+    try {
+      const msg = (
+        typeof err === 'string'
+          ? err
+          : (err.message || err.details || err.hint || err.error_description || JSON.stringify(err))
+      ).toLowerCase();
+      return (
+        msg.includes('exceed_egress_quota') ||
+        msg.includes('exceed_quota') ||
+        msg.includes('egress quota') ||
+        msg.includes('restricted due to') ||
+        msg.includes('spend caps') ||
+        msg.includes('upgrade their plan') ||
+        err?.status === 402
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  static isServiceRestricted(): boolean {
+    if (this._serviceRestrictedUntil > Date.now()) {
+      return true;
+    }
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        const raw = sessionStorage.getItem('epyllion_supabase_restricted_until');
+        if (raw) {
+          const ts = parseInt(raw, 10);
+          if (!isNaN(ts) && ts > Date.now()) {
+            this._serviceRestrictedUntil = ts;
+            this._serviceRestrictedReason =
+              sessionStorage.getItem('epyllion_supabase_restricted_reason') ||
+              'Supabase service quota exceeded. Using backup storage.';
+            return true;
+          }
+        }
+      }
+    } catch {}
+    return false;
+  }
+
+  static getServiceRestrictionReason(): string | null {
+    return this.isServiceRestricted()
+      ? (this._serviceRestrictedReason || 'Supabase quota exceeded. Using backup storage.')
+      : null;
+  }
+
+  static markServiceRestricted(err: any): void {
+    const alreadyRestricted = this._serviceRestrictedUntil > Date.now();
+    let reason = 'Supabase project quota exceeded. Switching to backup storage.';
+    if (err && typeof err === 'object' && err.message) {
+      reason = String(err.message);
+    } else if (typeof err === 'string' && err.trim()) {
+      try {
+        const parsed = JSON.parse(err);
+        reason = parsed?.message || err;
+      } catch {
+        reason = err;
+      }
+    }
+
+    this._serviceRestrictedUntil = Date.now() + 5 * 60 * 1000;
+    this._serviceRestrictedReason = reason;
+    this.client = null;
+
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('epyllion_supabase_restricted_until', String(this._serviceRestrictedUntil));
+        sessionStorage.setItem('epyllion_supabase_restricted_reason', reason);
+      }
+    } catch {}
+
+    if (!alreadyRestricted) {
+      console.warn('Supabase service restricted (quota exceeded) — falling back to backup/local storage:', reason);
+    }
+  }
+
+  static clearServiceRestriction(): void {
+    this._serviceRestrictedUntil = 0;
+    this._serviceRestrictedReason = null;
+    this._failedTables.clear();
+    this._tableFetchMemo.clear();
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem('epyllion_supabase_restricted_until');
+        sessionStorage.removeItem('epyllion_supabase_restricted_reason');
+      }
+    } catch {}
+  }
+
+  static hasFetchFailed(table: string): boolean {
+    return this._failedTables.has(table);
+  }
+
+  // =========================================================================
+  // EGRESS-SAVING SHARED CACHE, DELTA SYNC & LIVE BROADCAST COORDINATOR
+  // =========================================================================
+
+  private static _tableFetchMemo = new Map<string, { ts: number; data: any[]; maxUpdatedAt?: string | null }>();
+  private static _tableInFlight = new Map<string, Promise<any>>();
+  private static _lastKnownTableVersions: Record<string, number> = {};
+  private static _clientSenderId = `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  private static _syncSignalChannel: any = null;
+  private static _syncSignalListeners = new Set<(signal: { table: string; mode: string; ts: number }) => void>();
+  private static _tablesRequiringWildcard = new Set<string>();
+  private static readonly CLIENT_CACHE_TTL_MS = 45 * 1000;
+
+  private static readonly SLIM_SELECT_COLUMNS: Record<string, string> = {
+    production_ledger:
+      'id,date,unit,floor,shift_a,shift_b,shift_c,total_production,target,efficiency,active_machines,total_machines,machine_utilization,idle_machines,running_orders,buyer,remarks,updated_by,created_at,updated_at',
+    yarn_allocations:
+      'id,actual_requisition_date,buyer,order_number,fabrics_type,fabric_shade,fabric_gsm,yarn_required,lot_ref,allocated_yarn,lot_no,spinners_name,allocation_status,yarn_stock_status,yarn_delivery_status,proposed_allocation_date,allocation_date_range,allocation_no,yarn_rq_qty,allocated_qty,balance,remarks,updated_by,created_at,updated_at',
+    order_plans:
+      'id,plan_month,plan_type,ewo,buyer,color,knit_start,knit_end,target,target_next_month,allocation_start,allocation_end,allocated_qty,allocated_bal,grey_req,knit_pro,knit_bal,a_knit_start,last_production_date,avg_prod_day,expected_knit_end,knit_start_otd,knit_end_otd,knit_start_remarks,knit_end_remarks,knit_team_leaders,updated_by,created_at,updated_at',
+    knitting_orders:
+      'id,order_no,buyer_name,team_leader,knit_start_date,knit_end_date,req_qty,grey_qty,production,knit_balance,items,remarks,raw_data,created_at,updated_at',
+    textile_close_pmc:
+      'id,status,order_no,buyer_name,team_leader,fgsm,f_width,color,fab_type,req_qty,grey_qty,production,knit_bal,closed_date,remarks,updated_at',
+    grey_stock_summary:
+      'id,code,order_no,buyer_name,colour,fab_style,fab_type,status,completion_date,net_received_qty,net_issued_qty,stock_qty,double_count,owner_unit,matched_grey_qty,updated_at',
+    grey_yarn_stock:
+      'id,completion_date,buyer,status,allocated_order_wa,physical_count,physical_lot,spinner,booking_qty,yarn_required,net_received,total_issued,excess_issued,total_stock_qty,issue_balance,order_no,buyer_name,physical_yarn_count,physical_yarn_lot,total_received,issued_balance,remarks,updated_at'
+  };
+
+  static getSelectColumns(table: string): string {
+    if (this._tablesRequiringWildcard.has(table)) return '*';
+    return this.SLIM_SELECT_COLUMNS[table] || '*';
+  }
+
+  static getLastKnownVersion(table: string): number {
+    return this._lastKnownTableVersions[table] || 0;
+  }
+
+  static getLastSyncedTimestamp(table: string): string | null {
+    return this._tableFetchMemo.get(table)?.maxUpdatedAt || null;
+  }
+
+  static clearLocalTableMemo(table?: string): void {
+    if (table) {
+      this._tableFetchMemo.delete(table);
+    } else {
+      this._tableFetchMemo.clear();
+    }
+  }
+
+  /**
+   * Checks lightweight version numbers (~250 bytes) from the shared server cache.
+   * Returns null if server cache endpoint is unreachable.
+   */
+  static async fetchServerTableVersions(
+    probe: boolean = false
+  ): Promise<{
+    restricted: boolean;
+    versions: Record<string, { version: number; fetchedAt: number; maxUpdatedAt: string | null; count: number }>;
+  } | null> {
+    try {
+      const url = probe ? '/api/supabase-cache/versions?probe=1' : '/api/supabase-cache/versions';
+      const res = await fetch(url, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(8000)
+      });
+      if (!res.ok) return null;
+      const json = await res.json();
+      if (json?.restricted) {
+        this.markServiceRestricted(json.reason || 'Supabase project quota exceeded.');
+      }
+      if (json?.success && json.versions) {
+        return { restricted: Boolean(json.restricted), versions: json.versions };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Fetches rows via the shared server-side RAM cache (/api/supabase-cache/:table).
+   * N concurrent users hit 1 Supabase read instead of N.
+   */
+  private static async fetchRowsViaServerCache(
+    table: string,
+    options?: { force?: boolean; since?: string; orderNo?: string }
+  ): Promise<{ ok: boolean; rows: any[]; version?: number; maxUpdatedAt?: string | null; restricted?: boolean } | null> {
+    try {
+      const params = new URLSearchParams();
+      if (options?.force) params.set('force', '1');
+      if (options?.since) params.set('since', options.since);
+      if (options?.orderNo) params.set('orderNo', options.orderNo);
+      const qs = params.toString();
+      const res = await fetch(`/api/supabase-cache/${encodeURIComponent(table)}${qs ? `?${qs}` : ''}`, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(45000)
+      });
+      if (!res.ok) return null;
+      const json = await res.json();
+      if (json?.restricted) {
+        this.markServiceRestricted(json.reason || 'Supabase project quota exceeded.');
+        return { ok: false, rows: [], restricted: true };
+      }
+      if (json?.permissionDenied) {
+        return { ok: false, rows: [], restricted: false };
+      }
+      if (json?.success && Array.isArray(json.rows)) {
+        if (typeof json.version === 'number' && !options?.orderNo) {
+          this._lastKnownTableVersions[table] = json.version;
+        }
+        return {
+          ok: true,
+          rows: json.rows,
+          version: json.version,
+          maxUpdatedAt: json.maxUpdatedAt || null
+        };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Incremental delta fetch: downloads ONLY rows modified after `sinceIso`.
+   */
+  static async fetchTableDelta(table: string, sinceIso: string): Promise<any[] | null> {
+    if (!sinceIso || this.isServiceRestricted()) return null;
+    const cached = await this.fetchRowsViaServerCache(table, { since: sinceIso });
+    if (cached) {
+      return cached.ok ? cached.rows : null;
+    }
+
+    const client = this.getClient();
+    if (!client) return null;
+    try {
+      let selectCols = this.getSelectColumns(table);
+      let { data, error } = await client.from(table).select(selectCols).gt('updated_at', sinceIso).limit(1000);
+      if (error && selectCols !== '*' && (error.code === '42703' || error.code === 'PGRST204')) {
+        this._tablesRequiringWildcard.add(table);
+        const retry = await client.from(table).select('*').gt('updated_at', sinceIso).limit(1000);
+        data = retry.data;
+        error = retry.error;
+      }
+      if (error) {
+        if (this.isQuotaOrRestrictionError(error)) this.markServiceRestricted(error);
+        return null;
+      }
+      return Array.isArray(data) ? data : [];
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Invalidates the shared server cache and broadcasts 1 tiny Realtime signal (~100 bytes)
+   * so all other connected devices/tabs automatically refresh without clicking Sync.
+   */
+  static notifyDatasetChanged(table: string, mode: 'single' | 'bulk' = 'bulk'): void {
+    this._tableFetchMemo.delete(table);
+
+    // 1. Invalidate shared server RAM cache immediately
+    if (typeof fetch !== 'undefined') {
+      fetch('/api/supabase-cache/invalidate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ table })
+      })
+        .then(res => (res.ok ? res.json() : null))
+        .then(json => {
+          if (json && typeof json.version === 'number') {
+            this._lastKnownTableVersions[table] = json.version;
+          }
+        })
+        .catch(() => {});
+    }
+
+    // 2. Broadcast 1 tiny signal via Supabase Realtime Broadcast (all other devices auto-update live!)
+    if (mode === 'bulk') {
+      const client = this.getClient();
+      if (client) {
+        try {
+          if (this._syncSignalChannel) {
+            this._syncSignalChannel.send({
+              type: 'broadcast',
+              event: 'dataset_changed',
+              payload: { table, mode, ts: Date.now(), senderId: this._clientSenderId }
+            }).catch?.(() => {});
+          } else {
+            const tempCh = client.channel('epyllion:sync_signals', {
+              config: { broadcast: { self: false } }
+            });
+            tempCh.subscribe((status) => {
+              if (status === 'SUBSCRIBED') {
+                tempCh.send({
+                  type: 'broadcast',
+                  event: 'dataset_changed',
+                  payload: { table, mode, ts: Date.now(), senderId: this._clientSenderId }
+                }).finally(() => {
+                  setTimeout(() => {
+                    try { client.removeChannel(tempCh); } catch {}
+                  }, 1500);
+                });
+              }
+            });
+          }
+        } catch {}
+      }
+    }
+  }
+
+  /**
+   * Subscribes to tiny cross-device bulk-upload/mutation broadcast signals.
+   * Shares 1 single WebSocket channel across all components.
+   */
+  static subscribeToSyncSignals(
+    listener: (signal: { table: string; mode: string; ts: number }) => void
+  ): () => void {
+    this._syncSignalListeners.add(listener);
+
+    if (!this._syncSignalChannel) {
+      const client = this.getClient();
+      if (client) {
+        try {
+          this._syncSignalChannel = client
+            .channel('epyllion:sync_signals', {
+              config: { broadcast: { self: false } }
+            })
+            .on('broadcast', { event: 'dataset_changed' }, (msg: any) => {
+              const payload = msg?.payload;
+              if (!payload || !payload.table) return;
+              if (payload.senderId === this._clientSenderId) return;
+              this._tableFetchMemo.delete(payload.table);
+              for (const fn of this._syncSignalListeners) {
+                try {
+                  fn({ table: String(payload.table), mode: String(payload.mode || 'bulk'), ts: Number(payload.ts || Date.now()) });
+                } catch {}
+              }
+            })
+            .subscribe();
+        } catch (err) {
+          console.warn('Supabase subscribeToSyncSignals notice:', err);
+          this._syncSignalChannel = null;
+        }
+      }
+    }
+
+    return () => {
+      this._syncSignalListeners.delete(listener);
+      if (this._syncSignalListeners.size === 0 && this._syncSignalChannel) {
+        const client = this.getClient();
+        const ch = this._syncSignalChannel;
+        this._syncSignalChannel = null;
+        try {
+          client?.removeChannel(ch);
+        } catch {}
+      }
+    };
+  }
+
+  private static createProtectedClient(url: string, key: string, persistSession: boolean = true): SupabaseClient {
+    const wrappedFetch: typeof fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (SupabaseSync.isServiceRestricted()) {
+        return new Response(
+          JSON.stringify({ message: SupabaseSync.getServiceRestrictionReason() || 'Service restricted due to quota.' }),
+          { status: 503, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const response = await fetch(input, init);
+      if (!response.ok && (response.status === 402 || response.status === 403 || response.status === 429 || response.status >= 400)) {
+        try {
+          const text = await response.clone().text();
+          if (SupabaseSync.isQuotaOrRestrictionError(text)) {
+            SupabaseSync.markServiceRestricted(text);
+          }
+        } catch {}
+      }
+      return response;
+    };
+
+    return createClient(url, key, {
+      global: { fetch: wrappedFetch },
+      auth: {
+        persistSession,
+        autoRefreshToken: persistSession
+      }
+    });
+  }
+
   /**
    * Initialize or retrieve the Supabase client
    */
   static getClient(): SupabaseClient | null {
+    if (this.isServiceRestricted()) return null;
     if (this.client) return this.client;
 
     const { supabaseUrl, supabaseKey } = this.getStoredConfig();
     if (!supabaseUrl || !supabaseKey) return null;
 
     try {
-      this.client = createClient(supabaseUrl, supabaseKey, {
-        auth: {
-          persistSession: true,
-          autoRefreshToken: true
-        }
-      });
+      this.client = this.createProtectedClient(supabaseUrl, supabaseKey, true);
       return this.client;
     } catch (err) {
       console.warn('Supabase client initialization warning:', err);
@@ -136,6 +525,7 @@ export class SupabaseSync {
 
     this.cachedConfig = { supabaseUrl: cleanUrl, supabaseKey: cleanKey };
     this.client = null;
+    this.clearServiceRestriction();
 
     if (persistToCloud && cleanUrl && cleanKey) {
       // Persist to Express server config if running
@@ -148,7 +538,7 @@ export class SupabaseSync {
 
     if (cleanUrl && cleanKey) {
       try {
-        this.client = createClient(cleanUrl, cleanKey);
+        this.client = this.createProtectedClient(cleanUrl, cleanKey, true);
         // Dispatch event for UI components (deferred)
         if (typeof window !== 'undefined') {
           setTimeout(() => {
@@ -192,8 +582,25 @@ export class SupabaseSync {
 
       // Test querying production_ledger, yarn_allocations, and users tables
       const { error: ledgerError } = await testClient.from('production_ledger').select('id').limit(1);
+      if (this.isQuotaOrRestrictionError(ledgerError)) {
+        this.markServiceRestricted(ledgerError);
+        return {
+          success: false,
+          message: ledgerError.message || 'Supabase project service is restricted due to quota limits.'
+        };
+      }
+
       const { error: yarnError } = await testClient.from('yarn_allocations').select('id').limit(1);
       const { error: userError } = await testClient.from('users').select('id').limit(1);
+
+      const quotaErr = [ledgerError, yarnError, userError].find(e => this.isQuotaOrRestrictionError(e));
+      if (quotaErr) {
+        this.markServiceRestricted(quotaErr);
+        return {
+          success: false,
+          message: quotaErr.message || 'Supabase project service is restricted due to quota limits.'
+        };
+      }
 
       if (ledgerError && (ledgerError.code === 'PGRST301' || ledgerError.message?.includes('JWT') || ledgerError.message?.includes('apikey'))) {
         return { 
@@ -201,6 +608,8 @@ export class SupabaseSync {
           message: `Invalid API Key: ${ledgerError.message}. Please double-check you copied the "anon public" key from Project Settings > API.` 
         };
       }
+
+      this.clearServiceRestriction();
 
       const isMissingTable = (err: any) => {
         if (!err) return false;
@@ -250,7 +659,11 @@ export class SupabaseSync {
         .order('user_name', { ascending: true });
 
       if (error) {
-        console.warn('Supabase fetchUsers warning:', error.message);
+        if (this.isQuotaOrRestrictionError(error)) {
+          this.markServiceRestricted(error);
+        } else {
+          console.warn('Supabase fetchUsers warning:', error.message);
+        }
         return [];
       }
 
@@ -876,73 +1289,103 @@ export class SupabaseSync {
    * Fetch all production ledger records from Supabase (paginated beyond 1,000-row PostgREST limit)
    */
   static async fetchProductionLedger(
-    onProgress?: (loaded: number, total: number, percentage: number) => void
+    onProgress?: (loaded: number, total: number, percentage: number) => void,
+    force: boolean = false
   ): Promise<LedgerRecord[]> {
-    const client = this.getClient();
-    if (!client) return [];
-
-    try {
-      // 1. Check total count first via head query
-      let totalCount = 0;
-      try {
-        const { count, error: countErr } = await client
-          .from('production_ledger')
-          .select('*', { count: 'exact', head: true });
-        if (!countErr && typeof count === 'number') {
-          totalCount = count;
-        }
-      } catch (cntErr) {
-        console.warn('Supabase ledger count head query notice:', cntErr);
+    const TABLE = 'production_ledger';
+    if (!force) {
+      const memo = this._tableFetchMemo.get(TABLE);
+      if (memo && Date.now() - memo.ts < this.CLIENT_CACHE_TTL_MS) {
+        if (onProgress && memo.data.length > 0) onProgress(memo.data.length, memo.data.length, 100);
+        return memo.data as LedgerRecord[];
       }
-
-      if (totalCount > 0 && onProgress) {
-        onProgress(0, totalCount, 0);
-      }
-
-      const allRows: any[] = [];
-      const BATCH_SIZE = 1000;
-      let from = 0;
-
-      while (true) {
-        const to = from + BATCH_SIZE - 1;
-        const { data, error } = await client
-          .from('production_ledger')
-          .select('*')
-          .order('date', { ascending: false })
-          .range(from, to);
-
-        if (error) {
-          console.warn('Supabase fetchProductionLedger notice:', error.message);
-          break;
-        }
-
-        if (!data || !Array.isArray(data) || data.length === 0) {
-          break;
-        }
-
-        allRows.push(...data);
-        const currentTotal = totalCount > 0 ? totalCount : Math.max(allRows.length, allRows.length + (data.length === BATCH_SIZE ? BATCH_SIZE : 0));
-        const pct = currentTotal > 0 ? Math.min(100, Math.round((allRows.length / currentTotal) * 100)) : 100;
-        if (onProgress) {
-          onProgress(allRows.length, currentTotal, pct);
-        }
-
-        if (data.length < BATCH_SIZE || (totalCount > 0 && allRows.length >= totalCount)) {
-          break;
-        }
-
-        from += BATCH_SIZE;
-      }
-
-      if (onProgress && allRows.length > 0) {
-        onProgress(allRows.length, allRows.length, 100);
-      }
-
-      return allRows.map((row) => this.mapRowToLedgerRecord(row));
-    } catch (err) {
-      console.warn('Supabase fetchProductionLedger error:', err);
-      return [];
     }
+
+    const flightKey = `${TABLE}:${force ? 'force' : 'normal'}`;
+    if (this._tableInFlight.has(flightKey)) {
+      return this._tableInFlight.get(flightKey)!;
+    }
+
+    const promise = (async (): Promise<LedgerRecord[]> => {
+      this._failedTables.delete(TABLE);
+
+      // 1. Try shared server RAM cache first (N users = 1 Supabase read, gzipped, slim columns)
+      const serverRes = await this.fetchRowsViaServerCache(TABLE, { force });
+      if (serverRes) {
+        if (serverRes.restricted || !serverRes.ok) {
+          this._failedTables.add(TABLE);
+          return [];
+        }
+        const mapped = serverRes.rows.map((row) => this.mapRowToLedgerRecord(row));
+        this._tableFetchMemo.set(TABLE, { ts: Date.now(), data: mapped, maxUpdatedAt: serverRes.maxUpdatedAt });
+        if (onProgress && mapped.length > 0) onProgress(mapped.length, mapped.length, 100);
+        return mapped;
+      }
+
+      // 2. Fallback: direct Supabase query using slim columns (no raw_data bloat)
+      const client = this.getClient();
+      if (!client) {
+        this._failedTables.add(TABLE);
+        return [];
+      }
+
+      try {
+        const allRows: any[] = [];
+        const BATCH_SIZE = 1000;
+        let from = 0;
+        let selectCols = this.getSelectColumns(TABLE);
+
+        while (true) {
+          const to = from + BATCH_SIZE - 1;
+          const { data, error } = await client
+            .from(TABLE)
+            .select(selectCols)
+            .order('date', { ascending: false })
+            .range(from, to);
+
+          if (error) {
+            if (this.isQuotaOrRestrictionError(error)) {
+              this._failedTables.add(TABLE);
+              this.markServiceRestricted(error);
+              return [];
+            }
+            if (selectCols !== '*' && (error.code === '42703' || error.code === 'PGRST204')) {
+              this._tablesRequiringWildcard.add(TABLE);
+              selectCols = '*';
+              from = 0;
+              allRows.length = 0;
+              continue;
+            }
+            this._failedTables.add(TABLE);
+            console.warn('Supabase fetchProductionLedger notice:', error.message);
+            break;
+          }
+
+          if (!data || !Array.isArray(data) || data.length === 0) break;
+          allRows.push(...data);
+          if (onProgress) {
+            const estTotal = data.length === BATCH_SIZE ? allRows.length + BATCH_SIZE : allRows.length;
+            onProgress(allRows.length, estTotal, Math.min(99, Math.round((allRows.length / estTotal) * 100)));
+          }
+          if (data.length < BATCH_SIZE) break;
+          from += BATCH_SIZE;
+        }
+
+        const mapped = allRows.map((row) => this.mapRowToLedgerRecord(row));
+        this._tableFetchMemo.set(TABLE, { ts: Date.now(), data: mapped });
+        if (onProgress && mapped.length > 0) onProgress(mapped.length, mapped.length, 100);
+        return mapped;
+      } catch (err) {
+        this._failedTables.add(TABLE);
+        console.warn('Supabase fetchProductionLedger error:', err);
+        return [];
+      }
+    })().finally(() => {
+      this._tableInFlight.delete(flightKey);
+    });
+
+    this._tableInFlight.set(flightKey, promise);
+    return promise;
   }
 
   private static knownMissingColumns = new Set<string>();
@@ -962,6 +1405,9 @@ export class SupabaseSync {
    * Save or update a single production ledger record in Supabase
    */
   static async saveProductionRecord(record: LedgerRecord): Promise<{ success: boolean; error?: string }> {
+    if (this.isServiceRestricted()) {
+      return { success: false, error: this.getServiceRestrictionReason() || 'Supabase service quota exceeded' };
+    }
     const client = this.getClient();
     if (!client) return { success: false, error: 'Supabase client is not initialized or credentials missing.' };
 
@@ -973,7 +1419,13 @@ export class SupabaseSync {
         attempts++;
         const { error } = await client.from('production_ledger').upsert(row, { onConflict: 'id' });
         if (!error) {
+          this.notifyDatasetChanged('production_ledger', 'single');
           return { success: true };
+        }
+
+        if (this.isQuotaOrRestrictionError(error)) {
+          this.markServiceRestricted(error);
+          return { success: false, error: error.message };
         }
 
         const match = error.message?.match(/Could not find the '([^']+)' column/) ||
@@ -987,13 +1439,13 @@ export class SupabaseSync {
           continue; // retry without missing column
         }
 
-        console.error('Supabase saveProductionRecord error:', error);
+        console.warn('Supabase saveProductionRecord notice:', error.message || error);
         return { success: false, error: error.message };
       }
 
       return { success: true };
     } catch (err: any) {
-      console.error('Supabase saveProductionRecord exception:', err);
+      console.warn('Supabase saveProductionRecord notice:', err?.message || String(err));
       return { success: false, error: err.message || String(err) };
     }
   }
@@ -1005,6 +1457,14 @@ export class SupabaseSync {
     records: LedgerRecord[],
     onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void
   ): Promise<{ success: boolean; count: number; error?: string }> {
+    if (this.isServiceRestricted()) {
+      return {
+        success: false,
+        count: 0,
+        error: this.getServiceRestrictionReason() || 'Supabase service quota exceeded — using backup/local storage.'
+      };
+    }
+
     const client = this.getClient();
     if (!client) {
       return { success: false, count: 0, error: 'Supabase client is not initialized. Please verify your Project URL and Anon Key in Database Settings.' };
@@ -1024,6 +1484,14 @@ export class SupabaseSync {
       }
 
       for (let i = 0; i < rows.length; i += chunkSize) {
+        if (this.isServiceRestricted()) {
+          return {
+            success: false,
+            count: insertedCount,
+            error: this.getServiceRestrictionReason() || 'Supabase service quota exceeded.'
+          };
+        }
+
         let chunk = rows.slice(i, i + chunkSize).map(r => this.sanitizeRowForSupabase(r));
         let chunkSuccess = false;
         let attempts = 0;
@@ -1039,6 +1507,15 @@ export class SupabaseSync {
               onProgress(insertedCount, rows.length, pct, `Uploading ${insertedCount.toLocaleString()} / ${rows.length.toLocaleString()} records...`);
             }
             break;
+          }
+
+          if (this.isQuotaOrRestrictionError(error)) {
+            this.markServiceRestricted(error);
+            return {
+              success: false,
+              count: insertedCount,
+              error: error.message
+            };
           }
 
           const match = error.message?.match(/Could not find the '([^']+)' column/) ||
@@ -1057,7 +1534,7 @@ export class SupabaseSync {
             continue; // retry this chunk without the missing column
           }
 
-          console.error(`Supabase bulkSave chunk ${i} error:`, error);
+          console.warn(`Supabase bulkSave chunk ${i} notice:`, error.message || error);
           return { 
             success: false, 
             count: insertedCount, 
@@ -1070,9 +1547,10 @@ export class SupabaseSync {
         onProgress(rows.length, rows.length, 100, 'Upload complete!');
       }
 
+      this.notifyDatasetChanged('production_ledger', 'bulk');
       return { success: true, count: insertedCount };
     } catch (err: any) {
-      console.error('Supabase bulkSaveProductionRecords error:', err);
+      console.warn('Supabase bulkSaveProductionRecords notice:', err?.message || String(err));
       return { success: false, count: 0, error: err.message || String(err) };
     }
   }
@@ -1086,6 +1564,7 @@ export class SupabaseSync {
 
     try {
       const { error } = await client.from('production_ledger').delete().eq('id', id);
+      if (!error) this.notifyDatasetChanged('production_ledger', 'single');
       return !error;
     } catch (err) {
       console.warn('Supabase deleteProductionRecord error:', err);
@@ -1205,84 +1684,112 @@ export class SupabaseSync {
       balance: parseFloat(String(item.balance || 0)) || 0,
       remarks: String(item.remarks || ''),
       updated_by: String(item.updatedBy || ''),
-      raw_data: item,
+      raw_data: {},
       updated_at: new Date().toISOString()
     };
   }
 
   /**
-   * Fetch all Yarn Allocations from Supabase (paginated beyond 1,000-row PostgREST limit)
+   * Fetch all Yarn Allocations from Supabase (shared server cache first, slim columns)
    */
   static async fetchYarnAllocations(
-    onProgress?: (loaded: number, total: number, percentage: number) => void
+    onProgress?: (loaded: number, total: number, percentage: number) => void,
+    force: boolean = false
   ): Promise<YarnAllocationRecord[]> {
-    const client = this.getClient();
-    if (!client) return [];
-
-    try {
-      // 1. Check exact count first via lightweight head request
-      let totalCount = 0;
-      try {
-        const { count, error: countErr } = await client
-          .from('yarn_allocations')
-          .select('*', { count: 'exact', head: true });
-        if (!countErr && typeof count === 'number') {
-          totalCount = count;
-        }
-      } catch (cntErr) {
-        console.warn('Supabase yarn count head query notice:', cntErr);
+    const TABLE = 'yarn_allocations';
+    if (!force) {
+      const memo = this._tableFetchMemo.get(TABLE);
+      if (memo && Date.now() - memo.ts < this.CLIENT_CACHE_TTL_MS) {
+        if (onProgress && memo.data.length > 0) onProgress(memo.data.length, memo.data.length, 100);
+        return memo.data as YarnAllocationRecord[];
       }
-
-      if (totalCount > 0 && onProgress) {
-        onProgress(0, totalCount, 0);
-      }
-
-      const allRows: any[] = [];
-      const BATCH_SIZE = 1000;
-      let from = 0;
-
-      while (true) {
-        const to = from + BATCH_SIZE - 1;
-        const { data, error } = await client
-          .from('yarn_allocations')
-          .select('*')
-          .order('id', { ascending: false })
-          .range(from, to);
-
-        if (error) {
-          if (error.code !== '42P01' && error.code !== 'PGRST205' && !error.message?.includes('schema cache')) {
-            console.warn('Supabase fetchYarnAllocations notice:', error.message);
-          }
-          break;
-        }
-
-        if (!data || !Array.isArray(data) || data.length === 0) {
-          break;
-        }
-
-        allRows.push(...data);
-        const currentTotal = totalCount > 0 ? totalCount : Math.max(allRows.length, allRows.length + (data.length === BATCH_SIZE ? BATCH_SIZE : 0));
-        const pct = currentTotal > 0 ? Math.min(100, Math.round((allRows.length / currentTotal) * 100)) : 100;
-        if (onProgress) {
-          onProgress(allRows.length, currentTotal, pct);
-        }
-
-        if (data.length < BATCH_SIZE || (totalCount > 0 && allRows.length >= totalCount)) {
-          break;
-        }
-
-        from += BATCH_SIZE;
-      }
-
-      if (onProgress && allRows.length > 0) {
-        onProgress(allRows.length, allRows.length, 100);
-      }
-
-      return allRows.map(row => this.mapRowToYarnAllocation(row));
-    } catch (err) {
-      console.warn('Supabase fetchYarnAllocations exception:', err);
-      return [];
     }
+
+    const flightKey = `${TABLE}:${force ? 'force' : 'normal'}`;
+    if (this._tableInFlight.has(flightKey)) {
+      return this._tableInFlight.get(flightKey)!;
+    }
+
+    const promise = (async (): Promise<YarnAllocationRecord[]> => {
+      this._failedTables.delete(TABLE);
+
+      const serverRes = await this.fetchRowsViaServerCache(TABLE, { force });
+      if (serverRes) {
+        if (serverRes.restricted || !serverRes.ok) {
+          this._failedTables.add(TABLE);
+          return [];
+        }
+        const mapped = serverRes.rows.map(row => this.mapRowToYarnAllocation(row));
+        this._tableFetchMemo.set(TABLE, { ts: Date.now(), data: mapped, maxUpdatedAt: serverRes.maxUpdatedAt });
+        if (onProgress && mapped.length > 0) onProgress(mapped.length, mapped.length, 100);
+        return mapped;
+      }
+
+      const client = this.getClient();
+      if (!client) {
+        this._failedTables.add(TABLE);
+        return [];
+      }
+
+      try {
+        const allRows: any[] = [];
+        const BATCH_SIZE = 1000;
+        let from = 0;
+        let selectCols = this.getSelectColumns(TABLE);
+
+        while (true) {
+          const to = from + BATCH_SIZE - 1;
+          const { data, error } = await client
+            .from(TABLE)
+            .select(selectCols)
+            .order('id', { ascending: false })
+            .range(from, to);
+
+          if (error) {
+            if (this.isQuotaOrRestrictionError(error)) {
+              this._failedTables.add(TABLE);
+              this.markServiceRestricted(error);
+              return [];
+            }
+            if (selectCols !== '*' && (error.code === '42703' || error.code === 'PGRST204')) {
+              this._tablesRequiringWildcard.add(TABLE);
+              selectCols = '*';
+              from = 0;
+              allRows.length = 0;
+              continue;
+            }
+            if (error.code !== '42P01' && error.code !== 'PGRST205' && !error.message?.includes('schema cache')) {
+              this._failedTables.add(TABLE);
+              console.warn('Supabase fetchYarnAllocations notice:', error.message);
+            }
+            break;
+          }
+
+          if (!data || !Array.isArray(data) || data.length === 0) break;
+          allRows.push(...data);
+          if (onProgress) {
+            const estTotal = data.length === BATCH_SIZE ? allRows.length + BATCH_SIZE : allRows.length;
+            onProgress(allRows.length, estTotal, Math.min(99, Math.round((allRows.length / estTotal) * 100)));
+          }
+          if (data.length < BATCH_SIZE) break;
+          from += BATCH_SIZE;
+        }
+
+        const mapped = allRows.map(row => this.mapRowToYarnAllocation(row));
+        this._tableFetchMemo.set(TABLE, { ts: Date.now(), data: mapped });
+        if (onProgress && mapped.length > 0) onProgress(mapped.length, mapped.length, 100);
+        return mapped;
+      } catch (err) {
+        this._failedTables.add(TABLE);
+        console.warn('Supabase fetchYarnAllocations exception:', err);
+        return [];
+      }
+    })().finally(() => {
+      this._tableInFlight.delete(flightKey);
+    });
+
+    this._tableInFlight.set(flightKey, promise);
+    return promise;
   }
 
   /**
@@ -1300,6 +1807,7 @@ export class SupabaseSync {
         attempts++;
         const { error } = await client.from('yarn_allocations').upsert(row, { onConflict: 'id' });
         if (!error) {
+          this.notifyDatasetChanged('yarn_allocations', 'single');
           return { success: true };
         }
 
@@ -1449,6 +1957,7 @@ export class SupabaseSync {
         onProgress(rows.length, rows.length, 100, 'Upload complete!');
       }
 
+      this.notifyDatasetChanged('yarn_allocations', 'bulk');
       return { success: true, count: insertedCount };
     } catch (err: any) {
       console.warn('Supabase bulkSaveYarnAllocations notice:', err.message || String(err));
@@ -1465,6 +1974,7 @@ export class SupabaseSync {
 
     try {
       const { error } = await client.from('yarn_allocations').delete().eq('id', id);
+      if (!error) this.notifyDatasetChanged('yarn_allocations', 'single');
       return !error;
     } catch (err) {
       console.warn('Supabase deleteYarnAllocation error:', err);
@@ -1595,86 +2105,113 @@ export class SupabaseSync {
       knit_end_remarks: String(item.knitEndRemarks || ''),
       knit_team_leaders: String(item.knitTeamLeaders || ''),
       updated_by: String(item.updatedBy || ''),
-      raw_data: item,
+      raw_data: {},
       updated_at: new Date().toISOString()
     };
   }
 
   /**
-   * Fetch all Order Plans from Supabase (paginated beyond 1,000-row PostgREST limit)
+   * Fetch all Order Plans from Supabase (shared server cache first, slim columns)
    */
   static async fetchOrderPlans(
-    onProgress?: (loaded: number, total: number, percentage: number) => void
+    onProgress?: (loaded: number, total: number, percentage: number) => void,
+    force: boolean = false
   ): Promise<OrderPlan[]> {
-    const client = this.getClient();
-    if (!client) return [];
-
-    try {
-      let totalCount = 0;
-      try {
-        const { count, error: countErr } = await client
-          .from('order_plans')
-          .select('*', { count: 'exact', head: true });
-        if (!countErr && typeof count === 'number') {
-          totalCount = count;
-        }
-      } catch (cntErr) {
-        console.warn('Supabase order_plans count query notice:', cntErr);
+    const TABLE = 'order_plans';
+    if (!force) {
+      const memo = this._tableFetchMemo.get(TABLE);
+      if (memo && Date.now() - memo.ts < this.CLIENT_CACHE_TTL_MS) {
+        if (onProgress && memo.data.length > 0) onProgress(memo.data.length, memo.data.length, 100);
+        return memo.data as OrderPlan[];
       }
-
-      if (totalCount > 0 && onProgress) {
-        onProgress(0, totalCount, 0);
-      }
-
-      const allRows: any[] = [];
-      const BATCH_SIZE = 1000;
-      let from = 0;
-
-      while (true) {
-        const to = from + BATCH_SIZE - 1;
-        const { data, error } = await client
-          .from('order_plans')
-          .select('*')
-          .order('id', { ascending: false })
-          .range(from, to);
-
-        if (error) {
-          if (error.code === 'PGRST205' || error.code === '42P01' || error.message?.includes('does not exist') || error.message?.includes('schema cache')) {
-            // Table does not exist yet; graceful fallback
-            return [];
-          } else {
-            console.warn('Supabase fetchOrderPlans notice:', error.message);
-          }
-          break;
-        }
-
-        if (!data || !Array.isArray(data) || data.length === 0) {
-          break;
-        }
-
-        allRows.push(...data);
-        const currentTotal = totalCount > 0 ? totalCount : Math.max(allRows.length, allRows.length + (data.length === BATCH_SIZE ? BATCH_SIZE : 0));
-        const pct = currentTotal > 0 ? Math.min(100, Math.round((allRows.length / currentTotal) * 100)) : 100;
-        if (onProgress) {
-          onProgress(allRows.length, currentTotal, pct);
-        }
-
-        if (data.length < BATCH_SIZE || (totalCount > 0 && allRows.length >= totalCount)) {
-          break;
-        }
-
-        from += BATCH_SIZE;
-      }
-
-      if (onProgress && allRows.length > 0) {
-        onProgress(allRows.length, allRows.length, 100);
-      }
-
-      return deduplicateOrderPlans(allRows.map(row => this.mapRowToOrderPlan(row)));
-    } catch (err) {
-      console.warn('Supabase fetchOrderPlans exception:', err);
-      return [];
     }
+
+    const flightKey = `${TABLE}:${force ? 'force' : 'normal'}`;
+    if (this._tableInFlight.has(flightKey)) {
+      return this._tableInFlight.get(flightKey)!;
+    }
+
+    const promise = (async (): Promise<OrderPlan[]> => {
+      this._failedTables.delete(TABLE);
+
+      const serverRes = await this.fetchRowsViaServerCache(TABLE, { force });
+      if (serverRes) {
+        if (serverRes.restricted || !serverRes.ok) {
+          this._failedTables.add(TABLE);
+          return [];
+        }
+        const mapped = deduplicateOrderPlans(serverRes.rows.map(row => this.mapRowToOrderPlan(row)));
+        this._tableFetchMemo.set(TABLE, { ts: Date.now(), data: mapped, maxUpdatedAt: serverRes.maxUpdatedAt });
+        if (onProgress && mapped.length > 0) onProgress(mapped.length, mapped.length, 100);
+        return mapped;
+      }
+
+      const client = this.getClient();
+      if (!client) {
+        this._failedTables.add(TABLE);
+        return [];
+      }
+
+      try {
+        const allRows: any[] = [];
+        const BATCH_SIZE = 1000;
+        let from = 0;
+        let selectCols = this.getSelectColumns(TABLE);
+
+        while (true) {
+          const to = from + BATCH_SIZE - 1;
+          const { data, error } = await client
+            .from(TABLE)
+            .select(selectCols)
+            .order('id', { ascending: false })
+            .range(from, to);
+
+          if (error) {
+            if (this.isQuotaOrRestrictionError(error)) {
+              this._failedTables.add(TABLE);
+              this.markServiceRestricted(error);
+              return [];
+            }
+            if (selectCols !== '*' && (error.code === '42703' || error.code === 'PGRST204')) {
+              this._tablesRequiringWildcard.add(TABLE);
+              selectCols = '*';
+              from = 0;
+              allRows.length = 0;
+              continue;
+            }
+            this._failedTables.add(TABLE);
+            if (error.code === 'PGRST205' || error.code === '42P01' || error.message?.includes('does not exist') || error.message?.includes('schema cache')) {
+              return [];
+            }
+            console.warn('Supabase fetchOrderPlans notice:', error.message);
+            break;
+          }
+
+          if (!data || !Array.isArray(data) || data.length === 0) break;
+          allRows.push(...data);
+          if (onProgress) {
+            const estTotal = data.length === BATCH_SIZE ? allRows.length + BATCH_SIZE : allRows.length;
+            onProgress(allRows.length, estTotal, Math.min(99, Math.round((allRows.length / estTotal) * 100)));
+          }
+          if (data.length < BATCH_SIZE) break;
+          from += BATCH_SIZE;
+        }
+
+        const mapped = deduplicateOrderPlans(allRows.map(row => this.mapRowToOrderPlan(row)));
+        this._tableFetchMemo.set(TABLE, { ts: Date.now(), data: mapped });
+        if (onProgress && mapped.length > 0) onProgress(mapped.length, mapped.length, 100);
+        return mapped;
+      } catch (err) {
+        this._failedTables.add(TABLE);
+        console.warn('Supabase fetchOrderPlans exception:', err);
+        return [];
+      }
+    })().finally(() => {
+      this._tableInFlight.delete(flightKey);
+    });
+
+    this._tableInFlight.set(flightKey, promise);
+    return promise;
   }
 
   /**
@@ -1691,6 +2228,7 @@ export class SupabaseSync {
         attempts++;
         const { error } = await client.from('order_plans').upsert(row, { onConflict: 'id' });
         if (!error) {
+          this.notifyDatasetChanged('order_plans', 'single');
           return { success: true };
         }
 
@@ -1839,6 +2377,7 @@ export class SupabaseSync {
         onProgress(rows.length, rows.length, 100, 'Order Plans upload complete!');
       }
 
+      this.notifyDatasetChanged('order_plans', 'bulk');
       return { success: true, count: insertedCount };
     } catch (err: any) {
       console.warn('Supabase bulkSaveOrderPlans notice:', err.message || String(err));
@@ -1855,6 +2394,7 @@ export class SupabaseSync {
 
     try {
       const { error } = await client.from('order_plans').delete().or(`id.eq.${id},ewo.eq.${id}`);
+      if (!error) this.notifyDatasetChanged('order_plans', 'single');
       return !error;
     } catch (err) {
       console.warn('Supabase deleteOrderPlan error:', err);
@@ -2010,79 +2550,133 @@ export class SupabaseSync {
       knit_balance: parseFloat(String(item.knitBalance || 0)) || 0,
       items: item.items || [],
       remarks: String(item.remarks || ''),
-      raw_data: item,
+      // Store ONLY tiny scalar metadata in raw_data (never duplicate the large `items` array!)
+      raw_data: {
+        pmcKnitStartDate: item.pmcKnitStartDate || '',
+        pmcKnitEndDate: item.pmcKnitEndDate || '',
+        actualKnitStartDate: item.actualKnitStartDate || '',
+        actualKnitEndDate: item.actualKnitEndDate || '',
+        otdStatus: item.otdStatus || 'Pending',
+        knitStartOtd: item.knitStartOtd || 'Pending',
+        knitEndOtd: item.knitEndOtd || 'Pending',
+        fabrication: item.fabrication || ''
+      },
       updated_at: new Date().toISOString()
     };
   }
 
   static async fetchKnittingOrders(
-    onProgress?: (loaded: number, total: number, percent: number) => void
+    onProgress?: (loaded: number, total: number, percent: number) => void,
+    force: boolean = false
   ): Promise<KnittingStatusOrder[]> {
+    const TABLE = 'knitting_orders';
+    if (!force) {
+      const memo = this._tableFetchMemo.get(TABLE);
+      if (memo && Date.now() - memo.ts < this.CLIENT_CACHE_TTL_MS) {
+        if (onProgress && memo.data.length > 0) onProgress(memo.data.length, memo.data.length, 100);
+        return memo.data as KnittingStatusOrder[];
+      }
+    }
+
+    const flightKey = `${TABLE}:${force ? 'force' : 'normal'}`;
+    if (this._tableInFlight.has(flightKey)) {
+      return this._tableInFlight.get(flightKey)!;
+    }
+
+    const promise = (async (): Promise<KnittingStatusOrder[]> => {
+      this._failedTables.delete(TABLE);
+
+      const serverRes = await this.fetchRowsViaServerCache(TABLE, { force });
+      if (serverRes) {
+        if (serverRes.restricted || !serverRes.ok) {
+          this._failedTables.add(TABLE);
+          return [];
+        }
+        const mapped = serverRes.rows.map(row => this.mapRowToKnittingOrder(row));
+        this._tableFetchMemo.set(TABLE, { ts: Date.now(), data: mapped, maxUpdatedAt: serverRes.maxUpdatedAt });
+        if (onProgress && mapped.length > 0) onProgress(mapped.length, mapped.length, 100);
+        return mapped;
+      }
+
+      const client = this.getClient();
+      if (!client) {
+        this._failedTables.add(TABLE);
+        return [];
+      }
+
+      try {
+        const allRows: any[] = [];
+        const BATCH_SIZE = 1000;
+        let from = 0;
+        let selectCols = this.getSelectColumns(TABLE);
+
+        while (true) {
+          const to = from + BATCH_SIZE - 1;
+          const { data, error } = await client
+            .from(TABLE)
+            .select(selectCols)
+            .order('id', { ascending: false })
+            .range(from, to);
+
+          if (error) {
+            if (this.isQuotaOrRestrictionError(error)) {
+              this._failedTables.add(TABLE);
+              this.markServiceRestricted(error);
+              return [];
+            }
+            if (selectCols !== '*' && (error.code === '42703' || error.code === 'PGRST204')) {
+              this._tablesRequiringWildcard.add(TABLE);
+              selectCols = '*';
+              from = 0;
+              allRows.length = 0;
+              continue;
+            }
+            this._failedTables.add(TABLE);
+            console.warn('Supabase fetchKnittingOrders range error:', error.message);
+            break;
+          }
+
+          if (!data || !Array.isArray(data) || data.length === 0) break;
+          allRows.push(...data);
+          if (onProgress) {
+            const estTotal = data.length === BATCH_SIZE ? allRows.length + BATCH_SIZE : allRows.length;
+            onProgress(allRows.length, estTotal, Math.min(99, Math.round((allRows.length / estTotal) * 100)));
+          }
+          if (data.length < BATCH_SIZE) break;
+          from += BATCH_SIZE;
+        }
+
+        const mapped = allRows.map(row => this.mapRowToKnittingOrder(row));
+        this._tableFetchMemo.set(TABLE, { ts: Date.now(), data: mapped });
+        if (onProgress && mapped.length > 0) onProgress(mapped.length, mapped.length, 100);
+        return mapped;
+      } catch {
+        this._failedTables.add(TABLE);
+        return [];
+      }
+    })().finally(() => {
+      this._tableInFlight.delete(flightKey);
+    });
+
+    this._tableInFlight.set(flightKey, promise);
+    return promise;
+  }
+
+  static async fetchKnittingOrdersByOrder(orderNo: string): Promise<KnittingStatusOrder[]> {
+    if (!orderNo) return [];
+    const cleanNum = orderNo.trim();
+    const serverRes = await this.fetchRowsViaServerCache('knitting_orders', { orderNo: cleanNum });
+    if (serverRes && serverRes.ok) {
+      return serverRes.rows.map(row => this.mapRowToKnittingOrder(row));
+    }
+
     const client = this.getClient();
     if (!client) return [];
 
     try {
-      let totalCount = 0;
-      try {
-        const { count, error: countErr } = await client
-          .from('knitting_orders')
-          .select('*', { count: 'exact', head: true });
-        if (!countErr && typeof count === 'number') {
-          totalCount = count;
-        }
-      } catch (cntErr) {
-        console.warn('Supabase knitting_orders count error:', cntErr);
-      }
-
-      const allRows: any[] = [];
-      const BATCH_SIZE = 1000;
-      let from = 0;
-
-      while (true) {
-        const to = from + BATCH_SIZE - 1;
-        const { data, error } = await client
-          .from('knitting_orders')
-          .select('*')
-          .order('id', { ascending: false })
-          .range(from, to);
-
-        if (error) {
-          console.warn('Supabase fetchKnittingOrders range error:', error.message);
-          break;
-        }
-
-        if (!data || !Array.isArray(data) || data.length === 0) {
-          break;
-        }
-
-        allRows.push(...data);
-        const percent = totalCount > 0 ? Math.min(100, Math.round((allRows.length / totalCount) * 100)) : 100;
-        if (onProgress) {
-          onProgress(allRows.length, totalCount || allRows.length, percent);
-        }
-
-        if (data.length < BATCH_SIZE || (totalCount > 0 && allRows.length >= totalCount)) {
-          break;
-        }
-
-        from += BATCH_SIZE;
-      }
-
-      return allRows.map(row => this.mapRowToKnittingOrder(row));
-    } catch {
-      return [];
-    }
-  }
-
-  static async fetchKnittingOrdersByOrder(orderNo: string): Promise<KnittingStatusOrder[]> {
-    const client = this.getClient();
-    if (!client || !orderNo) return [];
-
-    try {
-      const cleanNum = orderNo.trim();
       const { data, error } = await client
         .from('knitting_orders')
-        .select('*')
+        .select(this.getSelectColumns('knitting_orders'))
         .ilike('order_no', `%${cleanNum}%`);
 
       if (error) {
@@ -2108,6 +2702,7 @@ export class SupabaseSync {
       const row = this.sanitizeRowForSupabase(this.mapKnittingOrderToRow(item));
       const { error } = await client.from('knitting_orders').upsert(row, { onConflict: 'id' });
       if (error) return { success: false, error: error.message };
+      this.notifyDatasetChanged('knitting_orders', 'single');
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || String(err) };
@@ -2126,7 +2721,10 @@ export class SupabaseSync {
       if (replace) {
         await client.from('knitting_orders').delete().neq('id', '___PURGE___');
       }
-      if (!items || items.length === 0) return { success: true, count: 0 };
+      if (!items || items.length === 0) {
+        if (replace) this.notifyDatasetChanged('knitting_orders', 'bulk');
+        return { success: true, count: 0 };
+      }
 
       const rows = items.map(o => this.sanitizeRowForSupabase(this.mapKnittingOrderToRow(o)));
       const CHUNK_SIZE = 200;
@@ -2146,6 +2744,7 @@ export class SupabaseSync {
         }
       }
 
+      this.notifyDatasetChanged('knitting_orders', 'bulk');
       return { success: true, count: insertedCount };
     } catch (err: any) {
       return { success: false, count: 0, error: err.message || String(err) };
@@ -2158,6 +2757,7 @@ export class SupabaseSync {
     try {
       const { error } = await client.from('knitting_orders').delete().eq('id', id);
       if (error) return { success: false, error: error.message };
+      this.notifyDatasetChanged('knitting_orders', 'single');
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || String(err) };
@@ -2249,79 +2849,123 @@ export class SupabaseSync {
       knit_bal: parseFloat(String(item.knitBal || 0)) || 0,
       closed_date: String(item.closedDate || ''),
       remarks: String(item.remarks || ''),
-      raw_data: item,
+      raw_data: {},
       updated_at: new Date().toISOString()
     };
   }
 
   static async fetchTextileCloseRecords(
-    onProgress?: (loaded: number, total: number, percent: number) => void
+    onProgress?: (loaded: number, total: number, percent: number) => void,
+    force: boolean = false
   ): Promise<TextileCloseRecord[]> {
+    const TABLE = 'textile_close_pmc';
+    if (!force) {
+      const memo = this._tableFetchMemo.get(TABLE);
+      if (memo && Date.now() - memo.ts < this.CLIENT_CACHE_TTL_MS) {
+        if (onProgress && memo.data.length > 0) onProgress(memo.data.length, memo.data.length, 100);
+        return memo.data as TextileCloseRecord[];
+      }
+    }
+
+    const flightKey = `${TABLE}:${force ? 'force' : 'normal'}`;
+    if (this._tableInFlight.has(flightKey)) {
+      return this._tableInFlight.get(flightKey)!;
+    }
+
+    const promise = (async (): Promise<TextileCloseRecord[]> => {
+      this._failedTables.delete(TABLE);
+
+      const serverRes = await this.fetchRowsViaServerCache(TABLE, { force });
+      if (serverRes) {
+        if (serverRes.restricted || !serverRes.ok) {
+          this._failedTables.add(TABLE);
+          return [];
+        }
+        const mapped = serverRes.rows.map(row => this.mapRowToTextileCloseRecord(row));
+        this._tableFetchMemo.set(TABLE, { ts: Date.now(), data: mapped, maxUpdatedAt: serverRes.maxUpdatedAt });
+        if (onProgress && mapped.length > 0) onProgress(mapped.length, mapped.length, 100);
+        return mapped;
+      }
+
+      const client = this.getClient();
+      if (!client) {
+        this._failedTables.add(TABLE);
+        return [];
+      }
+
+      try {
+        const allRows: any[] = [];
+        const BATCH_SIZE = 1000;
+        let from = 0;
+        let selectCols = this.getSelectColumns(TABLE);
+
+        while (true) {
+          const to = from + BATCH_SIZE - 1;
+          const { data, error } = await client
+            .from(TABLE)
+            .select(selectCols)
+            .order('order_no', { ascending: true })
+            .range(from, to);
+
+          if (error) {
+            if (this.isQuotaOrRestrictionError(error)) {
+              this._failedTables.add(TABLE);
+              this.markServiceRestricted(error);
+              return [];
+            }
+            if (selectCols !== '*' && (error.code === '42703' || error.code === 'PGRST204')) {
+              this._tablesRequiringWildcard.add(TABLE);
+              selectCols = '*';
+              from = 0;
+              allRows.length = 0;
+              continue;
+            }
+            this._failedTables.add(TABLE);
+            console.warn('Supabase fetchTextileCloseRecords range error:', error.message);
+            break;
+          }
+
+          if (!data || !Array.isArray(data) || data.length === 0) break;
+          allRows.push(...data);
+          if (onProgress) {
+            const estTotal = data.length === BATCH_SIZE ? allRows.length + BATCH_SIZE : allRows.length;
+            onProgress(allRows.length, estTotal, Math.min(99, Math.round((allRows.length / estTotal) * 100)));
+          }
+          if (data.length < BATCH_SIZE) break;
+          from += BATCH_SIZE;
+        }
+
+        const mapped = allRows.map(row => this.mapRowToTextileCloseRecord(row));
+        this._tableFetchMemo.set(TABLE, { ts: Date.now(), data: mapped });
+        if (onProgress && mapped.length > 0) onProgress(mapped.length, mapped.length, 100);
+        return mapped;
+      } catch {
+        this._failedTables.add(TABLE);
+        return [];
+      }
+    })().finally(() => {
+      this._tableInFlight.delete(flightKey);
+    });
+
+    this._tableInFlight.set(flightKey, promise);
+    return promise;
+  }
+
+  static async fetchTextileCloseRecordsByOrder(orderNo: string): Promise<TextileCloseRecord[]> {
+    if (!orderNo) return [];
+    const cleanNum = orderNo.trim();
+    const serverRes = await this.fetchRowsViaServerCache('textile_close_pmc', { orderNo: cleanNum });
+    if (serverRes && serverRes.ok) {
+      return serverRes.rows.map(row => this.mapRowToTextileCloseRecord(row));
+    }
+
     const client = this.getClient();
     if (!client) return [];
 
     try {
-      let totalCount = 0;
-      try {
-        const { count, error: countErr } = await client
-          .from('textile_close_pmc')
-          .select('*', { count: 'exact', head: true });
-        if (!countErr && typeof count === 'number') {
-          totalCount = count;
-        }
-      } catch (cntErr) {
-        console.warn('Supabase textile_close_pmc count error:', cntErr);
-      }
-
-      const allRows: any[] = [];
-      const BATCH_SIZE = 1000;
-      let from = 0;
-
-      while (true) {
-        const to = from + BATCH_SIZE - 1;
-        const { data, error } = await client
-          .from('textile_close_pmc')
-          .select('*')
-          .order('order_no', { ascending: true })
-          .range(from, to);
-
-        if (error) {
-          console.warn('Supabase fetchTextileCloseRecords range error:', error.message);
-          break;
-        }
-
-        if (!data || !Array.isArray(data) || data.length === 0) {
-          break;
-        }
-
-        allRows.push(...data);
-        const percent = totalCount > 0 ? Math.min(100, Math.round((allRows.length / totalCount) * 100)) : 100;
-        if (onProgress) {
-          onProgress(allRows.length, totalCount || allRows.length, percent);
-        }
-
-        if (data.length < BATCH_SIZE || (totalCount > 0 && allRows.length >= totalCount)) {
-          break;
-        }
-
-        from += BATCH_SIZE;
-      }
-
-      return allRows.map(row => this.mapRowToTextileCloseRecord(row));
-    } catch {
-      return [];
-    }
-  }
-
-  static async fetchTextileCloseRecordsByOrder(orderNo: string): Promise<TextileCloseRecord[]> {
-    const client = this.getClient();
-    if (!client || !orderNo) return [];
-
-    try {
-      const cleanNum = orderNo.trim();
       const { data, error } = await client
         .from('textile_close_pmc')
-        .select('*')
+        .select(this.getSelectColumns('textile_close_pmc'))
         .ilike('order_no', `%${cleanNum}%`);
 
       if (error) {
@@ -2347,6 +2991,7 @@ export class SupabaseSync {
       const row = this.sanitizeRowForSupabase(this.mapTextileCloseRecordToRow(item));
       const { error } = await client.from('textile_close_pmc').upsert(row, { onConflict: 'id' });
       if (error) return { success: false, error: error.message };
+      this.notifyDatasetChanged('textile_close_pmc', 'single');
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || String(err) };
@@ -2369,7 +3014,10 @@ export class SupabaseSync {
         await client.from('textile_close_pmc').delete().neq('id', '___PURGE___');
       }
 
-      if (!items || items.length === 0) return { success: true, count: 0 };
+      if (!items || items.length === 0) {
+        if (replace) this.notifyDatasetChanged('textile_close_pmc', 'bulk');
+        return { success: true, count: 0 };
+      }
 
       const rows = items.map(r => this.sanitizeRowForSupabase(this.mapTextileCloseRecordToRow(r)));
       const CHUNK_SIZE = 200;
@@ -2389,6 +3037,7 @@ export class SupabaseSync {
         }
       }
 
+      this.notifyDatasetChanged('textile_close_pmc', 'bulk');
       return { success: true, count: insertedCount };
     } catch (err: any) {
       return { success: false, count: 0, error: err.message || String(err) };
@@ -2401,6 +3050,7 @@ export class SupabaseSync {
     try {
       const { error } = await client.from('textile_close_pmc').delete().eq('id', id);
       if (error) return { success: false, error: error.message };
+      this.notifyDatasetChanged('textile_close_pmc', 'single');
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || String(err) };
@@ -2623,7 +3273,8 @@ export class SupabaseSync {
       double_count: item.doubleCount !== undefined && item.doubleCount !== null ? parseFloat(String(item.doubleCount)) || 0 : 0,
       owner_unit: String(item.ownerUnit || 'EKL'),
       matched_grey_qty: item.matchedGreyQty !== undefined ? parseFloat(String(item.matchedGreyQty)) : null,
-      raw_data: item,
+      // Only store non-empty customFields in raw_data instead of duplicating all columns
+      raw_data: item.customFields && Object.keys(item.customFields).length > 0 ? item.customFields : {},
       updated_at: new Date().toISOString()
     };
   }
@@ -2668,6 +3319,10 @@ export class SupabaseSync {
           .select('id', { head: true, count: 'exact' });
 
         if (error) {
+          if (this.isQuotaOrRestrictionError(error)) {
+            this.markServiceRestricted(error);
+            return false;
+          }
           if (error.code === 'PGRST205' || error.message?.includes('does not exist') || error.message?.includes('grey_stock_summary')) {
             this._greyStockTableExists = false;
             this._lastGreyStockCheckTime = Date.now();
@@ -2702,103 +3357,157 @@ export class SupabaseSync {
   }
 
   static async fetchGreyStockRecords(
-    onProgress?: (loaded: number, total: number, percent: number) => void
+    onProgress?: (loaded: number, total: number, percent: number) => void,
+    force: boolean = false
   ): Promise<GreyStockItem[]> {
-    const client = this.getClient();
-    if (!client || !this.isGreyStockTableAvailable()) return [];
+    const TABLE = 'grey_stock_summary';
+    if (!this.isGreyStockTableAvailable()) return [];
 
-    try {
-      let totalCount = 0;
-      try {
-        const { count, error: countErr } = await client
-          .from('grey_stock_summary')
-          .select('*', { count: 'exact', head: true });
-        if (countErr) {
-          if (countErr.code === 'PGRST205' || countErr.message?.includes('does not exist') || countErr.message?.includes('grey_stock_summary')) {
-            this._greyStockTableExists = false;
-            this._lastGreyStockCheckTime = Date.now();
-            return [];
-          }
-        } else if (typeof count === 'number') {
-          this._greyStockTableExists = true;
-          totalCount = count;
-        }
-      } catch (cntErr: any) {
-        if (cntErr?.code === 'PGRST205' || cntErr?.message?.includes('does not exist')) {
-          this._greyStockTableExists = false;
-          this._lastGreyStockCheckTime = Date.now();
+    if (!force) {
+      const memo = this._tableFetchMemo.get(TABLE);
+      if (memo && Date.now() - memo.ts < this.CLIENT_CACHE_TTL_MS) {
+        if (onProgress && memo.data.length > 0) onProgress(memo.data.length, memo.data.length, 100);
+        return memo.data as GreyStockItem[];
+      }
+    }
+
+    const flightKey = `${TABLE}:${force ? 'force' : 'normal'}`;
+    if (this._tableInFlight.has(flightKey)) {
+      return this._tableInFlight.get(flightKey)!;
+    }
+
+    const promise = (async (): Promise<GreyStockItem[]> => {
+      this._failedTables.delete(TABLE);
+
+      const serverRes = await this.fetchRowsViaServerCache(TABLE, { force });
+      if (serverRes) {
+        if (serverRes.restricted || !serverRes.ok) {
+          this._failedTables.add(TABLE);
           return [];
         }
+        this._greyStockTableExists = true;
+        const mapped = serverRes.rows.map(row => this.mapRowToGreyStockItem(row));
+        this._tableFetchMemo.set(TABLE, { ts: Date.now(), data: mapped, maxUpdatedAt: serverRes.maxUpdatedAt });
+        if (onProgress && mapped.length > 0) onProgress(mapped.length, mapped.length, 100);
+        return mapped;
       }
 
-      if (this._greyStockTableExists === false) return [];
+      const client = this.getClient();
+      if (!client) {
+        this._failedTables.add(TABLE);
+        return [];
+      }
 
-      // Probe which column can be safely used for deterministic order
-      let sortKey: 'id' | 'order_no' | null = 'id';
       try {
-        const testRes = await client.from('grey_stock_summary').select('id').limit(1);
-        if (testRes.error) {
-          const testOrder = await client.from('grey_stock_summary').select('order_no').limit(1);
-          sortKey = testOrder.error ? null : 'order_no';
-        }
-      } catch {
-        sortKey = null;
-      }
+        const allRows: any[] = [];
+        const BATCH_SIZE = 1000;
+        let from = 0;
+        let sortKey: 'id' | 'order_no' | null = 'id';
+        let selectCols = this.getSelectColumns(TABLE);
 
-      const allRows: any[] = [];
-      const BATCH_SIZE = 1000;
-      let from = 0;
-
-      while (true) {
-        const to = from + BATCH_SIZE - 1;
-        let query = client.from('grey_stock_summary').select('*');
-
-        if (sortKey) {
-          query = query.order(sortKey, { ascending: true });
-        }
-
-        const { data, error } = await query.range(from, to);
-
-        if (error) {
-          if (error.code === 'PGRST205' || error.message?.includes('does not exist') || error.message?.includes('grey_stock_summary')) {
-            this._greyStockTableExists = false;
-            this._lastGreyStockCheckTime = Date.now();
-            return [];
-          }
-          console.warn('Supabase fetch range notice:', error);
-          // If ordering failed unexpectedly, retry once without order
+        while (true) {
+          const to = from + BATCH_SIZE - 1;
+          let query = client.from(TABLE).select(selectCols);
           if (sortKey) {
-            sortKey = null;
-            continue;
+            query = query.order(sortKey, { ascending: true });
           }
-          break;
+          const { data, error } = await query.range(from, to);
+
+          if (error) {
+            if (this.isQuotaOrRestrictionError(error)) {
+              this._failedTables.add(TABLE);
+              this.markServiceRestricted(error);
+              return [];
+            }
+            if (error.code === 'PGRST205' || error.message?.includes('does not exist') || error.message?.includes('grey_stock_summary')) {
+              this._greyStockTableExists = false;
+              this._lastGreyStockCheckTime = Date.now();
+              return [];
+            }
+            if (selectCols !== '*' && (error.code === '42703' || error.code === 'PGRST204')) {
+              this._tablesRequiringWildcard.add(TABLE);
+              selectCols = '*';
+              from = 0;
+              allRows.length = 0;
+              continue;
+            }
+            if (sortKey) {
+              sortKey = null;
+              continue;
+            }
+            this._failedTables.add(TABLE);
+            console.warn('Supabase fetch range notice:', error);
+            break;
+          }
+
+          if (!data || !Array.isArray(data) || data.length === 0) break;
+          allRows.push(...data);
+          if (onProgress) {
+            const estTotal = data.length === BATCH_SIZE ? allRows.length + BATCH_SIZE : allRows.length;
+            onProgress(allRows.length, estTotal, Math.min(99, Math.round((allRows.length / estTotal) * 100)));
+          }
+          if (data.length < BATCH_SIZE) break;
+          from += BATCH_SIZE;
         }
 
-        if (!data || !Array.isArray(data) || data.length === 0) {
-          break;
-        }
+        this._greyStockTableExists = true;
+        const mapped = allRows.map(row => this.mapRowToGreyStockItem(row));
+        this._tableFetchMemo.set(TABLE, { ts: Date.now(), data: mapped });
+        if (onProgress && mapped.length > 0) onProgress(mapped.length, mapped.length, 100);
+        return mapped;
+      } catch {
+        this._failedTables.add(TABLE);
+        return [];
+      }
+    })().finally(() => {
+      this._tableInFlight.delete(flightKey);
+    });
 
-        allRows.push(...data);
-        const effectiveTotal = Math.max(totalCount, allRows.length);
-        const percent = effectiveTotal > 0 ? Math.min(99, Math.round((allRows.length / effectiveTotal) * 100)) : 100;
-        if (onProgress) {
-          onProgress(allRows.length, effectiveTotal, percent);
-        }
+    this._tableInFlight.set(flightKey, promise);
+    return promise;
+  }
 
-        // Standard PostgREST pagination termination: if batch is smaller than requested, all rows are fetched
-        if (data.length < BATCH_SIZE) {
-          break;
-        }
+  /**
+   * Targeted single-order Grey Stock lookup (avoids downloading the entire table on modal open!)
+   */
+  static async fetchGreyStockByOrder(orderNo: string): Promise<GreyStockItem[]> {
+    if (!orderNo || !this.isGreyStockTableAvailable()) return [];
+    const cleanNum = orderNo.trim();
+    if (!cleanNum) return [];
 
-        from += BATCH_SIZE;
+    // 1. Try shared server cache targeted lookup first (0 Supabase egress if warm)
+    const serverRes = await this.fetchRowsViaServerCache('grey_stock_summary', { orderNo: cleanNum });
+    if (serverRes && serverRes.ok) {
+      return serverRes.rows.map(row => this.mapRowToGreyStockItem(row));
+    }
+
+    // 2. Fallback: targeted single-order PostgREST query with slim columns
+    const client = this.getClient();
+    if (!client) return [];
+    try {
+      let selectCols = this.getSelectColumns('grey_stock_summary');
+      let { data, error } = await client
+        .from('grey_stock_summary')
+        .select(selectCols)
+        .ilike('order_no', `%${cleanNum}%`)
+        .limit(300);
+
+      if (error && selectCols !== '*' && (error.code === '42703' || error.code === 'PGRST204')) {
+        this._tablesRequiringWildcard.add('grey_stock_summary');
+        const retry = await client
+          .from('grey_stock_summary')
+          .select('*')
+          .ilike('order_no', `%${cleanNum}%`)
+          .limit(300);
+        data = retry.data;
+        error = retry.error;
       }
 
-      if (onProgress && allRows.length > 0) {
-        onProgress(allRows.length, allRows.length, 100);
+      if (error) {
+        if (this.isQuotaOrRestrictionError(error)) this.markServiceRestricted(error);
+        return [];
       }
-
-      this._greyStockTableExists = true;
-      return allRows.map(row => this.mapRowToGreyStockItem(row));
+      return Array.isArray(data) ? data.map(row => this.mapRowToGreyStockItem(row)) : [];
     } catch {
       return [];
     }
@@ -2841,7 +3550,10 @@ export class SupabaseSync {
         }
       }
 
-      if (!items || items.length === 0) return { success: true, count: 0 };
+      if (!items || items.length === 0) {
+        if (replace) this.notifyDatasetChanged('grey_stock_summary', 'bulk');
+        return { success: true, count: 0 };
+      }
 
       const rows = items.map(r => this.sanitizeRowForSupabase(this.mapGreyStockItemToRow(r)));
       const CHUNK_SIZE = 200;
@@ -2870,6 +3582,7 @@ export class SupabaseSync {
       }
 
       this._greyStockTableExists = true;
+      this.notifyDatasetChanged('grey_stock_summary', 'bulk');
       return { success: true, count: insertedCount };
     } catch (err: any) {
       return { success: false, count: 0, error: err.message || String(err) };
@@ -2882,6 +3595,7 @@ export class SupabaseSync {
     try {
       const { error } = await client.from('grey_stock_summary').delete().eq('id', id);
       if (error) return { success: false, error: error.message };
+      this.notifyDatasetChanged('grey_stock_summary', 'single');
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || String(err) };
@@ -3023,7 +3737,8 @@ export class SupabaseSync {
       total_received: nRec,
       issued_balance: iBal,
       remarks: item.remarks || null,
-      raw_data: item,
+      // Only persist customFields if present; never duplicate all columns inside raw_data
+      raw_data: item.customFields && Object.keys(item.customFields).length > 0 ? { customFields: item.customFields } : {},
       updated_at: new Date().toISOString()
     };
   }
@@ -3060,6 +3775,10 @@ export class SupabaseSync {
           .select('id', { head: true, count: 'exact' });
 
         if (error) {
+          if (this.isQuotaOrRestrictionError(error)) {
+            this.markServiceRestricted(error);
+            return false;
+          }
           if (error.code === 'PGRST205' || error.message?.includes('does not exist') || error.message?.includes('grey_yarn_stock')) {
             this._greyYarnStockTableExists = false;
             this._lastGreyYarnStockCheckTime = Date.now();
@@ -3094,84 +3813,113 @@ export class SupabaseSync {
   }
 
   static async fetchGreyYarnStockRecords(
-    onProgress?: (loaded: number, total: number, percent: number) => void
+    onProgress?: (loaded: number, total: number, percent: number) => void,
+    force: boolean = false
   ): Promise<GreyYarnStockItem[]> {
-    const client = this.getClient();
-    if (!client || !this.isGreyYarnStockTableAvailable()) return [];
+    const TABLE = 'grey_yarn_stock';
+    if (!this.isGreyYarnStockTableAvailable()) return [];
 
-    try {
-      let totalCount = 0;
-      try {
-        const { count, error: countErr } = await client
-          .from('grey_yarn_stock')
-          .select('*', { count: 'exact', head: true });
-        if (countErr) {
-          if (countErr.code === 'PGRST205' || countErr.message?.includes('does not exist') || countErr.message?.includes('grey_yarn_stock')) {
-            this._greyYarnStockTableExists = false;
-            this._lastGreyYarnStockCheckTime = Date.now();
-            return [];
-          }
-        } else if (typeof count === 'number') {
-          this._greyYarnStockTableExists = true;
-          totalCount = count;
-        }
-      } catch {}
-
-      const BATCH_SIZE = 1000;
-      let from = 0;
-      const allRows: any[] = [];
-      let sortKey: string | null = 'order_no';
-
-      while (true) {
-        const to = from + BATCH_SIZE - 1;
-        let query = client.from('grey_yarn_stock').select('*');
-
-        if (sortKey) {
-          query = query.order(sortKey, { ascending: true });
-        }
-
-        const { data, error } = await query.range(from, to);
-
-        if (error) {
-          if (error.code === 'PGRST205' || error.message?.includes('does not exist') || error.message?.includes('grey_yarn_stock')) {
-            this._greyYarnStockTableExists = false;
-            this._lastGreyYarnStockCheckTime = Date.now();
-            return [];
-          }
-          if (sortKey) {
-            sortKey = null;
-            continue;
-          }
-          break;
-        }
-
-        if (!data || !Array.isArray(data) || data.length === 0) {
-          break;
-        }
-
-        allRows.push(...data);
-        const effectiveTotal = Math.max(totalCount, allRows.length);
-        const percent = effectiveTotal > 0 ? Math.min(99, Math.round((allRows.length / effectiveTotal) * 100)) : 100;
-        if (onProgress) {
-          onProgress(allRows.length, effectiveTotal, percent);
-        }
-
-        if (data.length < BATCH_SIZE) {
-          break;
-        }
-
-        from += BATCH_SIZE;
+    if (!force) {
+      const memo = this._tableFetchMemo.get(TABLE);
+      if (memo && Date.now() - memo.ts < this.CLIENT_CACHE_TTL_MS) {
+        if (onProgress && memo.data.length > 0) onProgress(memo.data.length, memo.data.length, 100);
+        return memo.data as GreyYarnStockItem[];
       }
-
-      if (onProgress && allRows.length > 0) {
-        onProgress(allRows.length, allRows.length, 100);
-      }
-
-      this._greyYarnStockTableExists = true;
-      return allRows.map(row => this.mapRowToGreyYarnStockItem(row));
-    } catch {
-      return [];
     }
+
+    const flightKey = `${TABLE}:${force ? 'force' : 'normal'}`;
+    if (this._tableInFlight.has(flightKey)) {
+      return this._tableInFlight.get(flightKey)!;
+    }
+
+    const promise = (async (): Promise<GreyYarnStockItem[]> => {
+      this._failedTables.delete(TABLE);
+
+      const serverRes = await this.fetchRowsViaServerCache(TABLE, { force });
+      if (serverRes) {
+        if (serverRes.restricted || !serverRes.ok) {
+          this._failedTables.add(TABLE);
+          return [];
+        }
+        this._greyYarnStockTableExists = true;
+        const mapped = serverRes.rows.map(row => this.mapRowToGreyYarnStockItem(row));
+        this._tableFetchMemo.set(TABLE, { ts: Date.now(), data: mapped, maxUpdatedAt: serverRes.maxUpdatedAt });
+        if (onProgress && mapped.length > 0) onProgress(mapped.length, mapped.length, 100);
+        return mapped;
+      }
+
+      const client = this.getClient();
+      if (!client) {
+        this._failedTables.add(TABLE);
+        return [];
+      }
+
+      try {
+        const BATCH_SIZE = 1000;
+        let from = 0;
+        const allRows: any[] = [];
+        let sortKey: string | null = 'order_no';
+        let selectCols = this.getSelectColumns(TABLE);
+
+        while (true) {
+          const to = from + BATCH_SIZE - 1;
+          let query = client.from(TABLE).select(selectCols);
+          if (sortKey) {
+            query = query.order(sortKey, { ascending: true });
+          }
+          const { data, error } = await query.range(from, to);
+
+          if (error) {
+            if (this.isQuotaOrRestrictionError(error)) {
+              this._failedTables.add(TABLE);
+              this.markServiceRestricted(error);
+              return [];
+            }
+            if (error.code === 'PGRST205' || error.message?.includes('does not exist') || error.message?.includes('grey_yarn_stock')) {
+              this._greyYarnStockTableExists = false;
+              this._lastGreyYarnStockCheckTime = Date.now();
+              return [];
+            }
+            if (selectCols !== '*' && (error.code === '42703' || error.code === 'PGRST204')) {
+              this._tablesRequiringWildcard.add(TABLE);
+              selectCols = '*';
+              from = 0;
+              allRows.length = 0;
+              continue;
+            }
+            if (sortKey) {
+              sortKey = null;
+              continue;
+            }
+            this._failedTables.add(TABLE);
+            break;
+          }
+
+          if (!data || !Array.isArray(data) || data.length === 0) break;
+          allRows.push(...data);
+          if (onProgress) {
+            const estTotal = data.length === BATCH_SIZE ? allRows.length + BATCH_SIZE : allRows.length;
+            onProgress(allRows.length, estTotal, Math.min(99, Math.round((allRows.length / estTotal) * 100)));
+          }
+          if (data.length < BATCH_SIZE) break;
+          from += BATCH_SIZE;
+        }
+
+        this._greyYarnStockTableExists = true;
+        const mapped = allRows.map(row => this.mapRowToGreyYarnStockItem(row));
+        this._tableFetchMemo.set(TABLE, { ts: Date.now(), data: mapped });
+        if (onProgress && mapped.length > 0) onProgress(mapped.length, mapped.length, 100);
+        return mapped;
+      } catch {
+        this._failedTables.add(TABLE);
+        return [];
+      }
+    })().finally(() => {
+      this._tableInFlight.delete(flightKey);
+    });
+
+    this._tableInFlight.set(flightKey, promise);
+    return promise;
   }
 
   static async bulkSaveGreyYarnStockRecords(
@@ -3211,7 +3959,10 @@ export class SupabaseSync {
         }
       }
 
-      if (!items || items.length === 0) return { success: true, count: 0 };
+      if (!items || items.length === 0) {
+        if (replace) this.notifyDatasetChanged('grey_yarn_stock', 'bulk');
+        return { success: true, count: 0 };
+      }
 
       const rows = items.map(r => this.sanitizeRowForSupabase(this.mapGreyYarnStockItemToRow(r)));
       const CHUNK_SIZE = 200;
@@ -3240,6 +3991,7 @@ export class SupabaseSync {
       }
 
       this._greyYarnStockTableExists = true;
+      this.notifyDatasetChanged('grey_yarn_stock', 'bulk');
       if (onProgress) {
         onProgress(rows.length, rows.length, 100, 'Cloud save complete!');
       }
@@ -3254,6 +4006,7 @@ export class SupabaseSync {
     if (!client || !this.isGreyYarnStockTableAvailable()) return false;
     try {
       const { error } = await client.from('grey_yarn_stock').delete().eq('id', id);
+      if (!error) this.notifyDatasetChanged('grey_yarn_stock', 'single');
       return !error;
     } catch {
       return false;
@@ -3384,6 +4137,10 @@ CREATE INDEX IF NOT EXISTS idx_grey_yarn_spinner ON public.grey_yarn_stock(spinn
 CREATE INDEX IF NOT EXISTS idx_grey_yarn_physical_count ON public.grey_yarn_stock(physical_count);
 CREATE INDEX IF NOT EXISTS idx_grey_yarn_physical_lot ON public.grey_yarn_stock(physical_lot);
 
+-- Grant API Role Permissions (Required on new Supabase Postgres instances)
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL PRIVILEGES ON TABLE public.grey_yarn_stock TO anon, authenticated, service_role;
+
 -- Enable Row Level Security (RLS) with full read/write access
 ALTER TABLE public.grey_yarn_stock ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow public full access to grey_yarn_stock" ON public.grey_yarn_stock;
@@ -3457,6 +4214,10 @@ CREATE INDEX IF NOT EXISTS idx_grey_stock_fab_type ON public.grey_stock_summary(
 CREATE INDEX IF NOT EXISTS idx_grey_stock_owner_unit ON public.grey_stock_summary(owner_unit);
 CREATE INDEX IF NOT EXISTS idx_grey_stock_status ON public.grey_stock_summary(status);
 
+-- Grant API Role Permissions (Required on new Supabase Postgres instances)
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL PRIVILEGES ON TABLE public.grey_stock_summary TO anon, authenticated, service_role;
+
 -- Row Level Security (RLS)
 ALTER TABLE public.grey_stock_summary ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow public full access to grey_stock_summary" ON public.grey_stock_summary;
@@ -3516,6 +4277,10 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS idx_knitting_orders_order_no ON public.knitting_orders(order_no);
 CREATE INDEX IF NOT EXISTS idx_knitting_orders_buyer_name ON public.knitting_orders(buyer_name);
+
+-- Grant API Role Permissions (Required on new Supabase Postgres instances)
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL PRIVILEGES ON TABLE public.knitting_orders TO anon, authenticated, service_role;
 
 -- Row Level Security (RLS) with full read/write access
 ALTER TABLE public.knitting_orders ENABLE ROW LEVEL SECURITY;
@@ -3631,7 +4396,10 @@ CREATE INDEX IF NOT EXISTS idx_knitting_orders_buyer_name ON public.knitting_ord
 CREATE INDEX IF NOT EXISTS idx_textile_close_order_no ON public.textile_close_pmc(order_no);
 CREATE INDEX IF NOT EXISTS idx_textile_close_buyer_name ON public.textile_close_pmc(buyer_name);
 
--- 5. Row Level Security & Access Policies
+-- 5. Grant API Role Permissions & Row Level Security Policies
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL PRIVILEGES ON TABLE public.order_plans, public.knitting_orders, public.textile_close_pmc TO anon, authenticated, service_role;
+
 ALTER TABLE public.order_plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.knitting_orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.textile_close_pmc ENABLE ROW LEVEL SECURITY;
@@ -3983,6 +4751,13 @@ CREATE TABLE IF NOT EXISTS public.textile_close_pmc (
 CREATE INDEX IF NOT EXISTS idx_textile_close_order_no ON public.textile_close_pmc(order_no);
 CREATE INDEX IF NOT EXISTS idx_textile_close_buyer_name ON public.textile_close_pmc(buyer_name);
 
+-- Grant Schema & Table Privileges to Supabase API Roles (Fixes 42501 permission denied on new projects)
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+
 -- Enable Row Level Security (RLS)
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.factory_units ENABLE ROW LEVEL SECURITY;
@@ -4018,6 +4793,8 @@ CREATE POLICY "Allow public full access to yarn_allocations" ON public.yarn_allo
 CREATE POLICY "Allow public full access to order_plans" ON public.order_plans FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public full access to knitting_orders" ON public.knitting_orders FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public full access to textile_close_pmc" ON public.textile_close_pmc FOR ALL USING (true) WITH CHECK (true);
+
+NOTIFY pgrst, 'reload schema';
 
 -- Enable Real-Time Broadcast for Tables
 DO $$ 
@@ -4159,7 +4936,10 @@ CREATE INDEX IF NOT EXISTS idx_yarn_allocations_buyer ON public.yarn_allocations
 CREATE INDEX IF NOT EXISTS idx_yarn_allocations_allocation_no ON public.yarn_allocations(allocation_no);
 CREATE INDEX IF NOT EXISTS idx_yarn_allocations_lot_no ON public.yarn_allocations(lot_no);
 
--- 3. Row Level Security & Access Policies
+-- 3. Grant API Role Permissions & Row Level Security Policies
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL PRIVILEGES ON TABLE public.yarn_allocations TO anon, authenticated, service_role;
+
 ALTER TABLE public.yarn_allocations ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow public full access to yarn_allocations" ON public.yarn_allocations;
 CREATE POLICY "Allow public full access to yarn_allocations" ON public.yarn_allocations FOR ALL USING (true) WITH CHECK (true);
@@ -4218,7 +4998,10 @@ CREATE INDEX IF NOT EXISTS idx_textile_close_buyer_name ON public.textile_close_
 CREATE INDEX IF NOT EXISTS idx_textile_close_team_leader ON public.textile_close_pmc(team_leader);
 CREATE INDEX IF NOT EXISTS idx_textile_close_status ON public.textile_close_pmc(status);
 
--- 3. Row Level Security & Access Policies
+-- 3. Grant API Role Permissions & Row Level Security Policies
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL PRIVILEGES ON TABLE public.textile_close_pmc TO anon, authenticated, service_role;
+
 ALTER TABLE public.textile_close_pmc ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow public full access to textile_close_pmc" ON public.textile_close_pmc;
 CREATE POLICY "Allow public full access to textile_close_pmc" ON public.textile_close_pmc FOR ALL USING (true) WITH CHECK (true);

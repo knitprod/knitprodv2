@@ -207,8 +207,9 @@ function saveConfig(newConfig: Partial<{ gasWebAppUrl: string; databaseMode: 'ga
   };
   cachedConfigObj = updated;
 
-  // Invalidate proxy cache on URL change
+  // Invalidate proxy & Supabase caches on config change
   gasProxyCache.clear();
+  resetServerSupabaseState();
 
   atomicWriteFileSync(CONFIG_FILE, JSON.stringify(updated, null, 2));
 
@@ -970,7 +971,143 @@ const gasProxyHandler = async (req: express.Request, res: express.Response) => {
 // =========================================================================
 
 let serverSupabaseClient: SupabaseClient | null = null;
+let serverSupabaseRestrictedUntil = 0;
+let serverSupabaseRestrictedReason: string | null = null;
+
+type CacheableSupabaseTable =
+  | 'production_ledger'
+  | 'yarn_allocations'
+  | 'order_plans'
+  | 'knitting_orders'
+  | 'textile_close_pmc'
+  | 'grey_stock_summary'
+  | 'grey_yarn_stock';
+
+// Explicit slim column projections (excluding duplicated raw_data JSONB blobs)
+// Automatically falls back to '*' per table if an older schema is missing a column.
+const CACHEABLE_TABLE_CONFIG: Record<
+  CacheableSupabaseTable,
+  { columns: string; orderCol: string | null; ascending: boolean }
+> = {
+  production_ledger: {
+    columns:
+      'id,date,unit,floor,shift_a,shift_b,shift_c,total_production,target,efficiency,active_machines,total_machines,machine_utilization,idle_machines,running_orders,buyer,remarks,updated_by,created_at,updated_at',
+    orderCol: 'date',
+    ascending: false
+  },
+  yarn_allocations: {
+    columns:
+      'id,actual_requisition_date,buyer,order_number,fabrics_type,fabric_shade,fabric_gsm,yarn_required,lot_ref,allocated_yarn,lot_no,spinners_name,allocation_status,yarn_stock_status,yarn_delivery_status,proposed_allocation_date,allocation_date_range,allocation_no,yarn_rq_qty,allocated_qty,balance,remarks,updated_by,created_at,updated_at',
+    orderCol: 'id',
+    ascending: false
+  },
+  order_plans: {
+    columns:
+      'id,plan_month,plan_type,ewo,buyer,color,knit_start,knit_end,target,target_next_month,allocation_start,allocation_end,allocated_qty,allocated_bal,grey_req,knit_pro,knit_bal,a_knit_start,last_production_date,avg_prod_day,expected_knit_end,knit_start_otd,knit_end_otd,knit_start_remarks,knit_end_remarks,knit_team_leaders,updated_by,created_at,updated_at',
+    orderCol: 'id',
+    ascending: false
+  },
+  knitting_orders: {
+    // Keep raw_data here for legacy rows storing pmcKnitStartDate/actualKnitStartDate (new writes omit items from raw_data)
+    columns:
+      'id,order_no,buyer_name,team_leader,knit_start_date,knit_end_date,req_qty,grey_qty,production,knit_balance,items,remarks,raw_data,created_at,updated_at',
+    orderCol: 'id',
+    ascending: false
+  },
+  textile_close_pmc: {
+    columns:
+      'id,status,order_no,buyer_name,team_leader,fgsm,f_width,color,fab_type,req_qty,grey_qty,production,knit_bal,closed_date,remarks,updated_at',
+    orderCol: 'order_no',
+    ascending: true
+  },
+  grey_stock_summary: {
+    columns:
+      'id,code,order_no,buyer_name,colour,fab_style,fab_type,status,completion_date,net_received_qty,net_issued_qty,stock_qty,double_count,owner_unit,matched_grey_qty,updated_at',
+    orderCol: 'id',
+    ascending: true
+  },
+  grey_yarn_stock: {
+    columns:
+      'id,completion_date,buyer,status,allocated_order_wa,physical_count,physical_lot,spinner,booking_qty,yarn_required,net_received,total_issued,excess_issued,total_stock_qty,issue_balance,order_no,buyer_name,physical_yarn_count,physical_yarn_lot,total_received,issued_balance,remarks,updated_at',
+    orderCol: 'order_no',
+    ascending: true
+  }
+};
+
+const CACHEABLE_TABLE_SET = new Set<string>(Object.keys(CACHEABLE_TABLE_CONFIG));
+const tablesRequiringWildcardSelect = new Set<CacheableSupabaseTable>();
+
+interface ServerTableCacheEntry {
+  rows: any[];
+  fetchedAt: number;
+  version: number;
+  maxUpdatedAt: string | null;
+  lastForceRefreshAt: number;
+}
+
+const SUPABASE_SERVER_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes (invalidated immediately on mutations/uploads)
+const SUPABASE_FORCE_COOLDOWN_MS = 5 * 1000; // Prevent forced origin spam
+const SUPABASE_PROBE_COOLDOWN_MS = 120 * 1000; // Max 1 tiny MAX(updated_at) probe every 2 min
+const SUPABASE_PERM_DENIED_COOLDOWN_MS = 60 * 1000; // Cooldown when table lacks GRANT permissions
+const supabaseServerCache = new Map<CacheableSupabaseTable, ServerTableCacheEntry>();
+const supabaseInFlightFetches = new Map<string, Promise<any[] | null>>();
+const supabasePermDeniedUntil = new Map<CacheableSupabaseTable, number>();
+let lastVersionProbeAt = 0;
+
+function resetServerSupabaseState() {
+  serverSupabaseClient = null;
+  serverSupabaseRestrictedUntil = 0;
+  serverSupabaseRestrictedReason = null;
+  supabaseServerCache.clear();
+  supabaseInFlightFetches.clear();
+  supabasePermDeniedUntil.clear();
+  tablesRequiringWildcardSelect.clear();
+  lastVersionProbeAt = 0;
+}
+
+function isServerPermissionDeniedError(err: any): boolean {
+  if (!err) return false;
+  const code = String(err.code || '');
+  const msg = String(err.message || '').toLowerCase();
+  return code === '42501' || msg.includes('permission denied');
+}
+
+function isServerSupabaseQuotaError(err: any): boolean {
+  if (!err) return false;
+  try {
+    const msg = (
+      typeof err === 'string'
+        ? err
+        : (err.message || err.details || err.hint || JSON.stringify(err))
+    ).toLowerCase();
+    return (
+      msg.includes('exceed_egress_quota') ||
+      msg.includes('exceed_quota') ||
+      msg.includes('egress quota') ||
+      msg.includes('restricted due to') ||
+      msg.includes('spend caps') ||
+      msg.includes('upgrade their plan') ||
+      err?.status === 402
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isServerSupabaseRestricted(): boolean {
+  return serverSupabaseRestrictedUntil > Date.now();
+}
+
+function markServerSupabaseRestricted(err: any) {
+  serverSupabaseRestrictedUntil = Date.now() + 5 * 60 * 1000;
+  serverSupabaseRestrictedReason =
+    (err && typeof err === 'object' && err.message)
+      ? String(err.message)
+      : 'Supabase project egress quota exceeded.';
+}
+
 function getServerSupabase(): SupabaseClient | null {
+  if (isServerSupabaseRestricted()) return null;
   const cfg = loadConfig();
   if (!cfg.supabaseUrl || !cfg.supabaseKey) return null;
   if (!serverSupabaseClient) {
@@ -978,6 +1115,436 @@ function getServerSupabase(): SupabaseClient | null {
   }
   return serverSupabaseClient;
 }
+
+function computeMaxUpdatedAt(rows: any[]): string | null {
+  let maxIso: string | null = null;
+  for (const r of rows) {
+    const ts = r?.updated_at || r?.created_at;
+    if (typeof ts === 'string' && ts.length >= 10) {
+      if (!maxIso || ts > maxIso) maxIso = ts;
+    }
+  }
+  return maxIso;
+}
+
+async function fetchFullTableFromOrigin(table: CacheableSupabaseTable): Promise<any[] | null> {
+  const deniedUntil = supabasePermDeniedUntil.get(table) || 0;
+  if (deniedUntil > Date.now()) return null;
+
+  const supabase = getServerSupabase();
+  if (!supabase) return null;
+
+  const cfg = CACHEABLE_TABLE_CONFIG[table];
+  let selectClause = tablesRequiringWildcardSelect.has(table) ? '*' : cfg.columns;
+  let orderCol: string | null = cfg.orderCol;
+
+  const allRows: any[] = [];
+  const BATCH_SIZE = 1000;
+  let from = 0;
+
+  while (true) {
+    const to = from + BATCH_SIZE - 1;
+    let query = supabase.from(table).select(selectClause);
+    if (orderCol) {
+      query = query.order(orderCol, { ascending: cfg.ascending });
+    }
+    const { data, error } = await query.range(from, to);
+
+    if (error) {
+      if (isServerSupabaseQuotaError(error)) {
+        markServerSupabaseRestricted(error);
+        return null;
+      }
+      // Permission denied (Postgres 42501) -> cool down without spamming error logs
+      if (isServerPermissionDeniedError(error)) {
+        supabasePermDeniedUntil.set(table, Date.now() + SUPABASE_PERM_DENIED_COOLDOWN_MS);
+        console.log(`[Supabase Cache] Table '${table}' needs GRANT permissions for anon/authenticated roles in SQL Editor.`);
+        return null;
+      }
+      // Missing column on older schema -> seamlessly fall back to '*'
+      if (
+        selectClause !== '*' &&
+        (error.code === '42703' ||
+          error.code === 'PGRST204' ||
+          error.message?.includes('does not exist') ||
+          error.message?.includes('Could not find'))
+      ) {
+        tablesRequiringWildcardSelect.add(table);
+        selectClause = '*';
+        from = 0;
+        allRows.length = 0;
+        continue;
+      }
+      // Missing sort column -> retry without order
+      if (orderCol && (error.code === '42703' || error.message?.includes('column'))) {
+        orderCol = null;
+        from = 0;
+        allRows.length = 0;
+        continue;
+      }
+      // Missing table
+      if (error.code === 'PGRST205' || error.code === '42P01') {
+        return [];
+      }
+      console.log(`[Supabase Cache] Fetch notice (${table}):`, error.message);
+      return null;
+    }
+
+    if (!Array.isArray(data) || data.length === 0) break;
+    allRows.push(...data);
+    if (data.length < BATCH_SIZE) break;
+    from += BATCH_SIZE;
+  }
+
+  supabasePermDeniedUntil.delete(table);
+  return allRows;
+}
+
+async function getCachedSupabaseTable(
+  table: CacheableSupabaseTable,
+  forceRefresh: boolean = false
+): Promise<{ rows: any[] | null; fromCache: boolean; version: number; maxUpdatedAt: string | null }> {
+  const existing = supabaseServerCache.get(table);
+  const now = Date.now();
+
+  if (existing && existing.fetchedAt > 0) {
+    const isFresh = now - existing.fetchedAt < SUPABASE_SERVER_CACHE_TTL_MS;
+    const withinForceCooldown = now - existing.lastForceRefreshAt < SUPABASE_FORCE_COOLDOWN_MS;
+    if ((!forceRefresh && isFresh) || (forceRefresh && withinForceCooldown)) {
+      return {
+        rows: existing.rows,
+        fromCache: true,
+        version: existing.version,
+        maxUpdatedAt: existing.maxUpdatedAt
+      };
+    }
+  }
+
+  // In-flight deduplication: N concurrent users = 1 single origin read
+  const flightKey = `full:${table}`;
+  let pending = supabaseInFlightFetches.get(flightKey);
+  if (!pending) {
+    pending = fetchFullTableFromOrigin(table).finally(() => {
+      supabaseInFlightFetches.delete(flightKey);
+    });
+    supabaseInFlightFetches.set(flightKey, pending);
+  }
+
+  const fetched = await pending;
+  if (fetched === null) {
+    // Serve stale RAM cache if origin is temporarily unavailable/restricted
+    if (existing) {
+      return {
+        rows: existing.rows,
+        fromCache: true,
+        version: existing.version,
+        maxUpdatedAt: existing.maxUpdatedAt
+      };
+    }
+    return { rows: null, fromCache: false, version: existing?.version || 0, maxUpdatedAt: existing?.maxUpdatedAt || null };
+  }
+
+  const nextVersion = (existing?.version || 0) + 1;
+  const maxUpdatedAt = computeMaxUpdatedAt(fetched);
+  supabaseServerCache.set(table, {
+    rows: fetched,
+    fetchedAt: Date.now(),
+    version: nextVersion,
+    maxUpdatedAt,
+    lastForceRefreshAt: forceRefresh ? Date.now() : (existing?.lastForceRefreshAt || 0)
+  });
+
+  return { rows: fetched, fromCache: false, version: nextVersion, maxUpdatedAt };
+}
+
+function invalidateServerSupabaseTable(table: CacheableSupabaseTable | 'all') {
+  const nowIso = new Date().toISOString();
+  const targets: CacheableSupabaseTable[] =
+    table === 'all' ? (Array.from(CACHEABLE_TABLE_SET) as CacheableSupabaseTable[]) : [table];
+  for (const t of targets) {
+    supabasePermDeniedUntil.delete(t);
+    const existing = supabaseServerCache.get(t);
+    supabaseServerCache.set(t, {
+      rows: existing?.rows || [],
+      fetchedAt: 0, // Marks stale so next read refreshes once from Supabase
+      version: (existing?.version || 0) + 1,
+      maxUpdatedAt: nowIso,
+      lastForceRefreshAt: 0
+    });
+  }
+}
+
+// =========================================================================
+// SHARED SUPABASE READ CACHE & VERSION COORDINATOR ENDPOINTS
+// =========================================================================
+
+// Lightweight version check (~250 bytes) — tells all clients whether any table changed
+app.get('/api/supabase-cache/versions', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const shouldProbe = req.query.probe === '1';
+
+  // Optional ultra-lightweight probe (1 timestamp per cached table, throttled to once per 2 min)
+  if (shouldProbe && !isServerSupabaseRestricted() && Date.now() - lastVersionProbeAt > SUPABASE_PROBE_COOLDOWN_MS) {
+    const supabase = getServerSupabase();
+    if (supabase) {
+      lastVersionProbeAt = Date.now();
+      const cachedTables = Array.from(supabaseServerCache.entries()).filter(([, entry]) => entry.fetchedAt > 0);
+      await Promise.allSettled(
+        cachedTables.map(async ([table, entry]) => {
+          try {
+            const { data, error } = await supabase
+              .from(table)
+              .select('updated_at')
+              .order('updated_at', { ascending: false })
+              .limit(1);
+            if (error) {
+              if (isServerSupabaseQuotaError(error)) markServerSupabaseRestricted(error);
+              return;
+            }
+            const latestTs = Array.isArray(data) && data[0]?.updated_at ? String(data[0].updated_at) : null;
+            if (latestTs && (!entry.maxUpdatedAt || latestTs > entry.maxUpdatedAt)) {
+              // Origin has newer data than our RAM cache -> mark stale & bump version
+              invalidateServerSupabaseTable(table);
+              const updated = supabaseServerCache.get(table);
+              if (updated) updated.maxUpdatedAt = latestTs;
+            }
+          } catch {}
+        })
+      );
+    }
+  }
+
+  const versions: Record<string, { version: number; fetchedAt: number; maxUpdatedAt: string | null; count: number }> = {};
+  for (const t of CACHEABLE_TABLE_SET) {
+    const entry = supabaseServerCache.get(t as CacheableSupabaseTable);
+    versions[t] = {
+      version: entry?.version || 0,
+      fetchedAt: entry?.fetchedAt || 0,
+      maxUpdatedAt: entry?.maxUpdatedAt || null,
+      count: entry?.rows?.length || 0
+    };
+  }
+
+  return res.json({
+    success: true,
+    restricted: isServerSupabaseRestricted(),
+    reason: isServerSupabaseRestricted() ? serverSupabaseRestrictedReason : null,
+    versions
+  });
+});
+
+// Cache invalidation hook called after any write or bulk Excel upload
+app.post('/api/supabase-cache/invalidate', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const rawTable = typeof req.body?.table === 'string' ? req.body.table.trim() : '';
+  if (rawTable === 'all') {
+    invalidateServerSupabaseTable('all');
+    return res.json({ success: true, invalidated: 'all' });
+  }
+  if (!CACHEABLE_TABLE_SET.has(rawTable)) {
+    return res.status(400).json({ success: false, message: 'Invalid table name.' });
+  }
+  invalidateServerSupabaseTable(rawTable as CacheableSupabaseTable);
+  const entry = supabaseServerCache.get(rawTable as CacheableSupabaseTable);
+  return res.json({
+    success: true,
+    invalidated: rawTable,
+    version: entry?.version || 1
+  });
+});
+
+// Shared cached table read endpoint (gzipped, slim columns, supports ?since=<ISO> & ?orderNo=...)
+app.get('/api/supabase-cache/:table', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const rawTable = String(req.params.table || '').trim();
+  if (!CACHEABLE_TABLE_SET.has(rawTable)) {
+    return res.status(400).json({ success: false, message: 'Table is not allowed.' });
+  }
+  const table = rawTable as CacheableSupabaseTable;
+
+  const force = req.query.force === '1' || req.query.force === 'true';
+  const rawSince = typeof req.query.since === 'string' ? req.query.since.trim() : '';
+  const rawOrderNo = typeof req.query.orderNo === 'string' ? req.query.orderNo.trim() : '';
+
+  // Validate optional ISO timestamp (?since=)
+  let sinceIso: string | null = null;
+  if (rawSince) {
+    if (!/^\d{4}-\d{2}-\d{2}(T[\d:.+-]+Z?)?$/.test(rawSince) || Number.isNaN(Date.parse(rawSince))) {
+      return res.status(400).json({ success: false, message: 'Invalid since timestamp.' });
+    }
+    sinceIso = rawSince;
+  }
+
+  // 1. Targeted single-order lookup (?orderNo=...)
+  if (rawOrderNo) {
+    const cleanOrderNo = rawOrderNo.replace(/[%_,()]/g, '').slice(0, 100).trim();
+    if (!cleanOrderNo) {
+      return res.status(400).json({ success: false, message: 'Invalid orderNo parameter.' });
+    }
+    const existing = supabaseServerCache.get(table);
+    if (!force && existing && existing.fetchedAt > 0 && Date.now() - existing.fetchedAt < SUPABASE_SERVER_CACHE_TTL_MS) {
+      const needle = cleanOrderNo.toLowerCase();
+      const matched = existing.rows.filter((r: any) => {
+        const val = String(r.order_no || r.order_number || r.ewo || r.allocated_order_wa || '').toLowerCase();
+        return val === needle || val.includes(needle);
+      });
+      return res.json({
+        success: true,
+        fromCache: true,
+        targeted: true,
+        version: existing.version,
+        maxUpdatedAt: existing.maxUpdatedAt,
+        rows: matched
+      });
+    }
+
+    const supabase = getServerSupabase();
+    if (!supabase) {
+      return res.json({
+        success: false,
+        restricted: isServerSupabaseRestricted(),
+        reason: serverSupabaseRestrictedReason,
+        rows: []
+      });
+    }
+
+    try {
+      const cfg = CACHEABLE_TABLE_CONFIG[table];
+      const selectClause = tablesRequiringWildcardSelect.has(table) ? '*' : cfg.columns;
+      const orderField =
+        table === 'order_plans'
+          ? 'ewo'
+          : table === 'yarn_allocations'
+            ? 'order_number'
+            : 'order_no';
+      let { data, error } = await supabase
+        .from(table)
+        .select(selectClause)
+        .ilike(orderField, `%${cleanOrderNo}%`)
+        .limit(500);
+
+      if (error && selectClause !== '*' && (error.code === '42703' || error.code === 'PGRST204')) {
+        tablesRequiringWildcardSelect.add(table);
+        const retry = await supabase.from(table).select('*').ilike(orderField, `%${cleanOrderNo}%`).limit(500);
+        data = retry.data;
+        error = retry.error;
+      }
+
+      if (error) {
+        if (isServerSupabaseQuotaError(error)) markServerSupabaseRestricted(error);
+        return res.json({
+          success: false,
+          restricted: isServerSupabaseRestricted(),
+          reason: serverSupabaseRestrictedReason || error.message,
+          rows: []
+        });
+      }
+
+      return res.json({
+        success: true,
+        fromCache: false,
+        targeted: true,
+        version: existing?.version || 0,
+        rows: Array.isArray(data) ? data : []
+      });
+    } catch {
+      return res.json({ success: false, restricted: isServerSupabaseRestricted(), rows: [] });
+    }
+  }
+
+  // 2. Incremental delta read (?since=<ISO>)
+  if (sinceIso) {
+    const existing = supabaseServerCache.get(table);
+    if (!force && existing && existing.fetchedAt > 0 && Date.now() - existing.fetchedAt < SUPABASE_SERVER_CACHE_TTL_MS) {
+      const deltaRows = existing.rows.filter((r: any) => typeof r.updated_at === 'string' && r.updated_at > sinceIso!);
+      return res.json({
+        success: true,
+        fromCache: true,
+        delta: true,
+        version: existing.version,
+        maxUpdatedAt: existing.maxUpdatedAt,
+        rows: deltaRows
+      });
+    }
+
+    const supabase = getServerSupabase();
+    if (!supabase) {
+      return res.json({
+        success: false,
+        restricted: isServerSupabaseRestricted(),
+        reason: serverSupabaseRestrictedReason,
+        delta: true,
+        rows: []
+      });
+    }
+
+    try {
+      const cfg = CACHEABLE_TABLE_CONFIG[table];
+      const selectClause = tablesRequiringWildcardSelect.has(table) ? '*' : cfg.columns;
+      let { data, error } = await supabase
+        .from(table)
+        .select(selectClause)
+        .gt('updated_at', sinceIso)
+        .limit(1000);
+
+      if (error && selectClause !== '*' && (error.code === '42703' || error.code === 'PGRST204')) {
+        tablesRequiringWildcardSelect.add(table);
+        const retry = await supabase.from(table).select('*').gt('updated_at', sinceIso).limit(1000);
+        data = retry.data;
+        error = retry.error;
+      }
+
+      if (error) {
+        if (isServerSupabaseQuotaError(error)) markServerSupabaseRestricted(error);
+        return res.json({
+          success: false,
+          restricted: isServerSupabaseRestricted(),
+          reason: serverSupabaseRestrictedReason || error.message,
+          delta: true,
+          rows: []
+        });
+      }
+
+      return res.json({
+        success: true,
+        fromCache: false,
+        delta: true,
+        version: existing?.version || 0,
+        maxUpdatedAt: computeMaxUpdatedAt(Array.isArray(data) ? data : []) || sinceIso,
+        rows: Array.isArray(data) ? data : []
+      });
+    } catch {
+      return res.json({ success: false, restricted: isServerSupabaseRestricted(), delta: true, rows: [] });
+    }
+  }
+
+  // 3. Shared full-table cached read (1 origin query shared across all concurrent users)
+  if (force) {
+    supabasePermDeniedUntil.delete(table);
+  }
+  const result = await getCachedSupabaseTable(table, force);
+  if (result.rows === null) {
+    const permDenied = (supabasePermDeniedUntil.get(table) || 0) > Date.now();
+    return res.json({
+      success: false,
+      restricted: isServerSupabaseRestricted(),
+      permissionDenied: permDenied,
+      reason: permDenied
+        ? `Permission denied for table '${table}'. Run GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role; in Supabase SQL Editor.`
+        : serverSupabaseRestrictedReason,
+      version: result.version,
+      rows: []
+    });
+  }
+
+  return res.json({
+    success: true,
+    fromCache: result.fromCache,
+    version: result.version,
+    maxUpdatedAt: result.maxUpdatedAt,
+    rows: result.rows
+  });
+});
 
 let aiClient: GoogleGenAI | null = null;
 function getGenAI(): GoogleGenAI | null {
@@ -1027,31 +1594,24 @@ function formatHumanDate(dStr: string): string {
   return dStr;
 }
 
-// In-memory cached production ledger with TTL
+// In-memory cached production ledger with TTL (reuses shared Supabase cache to avoid duplicate egress)
 let cachedLedgerData: any[] = [];
 let lastLedgerFetchTime = 0;
 async function getProductionLedgerRecords(clientContext?: any): Promise<any[]> {
   const now = Date.now();
-  if (cachedLedgerData.length > 0 && (now - lastLedgerFetchTime) < 15000) {
+  if (cachedLedgerData.length > 0 && (now - lastLedgerFetchTime) < 60000) {
     return cachedLedgerData;
   }
 
-  const supabase = getServerSupabase();
-  if (supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('production_ledger')
-        .select('*')
-        .order('date', { ascending: false })
-        .limit(300);
-      if (!error && Array.isArray(data) && data.length > 0) {
-        cachedLedgerData = data;
-        lastLedgerFetchTime = now;
-        return data;
-      }
-    } catch (e) {
-      console.warn('Supabase ledger fetch warning:', e);
+  try {
+    const cached = await getCachedSupabaseTable('production_ledger', false);
+    if (Array.isArray(cached.rows) && cached.rows.length > 0) {
+      cachedLedgerData = cached.rows;
+      lastLedgerFetchTime = now;
+      return cached.rows;
     }
+  } catch (e) {
+    console.warn('Supabase ledger cache fetch warning:', e);
   }
 
   // Fallback to local app_db.json

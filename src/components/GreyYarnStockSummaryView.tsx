@@ -233,8 +233,12 @@ export default function GreyYarnStockSummaryView({ currentUser, onNavigateTab }:
     return () => clearTimeout(timer);
   }, [orderNoSearch]);
 
-  // Reactive listener for storage updates
+  // Reactive listener for storage updates + live multi-user Supabase Realtime & Broadcast sync
   useEffect(() => {
+    let isCancelled = false;
+    let lastVersionCheckTs = Date.now();
+    let seenVersion = SupabaseSync.getLastKnownVersion('grey_yarn_stock');
+
     const handleStorageUpdate = (e: Event) => {
       const customEvent = e as CustomEvent<GreyYarnStockItem[]>;
       if (customEvent.detail && Array.isArray(customEvent.detail)) {
@@ -243,7 +247,84 @@ export default function GreyYarnStockSummaryView({ currentUser, onNavigateTab }:
       }
     };
     window.addEventListener('epyllion_grey_yarn_stock_updated', handleStorageUpdate);
-    return () => window.removeEventListener('epyllion_grey_yarn_stock_updated', handleStorageUpdate);
+
+    // 1. Initial cached sync via shared server cache (no redundant Supabase reads)
+    if (SupabaseSync.isConfigured() && !SupabaseSync.isServiceRestricted()) {
+      GreyYarnStockStorage.syncTwoWay(false).then((res) => {
+        if (!isCancelled && Array.isArray(res.records) && res.records.length > 0) {
+          setRecords(res.records);
+          setUploadMeta(GreyYarnStockStorage.getUploadMeta());
+          seenVersion = SupabaseSync.getLastKnownVersion('grey_yarn_stock');
+        }
+      }).catch(() => {});
+    }
+
+    // 2. Real-time single-row subscription
+    const unsubRealtime = SupabaseSync.isConfigured()
+      ? SupabaseSync.subscribeToGreyYarnStockRecords(({ eventType, record, id }) => {
+          if (isCancelled) return;
+          if (eventType === 'DELETE') {
+            setRecords(prev => {
+              const next = prev.filter(r => r.id !== id);
+              GreyYarnStockStorage.saveRecords(next, false);
+              return next;
+            });
+          } else if (eventType === 'INSERT' || eventType === 'UPDATE') {
+            if (!record || !record.id) return;
+            setRecords(prev => {
+              const idx = prev.findIndex(r => r.id === record.id);
+              const next = idx >= 0 ? prev.map((r, i) => (i === idx ? record : r)) : [record, ...prev];
+              GreyYarnStockStorage.saveRecords(next, false);
+              return next;
+            });
+          }
+        })
+      : () => {};
+
+    // 3. Cross-device Broadcast listener for instant bulk Excel upload updates
+    const unsubSignals = SupabaseSync.subscribeToSyncSignals(async ({ table }) => {
+      if (isCancelled || table !== 'grey_yarn_stock') return;
+      try {
+        const res = await GreyYarnStockStorage.syncTwoWay(false);
+        if (!isCancelled && Array.isArray(res.records) && res.records.length > 0) {
+          setRecords(res.records);
+          setUploadMeta(GreyYarnStockStorage.getUploadMeta());
+          seenVersion = SupabaseSync.getLastKnownVersion('grey_yarn_stock');
+        }
+      } catch {}
+    });
+
+    // 4. Lightweight ~250-byte version check on tab return (0 rows downloaded if unchanged)
+    const handleVisibilityOrOnline = async () => {
+      if (isCancelled || document.visibilityState !== 'visible') return;
+      if (!SupabaseSync.isConfigured() || SupabaseSync.isServiceRestricted()) return;
+      if (Date.now() - lastVersionCheckTs < 60000) return;
+      lastVersionCheckTs = Date.now();
+      try {
+        const verRes = await SupabaseSync.fetchServerTableVersions(true);
+        const latestVer = verRes?.versions?.grey_yarn_stock?.version || 0;
+        if (latestVer > 0 && seenVersion > 0 && latestVer > seenVersion) {
+          const res = await GreyYarnStockStorage.syncTwoWay(false);
+          if (!isCancelled && Array.isArray(res.records) && res.records.length > 0) {
+            setRecords(res.records);
+            setUploadMeta(GreyYarnStockStorage.getUploadMeta());
+          }
+        }
+        if (latestVer > 0) seenVersion = latestVer;
+      } catch {}
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityOrOnline);
+    window.addEventListener('online', handleVisibilityOrOnline);
+
+    return () => {
+      isCancelled = true;
+      window.removeEventListener('epyllion_grey_yarn_stock_updated', handleStorageUpdate);
+      document.removeEventListener('visibilitychange', handleVisibilityOrOnline);
+      window.removeEventListener('online', handleVisibilityOrOnline);
+      unsubRealtime();
+      unsubSignals();
+    };
   }, []);
 
   // STEP 1: Master Order Groups (1st layer rollup)

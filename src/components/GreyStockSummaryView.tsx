@@ -390,11 +390,15 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
   useEffect(() => {
     let unsub: (() => void) | null = null;
     let isCancelled = false;
+    let lastVersionCheckTs = Date.now();
+    let seenVersion = SupabaseSync.getLastKnownVersion('grey_stock_summary');
 
-    // 1. Automatically pull on initial mount
-    autoPullFromCloud(true);
+    // 1. Initial load via shared server/client cache (zero duplicate egress)
+    autoPullFromCloud(true).then(() => {
+      seenVersion = SupabaseSync.getLastKnownVersion('grey_stock_summary');
+    });
 
-    // 2. Real-time subscription to Supabase Cloud table
+    // 2. Real-time subscription to Supabase Cloud table for single-row edits
     if (SupabaseSync.isConfigured()) {
       unsub = SupabaseSync.subscribeToGreyStockRecords(({ eventType, record, id }) => {
         if (isCancelled) return;
@@ -421,34 +425,39 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
       });
     }
 
-    // 3. Periodic background auto-check (every 90s)
-    const periodicInterval = setInterval(() => {
-      if (!isCancelled) {
-        autoPullFromCloud(false);
-      }
-    }, 90000);
+    // 3. Cross-device Broadcast listener: instant auto-refresh after any bulk Excel upload on another device
+    const unsubSignals = SupabaseSync.subscribeToSyncSignals(({ table }) => {
+      if (isCancelled || table !== 'grey_stock_summary') return;
+      autoPullFromCloud(false).then(() => {
+        seenVersion = SupabaseSync.getLastKnownVersion('grey_stock_summary');
+      });
+    });
 
-    // 4. Auto-refresh when tab/window regains focus or visibility
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && !isCancelled) {
-        autoPullFromCloud(false);
-      }
-    };
-    const handleFocus = () => {
-      if (!isCancelled) {
-        autoPullFromCloud(false);
-      }
+    // 4. Lightweight version check on tab return (~250 bytes, throttled to 60s — downloads 0 rows if unchanged!)
+    const handleVisibilityOrOnline = async () => {
+      if (isCancelled || document.visibilityState !== 'visible') return;
+      if (!SupabaseSync.isConfigured() || SupabaseSync.isServiceRestricted()) return;
+      if (Date.now() - lastVersionCheckTs < 60000) return;
+      lastVersionCheckTs = Date.now();
+      try {
+        const res = await SupabaseSync.fetchServerTableVersions(true);
+        const latestVer = res?.versions?.grey_stock_summary?.version || 0;
+        if (latestVer > 0 && seenVersion > 0 && latestVer > seenVersion) {
+          await autoPullFromCloud(false);
+        }
+        if (latestVer > 0) seenVersion = latestVer;
+      } catch {}
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrOnline);
+    window.addEventListener('online', handleVisibilityOrOnline);
 
     return () => {
       isCancelled = true;
       if (unsub) unsub();
-      clearInterval(periodicInterval);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleFocus);
+      unsubSignals();
+      document.removeEventListener('visibilitychange', handleVisibilityOrOnline);
+      window.removeEventListener('online', handleVisibilityOrOnline);
     };
   }, [autoPullFromCloud]);
 
@@ -1307,7 +1316,8 @@ export default function GreyStockSummaryView({ currentUser, onNavigateTab }: Gre
             }));
           }
           setSyncStatusText(`Supabase: ${pct}%`);
-        }
+        },
+        !isSilent
       );
 
       if (Array.isArray(syncResult.records) && syncResult.records.length > 0) {

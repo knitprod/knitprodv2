@@ -386,11 +386,13 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const refreshAll = useCallback(async (forceRefresh: boolean = false) => {
     setIsSyncing(true);
     try {
-      // 1. Fetch Production Ledger, Yarn Allocations & Order Plans from Supabase (sub-second queries, zero Vercel bandwidth)
-      const supabaseLedgerPromise = SupabaseSync.fetchProductionLedger().catch(() => []);
-      const supabaseYarnPromise = SupabaseSync.fetchYarnAllocations().catch(() => []);
-      const supabaseOrdersPromise = SupabaseSync.fetchOrderPlans().catch(() => []);
-      const supabaseTextilePromise = SupabaseSync.isConfigured() ? SupabaseSync.fetchTextileCloseRecords().catch(() => []) : Promise.resolve([]);
+      // 1. Fetch Production Ledger, Yarn Allocations & Order Plans via shared server cache (slim columns)
+      const supabaseLedgerPromise = SupabaseSync.fetchProductionLedger(undefined, forceRefresh).catch(() => []);
+      const supabaseYarnPromise = SupabaseSync.fetchYarnAllocations(undefined, forceRefresh).catch(() => []);
+      const supabaseOrdersPromise = SupabaseSync.fetchOrderPlans(undefined, forceRefresh).catch(() => []);
+      const supabaseTextilePromise = SupabaseSync.isConfigured()
+        ? SupabaseSync.fetchTextileCloseRecords(undefined, forceRefresh).catch(() => [])
+        : Promise.resolve([]);
 
       // Fast-path: Update state as soon as each Supabase dataset resolves
       supabaseOrdersPromise.then(orders => {
@@ -464,8 +466,13 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         cleanOrders = filterDeletedOrders(deduplicateOrderPlans(supabaseOrders));
         setOrderPlans(cleanOrders);
         loadedSuccessfully = true;
-      } else if (Array.isArray(supabaseOrders) && SupabaseSync.isConfigured()) {
-        // Supabase is configured and connected, but table has 0 records (e.g. user purged/deleted all codes)
+      } else if (
+        Array.isArray(supabaseOrders) &&
+        SupabaseSync.isConfigured() &&
+        !SupabaseSync.isServiceRestricted() &&
+        !SupabaseSync.hasFetchFailed('order_plans')
+      ) {
+        // Supabase is configured and connected without errors, and table genuinely has 0 records
         cleanOrders = [];
         setOrderPlans([]);
         loadedSuccessfully = true;
@@ -480,8 +487,13 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           const remoteLedger = json.data.ledger || json.data.records;
           const remoteFloors = json.data.floors;
 
-          // Only seed Orders from Google Sheets if Supabase is NOT configured
-          if (!SupabaseSync.isConfigured() && (!cleanOrders || cleanOrders.length === 0) && Array.isArray(remoteOrders) && remoteOrders.length > 0) {
+          const ordersSupabaseUnavailable =
+            !SupabaseSync.isConfigured() ||
+            SupabaseSync.isServiceRestricted() ||
+            SupabaseSync.hasFetchFailed('order_plans');
+
+          // Seed Orders from Google Sheets if Supabase is unconfigured or unavailable/quota-restricted
+          if (ordersSupabaseUnavailable && (!cleanOrders || cleanOrders.length === 0) && Array.isArray(remoteOrders) && remoteOrders.length > 0) {
             cleanOrders = filterDeletedOrders(deduplicateOrderPlans(remoteOrders));
             setOrderPlans(cleanOrders);
             loadedSuccessfully = true;
@@ -494,14 +506,16 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             loadedSuccessfully = true;
           }
 
-          // If Supabase was empty on first setup for Ledger, migrate/seed from Google Sheets into Supabase
+          // If Supabase was empty on first setup for Ledger, populate from Google Sheets
           if ((!cleanLedger || cleanLedger.length === 0) && Array.isArray(remoteLedger) && remoteLedger.length > 0) {
             cleanLedger = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(remoteLedger)));
             setLedger(cleanLedger);
             setFloors(prev => recalculateFloorsFromLedger(prev, cleanLedger!));
             loadedSuccessfully = true;
-            // Auto-migrate to Supabase so future requests are instant
-            SupabaseSync.bulkSaveProductionRecords(cleanLedger).catch(err => console.warn('Supabase auto-seed notice:', err));
+            // Auto-migrate to Supabase ONLY if Supabase is active, unrestricted, and ledger fetch didn't error
+            if (SupabaseSync.isConfigured() && !SupabaseSync.isServiceRestricted() && !SupabaseSync.hasFetchFailed('production_ledger')) {
+              SupabaseSync.bulkSaveProductionRecords(cleanLedger).catch(err => console.warn('Supabase auto-seed notice:', err));
+            }
           } else if (!cleanLedger && Array.isArray(remoteFloors) && remoteFloors.length > 0) {
             setFloors(prev =>
               prev.map(f => {
@@ -513,8 +527,8 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       }
 
-      // Fallback: If Supabase is unconfigured and Google Sheets failed
-      if (!SupabaseSync.isConfigured() && !cleanOrders) {
+      // Fallback: If Supabase is unconfigured or restricted/unavailable and Google Sheets failed
+      if ((!SupabaseSync.isConfigured() || SupabaseSync.isServiceRestricted() || SupabaseSync.hasFetchFailed('order_plans')) && !cleanOrders) {
         const [ordersRes] = await Promise.allSettled([
           GasClient.fetchOrderPlans(forceRefresh)
         ]);
@@ -633,68 +647,155 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     });
 
+    // Cross-device Broadcast listener: instant auto-refresh after any bulk Excel upload on another device
+    // (1 tiny ~100-byte signal triggers a shared server-cache refresh — N devices = 1 Supabase read!)
+    const unsubSignals = SupabaseSync.subscribeToSyncSignals(async ({ table }) => {
+      if (SupabaseSync.isServiceRestricted()) return;
+      try {
+        if (table === 'order_plans') {
+          const fresh = await SupabaseSync.fetchOrderPlans(undefined, false);
+          if (Array.isArray(fresh) && !SupabaseSync.hasFetchFailed('order_plans')) {
+            const clean = filterDeletedOrders(deduplicateOrderPlans(fresh));
+            setOrderPlans(clean);
+            persistCache(clean, undefined, undefined);
+            setLastSyncedAt(new Date());
+          }
+        } else if (table === 'production_ledger') {
+          const fresh = await SupabaseSync.fetchProductionLedger(undefined, false);
+          if (Array.isArray(fresh) && fresh.length > 0) {
+            const clean = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(fresh)));
+            setLedger(clean);
+            setFloors(fl => recalculateFloorsFromLedger(fl, clean));
+            persistCache(undefined, undefined, clean);
+            setLastSyncedAt(new Date());
+          }
+        } else if (table === 'yarn_allocations') {
+          const fresh = await SupabaseSync.fetchYarnAllocations(undefined, false);
+          if (Array.isArray(fresh) && fresh.length > 0) {
+            const clean = filterDeletedYarn(deduplicateWithUniqueIds(fresh, 'yarn'));
+            setYarnAllocations(clean);
+            persistCache(undefined, clean, undefined);
+            setLastSyncedAt(new Date());
+          }
+        } else if (table === 'textile_close_pmc') {
+          const fresh = await SupabaseSync.fetchTextileCloseRecords(undefined, false);
+          if (Array.isArray(fresh) && fresh.length > 0) {
+            setTextileRecords(fresh);
+            TextileClosePMCStorage.saveRecords(fresh);
+            setLastSyncedAt(new Date());
+          }
+        }
+      } catch {}
+    });
+
     return () => {
       unsubLedger();
       unsubYarn();
       unsubOrderPlans();
+      unsubSignals();
     };
-  }, []);
+  }, [filterDeletedLedger, filterDeletedOrders, filterDeletedYarn]);
 
-  // 3. Lightweight Background Polling for Google Sheets (Orders and Yarn backup if Supabase unconfigured)
+  // 3. Zero-Waste Version-Checked Reconnect Sync (replaces 45s full-table polling!)
+  // Realtime WebSockets + Broadcast signals handle all live changes automatically.
+  // When returning to a sleeping tab, we check a ~250-byte version payload first and ONLY fetch tables that changed.
   useEffect(() => {
-    let isFetching = false;
+    let isChecking = false;
+    let lastCheckTs = Date.now();
+    const seenVersions: Record<string, number> = {
+      order_plans: SupabaseSync.getLastKnownVersion('order_plans'),
+      production_ledger: SupabaseSync.getLastKnownVersion('production_ledger'),
+      yarn_allocations: SupabaseSync.getLastKnownVersion('yarn_allocations'),
+      textile_close_pmc: SupabaseSync.getLastKnownVersion('textile_close_pmc')
+    };
 
-    const performSilentPoll = async () => {
-      // Never make background requests if user is not on this tab
+    const checkVersionsAndSyncChanges = async () => {
       if (typeof document !== 'undefined' && document.hidden) return;
-      if (isFetching) return;
+      if (isChecking) return;
+      // Throttle tab-return checks to at most once every 60 seconds
+      if (Date.now() - lastCheckTs < 60000) return;
+      lastCheckTs = Date.now();
+      isChecking = true;
 
-      isFetching = true;
       try {
-        // 1. Primary Cloud Database Sync: Supabase
         if (SupabaseSync.isConfigured()) {
-          const [supOrders, supLedgers] = await Promise.all([
-            SupabaseSync.fetchOrderPlans().catch(() => []),
-            SupabaseSync.fetchProductionLedger().catch(() => [])
-          ]);
+          if (SupabaseSync.isServiceRestricted()) return;
 
-          if (Array.isArray(supOrders) && supOrders.length > 0) {
-            const cleanOrders = filterDeletedOrders(deduplicateOrderPlans(supOrders));
-            setOrderPlans(prev => {
-              if (hasArrayChanged(prev, cleanOrders)) {
-                try {
-                  localStorage.setItem('cached_order_plans', JSON.stringify(cleanOrders));
-                } catch (e) {}
-                return cleanOrders;
-              }
-              return prev;
-            });
+          const versionPayload = await SupabaseSync.fetchServerTableVersions(true);
+          if (!versionPayload || versionPayload.restricted) return;
+
+          const { versions } = versionPayload;
+
+          // Only download a table if its server version actually incremented since our last sync
+          const orderVer = versions.order_plans?.version || 0;
+          if (orderVer > 0 && seenVersions.order_plans > 0 && orderVer > seenVersions.order_plans) {
+            const supOrders = await SupabaseSync.fetchOrderPlans(undefined, false).catch(() => []);
+            if (Array.isArray(supOrders) && supOrders.length > 0) {
+              const cleanOrders = filterDeletedOrders(deduplicateOrderPlans(supOrders));
+              setOrderPlans(prev => {
+                if (hasArrayChanged(prev, cleanOrders)) {
+                  try { localStorage.setItem('cached_order_plans', JSON.stringify(cleanOrders)); } catch {}
+                  return cleanOrders;
+                }
+                return prev;
+              });
+              setLastSyncedAt(new Date());
+            }
           }
+          if (orderVer > 0) seenVersions.order_plans = orderVer;
 
-          if (Array.isArray(supLedgers) && supLedgers.length > 0) {
-            const cleanLedger = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(supLedgers)));
-            setLedger(prev => {
-              if (hasArrayChanged(prev, cleanLedger)) {
-                try {
-                  localStorage.setItem('cached_production_ledger', JSON.stringify(cleanLedger));
-                } catch (e) {}
-                setFloors(fl => recalculateFloorsFromLedger(fl, cleanLedger));
-                return cleanLedger;
-              }
-              return prev;
-            });
+          const ledgerVer = versions.production_ledger?.version || 0;
+          if (ledgerVer > 0 && seenVersions.production_ledger > 0 && ledgerVer > seenVersions.production_ledger) {
+            const supLedgers = await SupabaseSync.fetchProductionLedger(undefined, false).catch(() => []);
+            if (Array.isArray(supLedgers) && supLedgers.length > 0) {
+              const cleanLedger = filterDeletedLedger(sanitizeLedgerRecords(deduplicateLedgerRecords(supLedgers)));
+              setLedger(prev => {
+                if (hasArrayChanged(prev, cleanLedger)) {
+                  try { localStorage.setItem('cached_production_ledger', JSON.stringify(cleanLedger)); } catch {}
+                  setFloors(fl => recalculateFloorsFromLedger(fl, cleanLedger));
+                  return cleanLedger;
+                }
+                return prev;
+              });
+              setLastSyncedAt(new Date());
+            }
           }
+          if (ledgerVer > 0) seenVersions.production_ledger = ledgerVer;
 
-          setLastSyncedAt(new Date());
+          const yarnVer = versions.yarn_allocations?.version || 0;
+          if (yarnVer > 0 && seenVersions.yarn_allocations > 0 && yarnVer > seenVersions.yarn_allocations) {
+            const supYarn = await SupabaseSync.fetchYarnAllocations(undefined, false).catch(() => []);
+            if (Array.isArray(supYarn) && supYarn.length > 0) {
+              const cleanYarn = filterDeletedYarn(deduplicateWithUniqueIds(supYarn, 'yarn'));
+              setYarnAllocations(prev => {
+                if (hasArrayChanged(prev, cleanYarn)) {
+                  try { localStorage.setItem('cached_yarn_allocations', JSON.stringify(cleanYarn)); } catch {}
+                  return cleanYarn;
+                }
+                return prev;
+              });
+              setLastSyncedAt(new Date());
+            }
+          }
+          if (yarnVer > 0) seenVersions.yarn_allocations = yarnVer;
+
+          const tcVer = versions.textile_close_pmc?.version || 0;
+          if (tcVer > 0 && seenVersions.textile_close_pmc > 0 && tcVer > seenVersions.textile_close_pmc) {
+            const supTc = await SupabaseSync.fetchTextileCloseRecords(undefined, false).catch(() => []);
+            if (Array.isArray(supTc) && supTc.length > 0) {
+              setTextileRecords(supTc);
+              TextileClosePMCStorage.saveRecords(supTc);
+              setLastSyncedAt(new Date());
+            }
+          }
+          if (tcVer > 0) seenVersions.textile_close_pmc = tcVer;
         } else {
-          // 2. Cold Archive / Fallback Sync: Google Sheets ONLY when Supabase is NOT configured
+          // Cold Archive / Fallback Sync: Google Sheets ONLY when Supabase is NOT configured
           const res = await fetch('/api/sheets?action=all', {
             headers: { 'Accept': 'application/json' },
             signal: AbortSignal.timeout(20000)
           });
-
           if (!res.ok) return;
-
           const json = await res.json();
           if (json && json.success && json.data) {
             const { orderPlans: rOrders, yarnAllocations: rYarn } = json.data;
@@ -702,9 +803,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               const cleanOrders = filterDeletedOrders(deduplicateOrderPlans(rOrders));
               setOrderPlans(prev => {
                 if (hasArrayChanged(prev, cleanOrders)) {
-                  try {
-                    localStorage.setItem('cached_order_plans', JSON.stringify(cleanOrders));
-                  } catch (e) {}
+                  try { localStorage.setItem('cached_order_plans', JSON.stringify(cleanOrders)); } catch {}
                   return cleanOrders;
                 }
                 return prev;
@@ -714,9 +813,7 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               const cleanYarn = filterDeletedYarn(deduplicateWithUniqueIds(rYarn, 'yarn'));
               setYarnAllocations(prev => {
                 if (hasArrayChanged(prev, cleanYarn)) {
-                  try {
-                    localStorage.setItem('cached_yarn_allocations', JSON.stringify(cleanYarn));
-                  } catch (e) {}
+                  try { localStorage.setItem('cached_yarn_allocations', JSON.stringify(cleanYarn)); } catch {}
                   return cleanYarn;
                 }
                 return prev;
@@ -726,30 +823,27 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           }
         }
       } catch {
-        // Silent catch for background poll
+        // Silent catch for lightweight version check
       } finally {
-        isFetching = false;
+        isChecking = false;
       }
     };
 
-    const interval = setInterval(performSilentPoll, POLLING_INTERVAL_MS);
-
-    // Instant refresh when user returns to the tab after being away
-    const handleVisibilityChange = () => {
+    // Only check tiny ~250-byte version metadata when returning to tab or coming back online
+    const handleVisibilityOrOnline = () => {
       if (typeof document !== 'undefined' && !document.hidden) {
-        performSilentPoll();
+        checkVersionsAndSyncChanges();
       }
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleVisibilityChange);
+    document.addEventListener('visibilitychange', handleVisibilityOrOnline);
+    window.addEventListener('online', handleVisibilityOrOnline);
 
     return () => {
-      clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleVisibilityChange);
+      document.removeEventListener('visibilitychange', handleVisibilityOrOnline);
+      window.removeEventListener('online', handleVisibilityOrOnline);
     };
-  }, [filterDeletedOrders, filterDeletedYarn]);
+  }, [filterDeletedLedger, filterDeletedOrders, filterDeletedYarn]);
 
   // 4. Cross-Device Real-time Event Listener
   useEffect(() => {

@@ -644,10 +644,10 @@ export default function App() {
         globalData.refreshAll(true)
       ];
 
-      // Pull live data from Supabase across all modules
+      // Pull live data from Supabase across all modules (explicit manual sync forces origin refresh)
       if (SupabaseSync.isConfigured()) {
         syncTasks.push(
-          SupabaseSync.fetchKnittingOrders().then(orders => {
+          SupabaseSync.fetchKnittingOrders(undefined, true).then(orders => {
             if (Array.isArray(orders) && orders.length > 0) {
               KnittingStatusStorage.saveOrders(orders);
               window.dispatchEvent(new CustomEvent('epyllion_knitting_status_updated', { detail: orders }));
@@ -656,7 +656,7 @@ export default function App() {
         );
 
         syncTasks.push(
-          SupabaseSync.fetchTextileCloseRecords().then(records => {
+          SupabaseSync.fetchTextileCloseRecords(undefined, true).then(records => {
             if (Array.isArray(records) && records.length > 0) {
               TextileClosePMCStorage.saveRecords(records);
               window.dispatchEvent(new CustomEvent('epyllion_tc_pmc_updated', { detail: records }));
@@ -665,11 +665,11 @@ export default function App() {
         );
 
         syncTasks.push(
-          GreyStockStorage.syncTwoWay(false).catch(err => console.warn('Grey stock pull notice:', err))
+          GreyStockStorage.syncTwoWay(false, undefined, true).catch(err => console.warn('Grey stock pull notice:', err))
         );
 
         syncTasks.push(
-          GreyYarnStockStorage.syncTwoWay(false).catch(err => console.warn('Grey yarn stock pull notice:', err))
+          GreyYarnStockStorage.syncTwoWay(false, undefined, true).catch(err => console.warn('Grey yarn stock pull notice:', err))
         );
       }
 
@@ -699,21 +699,10 @@ export default function App() {
   useEffect(() => {
     // 1. Sync Supabase config from Server to keep connection sticky
     SupabaseSync.syncRemoteConfig().then(() => {
-      // Pull live Supabase data on load if configured
-      if (SupabaseSync.isConfigured()) {
+      // Load core dashboard datasets via shared server cache; secondary modules (Knitting Status,
+      // Grey Stock, Grey Yarn Stock) hydrate lazily on demand when visited to conserve Supabase egress.
+      if (SupabaseSync.isConfigured() && !SupabaseSync.isServiceRestricted()) {
         globalData.refreshAll(false).catch(() => {});
-        SupabaseSync.fetchKnittingOrders().then(orders => {
-          if (Array.isArray(orders) && orders.length > 0) {
-            KnittingStatusStorage.saveOrders(orders);
-          }
-        }).catch(() => {});
-        SupabaseSync.fetchTextileCloseRecords().then(records => {
-          if (Array.isArray(records) && records.length > 0) {
-            TextileClosePMCStorage.saveRecords(records);
-          }
-        }).catch(() => {});
-        GreyStockStorage.syncTwoWay(false).catch(() => {});
-        GreyYarnStockStorage.syncTwoWay(false).catch(() => {});
       }
     }).catch(() => {});
 

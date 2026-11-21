@@ -334,7 +334,8 @@ export const GreyStockStorage = {
    */
   async syncTwoWay(
     forcePushLocal: boolean = false,
-    onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void
+    onProgress?: (processed: number, total: number, percentage: number, stage?: string) => void,
+    forceCloudRefresh: boolean = false
   ): Promise<{ records: GreyStockItem[]; source: string; count: number }> {
     // If user explicitly requests to force push local records to remote
     if (forcePushLocal) {
@@ -346,14 +347,14 @@ export const GreyStockStorage = {
       return { records: localRecords, source: 'local_pushed', count: localRecords.length };
     }
 
-    // 1. Fetch from Supabase Cloud first (primary source of truth)
+    // 1. Fetch from Supabase Cloud first (via shared server cache unless forceCloudRefresh=true)
     if (SupabaseSync.isConfigured() && SupabaseSync.isGreyStockTableAvailable()) {
       try {
         const supaRecs = await SupabaseSync.fetchGreyStockRecords((loaded, total, pct) => {
           if (onProgress) {
             onProgress(loaded, total, pct, `Fetching records from Supabase (${loaded.toLocaleString()} / ${total.toLocaleString()})...`);
           }
-        });
+        }, forceCloudRefresh);
 
         if (supaRecs && Array.isArray(supaRecs) && supaRecs.length > 0) {
           // Supabase is the source of truth! Update local app state without touching Supabase
