@@ -109,16 +109,19 @@ export default function LoginView({ onLoginSuccess, inactivityNotice, embedded =
         return;
       }
 
-      // Check password with trimming and tolerance
+      // Check password strictly for EKL001 Superadmin (exact match required)
       const enteredPass = (password || '').trim();
       const expectedPass = (match.password || 'Password@2026').trim();
-      
-      const isPasswordMatch = 
-        !match.password || 
-        expectedPass === enteredPass || 
-        expectedPass.toLowerCase() === enteredPass.toLowerCase() ||
-        enteredPass === 'Password@2026' ||
-        enteredPass === 'admin';
+      const normalizedMatchedUid = (match.uid || '').toString().trim().toUpperCase().replace(/[\s-_]/g, '');
+
+      const isPasswordMatch =
+        normalizedMatchedUid === 'EKL001'
+          ? enteredPass === expectedPass
+          : !match.password ||
+            expectedPass === enteredPass ||
+            expectedPass.toLowerCase() === enteredPass.toLowerCase() ||
+            enteredPass === 'Password@2026' ||
+            enteredPass === 'admin';
 
       if (!isPasswordMatch) {
         setError("Access Denied: Invalid UID or password provided. Please verify your credentials.");
@@ -160,6 +163,20 @@ export default function LoginView({ onLoginSuccess, inactivityNotice, embedded =
       if (match) {
         if (match.status === 'Inactive') {
           setError("Authorization Failed: This user account has been disabled.");
+          setLoading(false);
+          return;
+        }
+
+        const enteredPass = (password || '').trim();
+        const expectedPass = (match.password || '').trim();
+        const normalizedFallbackUid = (match.uid || '').trim().toUpperCase().replace(/[\s-_]/g, '');
+        const isFallbackMatch =
+          normalizedFallbackUid === 'EKL001'
+            ? enteredPass === expectedPass
+            : !expectedPass || enteredPass === expectedPass || enteredPass.toLowerCase() === expectedPass.toLowerCase();
+
+        if (!isFallbackMatch) {
+          setError("Access Denied: Invalid UID or password provided. Please verify your credentials.");
           setLoading(false);
           return;
         }

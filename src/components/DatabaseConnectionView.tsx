@@ -47,12 +47,15 @@ import { SyncConflictLog } from '../types';
 import { useGlobalData } from '../context/GlobalDataContext';
 import gasScriptContent from '../../google-apps-script/Code.gs?raw';
 import { safeCopyText } from '../lib/clipboardHelper';
+import DualServerFailoverPanel from './DualServerFailoverPanel';
+import { UserRecord } from './UserManagementView';
 
 interface DatabaseConnectionViewProps {
+  currentUser?: UserRecord | null;
   onSuccessNotice?: (msg: string) => void;
 }
 
-export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConnectionViewProps) {
+export default function DatabaseConnectionView({ currentUser, onSuccessNotice }: DatabaseConnectionViewProps) {
   const { ledger, yarnAllocations, orderPlans, refreshAll } = useGlobalData();
 
   // Google Sheets database connection states
@@ -853,6 +856,20 @@ export default function DatabaseConnectionView({ onSuccessNotice }: DatabaseConn
           <span>Configurations committed and database connection refreshed successfully!</span>
         </div>
       )}
+
+      {/* Dual-Supabase Egress Monitor & Manual Failover Control (Strictly visible to Raihan EKL001 only) */}
+      <DualServerFailoverPanel
+        currentUser={currentUser}
+        onSuccessNotice={onSuccessNotice}
+        onClusterChanged={() => {
+          const cfg = SupabaseSync.getStoredConfig();
+          setSupabaseUrl(cfg.supabaseUrl);
+          setSupabaseKey(cfg.supabaseKey);
+          if (!SupabaseSync.isClusterPaused()) {
+            fetchSupabaseCounts();
+          }
+        }}
+      />
 
       {/* Supabase Free Cloud Integration Card */}
       <div className="rounded-2xl border-2 border-emerald-500/40 bg-linear-to-br from-emerald-50/50 to-white dark:from-emerald-950/20 dark:to-slate-900 p-6 shadow-sm space-y-5">

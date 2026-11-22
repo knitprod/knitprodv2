@@ -61,12 +61,13 @@ export const normalizeFloorKey = (floor: string): string => {
  */
 export const isAntuSuperAdmin = (user: UserRecord | null | undefined): boolean => {
   if (!user) return false;
-  const uid = (user.uid || '').trim().toLowerCase();
+  const uid = (user.uid || '').trim().toLowerCase().replace(/[\s-_]/g, '');
   const name = (user.userName || '').trim().toLowerCase();
   const email = (user.email || '').trim().toLowerCase();
   return (
     uid === 'raihan' ||
     uid === 'ekl001' ||
+    name === 'superadmin' ||
     name.includes('raihan') ||
     name.includes('antu') ||
     email.includes('raihan') ||

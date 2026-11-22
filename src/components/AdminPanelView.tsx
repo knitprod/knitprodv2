@@ -127,7 +127,7 @@ export default function AdminPanelView({ currentUser, initialTab = 'user-managem
         )}
 
         {activeTab === 'database-connection' && (
-          <DatabaseConnectionView onSuccessNotice={handleNotice} />
+          <DatabaseConnectionView currentUser={currentUser} onSuccessNotice={handleNotice} />
         )}
 
         {activeTab === 'settings' && (

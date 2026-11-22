@@ -11,6 +11,8 @@ const app = express();
 const PORT = 3000;
 const CONFIG_FILE = path.join(process.cwd(), 'app_config.json');
 const DB_FILE = path.join(process.cwd(), 'app_db.json');
+const CLUSTER_FILE = path.join(process.cwd(), 'supabase_cluster.json');
+const RAIHAN_OPERATOR_UID = 'EKL001';
 
 // High-efficiency response compression (saves 85-92% bandwidth and fast origin transfer)
 app.use(compression({
@@ -346,16 +348,16 @@ function loadDb() {
     users: [
       {
         id: 'usr-1',
-        userName: 'Md. Raihan Hossain Antu',
+        userName: 'Superadmin',
         userType: 'Admin',
-        designation: 'Senior Manager',
+        designation: 'Full Control OF APP',
         uid: 'EKL001',
-        password: 'Password@2026',
+        password: 'AskRaihan@123',
         department: 'Knitting',
-        assignedUnits: ['EKL', 'EFL', 'Auto Stripe'],
+        assignedUnits: ['EKL', 'EFL', 'EFL-2', 'Auto Stripe', 'EFL-Extension', 'ESL-Extension', 'Sub-Contact', 'ESL-EXT-1'],
         permission: 'Read / Write',
         status: 'Active',
-        lastUpdated: '2026-07-15 10:30 AM'
+        lastUpdated: '2026-11-22 12:00 AM'
       },
       {
         id: 'usr-2',
@@ -538,10 +540,60 @@ app.delete('/api/auth/session', (req, res) => {
   res.json({ success: true, message: 'Session cookie destroyed.' });
 });
 
-// GET central database configuration
+// Helper: extract authenticated UID from HTTP-only session cookie or x-session-uid header
+function getRequestSessionUid(req: express.Request): string | null {
+  const headerUid = req.headers['x-session-uid'];
+  let cookieUid: string | null = null;
+  const cookieHeader = req.headers.cookie;
+  if (cookieHeader) {
+    const match = cookieHeader.match(/ekl_auth_session=([^;]+)/);
+    if (match) {
+      try {
+        cookieUid = decodeURIComponent(match[1]);
+      } catch {
+        cookieUid = match[1];
+      }
+    }
+  }
+  const effective = (typeof headerUid === 'string' && headerUid.trim())
+    ? headerUid.trim().toUpperCase()
+    : (cookieUid && cookieUid.trim() ? cookieUid.trim().toUpperCase() : null);
+  return effective;
+}
+
+function isRaihanOperatorRequest(req: express.Request): boolean {
+  const uid = (getRequestSessionUid(req) || '').replace(/[\s-_]/g, '');
+  return uid === RAIHAN_OPERATOR_UID || uid === 'RAIHAN';
+}
+
+function requireRaihanOperator(req: express.Request, res: express.Response): boolean {
+  if (!isRaihanOperatorRequest(req)) {
+    res.status(403).json({
+      success: false,
+      message: 'Restricted: Dual-server failover controls are strictly limited to Superadmin (EKL001) / Raihan.'
+    });
+    return false;
+  }
+  return true;
+}
+
+// GET central database configuration (returns active server credentials, or empty if paused)
 app.get('/api/config', (req, res) => {
   const config = loadConfig();
-  res.json({ success: true, config });
+  const cluster = loadClusterState();
+  const activeSrv = getActiveClusterServer();
+  res.json({
+    success: true,
+    config: {
+      ...config,
+      supabaseUrl: activeSrv ? activeSrv.supabaseUrl : '',
+      supabaseKey: activeSrv ? activeSrv.supabaseKey : '',
+      activeServerId: cluster.activeServerId,
+      activeServerLabel: activeSrv ? activeSrv.label : null,
+      activeServerPaused: !activeSrv,
+      clusterRevision: cluster.clusterRevision
+    }
+  });
 });
 
 // POST update central database configuration (syncs across all devices)
@@ -553,6 +605,17 @@ app.post('/api/config', (req, res) => {
     supabaseUrl: typeof supabaseUrl === 'string' ? supabaseUrl : undefined,
     supabaseKey: typeof supabaseKey === 'string' ? supabaseKey : undefined,
   });
+  // Keep active cluster server in sync if updated via legacy Settings save
+  if (typeof supabaseUrl === 'string' && supabaseUrl.trim() && typeof supabaseKey === 'string' && supabaseKey.trim()) {
+    const cluster = loadClusterState();
+    const targetId: ServerSlotId = cluster.activeServerId || 'server1';
+    const cleanUrl = sanitizeSupabaseUrlForServer(supabaseUrl);
+    if (cleanUrl) {
+      cluster.servers[targetId].supabaseUrl = cleanUrl;
+      cluster.servers[targetId].supabaseKey = supabaseKey.trim();
+      saveClusterState(cluster);
+    }
+  }
   res.json({ success: true, config: updated });
 });
 
@@ -1116,14 +1179,472 @@ function markServerSupabaseRestricted(err: any) {
       : 'Supabase project egress quota exceeded.';
 }
 
+// =========================================================================
+// DUAL-SUPABASE MANUAL FAILOVER, HARD-PAUSE & PER-SERVER EGRESS METER
+// =========================================================================
+
+type ServerSlotId = 'server1' | 'server2';
+const BYTES_PER_GB = 1024 * 1024 * 1024;
+
+interface SupabaseServerSlot {
+  id: ServerSlotId;
+  label: string;
+  supabaseUrl: string;
+  supabaseKey: string;
+  status: 'active' | 'paused';
+  egressLimitGb: number;
+  warningThresholdPct: number;
+  billingResetDay: number;
+  trackedBytesThisCycle: number;
+  calibrationOffsetBytes: number;
+  cycleMonthKey: string;
+  lastMigratedAt: string | null;
+  pausedAt: string | null;
+  activatedAt: string | null;
+}
+
+interface SupabaseClusterState {
+  activeServerId: ServerSlotId | null;
+  clusterRevision: number;
+  servers: Record<ServerSlotId, SupabaseServerSlot>;
+}
+
+let cachedClusterState: SupabaseClusterState | null = null;
+let clusterPersistTimer: NodeJS.Timeout | null = null;
+
+function sanitizeSupabaseUrlForServer(raw: string): string | null {
+  let clean = String(raw || '').trim();
+  if (!clean) return null;
+  const dashMatch = clean.match(/supabase\.com\/dashboard\/project\/([a-z0-9_-]+)/i);
+  if (dashMatch && dashMatch[1]) {
+    clean = `https://${dashMatch[1]}.supabase.co`;
+  }
+  if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+    clean = `https://${clean}`;
+  }
+  try {
+    const parsed = new URL(clean);
+    if (parsed.protocol !== 'https:') return null;
+    const host = parsed.hostname.toLowerCase();
+    // SSRF guard: block loopback, metadata, and RFC1918 private networks
+    if (
+      host === 'localhost' ||
+      host === '::1' ||
+      host.startsWith('127.') ||
+      host.startsWith('10.') ||
+      host.startsWith('169.254.') ||
+      host.startsWith('192.168.') ||
+      /^172\.(1[6-9]|2\d|3[0-1])\./.test(host) ||
+      host.endsWith('.local') ||
+      host.endsWith('.internal')
+    ) {
+      return null;
+    }
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return null;
+  }
+}
+
+function getBillingCycleKey(resetDay: number, now: Date = new Date()): string {
+  const safeDay = Math.max(1, Math.min(28, Math.floor(Number(resetDay) || 1)));
+  let year = now.getUTCFullYear();
+  let month = now.getUTCMonth() + 1;
+  if (now.getUTCDate() < safeDay) {
+    month -= 1;
+    if (month < 1) {
+      month = 12;
+      year -= 1;
+    }
+  }
+  return `${year}-${String(month).padStart(2, '0')}-d${String(safeDay).padStart(2, '0')}`;
+}
+
+function ensureBillingCycleCurrent(slot: SupabaseServerSlot): boolean {
+  const expectedKey = getBillingCycleKey(slot.billingResetDay);
+  if (slot.cycleMonthKey !== expectedKey) {
+    slot.cycleMonthKey = expectedKey;
+    slot.trackedBytesThisCycle = 0;
+    slot.calibrationOffsetBytes = 0;
+    return true;
+  }
+  return false;
+}
+
+function createDefaultClusterState(): SupabaseClusterState {
+  const cfg = loadConfig();
+  const initialUrl = cfg.supabaseUrl ? (sanitizeSupabaseUrlForServer(cfg.supabaseUrl) || cfg.supabaseUrl.trim()) : '';
+  const initialKey = (cfg.supabaseKey || '').trim();
+  const cycleKey = getBillingCycleKey(1);
+  const nowIso = new Date().toISOString();
+
+  return {
+    activeServerId: initialUrl && initialKey ? 'server1' : null,
+    clusterRevision: 1,
+    servers: {
+      server1: {
+        id: 'server1',
+        label: 'Server 1 (Primary)',
+        supabaseUrl: initialUrl,
+        supabaseKey: initialKey,
+        status: initialUrl && initialKey ? 'active' : 'paused',
+        egressLimitGb: 5.0,
+        warningThresholdPct: 80,
+        billingResetDay: 1,
+        trackedBytesThisCycle: 0,
+        calibrationOffsetBytes: 0,
+        cycleMonthKey: cycleKey,
+        lastMigratedAt: null,
+        pausedAt: null,
+        activatedAt: initialUrl && initialKey ? nowIso : null
+      },
+      server2: {
+        id: 'server2',
+        label: 'Server 2 (Standby)',
+        supabaseUrl: '',
+        supabaseKey: '',
+        status: 'paused',
+        egressLimitGb: 5.0,
+        warningThresholdPct: 80,
+        billingResetDay: 1,
+        trackedBytesThisCycle: 0,
+        calibrationOffsetBytes: 0,
+        cycleMonthKey: cycleKey,
+        lastMigratedAt: null,
+        pausedAt: nowIso,
+        activatedAt: null
+      }
+    }
+  };
+}
+
+function loadClusterState(): SupabaseClusterState {
+  if (cachedClusterState) {
+    let changed = false;
+    if (ensureBillingCycleCurrent(cachedClusterState.servers.server1)) changed = true;
+    if (ensureBillingCycleCurrent(cachedClusterState.servers.server2)) changed = true;
+    if (changed) saveClusterState(cachedClusterState);
+    return cachedClusterState;
+  }
+
+  let state = createDefaultClusterState();
+  if (fs.existsSync(CLUSTER_FILE)) {
+    try {
+      const raw = fs.readFileSync(CLUSTER_FILE, 'utf-8');
+      const parsed = safeParseJson(raw, null);
+      if (parsed && parsed.servers && parsed.servers.server1 && parsed.servers.server2) {
+        state = {
+          activeServerId:
+            parsed.activeServerId === 'server1' || parsed.activeServerId === 'server2'
+              ? parsed.activeServerId
+              : null,
+          clusterRevision: Number(parsed.clusterRevision) || 1,
+          servers: {
+            server1: { ...state.servers.server1, ...parsed.servers.server1, id: 'server1' },
+            server2: { ...state.servers.server2, ...parsed.servers.server2, id: 'server2' }
+          }
+        };
+      }
+    } catch (e) {
+      console.error('Error reading supabase_cluster.json, using default state:', e);
+    }
+  } else {
+    atomicWriteFileSync(CLUSTER_FILE, JSON.stringify(state, null, 2));
+  }
+
+  ensureBillingCycleCurrent(state.servers.server1);
+  ensureBillingCycleCurrent(state.servers.server2);
+  cachedClusterState = state;
+  return state;
+}
+
+function saveClusterState(state: SupabaseClusterState, immediate: boolean = true) {
+  cachedClusterState = state;
+  if (immediate) {
+    if (clusterPersistTimer) {
+      clearTimeout(clusterPersistTimer);
+      clusterPersistTimer = null;
+    }
+    atomicWriteFileSync(CLUSTER_FILE, JSON.stringify(state, null, 2));
+  } else if (!clusterPersistTimer) {
+    clusterPersistTimer = setTimeout(() => {
+      clusterPersistTimer = null;
+      if (cachedClusterState) {
+        atomicWriteFileSync(CLUSTER_FILE, JSON.stringify(cachedClusterState, null, 2));
+      }
+    }, 3000);
+  }
+}
+
+function getActiveClusterServer(): SupabaseServerSlot | null {
+  const cluster = loadClusterState();
+  if (!cluster.activeServerId) return null;
+  const slot = cluster.servers[cluster.activeServerId];
+  if (!slot || slot.status !== 'active' || !slot.supabaseUrl || !slot.supabaseKey) {
+    return null;
+  }
+  return slot;
+}
+
+function computeSlotEgressMetrics(slot: SupabaseServerSlot) {
+  ensureBillingCycleCurrent(slot);
+  const totalBytes = Math.max(0, (Number(slot.trackedBytesThisCycle) || 0) + (Number(slot.calibrationOffsetBytes) || 0));
+  const usedGb = Number((totalBytes / BYTES_PER_GB).toFixed(3));
+  const limitGb = Math.max(0.1, Number(slot.egressLimitGb) || 5.0);
+  const pct = Number(Math.min(100, (usedGb / limitGb) * 100).toFixed(1));
+  const warningThresholdPct = Math.max(10, Math.min(99, Number(slot.warningThresholdPct) || 80));
+  return {
+    totalBytes,
+    usedGb,
+    limitGb,
+    pct,
+    warningThresholdPct,
+    isWarning: pct >= warningThresholdPct,
+    isCritical: pct >= 95
+  };
+}
+
+function recordServerEgressBytes(serverId: ServerSlotId | null, bytes: number) {
+  if (!serverId || !Number.isFinite(bytes) || bytes <= 0) return;
+  const cluster = loadClusterState();
+  const slot = cluster.servers[serverId];
+  if (!slot) return;
+  ensureBillingCycleCurrent(slot);
+  slot.trackedBytesThisCycle = (Number(slot.trackedBytesThisCycle) || 0) + Math.round(bytes);
+  saveClusterState(cluster, false);
+}
+
+function maskKeyPreview(key: string): string {
+  const clean = String(key || '').trim();
+  if (!clean) return '';
+  if (clean.length <= 12) return '••••••••';
+  return `${clean.slice(0, 8)}••••••••${clean.slice(-6)}`;
+}
+
 function getServerSupabase(): SupabaseClient | null {
   if (isServerSupabaseRestricted()) return null;
-  const cfg = loadConfig();
-  if (!cfg.supabaseUrl || !cfg.supabaseKey) return null;
+  const activeSlot = getActiveClusterServer();
+  // Hard Pause Lock: if no server is active (paused), NEVER open or use a Supabase client (0 bytes in/out)
+  if (!activeSlot) return null;
   if (!serverSupabaseClient) {
-    serverSupabaseClient = createClient(cfg.supabaseUrl, cfg.supabaseKey);
+    serverSupabaseClient = createClient(activeSlot.supabaseUrl, activeSlot.supabaseKey);
   }
   return serverSupabaseClient;
+}
+
+// Migration Job Coordinator (12-Table Server-to-Server Copy — NEVER auto-switches active server)
+const MIGRATION_TABLES: Array<{ table: string; label: string; conflictCol: string; required: boolean }> = [
+  { table: 'production_ledger', label: 'Production Ledger', conflictCol: 'id', required: true },
+  { table: 'yarn_allocations', label: 'Yarn Allocations', conflictCol: 'id', required: true },
+  { table: 'order_plans', label: 'Plan Order Followup', conflictCol: 'id', required: true },
+  { table: 'knitting_orders', label: 'Knitting Status Orders', conflictCol: 'id', required: true },
+  { table: 'textile_close_pmc', label: 'Textile Close By PMC', conflictCol: 'id', required: true },
+  { table: 'grey_stock_summary', label: 'Grey Stock Summary', conflictCol: 'id', required: true },
+  { table: 'grey_yarn_stock', label: 'Grey Yarn Stock Summary', conflictCol: 'id', required: true },
+  { table: 'users', label: 'System Users & Permissions', conflictCol: 'uid', required: true },
+  { table: 'factory_units', label: 'Factory Units & Capacity', conflictCol: 'id', required: true },
+  { table: 'buyers', label: 'Buyers Directory', conflictCol: 'buyer_name', required: true },
+  { table: 'system_settings', label: 'System Settings & Logos', conflictCol: 'id', required: true },
+  { table: 'activity_logs', label: 'Activity Audit Logs', conflictCol: 'id', required: true },
+  { table: 'app_settings', label: 'Legacy App Settings (Optional)', conflictCol: 'id', required: false }
+];
+
+interface MigrationTableProgress {
+  table: string;
+  label: string;
+  status: 'pending' | 'checking' | 'copying' | 'done' | 'skipped' | 'error';
+  rowsCopied: number;
+  totalRows: number;
+  error?: string;
+}
+
+interface MigrationJobState {
+  jobId: string;
+  sourceServerId: ServerSlotId;
+  targetServerId: ServerSlotId;
+  status: 'preflight' | 'migrating' | 'completed' | 'failed';
+  currentTable: string | null;
+  totalRowsCopied: number;
+  message: string;
+  error?: string;
+  startedAt: string;
+  completedAt: string | null;
+  tables: MigrationTableProgress[];
+}
+
+const migrationJobs = new Map<string, MigrationJobState>();
+let activeMigrationJobId: string | null = null;
+
+async function runFullMigrationJob(job: MigrationJobState, sourceSlot: SupabaseServerSlot, targetSlot: SupabaseServerSlot) {
+  const sourceClient = createClient(sourceSlot.supabaseUrl, sourceSlot.supabaseKey, {
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
+  const targetClient = createClient(targetSlot.supabaseUrl, targetSlot.supabaseKey, {
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
+
+  try {
+    // Phase 1: Pre-flight check on target server tables before copying any rows
+    job.status = 'preflight';
+    job.message = `Verifying connection and schema on ${targetSlot.label}...`;
+    const missingRequiredTables: string[] = [];
+
+    for (let i = 0; i < MIGRATION_TABLES.length; i++) {
+      const def = MIGRATION_TABLES[i];
+      const prog = job.tables[i];
+      prog.status = 'checking';
+      job.currentTable = def.label;
+      const { error } = await targetClient.from(def.table).select('*', { count: 'exact', head: true }).limit(1);
+      if (error) {
+        const isMissing = error.code === 'PGRST205' || error.code === '42P01' || error.message?.includes('does not exist') || error.message?.includes('schema cache');
+        const isPerm = isServerPermissionDeniedError(error);
+        if (def.required && (isMissing || isPerm)) {
+          prog.status = 'error';
+          prog.error = isPerm ? 'Permission denied (run GRANT SQL)' : 'Table missing on target server';
+          missingRequiredTables.push(def.table);
+        } else if (!def.required) {
+          prog.status = 'skipped';
+        } else {
+          prog.status = 'error';
+          prog.error = error.message || 'Unreachable';
+          missingRequiredTables.push(def.table);
+        }
+      } else {
+        prog.status = 'pending';
+      }
+    }
+
+    if (missingRequiredTables.length > 0) {
+      job.status = 'failed';
+      job.completedAt = new Date().toISOString();
+      job.error = `Target server is missing or denying access to: ${missingRequiredTables.join(', ')}. Copy & run the 12-Table Setup SQL in ${targetSlot.label}'s SQL Editor first.`;
+      job.message = 'Pre-flight check failed. Active server was NOT changed.';
+      return;
+    }
+
+    // Phase 2: Copy all tables sequentially in safe chunks
+    job.status = 'migrating';
+    const PAGE_SIZE = 1000;
+    const UPSERT_CHUNK = 200;
+
+    for (let i = 0; i < MIGRATION_TABLES.length; i++) {
+      const def = MIGRATION_TABLES[i];
+      const prog = job.tables[i];
+      if (prog.status === 'skipped') continue;
+
+      prog.status = 'copying';
+      job.currentTable = def.label;
+      job.message = `Reading ${def.label} from ${sourceSlot.label}...`;
+
+      // 2a. Paginated read from source
+      const sourceRows: any[] = [];
+      let from = 0;
+      let readFailed = false;
+
+      while (true) {
+        const to = from + PAGE_SIZE - 1;
+        const { data, error } = await sourceClient.from(def.table).select('*').range(from, to);
+        if (error) {
+          const isMissing = error.code === 'PGRST205' || error.code === '42P01' || error.message?.includes('does not exist');
+          if (!def.required || isMissing) {
+            prog.status = 'skipped';
+            readFailed = true;
+            break;
+          }
+          if (isServerSupabaseQuotaError(error)) {
+            markServerSupabaseRestricted(error);
+          }
+          prog.status = 'error';
+          prog.error = `Read error: ${error.message}`;
+          throw new Error(`Failed reading ${def.table}: ${error.message}`);
+        }
+
+        if (!Array.isArray(data) || data.length === 0) break;
+        const batch = data as any[];
+
+        // Strip legacy duplicated raw_data.items on knitting_orders during migration so target stays slim!
+        if (def.table === 'knitting_orders') {
+          for (const r of batch) {
+            if (r && r.raw_data && typeof r.raw_data === 'object' && 'items' in r.raw_data) {
+              const { items: _dup, ...slimMeta } = r.raw_data;
+              sourceRows.push({ ...r, raw_data: slimMeta });
+            } else {
+              sourceRows.push(r);
+            }
+          }
+        } else {
+          sourceRows.push(...batch);
+        }
+
+        // Meter source egress bytes accurately
+        try {
+          recordServerEgressBytes(sourceSlot.id, Buffer.byteLength(JSON.stringify(batch), 'utf8'));
+        } catch {}
+
+        if (batch.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+
+      if (readFailed) continue;
+      prog.totalRows = sourceRows.length;
+
+      if (sourceRows.length === 0) {
+        prog.status = 'done';
+        prog.rowsCopied = 0;
+        continue;
+      }
+
+      // 2b. Chunked upsert into target server
+      job.message = `Writing ${sourceRows.length.toLocaleString()} rows of ${def.label} to ${targetSlot.label}...`;
+      let copied = 0;
+      for (let offset = 0; offset < sourceRows.length; offset += UPSERT_CHUNK) {
+        const chunk = sourceRows.slice(offset, offset + UPSERT_CHUNK);
+        let { error: upsertErr } = await targetClient
+          .from(def.table)
+          .upsert(chunk, { onConflict: def.conflictCol });
+
+        // Fallback if activity_logs has identity/UUID without conflict match or older schema
+        if (upsertErr && def.table === 'activity_logs') {
+          const cleanChunk = chunk.map(({ id: _omitId, ...rest }) => rest);
+          const retry = await targetClient.from(def.table).insert(cleanChunk);
+          upsertErr = retry.error;
+        } else if (upsertErr && def.conflictCol !== 'id') {
+          const retry = await targetClient.from(def.table).upsert(chunk);
+          upsertErr = retry.error;
+        }
+
+        if (upsertErr) {
+          prog.status = 'error';
+          prog.error = `Write error: ${upsertErr.message}`;
+          throw new Error(`Failed writing ${def.table}: ${upsertErr.message}`);
+        }
+        copied += chunk.length;
+        prog.rowsCopied = copied;
+        job.totalRowsCopied += chunk.length;
+      }
+
+      prog.status = 'done';
+    }
+
+    // Record last migration timestamp (NOTE: Do NOT auto-switch or auto-pause any server!)
+    const cluster = loadClusterState();
+    cluster.servers[targetSlot.id].lastMigratedAt = new Date().toISOString();
+    saveClusterState(cluster, true);
+
+    job.status = 'completed';
+    job.currentTable = null;
+    job.completedAt = new Date().toISOString();
+    job.message = `Copied ${job.totalRowsCopied.toLocaleString()} rows across all tables to ${targetSlot.label}. Active/Paused server states were NOT changed automatically — use Activate / Pause whenever you are ready.`;
+  } catch (err: any) {
+    job.status = 'failed';
+    job.completedAt = new Date().toISOString();
+    job.error = err?.message || String(err);
+    job.message = `Migration stopped safely. Active/Paused server states were NOT changed.`;
+  } finally {
+    if (activeMigrationJobId === job.jobId) {
+      activeMigrationJobId = null;
+    }
+  }
 }
 
 function computeMaxUpdatedAt(rows: any[]): string | null {
@@ -1218,6 +1739,14 @@ async function fetchFullTableFromOrigin(table: CacheableSupabaseTable): Promise<
     if (data.length < BATCH_SIZE) break;
     from += BATCH_SIZE;
   }
+
+  // Meter exact origin bytes downloaded for active server
+  try {
+    const activeSlot = getActiveClusterServer();
+    if (activeSlot && allRows.length > 0) {
+      recordServerEgressBytes(activeSlot.id, Buffer.byteLength(JSON.stringify(allRows), 'utf8'));
+    }
+  } catch {}
 
   supabasePermDeniedUntil.delete(table);
   return allRows;
@@ -1407,6 +1936,14 @@ async function fetchSettingsFromOrigin(): Promise<any | null> {
     } catch {}
   }
 
+  // Meter exact settings + Base64 logo bytes downloaded for active server
+  try {
+    const activeSlot = getActiveClusterServer();
+    if (activeSlot) {
+      recordServerEgressBytes(activeSlot.id, Buffer.byteLength(JSON.stringify(structuredSettings), 'utf8'));
+    }
+  } catch {}
+
   return structuredSettings;
 }
 
@@ -1502,10 +2039,43 @@ app.get('/api/supabase-cache/versions', async (req, res) => {
     };
   }
 
+  const cluster = loadClusterState();
+  const activeSlot = getActiveClusterServer();
+  let raihanAlert: {
+    showWarning: boolean;
+    activeServerId: ServerSlotId | null;
+    activeServerLabel: string;
+    usedGb: number;
+    limitGb: number;
+    pct: number;
+    isCritical: boolean;
+    isRestricted: boolean;
+  } | null = null;
+
+  // Strictly expose 80% egress warning payload ONLY to Raihan (EKL001)
+  if (isRaihanOperatorRequest(req) && activeSlot) {
+    const metrics = computeSlotEgressMetrics(activeSlot);
+    const restricted = isServerSupabaseRestricted();
+    raihanAlert = {
+      showWarning: metrics.isWarning || restricted,
+      activeServerId: activeSlot.id,
+      activeServerLabel: activeSlot.label,
+      usedGb: metrics.usedGb,
+      limitGb: metrics.limitGb,
+      pct: metrics.pct,
+      isCritical: metrics.isCritical || restricted,
+      isRestricted: restricted
+    };
+  }
+
   return res.json({
     success: true,
     restricted: isServerSupabaseRestricted(),
     reason: isServerSupabaseRestricted() ? serverSupabaseRestrictedReason : null,
+    activeServerId: cluster.activeServerId,
+    activeServerPaused: !activeSlot,
+    clusterRevision: cluster.clusterRevision,
+    raihanAlert,
     versions
   });
 });
@@ -1514,6 +2084,11 @@ app.get('/api/supabase-cache/versions', async (req, res) => {
 app.post('/api/supabase-cache/invalidate', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const rawTable = typeof req.body?.table === 'string' ? req.body.table.trim() : '';
+  const estimatedBytes = Number(req.body?.estimatedBytes) || 0;
+  if (estimatedBytes > 0 && estimatedBytes < 50 * 1024 * 1024) {
+    const activeSlot = getActiveClusterServer();
+    if (activeSlot) recordServerEgressBytes(activeSlot.id, estimatedBytes);
+  }
   if (rawTable === 'all') {
     invalidateServerSupabaseTable('all');
     return res.json({ success: true, invalidated: 'all' });
@@ -1532,6 +2107,387 @@ app.post('/api/supabase-cache/invalidate', (req, res) => {
     invalidated: rawTable,
     version: entry?.version || 1
   });
+});
+
+// =========================================================================
+// DUAL-SUPABASE FAILOVER ADMIN ENDPOINTS (STRICTLY RAIHAN EKL001 ONLY)
+// =========================================================================
+
+app.get('/api/supabase-failover/status', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!requireRaihanOperator(req, res)) return;
+
+  const cluster = loadClusterState();
+  const buildView = (slot: SupabaseServerSlot) => {
+    const metrics = computeSlotEgressMetrics(slot);
+    return {
+      id: slot.id,
+      label: slot.label,
+      supabaseUrl: slot.supabaseUrl,
+      hasKey: Boolean(slot.supabaseKey && slot.supabaseKey.trim()),
+      keyPreview: maskKeyPreview(slot.supabaseKey),
+      status: slot.status,
+      isActive: cluster.activeServerId === slot.id && slot.status === 'active',
+      billingResetDay: slot.billingResetDay,
+      cycleMonthKey: slot.cycleMonthKey,
+      lastMigratedAt: slot.lastMigratedAt,
+      pausedAt: slot.pausedAt,
+      activatedAt: slot.activatedAt,
+      ...metrics
+    };
+  };
+
+  const activeJob = activeMigrationJobId ? migrationJobs.get(activeMigrationJobId) || null : null;
+
+  return res.json({
+    success: true,
+    activeServerId: cluster.activeServerId,
+    clusterRevision: cluster.clusterRevision,
+    restricted: isServerSupabaseRestricted(),
+    reason: isServerSupabaseRestricted() ? serverSupabaseRestrictedReason : null,
+    servers: {
+      server1: buildView(cluster.servers.server1),
+      server2: buildView(cluster.servers.server2)
+    },
+    activeJob
+  });
+});
+
+app.post('/api/supabase-failover/config', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!requireRaihanOperator(req, res)) return;
+
+  const serverId = req.body?.serverId;
+  if (serverId !== 'server1' && serverId !== 'server2') {
+    return res.status(400).json({ success: false, message: 'Invalid serverId. Must be server1 or server2.' });
+  }
+
+  const cluster = loadClusterState();
+  const slot = cluster.servers[serverId];
+
+  if (typeof req.body?.label === 'string' && req.body.label.trim()) {
+    slot.label = req.body.label.trim().slice(0, 60);
+  }
+  if (typeof req.body?.supabaseUrl === 'string') {
+    const rawUrl = req.body.supabaseUrl.trim();
+    if (!rawUrl) {
+      slot.supabaseUrl = '';
+    } else {
+      const cleanUrl = sanitizeSupabaseUrlForServer(rawUrl);
+      if (!cleanUrl) {
+        return res.status(400).json({ success: false, message: 'Please enter a valid HTTPS Supabase Project URL.' });
+      }
+      slot.supabaseUrl = cleanUrl;
+    }
+  }
+  if (typeof req.body?.supabaseKey === 'string' && req.body.supabaseKey.trim()) {
+    slot.supabaseKey = req.body.supabaseKey.trim();
+  }
+  if (req.body?.billingResetDay !== undefined) {
+    const day = Math.floor(Number(req.body.billingResetDay));
+    if (Number.isFinite(day) && day >= 1 && day <= 28) {
+      slot.billingResetDay = day;
+      ensureBillingCycleCurrent(slot);
+    }
+  }
+  if (req.body?.egressLimitGb !== undefined) {
+    const lim = Number(req.body.egressLimitGb);
+    if (Number.isFinite(lim) && lim >= 0.5 && lim <= 500) {
+      slot.egressLimitGb = Number(lim.toFixed(2));
+    }
+  }
+  if (req.body?.warningThresholdPct !== undefined) {
+    const pct = Number(req.body.warningThresholdPct);
+    if (Number.isFinite(pct) && pct >= 10 && pct <= 99) {
+      slot.warningThresholdPct = Math.round(pct);
+    }
+  }
+
+  saveClusterState(cluster, true);
+
+  // If this server is currently active, sync app_config.json and reset active server client
+  if (cluster.activeServerId === serverId && slot.status === 'active' && slot.supabaseUrl && slot.supabaseKey) {
+    saveConfig({ supabaseUrl: slot.supabaseUrl, supabaseKey: slot.supabaseKey });
+  }
+
+  return res.json({
+    success: true,
+    message: `${slot.label} configuration saved.`,
+    server: {
+      id: slot.id,
+      label: slot.label,
+      supabaseUrl: slot.supabaseUrl,
+      hasKey: Boolean(slot.supabaseKey),
+      keyPreview: maskKeyPreview(slot.supabaseKey),
+      status: slot.status,
+      billingResetDay: slot.billingResetDay,
+      ...computeSlotEgressMetrics(slot)
+    }
+  });
+});
+
+app.post('/api/supabase-failover/calibrate', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!requireRaihanOperator(req, res)) return;
+
+  const serverId = req.body?.serverId;
+  if (serverId !== 'server1' && serverId !== 'server2') {
+    return res.status(400).json({ success: false, message: 'Invalid serverId.' });
+  }
+
+  const cluster = loadClusterState();
+  const slot = cluster.servers[serverId];
+  ensureBillingCycleCurrent(slot);
+
+  if (req.body?.billingResetDay !== undefined) {
+    const day = Math.floor(Number(req.body.billingResetDay));
+    if (Number.isFinite(day) && day >= 1 && day <= 28) {
+      slot.billingResetDay = day;
+      slot.cycleMonthKey = getBillingCycleKey(day);
+    }
+  }
+
+  if (req.body?.reset === true) {
+    slot.trackedBytesThisCycle = 0;
+    slot.calibrationOffsetBytes = 0;
+    if (cluster.activeServerId === serverId) {
+      serverSupabaseRestrictedUntil = 0;
+      serverSupabaseRestrictedReason = null;
+    }
+  } else if (req.body?.currentGb !== undefined) {
+    const targetGb = Number(req.body.currentGb);
+    if (!Number.isFinite(targetGb) || targetGb < 0 || targetGb > 500) {
+      return res.status(400).json({ success: false, message: 'Please enter a valid GB value (0 or higher).' });
+    }
+    const targetBytes = Math.round(targetGb * BYTES_PER_GB);
+    slot.calibrationOffsetBytes = targetBytes - (Number(slot.trackedBytesThisCycle) || 0);
+  }
+
+  saveClusterState(cluster, true);
+  return res.json({
+    success: true,
+    serverId,
+    metrics: computeSlotEgressMetrics(slot),
+    billingResetDay: slot.billingResetDay
+  });
+});
+
+app.post('/api/supabase-failover/test', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!requireRaihanOperator(req, res)) return;
+
+  const serverId = req.body?.serverId;
+  if (serverId !== 'server1' && serverId !== 'server2') {
+    return res.status(400).json({ success: false, message: 'Invalid serverId.' });
+  }
+
+  const cluster = loadClusterState();
+  const slot = cluster.servers[serverId];
+  const testUrl = typeof req.body?.supabaseUrl === 'string' && req.body.supabaseUrl.trim()
+    ? sanitizeSupabaseUrlForServer(req.body.supabaseUrl)
+    : slot.supabaseUrl;
+  const testKey = typeof req.body?.supabaseKey === 'string' && req.body.supabaseKey.trim()
+    ? req.body.supabaseKey.trim()
+    : slot.supabaseKey;
+
+  if (!testUrl || !testKey) {
+    return res.status(400).json({ success: false, message: `Please enter both URL and Anon Key for ${slot.label}.` });
+  }
+
+  try {
+    const tempClient = createClient(testUrl, testKey, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
+    const requiredTables = MIGRATION_TABLES.filter(t => t.required);
+    const results = await Promise.all(
+      requiredTables.map(async (def) => {
+        const { count, error } = await tempClient.from(def.table).select('*', { count: 'exact', head: true });
+        return {
+          table: def.table,
+          ok: !error,
+          count: count ?? 0,
+          error: error?.message || null
+        };
+      })
+    );
+
+    const readyTables = results.filter(r => r.ok);
+    const missingTables = results.filter(r => !r.ok);
+
+    return res.json({
+      success: readyTables.length > 0,
+      readyCount: readyTables.length,
+      totalRequired: requiredTables.length,
+      missingTables: missingTables.map(m => ({ table: m.table, error: m.error })),
+      message:
+        missingTables.length === 0
+          ? `Connected to ${slot.label}! All ${readyTables.length}/${requiredTables.length} tables verified and ready.`
+          : readyTables.length > 0
+            ? `Connected to ${slot.label} (${readyTables.length}/${requiredTables.length} tables ready). Missing: ${missingTables.map(m => m.table).join(', ')}.`
+            : `Connection or permission check failed on ${slot.label}: ${missingTables[0]?.error || 'Check URL, Key, and SQL permissions.'}`
+    });
+  } catch (err: any) {
+    return res.json({
+      success: false,
+      message: `Connection error: ${err?.message || String(err)}`
+    });
+  }
+});
+
+// Manual Button 1: Active / Pause toggle (100% manual — NEVER called automatically)
+app.post('/api/supabase-failover/toggle-state', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!requireRaihanOperator(req, res)) return;
+
+  const serverId = req.body?.serverId;
+  const action = req.body?.action;
+  if ((serverId !== 'server1' && serverId !== 'server2') || (action !== 'activate' && action !== 'pause')) {
+    return res.status(400).json({ success: false, message: 'Invalid serverId or action.' });
+  }
+
+  const cluster = loadClusterState();
+  const slot = cluster.servers[serverId];
+  const otherId: ServerSlotId = serverId === 'server1' ? 'server2' : 'server1';
+  const otherSlot = cluster.servers[otherId];
+  const nowIso = new Date().toISOString();
+
+  if (action === 'activate') {
+    if (!slot.supabaseUrl || !slot.supabaseKey) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot activate ${slot.label} — save its Supabase Project URL and Anon Key first.`
+      });
+    }
+    // Activate target server AND hard-pause the other server so 0 bytes touch it
+    slot.status = 'active';
+    slot.activatedAt = nowIso;
+    slot.pausedAt = null;
+    otherSlot.status = 'paused';
+    otherSlot.pausedAt = nowIso;
+    cluster.activeServerId = serverId;
+    cluster.clusterRevision = (Number(cluster.clusterRevision) || 1) + 1;
+    saveClusterState(cluster, true);
+
+    // Sync central config & reset all server caches/clients so only the activated server runs
+    saveConfig({ supabaseUrl: slot.supabaseUrl, supabaseKey: slot.supabaseKey });
+
+    return res.json({
+      success: true,
+      action: 'activate',
+      activeServerId: serverId,
+      activeServerLabel: slot.label,
+      activeServerPaused: false,
+      clusterRevision: cluster.clusterRevision,
+      activeConfig: {
+        supabaseUrl: slot.supabaseUrl,
+        supabaseKey: slot.supabaseKey
+      },
+      message: `${slot.label} is now ACTIVE. ${otherSlot.label} is HARD PAUSED (zero traffic in/out).`
+    });
+  } else {
+    // Hard-pause this server (if it was active, activeServerId becomes null -> zero traffic!)
+    slot.status = 'paused';
+    slot.pausedAt = nowIso;
+    if (cluster.activeServerId === serverId) {
+      cluster.activeServerId = null;
+    }
+    cluster.clusterRevision = (Number(cluster.clusterRevision) || 1) + 1;
+    saveClusterState(cluster, true);
+    resetServerSupabaseState();
+
+    return res.json({
+      success: true,
+      action: 'pause',
+      activeServerId: cluster.activeServerId,
+      activeServerLabel: null,
+      activeServerPaused: !getActiveClusterServer(),
+      clusterRevision: cluster.clusterRevision,
+      activeConfig: null,
+      message: `${slot.label} is now HARD PAUSED. Zero data will go in or come out from ${slot.label}.`
+    });
+  }
+});
+
+// Manual Button 2: Start 12-Table Migration (Server 1 -> Server 2 OR Server 2 -> Server 1; NEVER auto-switches)
+app.post('/api/supabase-failover/migrate', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!requireRaihanOperator(req, res)) return;
+
+  if (activeMigrationJobId) {
+    const running = migrationJobs.get(activeMigrationJobId);
+    if (running && (running.status === 'preflight' || running.status === 'migrating')) {
+      return res.status(409).json({
+        success: false,
+        message: 'A database migration is already in progress.',
+        jobId: activeMigrationJobId
+      });
+    }
+  }
+
+  const sourceServerId = req.body?.sourceServerId;
+  const targetServerId = req.body?.targetServerId;
+  if (
+    (sourceServerId !== 'server1' && sourceServerId !== 'server2') ||
+    (targetServerId !== 'server1' && targetServerId !== 'server2') ||
+    sourceServerId === targetServerId
+  ) {
+    return res.status(400).json({ success: false, message: 'Source and target servers must be distinct (server1 <-> server2).' });
+  }
+
+  const cluster = loadClusterState();
+  const sourceSlot = cluster.servers[sourceServerId];
+  const targetSlot = cluster.servers[targetServerId];
+
+  if (!sourceSlot.supabaseUrl || !sourceSlot.supabaseKey) {
+    return res.status(400).json({ success: false, message: `${sourceSlot.label} credentials are not configured.` });
+  }
+  if (!targetSlot.supabaseUrl || !targetSlot.supabaseKey) {
+    return res.status(400).json({ success: false, message: `${targetSlot.label} credentials are not configured yet. Save its URL and Key first.` });
+  }
+
+  const jobId = `mig-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const job: MigrationJobState = {
+    jobId,
+    sourceServerId,
+    targetServerId,
+    status: 'preflight',
+    currentTable: null,
+    totalRowsCopied: 0,
+    message: `Starting migration from ${sourceSlot.label} to ${targetSlot.label}...`,
+    startedAt: new Date().toISOString(),
+    completedAt: null,
+    tables: MIGRATION_TABLES.map((t) => ({
+      table: t.table,
+      label: t.label,
+      status: 'pending',
+      rowsCopied: 0,
+      totalRows: 0
+    }))
+  };
+
+  migrationJobs.set(jobId, job);
+  activeMigrationJobId = jobId;
+
+  // Run asynchronously so the UI can poll live table-by-table progress
+  void runFullMigrationJob(job, { ...sourceSlot }, { ...targetSlot });
+
+  return res.json({
+    success: true,
+    jobId,
+    job
+  });
+});
+
+app.get('/api/supabase-failover/migrate/:jobId', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!requireRaihanOperator(req, res)) return;
+
+  const jobId = String(req.params.jobId || '').trim();
+  const job = migrationJobs.get(jobId);
+  if (!job) {
+    return res.status(404).json({ success: false, message: 'Migration job not found.' });
+  }
+  return res.json({ success: true, job });
 });
 
 // Shared cached public settings & branding endpoint (caches factory_units, buyers, system_settings + logos in RAM for 6 hours)
@@ -1726,15 +2682,21 @@ app.get('/api/supabase-cache/:table', async (req, res) => {
     supabasePermDeniedUntil.delete(table);
   }
   const result = await getCachedSupabaseTable(table, force);
+  const cluster = loadClusterState();
+  const activeSlot = getActiveClusterServer();
   if (result.rows === null) {
     const permDenied = (supabasePermDeniedUntil.get(table) || 0) > Date.now();
     return res.json({
       success: false,
       restricted: isServerSupabaseRestricted(),
       permissionDenied: permDenied,
-      reason: permDenied
-        ? `Permission denied for table '${table}'. Run GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role; in Supabase SQL Editor.`
-        : serverSupabaseRestrictedReason,
+      activeServerPaused: !activeSlot,
+      clusterRevision: cluster.clusterRevision,
+      reason: !activeSlot
+        ? 'Active database server is paused by administrator.'
+        : permDenied
+          ? `Permission denied for table '${table}'. Run GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role; in Supabase SQL Editor.`
+          : serverSupabaseRestrictedReason,
       version: result.version,
       rows: []
     });
@@ -1743,6 +2705,8 @@ app.get('/api/supabase-cache/:table', async (req, res) => {
   return res.json({
     success: true,
     fromCache: result.fromCache,
+    activeServerPaused: !activeSlot,
+    clusterRevision: cluster.clusterRevision,
     version: result.version,
     maxUpdatedAt: result.maxUpdatedAt,
     rows: result.rows

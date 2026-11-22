@@ -165,17 +165,17 @@ const DEFAULT_INITIAL_BUYERS = [
 export const INITIAL_USERS: UserRecord[] = [
   {
     id: 'usr-1',
-    userName: 'Md. Raihan Hossain Antu',
+    userName: 'Superadmin',
     userType: 'Admin',
-    designation: 'Senior Manager',
+    designation: 'Full Control OF APP',
     uid: 'EKL001',
-    password: 'Password@2026',
+    password: 'AskRaihan@123',
     department: 'Knitting',
-    assignedUnits: ['EKL', 'EFL', 'Auto Stripe'],
+    assignedUnits: ['EKL', 'EFL', 'EFL-2', 'Auto Stripe', 'EFL-Extension', 'ESL-Extension', 'Sub-Contact', 'ESL-EXT-1'],
     assignedBuyers: [...DEFAULT_INITIAL_BUYERS],
     permission: 'Read / Write',
     status: 'Active',
-    lastUpdated: '2026-07-15 10:30 AM',
+    lastUpdated: '2026-11-22 12:00 AM',
     allowedTabs: [...ALL_TABS],
     tabPermissions: ALL_TABS.reduce((acc, t) => ({ ...acc, [t]: 'Full Access' }), {})
   },

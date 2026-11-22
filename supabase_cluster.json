@@ -1,0 +1,38 @@
+{
+  "activeServerId": "server1",
+  "clusterRevision": 1,
+  "servers": {
+    "server1": {
+      "id": "server1",
+      "label": "Server 1 (Primary)",
+      "supabaseUrl": "https://kwaezsfoalfhigzcnezd.supabase.co",
+      "supabaseKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3YWV6c2ZvYWxmaGlnemNuZXpkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczOTUzNzksImV4cCI6MjEwMjk3MTM3OX0.eYxuK9fCwix4i0GnHW-UBl2Kg_gZNOaPWvQ6FkMy_Qs",
+      "status": "active",
+      "egressLimitGb": 5,
+      "warningThresholdPct": 80,
+      "billingResetDay": 1,
+      "trackedBytesThisCycle": 0,
+      "calibrationOffsetBytes": 0,
+      "cycleMonthKey": "2026-11-d01",
+      "lastMigratedAt": null,
+      "pausedAt": null,
+      "activatedAt": "2026-11-22T07:35:02.850Z"
+    },
+    "server2": {
+      "id": "server2",
+      "label": "Server 2 (Standby)",
+      "supabaseUrl": "",
+      "supabaseKey": "",
+      "status": "paused",
+      "egressLimitGb": 5,
+      "warningThresholdPct": 80,
+      "billingResetDay": 1,
+      "trackedBytesThisCycle": 0,
+      "calibrationOffsetBytes": 0,
+      "cycleMonthKey": "2026-11-d01",
+      "lastMigratedAt": null,
+      "pausedAt": "2026-11-22T07:35:02.850Z",
+      "activatedAt": null
+    }
+  }
+}

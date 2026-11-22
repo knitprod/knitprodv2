@@ -32,7 +32,8 @@ import {
   Database,
   Loader2,
   Activity,
-  Boxes
+  Boxes,
+  AlertTriangle
 } from 'lucide-react';
 import { initBrandingSync, updateDocumentFavicon } from './lib/logoStore';
 import Header from './components/Header';
@@ -358,9 +359,10 @@ export default function App() {
     };
   }, []);
 
-  // Sync active user with GasClient whenever state changes in React memory
+  // Sync active user with GasClient & SupabaseSync operator context whenever state changes in React memory
   useEffect(() => {
     GasClient.setActiveUser(currentUser);
+    SupabaseSync.setActiveOperatorUid(currentUser?.uid || null);
   }, [currentUser]);
 
   // 30-Minute Inactivity Auto-Logout Tracking (in React memory)
@@ -578,6 +580,87 @@ export default function App() {
   const [syncBannerMessage, setSyncBannerMessage] = useState<string | null>(null);
   const [isFirestoreQuotaExceeded, setIsFirestoreQuotaExceeded] = useState<boolean>(false);
   const [dismissQuotaBanner, setDismissQuotaBanner] = useState<boolean>(false);
+  const [raihanEgressAlert, setRaihanEgressAlert] = useState<{
+    showWarning: boolean;
+    activeServerId: 'server1' | 'server2' | null;
+    activeServerLabel: string;
+    usedGb: number;
+    limitGb: number;
+    pct: number;
+    isCritical: boolean;
+    isRestricted: boolean;
+  } | null>(null);
+  const [dismissRaihanAlert, setDismissRaihanAlert] = useState<boolean>(false);
+
+  const isRaihanOperator = Boolean(
+    currentUser?.uid &&
+    ['EKL001', 'RAIHAN'].includes(currentUser.uid.trim().toUpperCase().replace(/[\s-_]/g, ''))
+  );
+
+  // Strictly Raihan (EKL001) Only: check active server egress >= 80% warning (Alert ONLY, ZERO auto-switch)
+  useEffect(() => {
+    if (!isRaihanOperator) {
+      setRaihanEgressAlert(null);
+      setDismissRaihanAlert(false);
+      return;
+    }
+
+    let isMounted = true;
+    let lastCheckedAt = 0;
+
+    const refreshRaihanAlert = async (force: boolean = false) => {
+      if (!force && Date.now() - lastCheckedAt < 30000) return;
+      lastCheckedAt = Date.now();
+      try {
+        const meta = await SupabaseSync.fetchServerTableVersions(false);
+        if (isMounted) {
+          setRaihanEgressAlert(meta?.raihanAlert ?? null);
+        }
+      } catch {}
+    };
+
+    refreshRaihanAlert(true);
+
+    const onStatusUpdated = () => {
+      setDismissRaihanAlert(false);
+      refreshRaihanAlert(true);
+    };
+    const onVisibility = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        refreshRaihanAlert(false);
+      }
+    };
+
+    window.addEventListener('epyllion_failover_status_updated', onStatusUpdated);
+    window.addEventListener('epyllion_cluster_switched', onStatusUpdated);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('epyllion_failover_status_updated', onStatusUpdated);
+      window.removeEventListener('epyllion_cluster_switched', onStatusUpdated);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [isRaihanOperator]);
+
+  // Live Zero-Reload Server Switchover Notification across all active user sessions
+  useEffect(() => {
+    const handleClusterSwitched = (e: Event) => {
+      const detail = (e as CustomEvent<{
+        activeServerId?: 'server1' | 'server2' | null;
+        activeServerPaused?: boolean;
+      }>).detail;
+      if (detail?.activeServerPaused) {
+        setSyncBannerMessage('Database server paused for maintenance. Live cloud sync is paused.');
+      } else if (detail?.activeServerId) {
+        const srvName = detail.activeServerId === 'server2' ? 'Server 2' : 'Server 1';
+        setSyncBannerMessage(`Live database connection switched to ${srvName} automatically — no reload required.`);
+      }
+      setTimeout(() => setSyncBannerMessage(null), 5000);
+    };
+    window.addEventListener('epyllion_cluster_switched', handleClusterSwitched);
+    return () => window.removeEventListener('epyllion_cluster_switched', handleClusterSwitched);
+  }, []);
 
   // Google Apps Script real-time sync loader (Background fetch)
   const loadLiveGasData = async (forceRefresh: boolean = false) => {
@@ -1254,10 +1337,10 @@ export default function App() {
                 <div className="flex-1 min-w-0">
                   <span className="block text-[9px] font-bold uppercase tracking-wider text-blue-400">Enterprise Navigation</span>
                   <span className="block text-xs font-bold text-blue-100 truncate">
-                    {currentUser?.userName || 'Md. Raihan Hossain Antu'}
+                    {currentUser?.userName || 'Superadmin'}
                   </span>
                   <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide truncate">
-                    {currentUser?.designation || 'Sr. Production Manager'} ({currentUser?.uid || 'EKL001'})
+                    {currentUser?.designation || 'Full Control OF APP'} ({currentUser?.uid || 'EKL001'})
                   </span>
                 </div>
                 
@@ -1544,7 +1627,43 @@ export default function App() {
           className="flex-1 min-w-0 max-w-full min-h-[calc(100vh-6rem)] p-2 sm:p-4 md:p-4 pt-1 sm:pt-1 md:pt-1 transition-all duration-300 ease-in-out"
         >
           <div className="w-full space-y-5 min-w-0">
-            
+            {/* Raihan (EKL001) Private 80% Egress Warning Banner — Strictly Alert Only, ZERO Auto-Switch */}
+            {isRaihanOperator && raihanEgressAlert?.showWarning && !dismissRaihanAlert && (
+              <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/50 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start sm:items-center gap-3 min-w-0">
+                  <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
+                  <div className="text-xs text-amber-950 dark:text-amber-100 leading-snug">
+                    <span className="font-bold">
+                      {raihanEgressAlert.activeServerLabel} Egress Alert (Raihan Only):
+                    </span>{' '}
+                    Usage reached{' '}
+                    <span className="font-mono tabular-nums font-bold">
+                      {raihanEgressAlert.usedGb.toFixed(2)} / {raihanEgressAlert.limitGb.toFixed(2)} GB ({raihanEgressAlert.pct.toFixed(1)}%)
+                    </span>
+                    {raihanEgressAlert.isRestricted ? ' — Quota limit restricted.' : '.'}{' '}
+                    Transfer data and switch servers manually when ready (no automatic switch will run).
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage('Database Connection')}
+                    className="rounded-lg bg-amber-600 hover:bg-amber-700 px-3 py-1.5 text-xs font-bold text-white transition-colors cursor-pointer"
+                  >
+                    Open Server Transfer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDismissRaihanAlert(true)}
+                    className="rounded-lg p-1.5 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors cursor-pointer"
+                    aria-label="Dismiss egress alert"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Page View Switcher */}
             {currentPage === 'Dashboard' && (
               <div className="space-y-6 animate-fade-in">

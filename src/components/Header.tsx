@@ -422,10 +422,10 @@ export default function Header({
             >
               <div className="flex flex-col text-right">
                 <span className="text-xs font-bold text-gray-950 dark:text-slate-200">
-                  {currentUser?.userName || 'Md. Raihan Hossain Antu'}
+                  {currentUser?.userName || 'Superadmin'}
                 </span>
                 <span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
-                  {currentUser?.designation || 'Sr. Production Manager'} ({currentUser?.department || 'Knitting'})
+                  {currentUser?.designation || 'Full Control OF APP'} ({currentUser?.department || 'Knitting'})
                 </span>
               </div>
               <div className="relative flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-700 text-sm font-black text-white shadow-sm ring-2 ring-blue-50 dark:ring-slate-800">
@@ -446,10 +446,10 @@ export default function Header({
                 <div className="absolute right-0 top-12 mt-1 w-64 rounded-xl border border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xl ring-1 ring-black/5 z-50 space-y-3 animate-fade-in">
                   <div className="pb-2.5 border-b border-slate-100 dark:border-slate-800">
                     <span className="block text-xs font-black text-slate-950 dark:text-white">
-                      {currentUser?.userName || 'Md. Raihan Hossain Antu'}
+                      {currentUser?.userName || 'Superadmin'}
                     </span>
                     <span className="block text-[10px] text-gray-400 dark:text-slate-400 font-bold uppercase tracking-wider mt-0.5">
-                      {currentUser?.designation || 'Sr. Production Manager'}
+                      {currentUser?.designation || 'Full Control OF APP'}
                     </span>
                     <span className="block text-[9px] text-gray-400 dark:text-slate-500 font-bold uppercase tracking-wide">
                       Dept: {currentUser?.department || 'Knitting'} • UID: {currentUser?.uid || 'EKL001'}

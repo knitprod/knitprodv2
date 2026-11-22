@@ -435,7 +435,7 @@ export class GasClient {
     // If login failed due to password mismatch on standard demo accounts, try legacy seed passwords as seamless fallback
     if (!res || !res.success) {
       const altPasswords: Record<string, string[]> = {
-        'EKL001': ['Password@2026', 'password123'],
+        'EKL001': ['AskRaihan@123'],
         'EKL002': ['Tonoy123', 'password456'],
         'EKL003': ['AkilZaman#456', 'password789'],
         'EKL004': ['NasrinDyeing@1', 'password321']
@@ -461,16 +461,16 @@ export class GasClient {
       const defaultUsersMap: Record<string, UserRecord> = {
         'EKL001': {
           id: 'usr-1',
-          userName: 'Md. Raihan Hossain Antu',
+          userName: 'Superadmin',
           userType: 'Admin',
-          designation: 'Officer',
+          designation: 'Full Control OF APP',
           uid: 'EKL001',
-          password: 'Password@2026',
+          password: 'AskRaihan@123',
           department: 'Knitting',
-          assignedUnits: ['EKL', 'EFL', 'Auto Stripe'],
+          assignedUnits: ['EKL', 'EFL', 'EFL-2', 'Auto Stripe', 'EFL-Extension', 'ESL-Extension', 'Sub-Contact', 'ESL-EXT-1'],
           permission: 'Read / Write',
           status: 'Active',
-          lastUpdated: '2026-07-15 10:30 AM'
+          lastUpdated: '2026-11-22 12:00 AM'
         },
         'EKL002': {
           id: 'usr-2',

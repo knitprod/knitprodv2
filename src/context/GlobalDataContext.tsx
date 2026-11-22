@@ -845,13 +845,22 @@ export const GlobalDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   }, [filterDeletedLedger, filterDeletedOrders, filterDeletedYarn]);
 
-  // 4. Cross-Device Real-time Event Listener
+  // 4. Cross-Device Real-time Event Listener (including Raihan's manual Dual-Server live cutover)
   useEffect(() => {
     const handleSyncEvent = () => refreshAll(true);
+    const handleClusterSwitch = (e: Event) => {
+      const detail = (e as CustomEvent<{ activeServerPaused?: boolean }>).detail;
+      // When paused, zero traffic should leave this browser. When activated on the new server, silently refresh!
+      if (!detail?.activeServerPaused) {
+        refreshAll(true);
+      }
+    };
     window.addEventListener('gas_data_synced', handleSyncEvent);
+    window.addEventListener('epyllion_cluster_switched', handleClusterSwitch);
 
     return () => {
       window.removeEventListener('gas_data_synced', handleSyncEvent);
+      window.removeEventListener('epyllion_cluster_switched', handleClusterSwitch);
     };
   }, [refreshAll]);
 

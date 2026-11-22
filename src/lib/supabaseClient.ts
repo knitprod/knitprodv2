@@ -51,25 +51,185 @@ export class SupabaseSync {
     return config;
   }
 
+  private static _clusterRevision: number = 0;
+  private static _activeServerId: 'server1' | 'server2' | null = 'server1';
+  private static _isClusterPaused: boolean = false;
+  private static _activeOperatorUid: string | null = null;
+
+  static setActiveOperatorUid(uid: string | null): void {
+    this._activeOperatorUid = uid ? uid.trim().toUpperCase() : null;
+  }
+
+  static getClusterStateSummary(): { activeServerId: 'server1' | 'server2' | null; isPaused: boolean; clusterRevision: number } {
+    return {
+      activeServerId: this._activeServerId,
+      isPaused: this._isClusterPaused,
+      clusterRevision: this._clusterRevision
+    };
+  }
+
+  static isClusterPaused(): boolean {
+    return this._isClusterPaused;
+  }
+
   /**
-   * Loads Supabase config from server to ensure all remote clients sync seamlessly
+   * Loads active Supabase config from server (respecting Server 1 / Server 2 Active or Hard-Paused state)
    */
-  static async syncRemoteConfig(): Promise<{ supabaseUrl: string; supabaseKey: string }> {
+  static async syncRemoteConfig(): Promise<{ supabaseUrl: string; supabaseKey: string; activeServerPaused?: boolean; clusterRevision?: number }> {
     try {
-      // Try fetching from Server config API
-      const serverRes = await fetch('/api/config');
+      const serverRes = await fetch('/api/config', { cache: 'no-store' });
       if (serverRes.ok) {
         const json = await serverRes.json();
-        if (json?.config?.supabaseUrl && json?.config?.supabaseKey) {
-          const url = json.config.supabaseUrl;
-          const key = json.config.supabaseKey;
-          this.setCredentials(url, key, false);
-          return { supabaseUrl: url, supabaseKey: key };
+        const cfg = json?.config;
+        if (cfg) {
+          const rev = Number(cfg.clusterRevision) || 1;
+          const paused = Boolean(cfg.activeServerPaused);
+          const srvId = cfg.activeServerId === 'server1' || cfg.activeServerId === 'server2' ? cfg.activeServerId : null;
+          if (paused) {
+            this.applyClusterSwitch({
+              activeServerId: null,
+              activeServerPaused: true,
+              clusterRevision: rev,
+              supabaseUrl: '',
+              supabaseKey: ''
+            }, false);
+            return { supabaseUrl: '', supabaseKey: '', activeServerPaused: true, clusterRevision: rev };
+          }
+          if (cfg.supabaseUrl && cfg.supabaseKey) {
+            const changed =
+              this._clusterRevision > 0 &&
+              (rev !== this._clusterRevision ||
+                this.cachedConfig?.supabaseUrl !== cfg.supabaseUrl ||
+                this._isClusterPaused);
+            this._activeServerId = srvId;
+            this._clusterRevision = rev;
+            this._isClusterPaused = false;
+            if (changed) {
+              this.applyClusterSwitch({
+                activeServerId: srvId,
+                activeServerPaused: false,
+                clusterRevision: rev,
+                supabaseUrl: cfg.supabaseUrl,
+                supabaseKey: cfg.supabaseKey
+              }, true);
+            } else {
+              this.setCredentials(cfg.supabaseUrl, cfg.supabaseKey, false);
+            }
+            return { supabaseUrl: cfg.supabaseUrl, supabaseKey: cfg.supabaseKey, activeServerPaused: false, clusterRevision: rev };
+          }
         }
       }
     } catch (e) {}
 
     return this.getStoredConfig();
+  }
+
+  /**
+   * Immediately switches this browser tab to the newly activated server (or hard-pauses with 0 traffic)
+   * without reloading the page or logging the user out.
+   */
+  static applyClusterSwitch(
+    next: {
+      activeServerId: 'server1' | 'server2' | null;
+      activeServerPaused: boolean;
+      clusterRevision: number;
+      supabaseUrl: string;
+      supabaseKey: string;
+    },
+    emitEvent: boolean = true
+  ): void {
+    // 1. Disconnect old WebSocket channel immediately so ZERO bytes touch the old/paused server
+    if (this._syncSignalChannel && this.client) {
+      const oldCh = this._syncSignalChannel;
+      const oldClient = this.client;
+      this._syncSignalChannel = null;
+      try {
+        oldClient.removeChannel(oldCh);
+      } catch {}
+    }
+
+    // 2. Clear all in-memory data caches
+    this._tableFetchMemo.clear();
+    this._settingsMemo = null;
+    this._usersMemo = null;
+    this._activityLogsMemo = null;
+    this._failedTables.clear();
+    this._tablesRequiringWildcard.clear();
+    this._clusterRevision = next.clusterRevision || this._clusterRevision + 1;
+    this._activeServerId = next.activeServerId;
+    this._isClusterPaused = Boolean(next.activeServerPaused);
+
+    if (this._isClusterPaused || !next.supabaseUrl || !next.supabaseKey) {
+      this.client = null;
+      this.cachedConfig = { supabaseUrl: '', supabaseKey: '' };
+      if (emitEvent && typeof window !== 'undefined') {
+        try {
+          window.dispatchEvent(
+            new CustomEvent('epyllion_cluster_switched', {
+              detail: {
+                activeServerId: null,
+                activeServerPaused: true,
+                clusterRevision: this._clusterRevision
+              }
+            })
+          );
+        } catch {}
+      }
+      return;
+    }
+
+    // 3. Reconnect client cleanly to the newly active server
+    this.setCredentials(next.supabaseUrl, next.supabaseKey, false);
+
+    // 4. Re-attach shared Broadcast channel on the new server if any listeners are active
+    let hasListeners = this._syncSignalListeners.size > 0;
+    if (!hasListeners) {
+      for (const set of this._tableChangeListeners.values()) {
+        if (set.size > 0) {
+          hasListeners = true;
+          break;
+        }
+      }
+    }
+    if (hasListeners) {
+      this.ensureSharedSyncChannel();
+    }
+
+    // 5. Notify React views to refresh silently without page reload
+    if (emitEvent && typeof window !== 'undefined') {
+      try {
+        window.dispatchEvent(
+          new CustomEvent('epyllion_cluster_switched', {
+            detail: {
+              activeServerId: this._activeServerId,
+              activeServerPaused: false,
+              clusterRevision: this._clusterRevision
+            }
+          })
+        );
+      } catch {}
+    }
+  }
+
+  /**
+   * Broadcasts a live switchover signal on the CURRENTLY connected server right before switching/pausing
+   * so all other connected user browsers immediately pull the new server config without reloading.
+   */
+  static async broadcastClusterSwitchSignal(payload: {
+    action: 'activate' | 'pause';
+    activeServerId: 'server1' | 'server2' | null;
+    clusterRevision: number;
+  }): Promise<void> {
+    if (!this.client || this._isClusterPaused) return;
+    try {
+      this.sendBroadcastPayload('server_switched', {
+        ...payload,
+        ts: Date.now(),
+        senderId: this._clientSenderId
+      });
+      // Give the WebSocket frame a tiny window to flush before tearing down the old connection
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    } catch {}
   }
 
   private static _serviceRestrictedUntil: number = 0;
@@ -245,12 +405,29 @@ export class SupabaseSync {
     probe: boolean = false
   ): Promise<{
     restricted: boolean;
+    activeServerId?: 'server1' | 'server2' | null;
+    activeServerPaused?: boolean;
+    clusterRevision?: number;
+    raihanAlert?: {
+      showWarning: boolean;
+      activeServerId: 'server1' | 'server2' | null;
+      activeServerLabel: string;
+      usedGb: number;
+      limitGb: number;
+      pct: number;
+      isCritical: boolean;
+      isRestricted: boolean;
+    } | null;
     versions: Record<string, { version: number; fetchedAt: number; maxUpdatedAt: string | null; count: number }>;
   } | null> {
     try {
       const url = probe ? '/api/supabase-cache/versions?probe=1' : '/api/supabase-cache/versions';
+      const headers: Record<string, string> = { Accept: 'application/json' };
+      if (this._activeOperatorUid) {
+        headers['x-session-uid'] = this._activeOperatorUid;
+      }
       const res = await fetch(url, {
-        headers: { Accept: 'application/json' },
+        headers,
         signal: AbortSignal.timeout(8000)
       });
       if (!res.ok) return null;
@@ -258,8 +435,25 @@ export class SupabaseSync {
       if (json?.restricted) {
         this.markServiceRestricted(json.reason || 'Supabase project quota exceeded.');
       }
+      if (typeof json?.clusterRevision === 'number') {
+        if (this._clusterRevision > 0 && json.clusterRevision !== this._clusterRevision) {
+          // Server was manually switched or paused by Raihan -> seamlessly sync this tab without reload!
+          void this.syncRemoteConfig();
+        } else if (this._clusterRevision === 0) {
+          this._clusterRevision = json.clusterRevision;
+          this._activeServerId = json.activeServerId || null;
+          this._isClusterPaused = Boolean(json.activeServerPaused);
+        }
+      }
       if (json?.success && json.versions) {
-        return { restricted: Boolean(json.restricted), versions: json.versions };
+        return {
+          restricted: Boolean(json.restricted),
+          activeServerId: json.activeServerId ?? null,
+          activeServerPaused: Boolean(json.activeServerPaused),
+          clusterRevision: json.clusterRevision,
+          raihanAlert: json.raihanAlert ?? null,
+          versions: json.versions
+        };
       }
       return null;
     } catch {
@@ -287,6 +481,13 @@ export class SupabaseSync {
       });
       if (!res.ok) return null;
       const json = await res.json();
+      if (typeof json?.clusterRevision === 'number' && this._clusterRevision > 0 && json.clusterRevision !== this._clusterRevision) {
+        void this.syncRemoteConfig();
+      }
+      if (json?.activeServerPaused) {
+        this._isClusterPaused = true;
+        return { ok: false, rows: [], restricted: false };
+      }
       if (json?.restricted) {
         this.markServiceRestricted(json.reason || 'Supabase project quota exceeded.');
         return { ok: false, rows: [], restricted: true };
@@ -388,6 +589,14 @@ export class SupabaseSync {
             }
           }
         })
+        .on('broadcast', { event: 'server_switched' }, (msg: any) => {
+          const payload = msg?.payload;
+          if (!payload || payload.senderId === this._clientSenderId) return;
+          // Another tab / Raihan manually paused or switched servers -> seamlessly switch this browser without reload!
+          setTimeout(() => {
+            void this.syncRemoteConfig();
+          }, 300);
+        })
         .subscribe();
       return this._syncSignalChannel;
     } catch (err) {
@@ -415,7 +624,7 @@ export class SupabaseSync {
     }
   }
 
-  private static sendBroadcastPayload(event: 'dataset_changed' | 'record_changed', payload: Record<string, any>): void {
+  private static sendBroadcastPayload(event: 'dataset_changed' | 'record_changed' | 'server_switched', payload: Record<string, any>): void {
     const client = this.getClient();
     if (!client) return;
     try {
@@ -568,7 +777,8 @@ export class SupabaseSync {
    * Initialize or retrieve the Supabase client
    */
   static getClient(): SupabaseClient | null {
-    if (this.isServiceRestricted()) return null;
+    // Hard Pause Lock: zero traffic in/out when active server is paused by Raihan
+    if (this._isClusterPaused || this.isServiceRestricted()) return null;
     if (this.client) return this.client;
 
     const { supabaseUrl, supabaseKey } = this.getStoredConfig();
@@ -581,6 +791,38 @@ export class SupabaseSync {
       console.warn('Supabase client initialization warning:', err);
       return null;
     }
+  }
+
+  /**
+   * Combined Master 12-Table SQL Script for initializing a fresh Server 2 Supabase project in one paste.
+   */
+  static getFullMaster12TableSQL(): string {
+    return [
+      '-- =========================================================================',
+      '-- EPYLLION KNITEX ERP — MASTER 12-TABLE SETUP SQL FOR SERVER 2',
+      '-- Paste & click RUN once in your Server 2 Supabase SQL Editor',
+      '-- =========================================================================',
+      '',
+      this.getSetupSQL(),
+      '',
+      this.getYarnSetupSQL(),
+      '',
+      this.getOrderPlansSetupSQL(),
+      '',
+      this.getKnittingOrdersSetupSQL(),
+      '',
+      this.getTextileCloseSetupSQL(),
+      '',
+      this.getGreyStockSchemaSQL(),
+      '',
+      this.getGreyYarnStockSchemaSQL(),
+      '',
+      '-- Ensure full API permissions on all 12 tables for anon & authenticated roles:',
+      'GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;',
+      'GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;',
+      'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;',
+      'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;'
+    ].join('\n');
   }
 
   /**
