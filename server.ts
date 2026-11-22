@@ -1045,14 +1045,22 @@ interface ServerTableCacheEntry {
   lastForceRefreshAt: number;
 }
 
-const SUPABASE_SERVER_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes (invalidated immediately on mutations/uploads)
-const SUPABASE_FORCE_COOLDOWN_MS = 5 * 1000; // Prevent forced origin spam
-const SUPABASE_PROBE_COOLDOWN_MS = 120 * 1000; // Max 1 tiny MAX(updated_at) probe every 2 min
+const SUPABASE_SERVER_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours (invalidated immediately on mutations/uploads)
+const SUPABASE_FORCE_COOLDOWN_MS = 30 * 1000; // Prevent impatient Sync double-click origin spam
+const SUPABASE_PROBE_COOLDOWN_MS = 5 * 60 * 1000; // Max 1 tiny MAX(updated_at) probe every 5 min
 const SUPABASE_PERM_DENIED_COOLDOWN_MS = 60 * 1000; // Cooldown when table lacks GRANT permissions
 const supabaseServerCache = new Map<CacheableSupabaseTable, ServerTableCacheEntry>();
 const supabaseInFlightFetches = new Map<string, Promise<any[] | null>>();
 const supabasePermDeniedUntil = new Map<CacheableSupabaseTable, number>();
 let lastVersionProbeAt = 0;
+
+interface ServerSettingsCacheEntry {
+  data: any;
+  fetchedAt: number;
+  version: number;
+}
+let supabaseSettingsCache: ServerSettingsCacheEntry | null = null;
+let supabaseSettingsInFlight: Promise<any | null> | null = null;
 
 function resetServerSupabaseState() {
   serverSupabaseClient = null;
@@ -1062,6 +1070,8 @@ function resetServerSupabaseState() {
   supabaseInFlightFetches.clear();
   supabasePermDeniedUntil.clear();
   tablesRequiringWildcardSelect.clear();
+  supabaseSettingsCache = null;
+  supabaseSettingsInFlight = null;
   lastVersionProbeAt = 0;
 }
 
@@ -1191,7 +1201,20 @@ async function fetchFullTableFromOrigin(table: CacheableSupabaseTable): Promise<
     }
 
     if (!Array.isArray(data) || data.length === 0) break;
-    allRows.push(...data);
+    const rowsBatch = data as any[];
+    if (table === 'knitting_orders') {
+      // Strip legacy duplicated `items` array from raw_data in RAM to avoid transferring huge JSON blobs twice
+      for (const r of rowsBatch) {
+        if (r && r.raw_data && typeof r.raw_data === 'object' && 'items' in r.raw_data) {
+          const { items: _dupItems, ...slimMeta } = r.raw_data;
+          allRows.push({ ...r, raw_data: slimMeta });
+        } else {
+          allRows.push(r);
+        }
+      }
+    } else {
+      allRows.push(...rowsBatch);
+    }
     if (data.length < BATCH_SIZE) break;
     from += BATCH_SIZE;
   }
@@ -1257,8 +1280,19 @@ async function getCachedSupabaseTable(
   return { rows: fetched, fromCache: false, version: nextVersion, maxUpdatedAt };
 }
 
-function invalidateServerSupabaseTable(table: CacheableSupabaseTable | 'all') {
+function invalidateServerSupabaseTable(table: CacheableSupabaseTable | 'settings' | 'all') {
   const nowIso = new Date().toISOString();
+  if (table === 'settings' || table === 'all') {
+    if (supabaseSettingsCache) {
+      supabaseSettingsCache = {
+        data: supabaseSettingsCache.data,
+        fetchedAt: 0,
+        version: supabaseSettingsCache.version + 1
+      };
+    }
+    if (table === 'settings') return;
+  }
+
   const targets: CacheableSupabaseTable[] =
     table === 'all' ? (Array.from(CACHEABLE_TABLE_SET) as CacheableSupabaseTable[]) : [table];
   for (const t of targets) {
@@ -1272,6 +1306,149 @@ function invalidateServerSupabaseTable(table: CacheableSupabaseTable | 'all') {
       lastForceRefreshAt: 0
     });
   }
+}
+
+async function fetchSettingsFromOrigin(): Promise<any | null> {
+  const supabase = getServerSupabase();
+  if (!supabase) return null;
+
+  const structuredSettings: any = {};
+
+  // A. Factory units
+  try {
+    const { data: unitRows, error: unitErr } = await supabase
+      .from('factory_units')
+      .select('id,unit_name,production_capacity,total_machine,avg_prod_per_machine,target_efficiency,display_order')
+      .order('display_order', { ascending: true });
+    if (unitErr) {
+      if (isServerSupabaseQuotaError(unitErr)) {
+        markServerSupabaseRestricted(unitErr);
+        return null;
+      }
+    } else if (Array.isArray(unitRows) && unitRows.length > 0) {
+      structuredSettings.unitConfigs = unitRows.map((u: any, idx: number) => ({
+        id: u.id || `unit-${(u.unit_name || `u${idx}`).toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+        name: u.unit_name,
+        unitName: u.unit_name,
+        capacityKgPerDay: Number(u.production_capacity) || 0,
+        productionCapacity: Number(u.production_capacity) || 0,
+        totalMachines: Number(u.total_machine) || 0,
+        totalMachine: Number(u.total_machine) || 0,
+        avgProdPerMachine: Number(u.avg_prod_per_machine) || 0,
+        targetEfficiency: Number(u.target_efficiency) || 85,
+        displayOrder: Number(u.display_order) || idx + 1
+      }));
+    }
+  } catch {}
+
+  // B. Buyers
+  try {
+    const { data: buyerRows, error: buyerErr } = await supabase
+      .from('buyers')
+      .select('buyer_name,status')
+      .order('buyer_name', { ascending: true });
+    if (buyerErr) {
+      if (isServerSupabaseQuotaError(buyerErr)) {
+        markServerSupabaseRestricted(buyerErr);
+        return null;
+      }
+    } else if (Array.isArray(buyerRows) && buyerRows.length > 0) {
+      structuredSettings.buyers = buyerRows
+        .filter((b: any) => b.status !== 'Inactive')
+        .map((b: any) => b.buyer_name);
+    }
+  } catch {}
+
+  // C. System settings & branding logos
+  try {
+    const { data: sysRow, error: sysErr } = await supabase
+      .from('system_settings')
+      .select('reject_threshold,max_idle_machines,alarm_email,company_logo,my_logo')
+      .eq('id', 'global_settings')
+      .maybeSingle();
+    if (sysErr) {
+      if (isServerSupabaseQuotaError(sysErr)) {
+        markServerSupabaseRestricted(sysErr);
+        return null;
+      }
+    } else if (sysRow) {
+      structuredSettings.rejectThreshold = Number(sysRow.reject_threshold) || 2.5;
+      structuredSettings.maxIdleMachines = Number(sysRow.max_idle_machines) || 5;
+      structuredSettings.alarmEmail = sysRow.alarm_email || 'knitprod@epylliongroup.com';
+      if (sysRow.company_logo) structuredSettings.companyLogo = sysRow.company_logo;
+      if (sysRow.my_logo) structuredSettings.myLogo = sysRow.my_logo;
+    }
+  } catch {}
+
+  // D. Only query legacy app_settings if system_settings did not supply logos or thresholds
+  const needsLegacyFallback =
+    !structuredSettings.companyLogo ||
+    !structuredSettings.myLogo ||
+    structuredSettings.rejectThreshold === undefined;
+  if (needsLegacyFallback && !isServerSupabaseRestricted()) {
+    try {
+      const { data: appRow, error: appErr } = await supabase
+        .from('app_settings')
+        .select('settings_data')
+        .eq('id', 'global_settings')
+        .maybeSingle();
+      if (appErr && isServerSupabaseQuotaError(appErr)) {
+        markServerSupabaseRestricted(appErr);
+        return null;
+      }
+      if (!appErr && appRow?.settings_data) {
+        const sd = appRow.settings_data;
+        if (!structuredSettings.companyLogo && sd.companyLogo) structuredSettings.companyLogo = sd.companyLogo;
+        if (!structuredSettings.myLogo && sd.myLogo) structuredSettings.myLogo = sd.myLogo;
+        if (structuredSettings.rejectThreshold === undefined && sd.rejectThreshold) structuredSettings.rejectThreshold = Number(sd.rejectThreshold);
+        if (structuredSettings.maxIdleMachines === undefined && sd.maxIdleMachines) structuredSettings.maxIdleMachines = Number(sd.maxIdleMachines);
+        if (!structuredSettings.alarmEmail && sd.alarmEmail) structuredSettings.alarmEmail = sd.alarmEmail;
+      }
+    } catch {}
+  }
+
+  return structuredSettings;
+}
+
+async function getCachedSupabaseSettings(
+  forceRefresh: boolean = false
+): Promise<{ data: any | null; fromCache: boolean; version: number }> {
+  const now = Date.now();
+  if (!forceRefresh && supabaseSettingsCache && supabaseSettingsCache.fetchedAt > 0) {
+    if (now - supabaseSettingsCache.fetchedAt < SUPABASE_SERVER_CACHE_TTL_MS) {
+      return {
+        data: supabaseSettingsCache.data,
+        fromCache: true,
+        version: supabaseSettingsCache.version
+      };
+    }
+  }
+
+  if (!supabaseSettingsInFlight) {
+    supabaseSettingsInFlight = fetchSettingsFromOrigin().finally(() => {
+      supabaseSettingsInFlight = null;
+    });
+  }
+
+  const fetched = await supabaseSettingsInFlight;
+  if (fetched === null) {
+    if (supabaseSettingsCache) {
+      return {
+        data: supabaseSettingsCache.data,
+        fromCache: true,
+        version: supabaseSettingsCache.version
+      };
+    }
+    return { data: null, fromCache: false, version: 0 };
+  }
+
+  const nextVersion = (supabaseSettingsCache?.version || 0) + 1;
+  supabaseSettingsCache = {
+    data: fetched,
+    fetchedAt: Date.now(),
+    version: nextVersion
+  };
+  return { data: fetched, fromCache: false, version: nextVersion };
 }
 
 // =========================================================================
@@ -1341,6 +1518,10 @@ app.post('/api/supabase-cache/invalidate', (req, res) => {
     invalidateServerSupabaseTable('all');
     return res.json({ success: true, invalidated: 'all' });
   }
+  if (rawTable === 'settings') {
+    invalidateServerSupabaseTable('settings');
+    return res.json({ success: true, invalidated: 'settings', version: supabaseSettingsCache?.version || 1 });
+  }
   if (!CACHEABLE_TABLE_SET.has(rawTable)) {
     return res.status(400).json({ success: false, message: 'Invalid table name.' });
   }
@@ -1350,6 +1531,28 @@ app.post('/api/supabase-cache/invalidate', (req, res) => {
     success: true,
     invalidated: rawTable,
     version: entry?.version || 1
+  });
+});
+
+// Shared cached public settings & branding endpoint (caches factory_units, buyers, system_settings + logos in RAM for 6 hours)
+// Note: Strictly excludes `users` / credentials.
+app.get('/api/supabase-cache/settings', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const force = req.query.force === '1' || req.query.force === 'true';
+  const result = await getCachedSupabaseSettings(force);
+  if (result.data === null) {
+    return res.json({
+      success: false,
+      restricted: isServerSupabaseRestricted(),
+      reason: serverSupabaseRestrictedReason,
+      settings: null
+    });
+  }
+  return res.json({
+    success: true,
+    fromCache: result.fromCache,
+    version: result.version,
+    settings: result.data
   });
 });
 
@@ -2486,22 +2689,37 @@ async function searchInternalERP(queryStr: string, clientContext: any, explicitO
 
   const supabase = getServerSupabase();
 
-  // 1. Search Supabase in parallel if configured
-  if (supabase && numMatches.length > 0) {
+  // 1. Search cached RAM tables first (zero egress), falling back to slim targeted queries only if uncached
+  if (numMatches.length > 0) {
+    const nowTs = Date.now();
+    const isFreshCache = (t: CacheableSupabaseTable) => {
+      const e = supabaseServerCache.get(t);
+      return Boolean(e && e.fetchedAt > 0 && nowTs - e.fetchedAt < SUPABASE_SERVER_CACHE_TTL_MS);
+    };
+
     try {
       await Promise.all(
         numMatches.map(async (num) => {
-          const [ko, op, tcp, ya] = await Promise.all([
-            supabase.from('knitting_orders').select('*').ilike('order_no', `%${num}%`).limit(50),
-            supabase.from('order_plans').select('*').ilike('ewo', `%${num}%`).limit(50),
-            supabase.from('textile_close_pmc').select('*').ilike('order_no', `%${num}%`).limit(50),
-            supabase.from('yarn_allocations').select('*').ilike('order_number', `%${num}%`).limit(50)
-          ]);
+          const needle = num.toLowerCase();
+          const searchTable = async (table: CacheableSupabaseTable, field: string, dest: any[]) => {
+            if (isFreshCache(table)) {
+              const cachedRows = supabaseServerCache.get(table)!.rows;
+              const matched = cachedRows.filter((r: any) => String(r?.[field] || '').toLowerCase().includes(needle)).slice(0, 50);
+              dest.push(...matched);
+              return;
+            }
+            if (!supabase) return;
+            const cols = tablesRequiringWildcardSelect.has(table) ? '*' : CACHEABLE_TABLE_CONFIG[table].columns;
+            const { data } = await supabase.from(table).select(cols).ilike(field, `%${num}%`).limit(50);
+            if (data) dest.push(...data);
+          };
 
-          if (ko.data) foundKnittingOrders.push(...ko.data);
-          if (op.data) foundOrderPlans.push(...op.data);
-          if (tcp.data) foundTextileClose.push(...tcp.data);
-          if (ya.data) foundYarnAllocations.push(...ya.data);
+          await Promise.all([
+            searchTable('knitting_orders', 'order_no', foundKnittingOrders),
+            searchTable('order_plans', 'ewo', foundOrderPlans),
+            searchTable('textile_close_pmc', 'order_no', foundTextileClose),
+            searchTable('yarn_allocations', 'order_number', foundYarnAllocations)
+          ]);
         })
       );
     } catch (dbErr) {
@@ -3279,24 +3497,22 @@ app.post('/api/chat/raihan', async (req, res) => {
       }
 
       if (totalAllocated === 0) {
-        const supabase = getServerSupabase();
-        if (supabase) {
-          try {
-            const { data: dbAllocations } = await supabase.from('yarn_allocations').select('yarn_rq_qty, allocated_qty, balance, order_number').limit(5000);
-            if (dbAllocations && dbAllocations.length > 0) {
-              const orderSet = new Set<string>();
-              for (const y of dbAllocations) {
-                totalYarnRq += Number(y.yarn_rq_qty || 0);
-                totalAllocated += Number(y.allocated_qty || 0);
-                totalBalance += Number(y.balance || 0);
-                if (y.order_number) orderSet.add(String(y.order_number).trim());
-              }
-              uniqueOrders = orderSet.size;
-              totalRecords = dbAllocations.length;
+        try {
+          const cachedAlloc = await getCachedSupabaseTable('yarn_allocations', false);
+          const dbAllocations = cachedAlloc.rows;
+          if (dbAllocations && dbAllocations.length > 0) {
+            const orderSet = new Set<string>();
+            for (const y of dbAllocations) {
+              totalYarnRq += Number(y.yarn_rq_qty || 0);
+              totalAllocated += Number(y.allocated_qty || 0);
+              totalBalance += Number(y.balance || 0);
+              if (y.order_number) orderSet.add(String(y.order_number).trim());
             }
-          } catch (dbErr) {
-            console.warn('Error querying yarn allocations total in server:', dbErr);
+            uniqueOrders = orderSet.size;
+            totalRecords = dbAllocations.length;
           }
+        } catch (dbErr) {
+          console.warn('Error querying yarn allocations total in server:', dbErr);
         }
       }
 

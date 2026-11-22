@@ -161,6 +161,9 @@ export class SupabaseSync {
     this._serviceRestrictedReason = null;
     this._failedTables.clear();
     this._tableFetchMemo.clear();
+    this._settingsMemo = null;
+    this._usersMemo = null;
+    this._activityLogsMemo = null;
     try {
       if (typeof sessionStorage !== 'undefined') {
         sessionStorage.removeItem('epyllion_supabase_restricted_until');
@@ -179,12 +182,22 @@ export class SupabaseSync {
 
   private static _tableFetchMemo = new Map<string, { ts: number; data: any[]; maxUpdatedAt?: string | null }>();
   private static _tableInFlight = new Map<string, Promise<any>>();
+  private static _settingsMemo: { ts: number; data: any } | null = null;
+  private static _settingsInFlight: Promise<any | null> | null = null;
+  private static _usersMemo: { ts: number; data: UserRecord[] } | null = null;
+  private static _usersInFlight: Promise<UserRecord[]> | null = null;
+  private static _activityLogsMemo: { ts: number; limit: number; data: any[] } | null = null;
   private static _lastKnownTableVersions: Record<string, number> = {};
   private static _clientSenderId = `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   private static _syncSignalChannel: any = null;
   private static _syncSignalListeners = new Set<(signal: { table: string; mode: string; ts: number }) => void>();
+  private static _tableChangeListeners = new Map<
+    string,
+    Set<(change: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: any; id: string }) => void>
+  >();
   private static _tablesRequiringWildcard = new Set<string>();
-  private static readonly CLIENT_CACHE_TTL_MS = 45 * 1000;
+  private static readonly CLIENT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes (instantly cleared on any write or Broadcast signal)
+  private static readonly USERS_CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes in-memory only (zero browser storage)
 
   private static readonly SLIM_SELECT_COLUMNS: Record<string, string> = {
     production_ledger:
@@ -329,12 +342,118 @@ export class SupabaseSync {
     }
   }
 
+  private static ensureSharedSyncChannel(): any {
+    if (this._syncSignalChannel) return this._syncSignalChannel;
+    const client = this.getClient();
+    if (!client) return null;
+    try {
+      this._syncSignalChannel = client
+        .channel('epyllion:sync_signals', {
+          config: { broadcast: { self: false } }
+        })
+        .on('broadcast', { event: 'dataset_changed' }, (msg: any) => {
+          const payload = msg?.payload;
+          if (!payload || !payload.table) return;
+          if (payload.senderId === this._clientSenderId) return;
+          if (payload.table === 'settings') {
+            this._settingsMemo = null;
+          } else {
+            this._tableFetchMemo.delete(payload.table);
+          }
+          for (const fn of this._syncSignalListeners) {
+            try {
+              fn({ table: String(payload.table), mode: String(payload.mode || 'bulk'), ts: Number(payload.ts || Date.now()) });
+            } catch {}
+          }
+        })
+        .on('broadcast', { event: 'record_changed' }, (msg: any) => {
+          const payload = msg?.payload;
+          if (!payload || !payload.table) return;
+          if (payload.senderId === this._clientSenderId) return;
+          this._tableFetchMemo.delete(payload.table);
+          const listeners = this._tableChangeListeners.get(String(payload.table));
+          if (listeners && listeners.size > 0) {
+            const evt = (payload.eventType === 'DELETE' ? 'DELETE' : payload.eventType === 'INSERT' ? 'INSERT' : 'UPDATE') as
+              | 'INSERT'
+              | 'UPDATE'
+              | 'DELETE';
+            for (const fn of listeners) {
+              try {
+                fn({
+                  eventType: evt,
+                  record: payload.record || { id: payload.id },
+                  id: String(payload.id || payload.record?.id || '')
+                });
+              } catch {}
+            }
+          }
+        })
+        .subscribe();
+      return this._syncSignalChannel;
+    } catch (err) {
+      console.warn('Supabase ensureSharedSyncChannel notice:', err);
+      this._syncSignalChannel = null;
+      return null;
+    }
+  }
+
+  private static maybeCleanupSharedSyncChannel(): void {
+    let hasTableListeners = false;
+    for (const set of this._tableChangeListeners.values()) {
+      if (set.size > 0) {
+        hasTableListeners = true;
+        break;
+      }
+    }
+    if (this._syncSignalListeners.size === 0 && !hasTableListeners && this._syncSignalChannel) {
+      const client = this.getClient();
+      const ch = this._syncSignalChannel;
+      this._syncSignalChannel = null;
+      try {
+        client?.removeChannel(ch);
+      } catch {}
+    }
+  }
+
+  private static sendBroadcastPayload(event: 'dataset_changed' | 'record_changed', payload: Record<string, any>): void {
+    const client = this.getClient();
+    if (!client) return;
+    try {
+      if (this._syncSignalChannel) {
+        this._syncSignalChannel.send({ type: 'broadcast', event, payload }).catch?.(() => {});
+      } else {
+        const tempCh = client.channel('epyllion:sync_signals', {
+          config: { broadcast: { self: false } }
+        });
+        tempCh.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            tempCh
+              .send({ type: 'broadcast', event, payload })
+              .finally(() => {
+                setTimeout(() => {
+                  try { client.removeChannel(tempCh); } catch {}
+                }, 1500);
+              });
+          }
+        });
+      }
+    } catch {}
+  }
+
   /**
-   * Invalidates the shared server cache and broadcasts 1 tiny Realtime signal (~100 bytes)
-   * so all other connected devices/tabs automatically refresh without clicking Sync.
+   * Invalidates the shared server cache and broadcasts 1 tiny Realtime signal (~100-300 bytes)
+   * over the single shared channel so all connected devices/tabs stay live without postgres_changes storms.
    */
-  static notifyDatasetChanged(table: string, mode: 'single' | 'bulk' = 'bulk'): void {
-    this._tableFetchMemo.delete(table);
+  static notifyDatasetChanged(
+    table: string,
+    mode: 'single' | 'bulk' = 'bulk',
+    singleChange?: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record?: any; id: string }
+  ): void {
+    if (table === 'settings') {
+      this._settingsMemo = null;
+    } else {
+      this._tableFetchMemo.delete(table);
+    }
 
     // 1. Invalidate shared server RAM cache immediately
     if (typeof fetch !== 'undefined') {
@@ -354,35 +473,21 @@ export class SupabaseSync {
 
     // 2. Broadcast 1 tiny signal via Supabase Realtime Broadcast (all other devices auto-update live!)
     if (mode === 'bulk') {
-      const client = this.getClient();
-      if (client) {
-        try {
-          if (this._syncSignalChannel) {
-            this._syncSignalChannel.send({
-              type: 'broadcast',
-              event: 'dataset_changed',
-              payload: { table, mode, ts: Date.now(), senderId: this._clientSenderId }
-            }).catch?.(() => {});
-          } else {
-            const tempCh = client.channel('epyllion:sync_signals', {
-              config: { broadcast: { self: false } }
-            });
-            tempCh.subscribe((status) => {
-              if (status === 'SUBSCRIBED') {
-                tempCh.send({
-                  type: 'broadcast',
-                  event: 'dataset_changed',
-                  payload: { table, mode, ts: Date.now(), senderId: this._clientSenderId }
-                }).finally(() => {
-                  setTimeout(() => {
-                    try { client.removeChannel(tempCh); } catch {}
-                  }, 1500);
-                });
-              }
-            });
-          }
-        } catch {}
-      }
+      this.sendBroadcastPayload('dataset_changed', {
+        table,
+        mode: 'bulk',
+        ts: Date.now(),
+        senderId: this._clientSenderId
+      });
+    } else if (singleChange) {
+      this.sendBroadcastPayload('record_changed', {
+        table,
+        eventType: singleChange.eventType,
+        record: singleChange.record,
+        id: singleChange.id,
+        ts: Date.now(),
+        senderId: this._clientSenderId
+      });
     }
   }
 
@@ -394,44 +499,38 @@ export class SupabaseSync {
     listener: (signal: { table: string; mode: string; ts: number }) => void
   ): () => void {
     this._syncSignalListeners.add(listener);
-
-    if (!this._syncSignalChannel) {
-      const client = this.getClient();
-      if (client) {
-        try {
-          this._syncSignalChannel = client
-            .channel('epyllion:sync_signals', {
-              config: { broadcast: { self: false } }
-            })
-            .on('broadcast', { event: 'dataset_changed' }, (msg: any) => {
-              const payload = msg?.payload;
-              if (!payload || !payload.table) return;
-              if (payload.senderId === this._clientSenderId) return;
-              this._tableFetchMemo.delete(payload.table);
-              for (const fn of this._syncSignalListeners) {
-                try {
-                  fn({ table: String(payload.table), mode: String(payload.mode || 'bulk'), ts: Number(payload.ts || Date.now()) });
-                } catch {}
-              }
-            })
-            .subscribe();
-        } catch (err) {
-          console.warn('Supabase subscribeToSyncSignals notice:', err);
-          this._syncSignalChannel = null;
-        }
-      }
-    }
+    this.ensureSharedSyncChannel();
 
     return () => {
       this._syncSignalListeners.delete(listener);
-      if (this._syncSignalListeners.size === 0 && this._syncSignalChannel) {
-        const client = this.getClient();
-        const ch = this._syncSignalChannel;
-        this._syncSignalChannel = null;
-        try {
-          client?.removeChannel(ch);
-        } catch {}
+      this.maybeCleanupSharedSyncChannel();
+    };
+  }
+
+  /**
+   * Subscribes to live single-row edits/deletes for a table over the single shared Broadcast channel
+   * (zero postgres_changes WAL egress storms during 3,000-row Excel bulk uploads!).
+   */
+  private static subscribeToTableRecordBroadcast<T>(
+    table: string,
+    onRecordChange: (change: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: T; id: string }) => void
+  ): () => void {
+    if (!this.getClient()) return () => {};
+    let set = this._tableChangeListeners.get(table);
+    if (!set) {
+      set = new Set();
+      this._tableChangeListeners.set(table, set);
+    }
+    set.add(onRecordChange as any);
+    this.ensureSharedSyncChannel();
+
+    return () => {
+      const current = this._tableChangeListeners.get(table);
+      if (current) {
+        current.delete(onRecordChange as any);
+        if (current.size === 0) this._tableChangeListeners.delete(table);
       }
+      this.maybeCleanupSharedSyncChannel();
     };
   }
 
@@ -647,66 +746,80 @@ export class SupabaseSync {
   // 1. USER MANAGEMENT & AUTHENTICATION
   // ==========================================
 
-  static async fetchUsers(): Promise<UserRecord[]> {
+  static async fetchUsers(forceRefresh: boolean = false): Promise<UserRecord[]> {
+    // 3-minute in-memory cache (strictly RAM only, never written to localStorage/sessionStorage)
+    if (!forceRefresh && this._usersMemo && Date.now() - this._usersMemo.ts < this.USERS_CACHE_TTL_MS) {
+      return this._usersMemo.data;
+    }
+    if (!forceRefresh && this._usersInFlight) {
+      return this._usersInFlight;
+    }
+
     const client = this.getClient();
     if (!client) return [];
 
-    try {
-      // 1. Query Supabase users table
-      const { data, error } = await client
-        .from('users')
-        .select('*')
-        .order('user_name', { ascending: true });
+    const run = (async (): Promise<UserRecord[]> => {
+      try {
+        // 1. Query Supabase users table directly (do NOT re-download Base64 logos via fetchSettings!)
+        const { data, error } = await client
+          .from('users')
+          .select('*')
+          .order('user_name', { ascending: true });
 
-      if (error) {
-        if (this.isQuotaOrRestrictionError(error)) {
-          this.markServiceRestricted(error);
-        } else {
-          console.warn('Supabase fetchUsers warning:', error.message);
+        if (error) {
+          if (this.isQuotaOrRestrictionError(error)) {
+            this.markServiceRestricted(error);
+          } else {
+            console.warn('Supabase fetchUsers warning:', error.message);
+          }
+          return [];
         }
+
+        if (!data || !Array.isArray(data)) return [];
+
+        // Read legacy user_metadata ONLY if already in memory (zero extra network/logo egress)
+        const cachedSettings = this._settingsMemo?.data;
+        const userMetadataMap: Record<string, any> =
+          (cachedSettings && (cachedSettings.user_metadata || cachedSettings.user_permissions || cachedSettings.userPermissions)) || {};
+
+        const mapped = data.map((row: any) => {
+          const cleanUid = (row.uid || '').trim().toUpperCase();
+          const meta = userMetadataMap[cleanUid] || {};
+
+          return {
+            id: row.id || `usr-${cleanUid}`,
+            uid: cleanUid,
+            userName: row.user_name || row.userName || cleanUid,
+            userType: (row.user_type || row.userType || 'General') as 'Admin' | 'General',
+            designation: row.designation || meta.designation || '',
+            department: (row.department || meta.department || 'Knitting') as 'Knitting' | 'Dyeing' | 'Finishing',
+            assignedUnits: row.assigned_units || row.assignedUnits || meta.assignedUnits || ['EKL', 'EFL'],
+            assignedBuyers: row.assigned_buyers || row.assignedBuyers || meta.assignedBuyers || [],
+            allowedTabs: row.allowed_tabs || row.allowedTabs || meta.allowedTabs || [],
+            tabPermissions: row.tab_permissions || row.tabPermissions || meta.tabPermissions || {},
+            permission: (row.permission || meta.permission || 'Read') as 'Read' | 'Read / Write' | 'Hide',
+            status: (row.status || meta.status || 'Active') as 'Active' | 'Inactive',
+            phone: row.phone || meta.phone || '',
+            email: row.email || meta.email || '',
+            lastLogin: row.last_login || row.lastLogin || meta.lastLogin,
+            password: row.password || meta.password || 'Password@2026',
+            lastUpdated: row.updated_at || row.lastUpdated || meta.lastUpdated || new Date().toLocaleString(),
+            createdAt: row.created_at || row.createdAt || meta.createdAt
+          };
+        });
+
+        this._usersMemo = { ts: Date.now(), data: mapped };
+        return mapped;
+      } catch (err) {
+        console.warn('Supabase fetchUsers exception:', err);
         return [];
       }
+    })();
 
-      if (!data || !Array.isArray(data)) return [];
-
-      // 2. Fetch extended user metadata / permissions map from app_settings
-      let userMetadataMap: Record<string, any> = {};
-      try {
-        const settings = await this.fetchSettings();
-        if (settings && (settings.user_metadata || settings.user_permissions || settings.userPermissions)) {
-          userMetadataMap = settings.user_metadata || settings.user_permissions || settings.userPermissions || {};
-        }
-      } catch {}
-
-      return data.map((row: any) => {
-        const cleanUid = (row.uid || '').trim().toUpperCase();
-        const meta = userMetadataMap[cleanUid] || {};
-
-        return {
-          id: row.id || `usr-${cleanUid}`,
-          uid: cleanUid,
-          userName: row.user_name || row.userName || cleanUid,
-          userType: (row.user_type || row.userType || 'General') as 'Admin' | 'General',
-          designation: row.designation || meta.designation || '',
-          department: (row.department || meta.department || 'Knitting') as 'Knitting' | 'Dyeing' | 'Finishing',
-          assignedUnits: row.assigned_units || row.assignedUnits || meta.assignedUnits || ['EKL', 'EFL'],
-          assignedBuyers: row.assigned_buyers || row.assignedBuyers || meta.assignedBuyers || [],
-          allowedTabs: row.allowed_tabs || row.allowedTabs || meta.allowedTabs || [],
-          tabPermissions: row.tab_permissions || row.tabPermissions || meta.tabPermissions || {},
-          permission: (row.permission || meta.permission || 'Read') as 'Read' | 'Read / Write' | 'Hide',
-          status: (row.status || meta.status || 'Active') as 'Active' | 'Inactive',
-          phone: row.phone || meta.phone || '',
-          email: row.email || meta.email || '',
-          lastLogin: row.last_login || row.lastLogin || meta.lastLogin,
-          password: row.password || meta.password || 'Password@2026',
-          lastUpdated: row.updated_at || row.lastUpdated || meta.lastUpdated || new Date().toLocaleString(),
-          createdAt: row.created_at || row.createdAt || meta.createdAt
-        };
-      });
-    } catch (err) {
-      console.warn('Supabase fetchUsers exception:', err);
-      return [];
-    }
+    this._usersInFlight = run.finally(() => {
+      this._usersInFlight = null;
+    });
+    return this._usersInFlight;
   }
 
   static async saveUser(user: UserRecord): Promise<boolean> {
@@ -750,6 +863,7 @@ export class SupabaseSync {
         }
       }
 
+      this._usersMemo = null;
       return true;
     } catch (err) {
       console.warn('Supabase saveUser exception:', err);
@@ -772,6 +886,7 @@ export class SupabaseSync {
       await client.from('users').delete().eq('id', upperStr);
       await client.from('users').delete().eq('id', `USR-${upperStr}`);
 
+      this._usersMemo = null;
       return true;
     } catch (err) {
       console.warn('Supabase deleteUser error:', err);
@@ -790,6 +905,7 @@ export class SupabaseSync {
       // Delete from dedicated public.buyers table
       await client.from('buyers').delete().eq('buyer_name', cleanName);
       await client.from('buyers').delete().ilike('buyer_name', cleanName);
+      this.notifyDatasetChanged('settings', 'bulk');
       return true;
     } catch (err) {
       console.warn('Supabase deleteBuyer error:', err);
@@ -810,6 +926,7 @@ export class SupabaseSync {
       await client.from('factory_units').delete().ilike('unit_name', cleanStr);
       await client.from('factory_units').delete().eq('id', cleanStr);
       await client.from('factory_units').delete().eq('id', `unit-${cleanStr.toLowerCase().replace(/[^a-z0-9]/g, '-')}`);
+      this.notifyDatasetChanged('settings', 'bulk');
       return true;
     } catch (err) {
       console.warn('Supabase deleteUnit error:', err);
@@ -821,97 +938,129 @@ export class SupabaseSync {
   // 2. APP SETTINGS & UNIT CONFIGURATIONS (SEPARATED STRUCTURED TABLES)
   // ==========================================
 
-  static async fetchSettings(): Promise<any | null> {
-    const client = this.getClient();
-    if (!client) return null;
-
-    try {
-      let structuredSettings: any = {};
-
-      // A. Fetch factory units from dedicated public.factory_units table
-      try {
-        const { data: unitRows, error: unitErr } = await client
-          .from('factory_units')
-          .select('*')
-          .order('display_order', { ascending: true });
-
-        if (!unitErr && unitRows && unitRows.length > 0) {
-          structuredSettings.unitConfigs = unitRows.map((u: any, idx: number) => ({
-            id: u.id || `unit-${(u.unit_name || `u${idx}`).toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
-            name: u.unit_name,
-            unitName: u.unit_name,
-            capacityKgPerDay: Number(u.production_capacity) || 0,
-            productionCapacity: Number(u.production_capacity) || 0,
-            totalMachines: Number(u.total_machine) || 0,
-            totalMachine: Number(u.total_machine) || 0,
-            avgProdPerMachine: Number(u.avg_prod_per_machine) || 0,
-            targetEfficiency: Number(u.target_efficiency) || 85,
-            displayOrder: Number(u.display_order) || idx + 1
-          }));
-        }
-      } catch (err) {
-        console.warn('Error fetching factory_units:', err);
-      }
-
-      // B. Fetch buyers from dedicated public.buyers table
-      try {
-        const { data: buyerRows, error: buyerErr } = await client
-          .from('buyers')
-          .select('*')
-          .order('buyer_name', { ascending: true });
-
-        if (!buyerErr && buyerRows && buyerRows.length > 0) {
-          structuredSettings.buyers = buyerRows
-            .filter((b: any) => b.status !== 'Inactive')
-            .map((b: any) => b.buyer_name);
-        }
-      } catch (err) {
-        console.warn('Error fetching buyers:', err);
-      }
-
-      // C. Fetch system thresholds & logos from dedicated public.system_settings table
-      try {
-        const { data: sysRow, error: sysErr } = await client
-          .from('system_settings')
-          .select('*')
-          .eq('id', 'global_settings')
-          .maybeSingle();
-
-        if (!sysErr && sysRow) {
-          structuredSettings.rejectThreshold = Number(sysRow.reject_threshold) || 2.5;
-          structuredSettings.maxIdleMachines = Number(sysRow.max_idle_machines) || 5;
-          structuredSettings.alarmEmail = sysRow.alarm_email || 'knitprod@epylliongroup.com';
-          if (sysRow.company_logo) structuredSettings.companyLogo = sysRow.company_logo;
-          if (sysRow.my_logo) structuredSettings.myLogo = sysRow.my_logo;
-        }
-      } catch (err) {
-        console.warn('Error fetching system_settings:', err);
-      }
-
-      // D. Fallback check from public.app_settings if system_settings did not supply logos or thresholds
-      try {
-        const { data: appRow, error: appErr } = await client
-          .from('app_settings')
-          .select('*')
-          .eq('id', 'global_settings')
-          .maybeSingle();
-
-        if (!appErr && appRow?.settings_data) {
-          const sd = appRow.settings_data;
-          if (!structuredSettings.companyLogo && sd.companyLogo) structuredSettings.companyLogo = sd.companyLogo;
-          if (!structuredSettings.myLogo && sd.myLogo) structuredSettings.myLogo = sd.myLogo;
-          if (structuredSettings.rejectThreshold === undefined && sd.rejectThreshold) structuredSettings.rejectThreshold = Number(sd.rejectThreshold);
-          if (structuredSettings.maxIdleMachines === undefined && sd.maxIdleMachines) structuredSettings.maxIdleMachines = Number(sd.maxIdleMachines);
-          if (!structuredSettings.alarmEmail && sd.alarmEmail) structuredSettings.alarmEmail = sd.alarmEmail;
-        }
-      } catch {
-        // Non-critical fallback
-      }
-
-      return structuredSettings;
-    } catch {
-      return null;
+  static async fetchSettings(forceRefresh: boolean = false): Promise<any | null> {
+    if (!forceRefresh && this._settingsMemo && Date.now() - this._settingsMemo.ts < this.CLIENT_CACHE_TTL_MS) {
+      return this._settingsMemo.data;
     }
+    if (!forceRefresh && this._settingsInFlight) {
+      return this._settingsInFlight;
+    }
+
+    const run = (async (): Promise<any | null> => {
+      // 1. Primary path: shared 6-hour server RAM cache (eliminates repeated Base64 logo egress!)
+      try {
+        const res = await fetch(`/api/supabase-cache/settings${forceRefresh ? '?force=1' : ''}`, {
+          headers: { Accept: 'application/json' },
+          signal: AbortSignal.timeout(15000)
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json?.restricted) {
+            this.markServiceRestricted(json.reason || 'Supabase project quota exceeded.');
+            return null;
+          }
+          if (json?.success && json.settings) {
+            this._settingsMemo = { ts: Date.now(), data: json.settings };
+            return json.settings;
+          }
+        }
+      } catch {}
+
+      // 2. Direct Supabase fallback if server cache endpoint is unreachable
+      const client = this.getClient();
+      if (!client) return null;
+
+      try {
+        let structuredSettings: any = {};
+
+        try {
+          const { data: unitRows, error: unitErr } = await client
+            .from('factory_units')
+            .select('id,unit_name,production_capacity,total_machine,avg_prod_per_machine,target_efficiency,display_order')
+            .order('display_order', { ascending: true });
+
+          if (!unitErr && unitRows && unitRows.length > 0) {
+            structuredSettings.unitConfigs = unitRows.map((u: any, idx: number) => ({
+              id: u.id || `unit-${(u.unit_name || `u${idx}`).toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+              name: u.unit_name,
+              unitName: u.unit_name,
+              capacityKgPerDay: Number(u.production_capacity) || 0,
+              productionCapacity: Number(u.production_capacity) || 0,
+              totalMachines: Number(u.total_machine) || 0,
+              totalMachine: Number(u.total_machine) || 0,
+              avgProdPerMachine: Number(u.avg_prod_per_machine) || 0,
+              targetEfficiency: Number(u.target_efficiency) || 85,
+              displayOrder: Number(u.display_order) || idx + 1
+            }));
+          }
+        } catch (err) {
+          console.warn('Error fetching factory_units:', err);
+        }
+
+        try {
+          const { data: buyerRows, error: buyerErr } = await client
+            .from('buyers')
+            .select('buyer_name,status')
+            .order('buyer_name', { ascending: true });
+
+          if (!buyerErr && buyerRows && buyerRows.length > 0) {
+            structuredSettings.buyers = buyerRows
+              .filter((b: any) => b.status !== 'Inactive')
+              .map((b: any) => b.buyer_name);
+          }
+        } catch (err) {
+          console.warn('Error fetching buyers:', err);
+        }
+
+        try {
+          const { data: sysRow, error: sysErr } = await client
+            .from('system_settings')
+            .select('reject_threshold,max_idle_machines,alarm_email,company_logo,my_logo')
+            .eq('id', 'global_settings')
+            .maybeSingle();
+
+          if (!sysErr && sysRow) {
+            structuredSettings.rejectThreshold = Number(sysRow.reject_threshold) || 2.5;
+            structuredSettings.maxIdleMachines = Number(sysRow.max_idle_machines) || 5;
+            structuredSettings.alarmEmail = sysRow.alarm_email || 'knitprod@epylliongroup.com';
+            if (sysRow.company_logo) structuredSettings.companyLogo = sysRow.company_logo;
+            if (sysRow.my_logo) structuredSettings.myLogo = sysRow.my_logo;
+          }
+        } catch (err) {
+          console.warn('Error fetching system_settings:', err);
+        }
+
+        // Only hit legacy app_settings if logos/thresholds are still missing
+        if (!structuredSettings.companyLogo || !structuredSettings.myLogo || structuredSettings.rejectThreshold === undefined) {
+          try {
+            const { data: appRow, error: appErr } = await client
+              .from('app_settings')
+              .select('settings_data')
+              .eq('id', 'global_settings')
+              .maybeSingle();
+
+            if (!appErr && appRow?.settings_data) {
+              const sd = appRow.settings_data;
+              if (!structuredSettings.companyLogo && sd.companyLogo) structuredSettings.companyLogo = sd.companyLogo;
+              if (!structuredSettings.myLogo && sd.myLogo) structuredSettings.myLogo = sd.myLogo;
+              if (structuredSettings.rejectThreshold === undefined && sd.rejectThreshold) structuredSettings.rejectThreshold = Number(sd.rejectThreshold);
+              if (structuredSettings.maxIdleMachines === undefined && sd.maxIdleMachines) structuredSettings.maxIdleMachines = Number(sd.maxIdleMachines);
+              if (!structuredSettings.alarmEmail && sd.alarmEmail) structuredSettings.alarmEmail = sd.alarmEmail;
+            }
+          } catch {}
+        }
+
+        this._settingsMemo = { ts: Date.now(), data: structuredSettings };
+        return structuredSettings;
+      } catch {
+        return null;
+      }
+    })();
+
+    this._settingsInFlight = run.finally(() => {
+      this._settingsInFlight = null;
+    });
+    return this._settingsInFlight;
   }
 
   static async saveSettings(settingsData: any): Promise<boolean> {
@@ -1056,6 +1205,7 @@ export class SupabaseSync {
         }
       }
 
+      this.notifyDatasetChanged('settings', 'bulk');
       return true;
     } catch (err) {
       console.warn('Supabase saveSettings exception:', err);
@@ -1089,25 +1239,35 @@ export class SupabaseSync {
       };
 
       const { error } = await client.from('activity_logs').insert(row);
+      if (!error) this._activityLogsMemo = null;
       return !error;
     } catch {
       return false;
     }
   }
 
-  static async fetchActivityLogs(limitCount: number = 100): Promise<any[]> {
+  static async fetchActivityLogs(limitCount: number = 100, forceRefresh: boolean = false): Promise<any[]> {
+    if (
+      !forceRefresh &&
+      this._activityLogsMemo &&
+      this._activityLogsMemo.limit >= limitCount &&
+      Date.now() - this._activityLogsMemo.ts < this.USERS_CACHE_TTL_MS
+    ) {
+      return this._activityLogsMemo.data.slice(0, limitCount);
+    }
+
     const client = this.getClient();
     if (!client) return [];
 
     try {
       const { data, error } = await client
         .from('activity_logs')
-        .select('*')
+        .select('id,user_id,user_name,action,details,floor,created_at')
         .order('created_at', { ascending: false })
         .limit(limitCount);
 
       if (error || !data) return [];
-      return data.map((r) => ({
+      const mapped = data.map((r) => ({
         id: r.id,
         userId: r.user_id,
         userName: r.user_name,
@@ -1116,6 +1276,8 @@ export class SupabaseSync {
         floor: r.floor,
         timestamp: r.created_at
       }));
+      this._activityLogsMemo = { ts: Date.now(), limit: limitCount, data: mapped };
+      return mapped;
     } catch {
       return [];
     }
@@ -1419,7 +1581,11 @@ export class SupabaseSync {
         attempts++;
         const { error } = await client.from('production_ledger').upsert(row, { onConflict: 'id' });
         if (!error) {
-          this.notifyDatasetChanged('production_ledger', 'single');
+          this.notifyDatasetChanged('production_ledger', 'single', {
+            eventType: 'UPDATE',
+            record,
+            id: String(row.id || record.id || '')
+          });
           return { success: true };
         }
 
@@ -1564,7 +1730,7 @@ export class SupabaseSync {
 
     try {
       const { error } = await client.from('production_ledger').delete().eq('id', id);
-      if (!error) this.notifyDatasetChanged('production_ledger', 'single');
+      if (!error) this.notifyDatasetChanged('production_ledger', 'single', { eventType: 'DELETE', id });
       return !error;
     } catch (err) {
       console.warn('Supabase deleteProductionRecord error:', err);
@@ -1573,48 +1739,12 @@ export class SupabaseSync {
   }
 
   /**
-   * Real-time Multi-Device WebSocket Subscription (<50ms Live Updates across all devices)
+   * Real-time Multi-Device Broadcast Subscription (<50ms Live Updates, zero postgres_changes bulk storms)
    */
   static subscribeToProductionLedger(
     onRecordChange: (change: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: LedgerRecord; id: string }) => void
   ): () => void {
-    const client = this.getClient();
-    if (!client) return () => {};
-
-    try {
-      const channel = client
-        .channel('realtime:production_ledger')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'production_ledger' },
-          (payload: any) => {
-            const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE';
-            const row = payload.new || payload.old;
-            if (row) {
-              const record = SupabaseSync.mapRowToLedgerRecord(payload.new || payload.old);
-              onRecordChange({
-                eventType,
-                record,
-                id: String(row.id || (payload.old && payload.old.id) || '')
-              });
-            }
-          }
-        )
-        .subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            // Live WebSocket active
-          }
-        });
-
-      return () => {
-        try {
-          client.removeChannel(channel);
-        } catch {}
-      };
-    } catch (err) {
-      console.warn('Supabase subscribeToProductionLedger error:', err);
-      return () => {};
-    }
+    return this.subscribeToTableRecordBroadcast<LedgerRecord>('production_ledger', onRecordChange);
   }
 
   // ==========================================
@@ -1807,7 +1937,11 @@ export class SupabaseSync {
         attempts++;
         const { error } = await client.from('yarn_allocations').upsert(row, { onConflict: 'id' });
         if (!error) {
-          this.notifyDatasetChanged('yarn_allocations', 'single');
+          this.notifyDatasetChanged('yarn_allocations', 'single', {
+            eventType: 'UPDATE',
+            record: item,
+            id: String(row.id || item.id || '')
+          });
           return { success: true };
         }
 
@@ -1974,7 +2108,7 @@ export class SupabaseSync {
 
     try {
       const { error } = await client.from('yarn_allocations').delete().eq('id', id);
-      if (!error) this.notifyDatasetChanged('yarn_allocations', 'single');
+      if (!error) this.notifyDatasetChanged('yarn_allocations', 'single', { eventType: 'DELETE', id });
       return !error;
     } catch (err) {
       console.warn('Supabase deleteYarnAllocation error:', err);
@@ -1983,44 +2117,12 @@ export class SupabaseSync {
   }
 
   /**
-   * Real-time Multi-Device WebSocket Subscription for Yarn Allocations (<50ms Live Updates across all devices)
+   * Real-time Multi-Device Broadcast Subscription for Yarn Allocations (zero postgres_changes bulk storms)
    */
   static subscribeToYarnAllocations(
     onRecordChange: (change: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: YarnAllocationRecord; id: string }) => void
   ): () => void {
-    const client = this.getClient();
-    if (!client) return () => {};
-
-    try {
-      const channel = client
-        .channel('realtime:yarn_allocations')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'yarn_allocations' },
-          (payload: any) => {
-            const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE';
-            const row = payload.new || payload.old;
-            if (row) {
-              const record = SupabaseSync.mapRowToYarnAllocation(payload.new || payload.old);
-              onRecordChange({
-                eventType,
-                record,
-                id: String(row.id || (payload.old && payload.old.id) || '')
-              });
-            }
-          }
-        )
-        .subscribe();
-
-      return () => {
-        try {
-          client.removeChannel(channel);
-        } catch {}
-      };
-    } catch (err) {
-      console.warn('Supabase subscribeToYarnAllocations error:', err);
-      return () => {};
-    }
+    return this.subscribeToTableRecordBroadcast<YarnAllocationRecord>('yarn_allocations', onRecordChange);
   }
 
   // ==========================================
@@ -2228,7 +2330,11 @@ export class SupabaseSync {
         attempts++;
         const { error } = await client.from('order_plans').upsert(row, { onConflict: 'id' });
         if (!error) {
-          this.notifyDatasetChanged('order_plans', 'single');
+          this.notifyDatasetChanged('order_plans', 'single', {
+            eventType: 'UPDATE',
+            record: item,
+            id: String(row.id || item.id || '')
+          });
           return { success: true };
         }
 
@@ -2394,7 +2500,7 @@ export class SupabaseSync {
 
     try {
       const { error } = await client.from('order_plans').delete().or(`id.eq.${id},ewo.eq.${id}`);
-      if (!error) this.notifyDatasetChanged('order_plans', 'single');
+      if (!error) this.notifyDatasetChanged('order_plans', 'single', { eventType: 'DELETE', id });
       return !error;
     } catch (err) {
       console.warn('Supabase deleteOrderPlan error:', err);
@@ -2403,44 +2509,12 @@ export class SupabaseSync {
   }
 
   /**
-   * Real-time Multi-Device WebSocket Subscription for Order Plans
+   * Real-time Multi-Device Broadcast Subscription for Order Plans (zero postgres_changes bulk storms)
    */
   static subscribeToOrderPlans(
     onRecordChange: (change: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: OrderPlan; id: string }) => void
   ): () => void {
-    const client = this.getClient();
-    if (!client) return () => {};
-
-    try {
-      const channel = client
-        .channel('realtime:order_plans')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'order_plans' },
-          (payload: any) => {
-            const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE';
-            const row = payload.new || payload.old;
-            if (row) {
-              const record = SupabaseSync.mapRowToOrderPlan(row);
-              onRecordChange({
-                eventType,
-                record,
-                id: String(row.id || (payload.old && payload.old.id) || '')
-              });
-            }
-          }
-        )
-        .subscribe();
-
-      return () => {
-        try {
-          client.removeChannel(channel);
-        } catch {}
-      };
-    } catch (err) {
-      console.warn('Supabase subscribeToOrderPlans error:', err);
-      return () => {};
-    }
+    return this.subscribeToTableRecordBroadcast<OrderPlan>('order_plans', onRecordChange);
   }
 
   // ==========================================
@@ -2702,7 +2776,11 @@ export class SupabaseSync {
       const row = this.sanitizeRowForSupabase(this.mapKnittingOrderToRow(item));
       const { error } = await client.from('knitting_orders').upsert(row, { onConflict: 'id' });
       if (error) return { success: false, error: error.message };
-      this.notifyDatasetChanged('knitting_orders', 'single');
+      this.notifyDatasetChanged('knitting_orders', 'single', {
+        eventType: 'UPDATE',
+        record: item,
+        id: String(row.id || item.id || '')
+      });
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || String(err) };
@@ -2757,7 +2835,7 @@ export class SupabaseSync {
     try {
       const { error } = await client.from('knitting_orders').delete().eq('id', id);
       if (error) return { success: false, error: error.message };
-      this.notifyDatasetChanged('knitting_orders', 'single');
+      this.notifyDatasetChanged('knitting_orders', 'single', { eventType: 'DELETE', id });
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || String(err) };
@@ -2765,44 +2843,12 @@ export class SupabaseSync {
   }
 
   /**
-   * Real-time Multi-Device WebSocket Subscription for Knitting Orders
+   * Real-time Multi-Device Broadcast Subscription for Knitting Orders (zero postgres_changes bulk storms)
    */
   static subscribeToKnittingOrders(
     onRecordChange: (change: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: KnittingStatusOrder; id: string }) => void
   ): () => void {
-    const client = this.getClient();
-    if (!client) return () => {};
-
-    try {
-      const channel = client
-        .channel('realtime:knitting_orders')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'knitting_orders' },
-          (payload: any) => {
-            const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE';
-            const row = payload.new || payload.old;
-            if (row) {
-              const record = SupabaseSync.mapRowToKnittingOrder(row);
-              onRecordChange({
-                eventType,
-                record,
-                id: String(row.id || (payload.old && payload.old.id) || '')
-              });
-            }
-          }
-        )
-        .subscribe();
-
-      return () => {
-        try {
-          client.removeChannel(channel);
-        } catch {}
-      };
-    } catch (err) {
-      console.warn('Supabase subscribeToKnittingOrders error:', err);
-      return () => {};
-    }
+    return this.subscribeToTableRecordBroadcast<KnittingStatusOrder>('knitting_orders', onRecordChange);
   }
 
   // =========================================================================
@@ -2991,7 +3037,11 @@ export class SupabaseSync {
       const row = this.sanitizeRowForSupabase(this.mapTextileCloseRecordToRow(item));
       const { error } = await client.from('textile_close_pmc').upsert(row, { onConflict: 'id' });
       if (error) return { success: false, error: error.message };
-      this.notifyDatasetChanged('textile_close_pmc', 'single');
+      this.notifyDatasetChanged('textile_close_pmc', 'single', {
+        eventType: 'UPDATE',
+        record: item,
+        id: String(row.id || item.id || '')
+      });
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || String(err) };
@@ -3050,7 +3100,7 @@ export class SupabaseSync {
     try {
       const { error } = await client.from('textile_close_pmc').delete().eq('id', id);
       if (error) return { success: false, error: error.message };
-      this.notifyDatasetChanged('textile_close_pmc', 'single');
+      this.notifyDatasetChanged('textile_close_pmc', 'single', { eventType: 'DELETE', id });
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || String(err) };
@@ -3060,39 +3110,7 @@ export class SupabaseSync {
   static subscribeToTextileCloseRecords(
     onRecordChange: (change: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: TextileCloseRecord; id: string }) => void
   ): () => void {
-    const client = this.getClient();
-    if (!client) return () => {};
-
-    try {
-      const channel = client
-        .channel('realtime:textile_close_pmc')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'textile_close_pmc' },
-          (payload: any) => {
-            const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE';
-            const row = payload.new || payload.old;
-            if (row) {
-              const record = SupabaseSync.mapRowToTextileCloseRecord(row);
-              onRecordChange({
-                eventType,
-                record,
-                id: String(row.id || (payload.old && payload.old.id) || '')
-              });
-            }
-          }
-        )
-        .subscribe();
-
-      return () => {
-        try {
-          client.removeChannel(channel);
-        } catch {}
-      };
-    } catch (err) {
-      console.warn('Supabase subscribeToTextileCloseRecords error:', err);
-      return () => {};
-    }
+    return this.subscribeToTableRecordBroadcast<TextileCloseRecord>('textile_close_pmc', onRecordChange);
   }
 
   // =========================================================================
@@ -3595,7 +3613,7 @@ export class SupabaseSync {
     try {
       const { error } = await client.from('grey_stock_summary').delete().eq('id', id);
       if (error) return { success: false, error: error.message };
-      this.notifyDatasetChanged('grey_stock_summary', 'single');
+      this.notifyDatasetChanged('grey_stock_summary', 'single', { eventType: 'DELETE', id });
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || String(err) };
@@ -3605,39 +3623,8 @@ export class SupabaseSync {
   static subscribeToGreyStockRecords(
     onRecordChange: (change: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: GreyStockItem; id: string }) => void
   ): () => void {
-    const client = this.getClient();
-    if (!client || !this.isGreyStockTableAvailable()) return () => {};
-
-    try {
-      const channel = client
-        .channel('realtime:grey_stock_summary')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'grey_stock_summary' },
-          (payload: any) => {
-            const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE';
-            const row = payload.new || payload.old;
-            if (row) {
-              const record = SupabaseSync.mapRowToGreyStockItem(row);
-              onRecordChange({
-                eventType,
-                record,
-                id: String(row.id || (payload.old && payload.old.id) || '')
-              });
-            }
-          }
-        )
-        .subscribe();
-
-      return () => {
-        try {
-          client.removeChannel(channel);
-        } catch {}
-      };
-    } catch (err) {
-      console.warn('Supabase subscribeToGreyStockRecords error:', err);
-      return () => {};
-    }
+    if (!this.isGreyStockTableAvailable()) return () => {};
+    return this.subscribeToTableRecordBroadcast<GreyStockItem>('grey_stock_summary', onRecordChange);
   }
 
   // =========================================================================
@@ -4006,7 +3993,7 @@ export class SupabaseSync {
     if (!client || !this.isGreyYarnStockTableAvailable()) return false;
     try {
       const { error } = await client.from('grey_yarn_stock').delete().eq('id', id);
-      if (!error) this.notifyDatasetChanged('grey_yarn_stock', 'single');
+      if (!error) this.notifyDatasetChanged('grey_yarn_stock', 'single', { eventType: 'DELETE', id });
       return !error;
     } catch {
       return false;
@@ -4016,39 +4003,8 @@ export class SupabaseSync {
   static subscribeToGreyYarnStockRecords(
     onRecordChange: (change: { eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: GreyYarnStockItem; id: string }) => void
   ): () => void {
-    const client = this.getClient();
-    if (!client || !this.isGreyYarnStockTableAvailable()) return () => {};
-
-    try {
-      const channel = client
-        .channel('realtime:grey_yarn_stock')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'grey_yarn_stock' },
-          (payload: any) => {
-            const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE';
-            const row = payload.new || payload.old;
-            if (row) {
-              const record = SupabaseSync.mapRowToGreyYarnStockItem(row);
-              onRecordChange({
-                eventType,
-                record,
-                id: String(row.id || (payload.old && payload.old.id) || '')
-              });
-            }
-          }
-        )
-        .subscribe();
-
-      return () => {
-        try {
-          client.removeChannel(channel);
-        } catch {}
-      };
-    } catch (err) {
-      console.warn('Supabase subscribeToGreyYarnStockRecords error:', err);
-      return () => {};
-    }
+    if (!this.isGreyYarnStockTableAvailable()) return () => {};
+    return this.subscribeToTableRecordBroadcast<GreyYarnStockItem>('grey_yarn_stock', onRecordChange);
   }
 
   static getGreyYarnStockSchemaSQL(): string {

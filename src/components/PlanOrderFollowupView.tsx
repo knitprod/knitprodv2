@@ -826,51 +826,29 @@ export default function PlanOrderFollowupView({ initialSubTab = 'summary', curre
       loadOrders(false, true);
     });
 
-    // 3. Live Postgres Realtime subscription for instant multi-user single-row edits
-    const client = SupabaseSync.getClient();
-    let channel: any = null;
-    if (client) {
-      try {
-        channel = client
-          .channel('realtime:order_plans_followup_auto')
-          .on(
-            'postgres_changes',
-            { event: '*', schema: 'public', table: 'order_plans' },
-            (payload: any) => {
-              if (!isMounted) return;
-              const eventType = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE';
-              const row = payload.new || payload.old || {};
-              const record = SupabaseSync.mapRowToOrderPlan(row);
-              const id = payload.old?.id || payload.new?.id || row.id || row.order_number || '';
-
-              if (eventType === 'DELETE') {
-                setOrders(prev => {
-                  const next = prev.filter(o => o.id !== id && o.ewo !== id);
-                  try { localStorage.setItem('cached_order_plans', JSON.stringify(next)); } catch (e) {}
-                  return next;
-                });
-              } else if (eventType === 'INSERT' || eventType === 'UPDATE') {
-                if (!record || (!record.id && !record.ewo)) return;
-                setOrders(prev => {
-                  const next = deduplicateOrderPlans([record, ...prev]);
-                  try { localStorage.setItem('cached_order_plans', JSON.stringify(next)); } catch (e) {}
-                  return next;
-                });
-              }
-            }
-          )
-          .subscribe();
-      } catch (err) {
-        console.warn('Realtime subscription notice in PlanOrderFollowupView:', err);
+    // 3. Live Broadcast subscription for instant multi-user single-row edits (zero postgres_changes bulk storms)
+    const unsubOrders = SupabaseSync.subscribeToOrderPlans(({ eventType, record, id }) => {
+      if (!isMounted) return;
+      if (eventType === 'DELETE') {
+        setOrders(prev => {
+          const next = prev.filter(o => o.id !== id && o.ewo !== id);
+          try { localStorage.setItem('cached_order_plans', JSON.stringify(next)); } catch (e) {}
+          return next;
+        });
+      } else if (eventType === 'INSERT' || eventType === 'UPDATE') {
+        if (!record || (!record.id && !record.ewo)) return;
+        setOrders(prev => {
+          const next = deduplicateOrderPlans([record, ...prev]);
+          try { localStorage.setItem('cached_order_plans', JSON.stringify(next)); } catch (e) {}
+          return next;
+        });
       }
-    }
+    });
 
     return () => {
       isMounted = false;
       unsubSignals();
-      if (channel && client) {
-        try { client.removeChannel(channel); } catch (e) {}
-      }
+      unsubOrders();
     };
   }, []);
 
