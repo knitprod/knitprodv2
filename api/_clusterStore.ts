@@ -8,8 +8,9 @@
  * and synchronize across all connected users with 0 bytes of Supabase egress.
  */
 
+import fs from 'fs';
+import path from 'path';
 import zlib from 'zlib';
-import firebaseConfig from '../firebase-applet-config.json';
 
 export type ServerSlotId = 'server1' | 'server2';
 // Decimal GB (1e9 bytes) matches Supabase's Free Plan egress billing meter (5 GB = 5,000,000,000 bytes)
@@ -346,9 +347,31 @@ export function getActiveClusterServer(cluster: SupabaseClusterState): SupabaseS
 // FIRESTORE REST PERSISTENCE (0 BYTES SUPABASE EGRESS, SURVIVES COLD STARTS)
 // =========================================================================
 
-const FIRESTORE_PROJECT = firebaseConfig?.projectId || '';
-const FIRESTORE_DB_ID = firebaseConfig?.firestoreDatabaseId || '(default)';
-const FIRESTORE_API_KEY = firebaseConfig?.apiKey || '';
+function loadPublicFirebaseConfig(): { projectId: string; firestoreDatabaseId: string; apiKey: string } {
+  const fallback = {
+    projectId: process.env.FIREBASE_PROJECT_ID || 'gen-lang-client-0538168382',
+    firestoreDatabaseId:
+      process.env.FIREBASE_DB_ID || 'ai-studio-epyllionknitexlt-52272a1a-3da9-4fb0-9f0d-7b27c4e625d8',
+    apiKey: process.env.FIREBASE_API_KEY || 'AIzaSyCySmVMKT0b84CB0wVjfO9zwYtppf6JPJw'
+  };
+  try {
+    const cfgPath = path.join(process.cwd(), 'firebase-applet-config.json');
+    if (fs.existsSync(cfgPath)) {
+      const parsed = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+      return {
+        projectId: parsed?.projectId || fallback.projectId,
+        firestoreDatabaseId: parsed?.firestoreDatabaseId || fallback.firestoreDatabaseId,
+        apiKey: parsed?.apiKey || fallback.apiKey
+      };
+    }
+  } catch {}
+  return fallback;
+}
+
+const FB_CFG = loadPublicFirebaseConfig();
+const FIRESTORE_PROJECT = FB_CFG.projectId;
+const FIRESTORE_DB_ID = FB_CFG.firestoreDatabaseId;
+const FIRESTORE_API_KEY = FB_CFG.apiKey;
 
 function getClusterDocUrl(): string | null {
   if (!FIRESTORE_PROJECT || !FIRESTORE_API_KEY) return null;

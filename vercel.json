@@ -28,7 +28,17 @@
     }
   ],
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/api/supabase-failover/:action",
+      "destination": "/api/supabase-failover?action=:action"
+    },
+    {
+      "source": "/api/supabase-cache/:table",
+      "destination": "/api/supabase-cache?table=:table"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
   ]
 }

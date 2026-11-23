@@ -2,33 +2,412 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Vercel Serverless Handler for Dual-Supabase Failover, Egress Calibration,
- * Manual Active/Pause Switching, and Chunked 12-Table Migration.
- * Endpoint: /api/supabase-failover/:action
- * Strictly restricted to Superadmin (EKL001) / Raihan.
+ * Self-contained Flat Vercel Serverless Function for Dual-Supabase Failover,
+ * Egress Calibration, Browser Egress Reporting, Manual Active/Pause Switching,
+ * and Chunked 12-Table Live Migration.
+ *
+ * Route: /api/supabase-failover?action=:action (rewritten from /api/supabase-failover/:action)
+ * Zero relative imports or static JSON imports so Vercel Node.js ESM always runs cleanly.
  */
 
+import zlib from 'zlib';
 import { createClient } from '@supabase/supabase-js';
-import {
-  BYTES_PER_GB,
-  MIGRATION_TABLES,
-  ServerSlotId,
-  computeSlotEgressMetrics,
-  ensureBillingCycleCurrent,
-  estimateWireEgressBytes,
-  getActiveClusterServer,
-  getBillingCycleKey,
-  getRequestSessionUid,
-  isSupabasePermissionDeniedError,
-  loadClusterStateFromCloud,
-  maskKeyPreview,
-  parseJsonBody,
-  recordServerEgressBytesCloud,
-  requireRaihanOperator,
-  sanitizeSupabaseUrl,
-  saveClusterStateToCloud,
-  setNoStoreHeaders
-} from '../_clusterStore';
+
+type ServerSlotId = 'server1' | 'server2';
+
+const BYTES_PER_GB = 1_000_000_000;
+const RAIHAN_OPERATOR_UIDS = new Set(['EKL001', 'RAIHAN']);
+
+const DEFAULT_SERVER1_URL =
+  process.env.SUPABASE_URL ||
+  process.env.VITE_SUPABASE_URL ||
+  'https://kwaezsfoalfhigzcnezd.supabase.co';
+
+const DEFAULT_SERVER1_KEY =
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3YWV6c2ZvYWxmaGlnemNuZXpkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczOTUzNzksImV4cCI6MjEwMjk3MTM3OX0.eYxuK9fCwix4i0GnHW-UBl2Kg_gZNOaPWvQ6FkMy_Qs';
+
+const DEFAULT_SERVER2_URL =
+  process.env.SUPABASE_SERVER2_URL ||
+  process.env.VITE_SUPABASE_SERVER2_URL ||
+  'https://prunomfyqfbpvzojafar.supabase.co';
+
+const DEFAULT_SERVER2_KEY =
+  process.env.SUPABASE_SERVER2_ANON_KEY ||
+  process.env.VITE_SUPABASE_SERVER2_ANON_KEY ||
+  'sb_publishable_h6pz72HjpfiXGTBuLMcuTQ_Fx8ZAHDm';
+
+const FIRESTORE_PROJECT = process.env.FIREBASE_PROJECT_ID || 'gen-lang-client-0538168382';
+const FIRESTORE_DB_ID =
+  process.env.FIREBASE_DB_ID || 'ai-studio-epyllionknitexlt-52272a1a-3da9-4fb0-9f0d-7b27c4e625d8';
+const FIRESTORE_API_KEY = process.env.FIREBASE_API_KEY || 'AIzaSyCySmVMKT0b84CB0wVjfO9zwYtppf6JPJw';
+
+interface SupabaseServerSlot {
+  id: ServerSlotId;
+  label: string;
+  supabaseUrl: string;
+  supabaseKey: string;
+  status: 'active' | 'paused';
+  egressLimitGb: number;
+  warningThresholdPct: number;
+  billingResetDay: number;
+  trackedBytesThisCycle: number;
+  calibrationOffsetBytes: number;
+  cycleMonthKey: string;
+  lastMigratedAt: string | null;
+  pausedAt: string | null;
+  activatedAt: string | null;
+}
+
+interface SupabaseClusterState {
+  activeServerId: ServerSlotId | null;
+  clusterRevision: number;
+  servers: Record<ServerSlotId, SupabaseServerSlot>;
+}
+
+const MIGRATION_TABLES: Array<{
+  table: string;
+  label: string;
+  conflictCol: string;
+  required: boolean;
+}> = [
+  { table: 'production_ledger', label: 'Production Ledger', conflictCol: 'id', required: true },
+  { table: 'yarn_allocations', label: 'Yarn Allocations', conflictCol: 'id', required: true },
+  { table: 'order_plans', label: 'Plan Order Followup', conflictCol: 'id', required: true },
+  { table: 'knitting_orders', label: 'Knitting Status Orders', conflictCol: 'id', required: true },
+  { table: 'textile_close_pmc', label: 'Textile Close By PMC', conflictCol: 'id', required: true },
+  { table: 'grey_stock_summary', label: 'Grey Stock Summary', conflictCol: 'id', required: true },
+  { table: 'grey_yarn_stock', label: 'Grey Yarn Stock Summary', conflictCol: 'id', required: true },
+  { table: 'users', label: 'System Users & Permissions', conflictCol: 'uid', required: true },
+  { table: 'factory_units', label: 'Factory Units & Capacity', conflictCol: 'id', required: true },
+  { table: 'buyers', label: 'Buyers Directory', conflictCol: 'buyer_name', required: true },
+  { table: 'system_settings', label: 'System Settings & Logos', conflictCol: 'id', required: true },
+  { table: 'activity_logs', label: 'Activity Audit Logs', conflictCol: 'id', required: true },
+  { table: 'app_settings', label: 'Legacy App Settings (Optional)', conflictCol: 'id', required: false }
+];
+
+function setNoStoreHeaders(res: any) {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Vercel-CDN-Cache-Control', 'no-store');
+  res.setHeader('CDN-Cache-Control', 'no-store');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, x-session-uid');
+}
+
+function estimateWireEgressBytes(payload: any): number {
+  try {
+    const raw = Buffer.from(typeof payload === 'string' ? payload : JSON.stringify(payload), 'utf8');
+    if (raw.length === 0) return 0;
+    return zlib.gzipSync(raw, { level: 1 }).length + 600;
+  } catch {
+    return 0;
+  }
+}
+
+function getRequestSessionUid(req: any): string | null {
+  const headerUid = req?.headers?.['x-session-uid'];
+  let cookieUid: string | null = null;
+  const cookieHeader = req?.headers?.cookie;
+  if (typeof cookieHeader === 'string' && cookieHeader) {
+    const match = cookieHeader.match(/ekl_auth_session=([^;]+)/);
+    if (match) {
+      try {
+        cookieUid = decodeURIComponent(match[1]);
+      } catch {
+        cookieUid = match[1];
+      }
+    }
+  }
+  const effective =
+    typeof headerUid === 'string' && headerUid.trim()
+      ? headerUid.trim().toUpperCase()
+      : cookieUid && cookieUid.trim()
+        ? cookieUid.trim().toUpperCase()
+        : null;
+  return effective;
+}
+
+function isRaihanOperatorRequest(req: any): boolean {
+  const uid = (getRequestSessionUid(req) || '').replace(/[\s-_]/g, '');
+  return RAIHAN_OPERATOR_UIDS.has(uid);
+}
+
+function sanitizeSupabaseUrl(raw: string): string | null {
+  let clean = String(raw || '').trim();
+  if (!clean) return null;
+  const dashMatch = clean.match(/supabase\.com\/dashboard\/project\/([a-z0-9_-]+)/i);
+  if (dashMatch && dashMatch[1]) {
+    clean = `https://${dashMatch[1]}.supabase.co`;
+  }
+  if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+    clean = `https://${clean}`;
+  }
+  try {
+    const parsed = new URL(clean);
+    if (parsed.protocol !== 'https:') return null;
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host === 'localhost' ||
+      host === '::1' ||
+      host.startsWith('127.') ||
+      host.startsWith('10.') ||
+      host.startsWith('169.254.') ||
+      host.startsWith('192.168.') ||
+      /^172\.(1[6-9]|2\d|3[0-1])\./.test(host) ||
+      host.endsWith('.local') ||
+      host.endsWith('.internal')
+    ) {
+      return null;
+    }
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return null;
+  }
+}
+
+function getBillingCycleKey(resetDay: number, now: Date = new Date()): string {
+  const safeDay = Math.max(1, Math.min(28, Math.floor(Number(resetDay) || 1)));
+  let year = now.getUTCFullYear();
+  let month = now.getUTCMonth() + 1;
+  if (now.getUTCDate() < safeDay) {
+    month -= 1;
+    if (month < 1) {
+      month = 12;
+      year -= 1;
+    }
+  }
+  return `${year}-${String(month).padStart(2, '0')}-d${String(safeDay).padStart(2, '0')}`;
+}
+
+function ensureBillingCycleCurrent(slot: SupabaseServerSlot): boolean {
+  const expectedKey = getBillingCycleKey(slot.billingResetDay);
+  if (slot.cycleMonthKey !== expectedKey) {
+    slot.cycleMonthKey = expectedKey;
+    slot.trackedBytesThisCycle = 0;
+    slot.calibrationOffsetBytes = 0;
+    return true;
+  }
+  return false;
+}
+
+function maskKeyPreview(key: string): string {
+  const clean = String(key || '').trim();
+  if (!clean) return '';
+  if (clean.length <= 12) return '••••••••';
+  return `${clean.slice(0, 8)}••••••••${clean.slice(-6)}`;
+}
+
+function computeSlotEgressMetrics(slot: SupabaseServerSlot) {
+  ensureBillingCycleCurrent(slot);
+  const trackedBytes = Math.max(0, Number(slot.trackedBytesThisCycle) || 0);
+  const calibrationOffsetBytes = Number(slot.calibrationOffsetBytes) || 0;
+  const totalBytes = Math.max(0, trackedBytes + calibrationOffsetBytes);
+  const usedGb = Number((totalBytes / BYTES_PER_GB).toFixed(3));
+  const trackedGb = Number((trackedBytes / BYTES_PER_GB).toFixed(4));
+  const limitGb = Math.max(0.1, Number(slot.egressLimitGb) || 5.0);
+  const pct = Number(Math.min(100, (usedGb / limitGb) * 100).toFixed(1));
+  const warningThresholdPct = Math.max(10, Math.min(99, Number(slot.warningThresholdPct) || 80));
+  return {
+    totalBytes,
+    trackedBytes,
+    calibrationOffsetBytes,
+    trackedGb,
+    usedGb,
+    limitGb,
+    pct,
+    warningThresholdPct,
+    isWarning: pct >= warningThresholdPct,
+    isCritical: pct >= 95
+  };
+}
+
+function createDefaultClusterState(): SupabaseClusterState {
+  const cycleKey = getBillingCycleKey(1);
+  const nowIso = new Date().toISOString();
+  const s1Url = sanitizeSupabaseUrl(DEFAULT_SERVER1_URL) || DEFAULT_SERVER1_URL;
+  const s1Key = DEFAULT_SERVER1_KEY.trim();
+  const s2Url = sanitizeSupabaseUrl(DEFAULT_SERVER2_URL) || DEFAULT_SERVER2_URL;
+  const s2Key = DEFAULT_SERVER2_KEY.trim();
+
+  return {
+    activeServerId: s1Url && s1Key ? 'server1' : null,
+    clusterRevision: 1,
+    servers: {
+      server1: {
+        id: 'server1',
+        label: 'Server 1 (Primary)',
+        supabaseUrl: s1Url,
+        supabaseKey: s1Key,
+        status: s1Url && s1Key ? 'active' : 'paused',
+        egressLimitGb: 5.0,
+        warningThresholdPct: 80,
+        billingResetDay: 1,
+        trackedBytesThisCycle: 0,
+        calibrationOffsetBytes: 0,
+        cycleMonthKey: cycleKey,
+        lastMigratedAt: null,
+        pausedAt: null,
+        activatedAt: s1Url && s1Key ? nowIso : null
+      },
+      server2: {
+        id: 'server2',
+        label: 'Server 2 (Standby)',
+        supabaseUrl: s2Url,
+        supabaseKey: s2Key,
+        status: 'paused',
+        egressLimitGb: 5.0,
+        warningThresholdPct: 80,
+        billingResetDay: 1,
+        trackedBytesThisCycle: 0,
+        calibrationOffsetBytes: 0,
+        cycleMonthKey: cycleKey,
+        lastMigratedAt: null,
+        pausedAt: nowIso,
+        activatedAt: null
+      }
+    }
+  };
+}
+
+function getActiveClusterServer(cluster: SupabaseClusterState): SupabaseServerSlot | null {
+  if (!cluster.activeServerId) return null;
+  const slot = cluster.servers[cluster.activeServerId];
+  if (!slot || slot.status !== 'active' || !slot.supabaseUrl || !slot.supabaseKey) {
+    return null;
+  }
+  return slot;
+}
+
+function getClusterDocUrl(): string {
+  return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
+    FIRESTORE_PROJECT
+  )}/databases/${encodeURIComponent(
+    FIRESTORE_DB_ID
+  )}/documents/settings/supabase_cluster?key=${encodeURIComponent(FIRESTORE_API_KEY)}`;
+}
+
+let memoCluster: { state: SupabaseClusterState; loadedAt: number } | null = null;
+const MEMO_TTL_MS = 4000;
+
+async function saveClusterStateToCloud(state: SupabaseClusterState): Promise<void> {
+  memoCluster = { state, loadedAt: Date.now() };
+  try {
+    await fetch(getClusterDocUrl(), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        fields: {
+          payload: { stringValue: JSON.stringify(state) },
+          updatedAt: { stringValue: new Date().toISOString() },
+          clusterRevision: { integerValue: String(state.clusterRevision || 1) }
+        }
+      }),
+      signal: AbortSignal.timeout(6000)
+    });
+  } catch {}
+}
+
+async function loadClusterStateFromCloud(forceFresh: boolean = false): Promise<SupabaseClusterState> {
+  if (!forceFresh && memoCluster && Date.now() - memoCluster.loadedAt < MEMO_TTL_MS) {
+    return memoCluster.state;
+  }
+  const defaults = createDefaultClusterState();
+  try {
+    const res = await fetch(getClusterDocUrl(), {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(5000)
+    });
+    if (res.ok) {
+      const doc = await res.json();
+      const rawPayload = doc?.fields?.payload?.stringValue;
+      if (typeof rawPayload === 'string' && rawPayload.trim()) {
+        const parsed = JSON.parse(rawPayload);
+        if (parsed && parsed.servers?.server1 && parsed.servers?.server2) {
+          const merged: SupabaseClusterState = {
+            activeServerId:
+              parsed.activeServerId === 'server1' || parsed.activeServerId === 'server2'
+                ? parsed.activeServerId
+                : null,
+            clusterRevision: Number(parsed.clusterRevision) || 1,
+            servers: {
+              server1: {
+                ...defaults.servers.server1,
+                ...parsed.servers.server1,
+                id: 'server1',
+                supabaseUrl: parsed.servers.server1.supabaseUrl || defaults.servers.server1.supabaseUrl,
+                supabaseKey: parsed.servers.server1.supabaseKey || defaults.servers.server1.supabaseKey
+              },
+              server2: {
+                ...defaults.servers.server2,
+                ...parsed.servers.server2,
+                id: 'server2',
+                supabaseUrl: parsed.servers.server2.supabaseUrl || defaults.servers.server2.supabaseUrl,
+                supabaseKey: parsed.servers.server2.supabaseKey || defaults.servers.server2.supabaseKey
+              }
+            }
+          };
+          const backfilledS2 = !parsed.servers.server2.supabaseUrl || !parsed.servers.server2.supabaseKey;
+          const changed1 = ensureBillingCycleCurrent(merged.servers.server1);
+          const changed2 = ensureBillingCycleCurrent(merged.servers.server2);
+          memoCluster = { state: merged, loadedAt: Date.now() };
+          if (changed1 || changed2 || backfilledS2) {
+            await saveClusterStateToCloud(merged).catch(() => {});
+          }
+          return merged;
+        }
+      }
+    } else if (res.status === 404) {
+      await saveClusterStateToCloud(defaults).catch(() => {});
+      return defaults;
+    }
+  } catch {
+    if (memoCluster) return memoCluster.state;
+  }
+  memoCluster = { state: defaults, loadedAt: Date.now() };
+  return defaults;
+}
+
+async function recordServerEgressBytesCloud(serverId: ServerSlotId | null, bytes: number): Promise<void> {
+  if (!serverId || !Number.isFinite(bytes) || bytes <= 0) return;
+  try {
+    const cluster = await loadClusterStateFromCloud(false);
+    const slot = cluster.servers[serverId];
+    if (!slot) return;
+    ensureBillingCycleCurrent(slot);
+    slot.trackedBytesThisCycle = (Number(slot.trackedBytesThisCycle) || 0) + Math.round(bytes);
+    await saveClusterStateToCloud(cluster);
+  } catch {}
+}
+
+function isSupabasePermissionDeniedError(err: any): boolean {
+  if (!err) return false;
+  const code = String(err.code || '');
+  const msg = String(err.message || '').toLowerCase();
+  return code === '42501' || msg.includes('permission denied');
+}
+
+function parseJsonBody(req: any): Record<string, any> {
+  if (!req || req.body == null) return {};
+  if (Buffer.isBuffer(req.body)) {
+    try {
+      return JSON.parse(req.body.toString('utf8'));
+    } catch {
+      return {};
+    }
+  }
+  if (typeof req.body === 'object') return req.body;
+  if (typeof req.body === 'string') {
+    try {
+      return JSON.parse(req.body);
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
 
 export default async function handler(req: any, res: any) {
   setNoStoreHeaders(res);
@@ -38,13 +417,18 @@ export default async function handler(req: any, res: any) {
   }
 
   const rawAction = Array.isArray(req.query?.action) ? req.query.action[0] : req.query?.action;
-  const fallbackFromUrl = typeof req.url === 'string'
-    ? req.url.split('?')[0].split('/').filter(Boolean).pop()
-    : '';
-  const action = String(rawAction || fallbackFromUrl || '').trim().toLowerCase();
+  const fallbackFromUrl =
+    typeof req.url === 'string'
+      ? req.url.split('?')[0].split('/').filter(Boolean).pop()
+      : '';
+  const action = String(
+    rawAction || (fallbackFromUrl && fallbackFromUrl !== 'supabase-failover' ? fallbackFromUrl : '')
+  )
+    .trim()
+    .toLowerCase();
   const body = parseJsonBody(req);
 
-  // 0. POST /api/supabase-failover/report-egress (any authenticated app user reports direct browser Supabase wire bytes)
+  // 0. POST /api/supabase-failover/report-egress (any authenticated user reports direct browser Supabase wire bytes)
   if (action === 'report-egress' && req.method === 'POST') {
     const headerOrCookieUid = getRequestSessionUid(req);
     const bodyUid = typeof body.uid === 'string' ? body.uid.trim().toUpperCase() : '';
@@ -69,15 +453,19 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  if (!requireRaihanOperator(req, res)) {
-    return;
+  // Strictly restrict all failover controls to Superadmin (EKL001) / Raihan
+  if (!isRaihanOperatorRequest(req)) {
+    return res.status(403).json({
+      success: false,
+      message: 'Restricted: Dual-server failover controls are strictly limited to Superadmin (EKL001) / Raihan.'
+    });
   }
 
   try {
     // 1. GET /api/supabase-failover/status
     if (action === 'status' && req.method === 'GET') {
       const cluster = await loadClusterStateFromCloud(true);
-      const buildView = (slot: (typeof cluster.servers)['server1']) => {
+      const buildView = (slot: SupabaseServerSlot) => {
         const metrics = computeSlotEgressMetrics(slot);
         return {
           id: slot.id,
@@ -344,7 +732,7 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    // 6. POST /api/supabase-failover/migrate-table (Serverless-safe chunked 12-table migration — NEVER auto-switches)
+    // 6. POST /api/supabase-failover/migrate-table (Chunked 12-table migration — NEVER auto-switches)
     if (action === 'migrate-table' && req.method === 'POST') {
       const phase = String(body.phase || '').trim();
       const sourceServerId = body.sourceServerId as ServerSlotId;
@@ -375,7 +763,6 @@ export default async function handler(req: any, res: any) {
         });
       }
 
-      // Phase A: Pre-flight verify all 12 tables on target server
       if (phase === 'preflight') {
         const targetClient = createClient(targetSlot.supabaseUrl, targetSlot.supabaseKey, {
           auth: { persistSession: false, autoRefreshToken: false }
@@ -421,7 +808,6 @@ export default async function handler(req: any, res: any) {
         });
       }
 
-      // Phase B: Copy a single paginated slice of a table (fast <3s per call — zero Vercel timeout risk!)
       if (phase === 'copy') {
         const tableName = String(body.table || '').trim();
         const def = MIGRATION_TABLES.find((t) => t.table === tableName);
@@ -439,7 +825,6 @@ export default async function handler(req: any, res: any) {
           auth: { persistSession: false, autoRefreshToken: false }
         });
 
-        // Get exact count on first slice so UI can show copied / total
         let totalRows: number | null = null;
         if (offset === 0) {
           const cnt = await sourceClient.from(def.table).select('*', { count: 'exact', head: true });
@@ -504,7 +889,6 @@ export default async function handler(req: any, res: any) {
           });
         }
 
-        // Strip legacy duplicated raw_data.items on knitting_orders so target stays lean
         const batch =
           def.table === 'knitting_orders'
             ? rawBatch.map((r) => {
@@ -516,12 +900,10 @@ export default async function handler(req: any, res: any) {
               })
             : rawBatch;
 
-        // Meter compressed wire egress bytes from source server
         try {
           await recordServerEgressBytesCloud(sourceSlot.id, estimateWireEgressBytes(rawBatch));
         } catch {}
 
-        // Upsert in 200-row sub-chunks
         const UPSERT_CHUNK = 200;
         for (let i = 0; i < batch.length; i += UPSERT_CHUNK) {
           const chunk = batch.slice(i, i + UPSERT_CHUNK);
@@ -554,12 +936,11 @@ export default async function handler(req: any, res: any) {
           skipped: false,
           copiedInSlice: batch.length,
           nextOffset: offset + batch.length,
-          totalRows: totalRows ?? (hasMore ? offset + batch.length : offset + batch.length),
+          totalRows: totalRows ?? offset + batch.length,
           hasMore
         });
       }
 
-      // Phase C: Finalize migration timestamp (NEVER auto-switches server states!)
       if (phase === 'finalize') {
         targetSlot.lastMigratedAt = new Date().toISOString();
         await saveClusterStateToCloud(cluster);
