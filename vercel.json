@@ -1,7 +1,20 @@
 {
   "headers": [
     {
-      "source": "/(.*)",
+      "source": "/api/(supabase-failover|supabase-cache|config)(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate, proxy-revalidate"
+        },
+        {
+          "key": "Vercel-CDN-Cache-Control",
+          "value": "no-store"
+        }
+      ]
+    },
+    {
+      "source": "/((?!api/).*)",
       "headers": [
         {
           "key": "Cache-Control",

@@ -743,6 +743,107 @@ export class SupabaseSync {
     };
   }
 
+  private static _pendingClientEgressBytes: number = 0;
+  private static _egressFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private static _egressUnloadBound: boolean = false;
+
+  private static queueClientEgressBytes(bytes: number): void {
+    if (this._isClusterPaused || !Number.isFinite(bytes) || bytes <= 0) return;
+    this._pendingClientEgressBytes += Math.round(bytes);
+
+    if (typeof window !== 'undefined' && !this._egressUnloadBound) {
+      this._egressUnloadBound = true;
+      const flushOnLeave = () => {
+        if (this._pendingClientEgressBytes > 0) {
+          this.flushClientEgressBytes(true);
+        }
+      };
+      window.addEventListener('pagehide', flushOnLeave);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') flushOnLeave();
+      });
+    }
+
+    if (this._pendingClientEgressBytes >= 250_000) {
+      this.flushClientEgressBytes(false);
+    } else if (!this._egressFlushTimer) {
+      this._egressFlushTimer = setTimeout(() => {
+        this._egressFlushTimer = null;
+        this.flushClientEgressBytes(false);
+      }, 20_000);
+    }
+  }
+
+  private static flushClientEgressBytes(useBeacon: boolean = false): void {
+    const bytes = Math.round(this._pendingClientEgressBytes);
+    if (bytes < 512 || this._isClusterPaused) {
+      if (this._isClusterPaused) this._pendingClientEgressBytes = 0;
+      return;
+    }
+    const uid = this._activeOperatorUid || '';
+    if (!uid) return; // Only report for authenticated app sessions
+    this._pendingClientEgressBytes = 0;
+
+    const payload = JSON.stringify({ bytes: Math.min(bytes, 50_000_000), uid });
+    try {
+      if (useBeacon && typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+        const blob = new Blob([payload], { type: 'application/json' });
+        navigator.sendBeacon('/api/supabase-failover/report-egress', blob);
+        return;
+      }
+      if (typeof fetch !== 'undefined') {
+        fetch('/api/supabase-failover/report-egress', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-session-uid': uid
+          },
+          body: payload,
+          keepalive: useBeacon
+        }).catch(() => {});
+      }
+    } catch {}
+  }
+
+  private static measureResponseWireBytes(response: Response, reqUrl: string): void {
+    try {
+      const clHeader = response.headers.get('content-length');
+      const cl = clHeader ? parseInt(clHeader, 10) : NaN;
+      if (Number.isFinite(cl) && cl > 0) {
+        this.queueClientEgressBytes(cl + 450);
+        return;
+      }
+
+      // Check browser PerformanceResourceTiming for exact compressed wire bytes if available
+      if (typeof performance !== 'undefined' && typeof performance.getEntriesByName === 'function' && reqUrl) {
+        const entries = performance.getEntriesByName(reqUrl);
+        const latest = entries[entries.length - 1] as PerformanceResourceTiming | undefined;
+        if (latest) {
+          const wire = latest.transferSize > 0 ? latest.transferSize : latest.encodedBodySize > 0 ? latest.encodedBodySize + 450 : 0;
+          if (wire > 0) {
+            this.queueClientEgressBytes(wire);
+            return;
+          }
+        }
+      }
+
+      // Fallback: measure cloned response text & estimate gzip wire size (~28% for JSON)
+      const ct = (response.headers.get('content-type') || '').toLowerCase();
+      if (ct.includes('json') || ct.includes('text')) {
+        const isEncoded = Boolean(response.headers.get('content-encoding'));
+        response
+          .clone()
+          .text()
+          .then((txt) => {
+            const rawLen = new TextEncoder().encode(txt).length;
+            const estimatedWire = isEncoded || rawLen > 1024 ? Math.round(rawLen * 0.28) + 450 : rawLen + 450;
+            this.queueClientEgressBytes(estimatedWire);
+          })
+          .catch(() => {});
+      }
+    } catch {}
+  }
+
   private static createProtectedClient(url: string, key: string, persistSession: boolean = true): SupabaseClient {
     const wrappedFetch: typeof fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       if (SupabaseSync.isServiceRestricted()) {
@@ -753,6 +854,9 @@ export class SupabaseSync {
       }
 
       const response = await fetch(input, init);
+      const reqUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      SupabaseSync.measureResponseWireBytes(response, reqUrl);
+
       if (!response.ok && (response.status === 402 || response.status === 403 || response.status === 429 || response.status >= 400)) {
         try {
           const text = await response.clone().text();

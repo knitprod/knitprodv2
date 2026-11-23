@@ -6,6 +6,7 @@ import compression from 'compression';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { saveClusterStateToCloud } from './api/_clusterStore';
 
 const app = express();
 const PORT = 3000;
@@ -1184,7 +1185,18 @@ function markServerSupabaseRestricted(err: any) {
 // =========================================================================
 
 type ServerSlotId = 'server1' | 'server2';
-const BYTES_PER_GB = 1024 * 1024 * 1024;
+// Decimal GB (1e9 bytes) matches Supabase Free Plan egress meter (5 GB = 5,000,000,000 bytes)
+const BYTES_PER_GB = 1_000_000_000;
+
+function estimateWireEgressBytes(payload: any): number {
+  try {
+    const raw = Buffer.from(typeof payload === 'string' ? payload : JSON.stringify(payload), 'utf8');
+    if (raw.length === 0) return 0;
+    return zlib.gzipSync(raw, { level: 1 }).length + 600;
+  } catch {
+    return 0;
+  }
+}
 
 interface SupabaseServerSlot {
   id: ServerSlotId;
@@ -1271,10 +1283,21 @@ function ensureBillingCycleCurrent(slot: SupabaseServerSlot): boolean {
   return false;
 }
 
+const DEFAULT_SERVER2_URL =
+  process.env.SUPABASE_SERVER2_URL ||
+  process.env.VITE_SUPABASE_SERVER2_URL ||
+  'https://prunomfyqfbpvzojafar.supabase.co';
+const DEFAULT_SERVER2_KEY =
+  process.env.SUPABASE_SERVER2_ANON_KEY ||
+  process.env.VITE_SUPABASE_SERVER2_ANON_KEY ||
+  'sb_publishable_h6pz72HjpfiXGTBuLMcuTQ_Fx8ZAHDm';
+
 function createDefaultClusterState(): SupabaseClusterState {
   const cfg = loadConfig();
   const initialUrl = cfg.supabaseUrl ? (sanitizeSupabaseUrlForServer(cfg.supabaseUrl) || cfg.supabaseUrl.trim()) : '';
   const initialKey = (cfg.supabaseKey || '').trim();
+  const s2Url = sanitizeSupabaseUrlForServer(DEFAULT_SERVER2_URL) || DEFAULT_SERVER2_URL;
+  const s2Key = DEFAULT_SERVER2_KEY.trim();
   const cycleKey = getBillingCycleKey(1);
   const nowIso = new Date().toISOString();
 
@@ -1301,8 +1324,8 @@ function createDefaultClusterState(): SupabaseClusterState {
       server2: {
         id: 'server2',
         label: 'Server 2 (Standby)',
-        supabaseUrl: '',
-        supabaseKey: '',
+        supabaseUrl: s2Url,
+        supabaseKey: s2Key,
         status: 'paused',
         egressLimitGb: 5.0,
         warningThresholdPct: 80,
@@ -1328,11 +1351,17 @@ function loadClusterState(): SupabaseClusterState {
   }
 
   let state = createDefaultClusterState();
+  let needsSave = false;
   if (fs.existsSync(CLUSTER_FILE)) {
     try {
       const raw = fs.readFileSync(CLUSTER_FILE, 'utf-8');
       const parsed = safeParseJson(raw, null);
       if (parsed && parsed.servers && parsed.servers.server1 && parsed.servers.server2) {
+        const s2Url = parsed.servers.server2.supabaseUrl || state.servers.server2.supabaseUrl;
+        const s2Key = parsed.servers.server2.supabaseKey || state.servers.server2.supabaseKey;
+        if (!parsed.servers.server2.supabaseUrl || !parsed.servers.server2.supabaseKey) {
+          needsSave = true;
+        }
         state = {
           activeServerId:
             parsed.activeServerId === 'server1' || parsed.activeServerId === 'server2'
@@ -1340,8 +1369,20 @@ function loadClusterState(): SupabaseClusterState {
               : null,
           clusterRevision: Number(parsed.clusterRevision) || 1,
           servers: {
-            server1: { ...state.servers.server1, ...parsed.servers.server1, id: 'server1' },
-            server2: { ...state.servers.server2, ...parsed.servers.server2, id: 'server2' }
+            server1: {
+              ...state.servers.server1,
+              ...parsed.servers.server1,
+              id: 'server1',
+              supabaseUrl: parsed.servers.server1.supabaseUrl || state.servers.server1.supabaseUrl,
+              supabaseKey: parsed.servers.server1.supabaseKey || state.servers.server1.supabaseKey
+            },
+            server2: {
+              ...state.servers.server2,
+              ...parsed.servers.server2,
+              id: 'server2',
+              supabaseUrl: s2Url,
+              supabaseKey: s2Key
+            }
           }
         };
       }
@@ -1349,11 +1390,14 @@ function loadClusterState(): SupabaseClusterState {
       console.error('Error reading supabase_cluster.json, using default state:', e);
     }
   } else {
-    atomicWriteFileSync(CLUSTER_FILE, JSON.stringify(state, null, 2));
+    needsSave = true;
   }
 
   ensureBillingCycleCurrent(state.servers.server1);
   ensureBillingCycleCurrent(state.servers.server2);
+  if (needsSave) {
+    atomicWriteFileSync(CLUSTER_FILE, JSON.stringify(state, null, 2));
+  }
   cachedClusterState = state;
   return state;
 }
@@ -1366,6 +1410,8 @@ function saveClusterState(state: SupabaseClusterState, immediate: boolean = true
       clusterPersistTimer = null;
     }
     atomicWriteFileSync(CLUSTER_FILE, JSON.stringify(state, null, 2));
+    // Mirror authoritative changes (calibration, config, active/pause) to cloud cluster state
+    void saveClusterStateToCloud(state).catch(() => {});
   } else if (!clusterPersistTimer) {
     clusterPersistTimer = setTimeout(() => {
       clusterPersistTimer = null;
@@ -1388,13 +1434,19 @@ function getActiveClusterServer(): SupabaseServerSlot | null {
 
 function computeSlotEgressMetrics(slot: SupabaseServerSlot) {
   ensureBillingCycleCurrent(slot);
-  const totalBytes = Math.max(0, (Number(slot.trackedBytesThisCycle) || 0) + (Number(slot.calibrationOffsetBytes) || 0));
+  const trackedBytes = Math.max(0, Number(slot.trackedBytesThisCycle) || 0);
+  const calibrationOffsetBytes = Number(slot.calibrationOffsetBytes) || 0;
+  const totalBytes = Math.max(0, trackedBytes + calibrationOffsetBytes);
   const usedGb = Number((totalBytes / BYTES_PER_GB).toFixed(3));
+  const trackedGb = Number((trackedBytes / BYTES_PER_GB).toFixed(4));
   const limitGb = Math.max(0.1, Number(slot.egressLimitGb) || 5.0);
   const pct = Number(Math.min(100, (usedGb / limitGb) * 100).toFixed(1));
   const warningThresholdPct = Math.max(10, Math.min(99, Number(slot.warningThresholdPct) || 80));
   return {
     totalBytes,
+    trackedBytes,
+    calibrationOffsetBytes,
+    trackedGb,
     usedGb,
     limitGb,
     pct,
@@ -1576,9 +1628,9 @@ async function runFullMigrationJob(job: MigrationJobState, sourceSlot: SupabaseS
           sourceRows.push(...batch);
         }
 
-        // Meter source egress bytes accurately
+        // Meter compressed wire egress bytes accurately
         try {
-          recordServerEgressBytes(sourceSlot.id, Buffer.byteLength(JSON.stringify(batch), 'utf8'));
+          recordServerEgressBytes(sourceSlot.id, estimateWireEgressBytes(batch));
         } catch {}
 
         if (batch.length < PAGE_SIZE) break;
@@ -1740,11 +1792,11 @@ async function fetchFullTableFromOrigin(table: CacheableSupabaseTable): Promise<
     from += BATCH_SIZE;
   }
 
-  // Meter exact origin bytes downloaded for active server
+  // Meter compressed wire egress bytes downloaded for active server
   try {
     const activeSlot = getActiveClusterServer();
     if (activeSlot && allRows.length > 0) {
-      recordServerEgressBytes(activeSlot.id, Buffer.byteLength(JSON.stringify(allRows), 'utf8'));
+      recordServerEgressBytes(activeSlot.id, estimateWireEgressBytes(allRows));
     }
   } catch {}
 
@@ -1936,11 +1988,11 @@ async function fetchSettingsFromOrigin(): Promise<any | null> {
     } catch {}
   }
 
-  // Meter exact settings + Base64 logo bytes downloaded for active server
+  // Meter compressed wire egress bytes for settings + Base64 logos downloaded for active server
   try {
     const activeSlot = getActiveClusterServer();
     if (activeSlot) {
-      recordServerEgressBytes(activeSlot.id, Buffer.byteLength(JSON.stringify(structuredSettings), 'utf8'));
+      recordServerEgressBytes(activeSlot.id, estimateWireEgressBytes(structuredSettings));
     }
   } catch {}
 
@@ -2112,6 +2164,29 @@ app.post('/api/supabase-cache/invalidate', (req, res) => {
 // =========================================================================
 // DUAL-SUPABASE FAILOVER ADMIN ENDPOINTS (STRICTLY RAIHAN EKL001 ONLY)
 // =========================================================================
+
+// Lightweight client browser egress telemetry beacon (callable by any logged-in user; 0 bytes Supabase egress)
+app.post('/api/supabase-failover/report-egress', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const headerUid = typeof req.headers['x-session-uid'] === 'string' ? req.headers['x-session-uid'].trim().toUpperCase() : '';
+  const bodyUid = typeof req.body?.uid === 'string' ? req.body.uid.trim().toUpperCase() : '';
+  const cookieHeader = typeof req.headers.cookie === 'string' ? req.headers.cookie : '';
+  const hasCookieUid = /ekl_auth_session=[^;]+/.test(cookieHeader);
+  const validUid = headerUid || (/^[A-Z0-9_-]{2,32}$/.test(bodyUid) ? bodyUid : '') || (hasCookieUid ? 'SESSION' : '');
+  if (!validUid) {
+    return res.status(401).json({ success: false, message: 'Active session required.' });
+  }
+  const bytes = Math.round(Number(req.body?.bytes) || 0);
+  if (!Number.isFinite(bytes) || bytes <= 0 || bytes > 50_000_000) {
+    return res.json({ success: true, ignored: true });
+  }
+  const activeSlot = getActiveClusterServer();
+  if (!activeSlot) {
+    return res.json({ success: true, ignored: true });
+  }
+  recordServerEgressBytes(activeSlot.id, bytes);
+  return res.json({ success: true, recorded: bytes, serverId: activeSlot.id });
+});
 
 app.get('/api/supabase-failover/status', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -2488,6 +2563,240 @@ app.get('/api/supabase-failover/migrate/:jobId', (req, res) => {
     return res.status(404).json({ success: false, message: 'Migration job not found.' });
   }
   return res.json({ success: true, job });
+});
+
+// Unified chunked 12-table migration endpoint (shared contract with Vercel serverless /api/supabase-failover/migrate-table)
+app.post('/api/supabase-failover/migrate-table', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!requireRaihanOperator(req, res)) return;
+
+  try {
+    const phase = String(req.body?.phase || '').trim();
+    const sourceServerId = req.body?.sourceServerId as ServerSlotId;
+    const targetServerId = req.body?.targetServerId as ServerSlotId;
+
+    if (
+      (sourceServerId !== 'server1' && sourceServerId !== 'server2') ||
+      (targetServerId !== 'server1' && targetServerId !== 'server2') ||
+      sourceServerId === targetServerId
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Source and target servers must be distinct (server1 <-> server2).'
+      });
+    }
+
+    const cluster = loadClusterState();
+    const sourceSlot = cluster.servers[sourceServerId];
+    const targetSlot = cluster.servers[targetServerId];
+
+    if (!sourceSlot.supabaseUrl || !sourceSlot.supabaseKey) {
+      return res.status(400).json({ success: false, message: `${sourceSlot.label} credentials are not configured.` });
+    }
+    if (!targetSlot.supabaseUrl || !targetSlot.supabaseKey) {
+      return res.status(400).json({
+        success: false,
+        message: `${targetSlot.label} credentials are not configured yet. Save its URL and Key first.`
+      });
+    }
+
+    if (phase === 'preflight') {
+      const targetClient = createClient(targetSlot.supabaseUrl, targetSlot.supabaseKey, {
+        auth: { persistSession: false, autoRefreshToken: false }
+      });
+
+      const checks = await Promise.all(
+        MIGRATION_TABLES.map(async (def) => {
+          const { error } = await targetClient
+            .from(def.table)
+            .select('*', { count: 'exact', head: true })
+            .limit(1);
+          if (!error) {
+            return { table: def.table, label: def.label, required: def.required, ok: true, skipped: false, error: null };
+          }
+          const isMissing =
+            error.code === 'PGRST205' ||
+            error.code === '42P01' ||
+            error.message?.includes('does not exist') ||
+            error.message?.includes('schema cache');
+          const isPerm = isServerPermissionDeniedError(error);
+          if (!def.required) {
+            return { table: def.table, label: def.label, required: false, ok: true, skipped: true, error: null };
+          }
+          return {
+            table: def.table,
+            label: def.label,
+            required: true,
+            ok: false,
+            skipped: false,
+            error: isPerm ? 'Permission denied (run GRANT SQL)' : isMissing ? 'Table missing on target server' : error.message
+          };
+        })
+      );
+
+      const missingRequired = checks.filter((c) => !c.ok);
+      return res.json({
+        success: missingRequired.length === 0,
+        checks,
+        message:
+          missingRequired.length === 0
+            ? `Pre-flight passed on ${targetSlot.label}. Starting table copy...`
+            : `Target server is missing or denying access to: ${missingRequired.map((m) => m.table).join(', ')}. Copy & run the 12-Table Setup SQL in ${targetSlot.label}'s SQL Editor first.`
+      });
+    }
+
+    if (phase === 'copy') {
+      const tableName = String(req.body?.table || '').trim();
+      const def = MIGRATION_TABLES.find((t) => t.table === tableName);
+      if (!def) {
+        return res.status(400).json({ success: false, message: `Unsupported migration table: ${tableName}` });
+      }
+
+      const offset = Math.max(0, Math.floor(Number(req.body?.offset) || 0));
+      const limit = Math.max(50, Math.min(500, Math.floor(Number(req.body?.limit) || 400)));
+
+      const sourceClient = createClient(sourceSlot.supabaseUrl, sourceSlot.supabaseKey, {
+        auth: { persistSession: false, autoRefreshToken: false }
+      });
+      const targetClient = createClient(targetSlot.supabaseUrl, targetSlot.supabaseKey, {
+        auth: { persistSession: false, autoRefreshToken: false }
+      });
+
+      let totalRows: number | null = null;
+      if (offset === 0) {
+        const cnt = await sourceClient.from(def.table).select('*', { count: 'exact', head: true });
+        if (cnt.error) {
+          const isMissing =
+            cnt.error.code === 'PGRST205' ||
+            cnt.error.code === '42P01' ||
+            cnt.error.message?.includes('does not exist');
+          if (!def.required || isMissing) {
+            return res.json({
+              success: true,
+              table: def.table,
+              skipped: true,
+              copiedInSlice: 0,
+              nextOffset: 0,
+              totalRows: 0,
+              hasMore: false
+            });
+          }
+        }
+        totalRows = cnt.count ?? null;
+      }
+
+      const { data, error } = await sourceClient
+        .from(def.table)
+        .select('*')
+        .range(offset, offset + limit - 1);
+
+      if (error) {
+        const isMissing =
+          error.code === 'PGRST205' ||
+          error.code === '42P01' ||
+          error.message?.includes('does not exist');
+        if (!def.required || isMissing) {
+          return res.json({
+            success: true,
+            table: def.table,
+            skipped: true,
+            copiedInSlice: 0,
+            nextOffset: offset,
+            totalRows: 0,
+            hasMore: false
+          });
+        }
+        if (isServerSupabaseQuotaError(error)) {
+          markServerSupabaseRestricted(error);
+        }
+        return res.status(500).json({
+          success: false,
+          table: def.table,
+          message: `Read error on ${def.table}: ${error.message}`
+        });
+      }
+
+      const rawBatch = Array.isArray(data) ? (data as any[]) : [];
+      if (rawBatch.length === 0) {
+        return res.json({
+          success: true,
+          table: def.table,
+          skipped: false,
+          copiedInSlice: 0,
+          nextOffset: offset,
+          totalRows: totalRows ?? offset,
+          hasMore: false
+        });
+      }
+
+      const batch =
+        def.table === 'knitting_orders'
+          ? rawBatch.map((r) => {
+              if (r && r.raw_data && typeof r.raw_data === 'object' && 'items' in r.raw_data) {
+                const { items: _dup, ...slimMeta } = r.raw_data;
+                return { ...r, raw_data: slimMeta };
+              }
+              return r;
+            })
+          : rawBatch;
+
+      try {
+        recordServerEgressBytes(sourceSlot.id, estimateWireEgressBytes(rawBatch));
+      } catch {}
+
+      const UPSERT_CHUNK = 200;
+      for (let i = 0; i < batch.length; i += UPSERT_CHUNK) {
+        const chunk = batch.slice(i, i + UPSERT_CHUNK);
+        let { error: upsertErr } = await targetClient
+          .from(def.table)
+          .upsert(chunk, { onConflict: def.conflictCol });
+
+        if (upsertErr && def.table === 'activity_logs') {
+          const cleanChunk = chunk.map(({ id: _omitId, ...rest }) => rest);
+          const retry = await targetClient.from(def.table).insert(cleanChunk);
+          upsertErr = retry.error;
+        } else if (upsertErr && def.conflictCol !== 'id') {
+          const retry = await targetClient.from(def.table).upsert(chunk);
+          upsertErr = retry.error;
+        }
+
+        if (upsertErr) {
+          return res.status(500).json({
+            success: false,
+            table: def.table,
+            message: `Write error on ${def.table}: ${upsertErr.message}`
+          });
+        }
+      }
+
+      const hasMore = rawBatch.length >= limit;
+      return res.json({
+        success: true,
+        table: def.table,
+        skipped: false,
+        copiedInSlice: batch.length,
+        nextOffset: offset + batch.length,
+        totalRows: totalRows ?? (offset + batch.length),
+        hasMore
+      });
+    }
+
+    if (phase === 'finalize') {
+      targetSlot.lastMigratedAt = new Date().toISOString();
+      saveClusterState(cluster, true);
+      return res.json({
+        success: true,
+        message: `Migration to ${targetSlot.label} completed. Active/Paused server states were NOT changed automatically — use Activate / Pause whenever you are ready.`
+      });
+    }
+
+    return res.status(400).json({ success: false, message: 'Invalid migration phase.' });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: err?.message || 'Error during table migration.'
+    });
+  }
 });
 
 // Shared cached public settings & branding endpoint (caches factory_units, buyers, system_settings + logos in RAM for 6 hours)

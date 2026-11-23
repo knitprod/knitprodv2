@@ -47,6 +47,9 @@ interface ServerSlotView {
   pausedAt: string | null;
   activatedAt: string | null;
   totalBytes: number;
+  trackedBytes?: number;
+  calibrationOffsetBytes?: number;
+  trackedGb?: number;
   usedGb: number;
   limitGb: number;
   pct: number;
@@ -99,6 +102,41 @@ interface DualServerFailoverPanelProps {
 
 const RAIHAN_UID = 'EKL001';
 
+const MIGRATION_TABLE_LIST: Array<{ table: string; label: string; required: boolean }> = [
+  { table: 'production_ledger', label: 'Production Ledger', required: true },
+  { table: 'yarn_allocations', label: 'Yarn Allocations', required: true },
+  { table: 'order_plans', label: 'Plan Order Followup', required: true },
+  { table: 'knitting_orders', label: 'Knitting Status Orders', required: true },
+  { table: 'textile_close_pmc', label: 'Textile Close By PMC', required: true },
+  { table: 'grey_stock_summary', label: 'Grey Stock Summary', required: true },
+  { table: 'grey_yarn_stock', label: 'Grey Yarn Stock Summary', required: true },
+  { table: 'users', label: 'System Users & Permissions', required: true },
+  { table: 'factory_units', label: 'Factory Units & Capacity', required: true },
+  { table: 'buyers', label: 'Buyers Directory', required: true },
+  { table: 'system_settings', label: 'System Settings & Logos', required: true },
+  { table: 'activity_logs', label: 'Activity Audit Logs', required: true },
+  { table: 'app_settings', label: 'Legacy App Settings (Optional)', required: false }
+];
+
+async function safeFetchJson(
+  url: string,
+  init: RequestInit
+): Promise<{ ok: boolean; status: number; data: any }> {
+  const res = await fetch(url, init);
+  const ct = (res.headers.get('content-type') || '').toLowerCase();
+  if (!ct.includes('application/json')) {
+    const raw = await res.text().catch(() => '');
+    const isHtml = raw.trim().startsWith('<!doctype') || raw.trim().startsWith('<html');
+    throw new Error(
+      isHtml
+        ? 'Failover API route is not deployed yet on this host. Redeploy the latest build (including /api/supabase-failover) and refresh.'
+        : `Unexpected server response (HTTP ${res.status}).`
+    );
+  }
+  const data = await res.json();
+  return { ok: res.ok, status: res.status, data };
+}
+
 function formatShortTimestamp(iso: string | null): string {
   if (!iso) return 'Never';
   try {
@@ -131,7 +169,7 @@ export default function DualServerFailoverPanel({
   const [draftUrls, setDraftUrls] = useState<Record<ServerSlotId, string>>({ server1: '', server2: '' });
   const [draftKeys, setDraftKeys] = useState<Record<ServerSlotId, string>>({ server1: '', server2: '' });
   const [showKeyInput, setShowKeyInput] = useState<Record<ServerSlotId, boolean>>({ server1: false, server2: false });
-  const [expandedCreds, setExpandedCreds] = useState<Record<ServerSlotId, boolean>>({ server1: false, server2: true });
+  const [expandedCreds, setExpandedCreds] = useState<Record<ServerSlotId, boolean>>({ server1: false, server2: false });
   const [expandedCalibrate, setExpandedCalibrate] = useState<Record<ServerSlotId, boolean>>({ server1: false, server2: false });
 
   // Calibration inputs per server
@@ -173,13 +211,12 @@ export default function DualServerFailoverPanel({
       if (!silent) setLoading(true);
       setLoadError(null);
       try {
-        const res = await fetch('/api/supabase-failover/status', {
+        const { ok, data: json } = await safeFetchJson('/api/supabase-failover/status', {
           method: 'GET',
           headers: authHeaders(),
           cache: 'no-store'
         });
-        const json = await res.json();
-        if (!res.ok || !json?.success) {
+        if (!ok || !json?.success) {
           setLoadError(json?.message || 'Unable to load dual-server status.');
           return;
         }
@@ -194,15 +231,12 @@ export default function DualServerFailoverPanel({
           server2: data.servers.server2.billingResetDay || 1
         });
         setCalibrateGb((prev) => ({
-          server1: prev.server1 || data.servers.server1.usedGb.toFixed(2),
-          server2: prev.server2 || data.servers.server2.usedGb.toFixed(2)
+          server1: expandedCalibrate.server1 && prev.server1 ? prev.server1 : data.servers.server1.usedGb.toFixed(2),
+          server2: expandedCalibrate.server2 && prev.server2 ? prev.server2 : data.servers.server2.usedGb.toFixed(2)
         }));
         // Expand Server 2 credentials automatically only if not configured yet
         if (!data.servers.server2.supabaseUrl || !data.servers.server2.hasKey) {
           setExpandedCreds((prev) => ({ ...prev, server2: true }));
-        }
-        if (data.activeJob && (data.activeJob.status === 'preflight' || data.activeJob.status === 'migrating')) {
-          setMigrationJob(data.activeJob);
         }
       } catch (err: any) {
         setLoadError(err?.message || 'Network error while fetching failover status.');
@@ -210,7 +244,7 @@ export default function DualServerFailoverPanel({
         if (!silent) setLoading(false);
       }
     },
-    [isRaihan, authHeaders]
+    [isRaihan, authHeaders, expandedCalibrate.server1, expandedCalibrate.server2]
   );
 
   useEffect(() => {
@@ -218,47 +252,15 @@ export default function DualServerFailoverPanel({
     fetchStatus(false);
   }, [isRaihan, fetchStatus]);
 
-  // Poll active migration job every 800ms until completed or failed
+  // Cleanup any stray timer ref on unmount
   useEffect(() => {
-    if (!isRaihan) return;
-    if (!migrationJob || (migrationJob.status !== 'preflight' && migrationJob.status !== 'migrating')) {
-      if (pollTimerRef.current) {
-        window.clearInterval(pollTimerRef.current);
-        pollTimerRef.current = null;
-      }
-      return;
-    }
-
-    const jobId = migrationJob.jobId;
-    const poll = async () => {
-      try {
-        const res = await fetch(`/api/supabase-failover/migrate/${encodeURIComponent(jobId)}`, {
-          headers: authHeaders(),
-          cache: 'no-store'
-        });
-        if (!res.ok) return;
-        const json = await res.json();
-        if (json?.success && json.job) {
-          setMigrationJob(json.job as MigrationJobState);
-          if (json.job.status === 'completed' || json.job.status === 'failed') {
-            fetchStatus(true);
-            window.dispatchEvent(new Event('epyllion_failover_status_updated'));
-            if (json.job.status === 'completed' && onSuccessNotice) {
-              onSuccessNotice(json.job.message);
-            }
-          }
-        }
-      } catch {}
-    };
-
-    pollTimerRef.current = window.setInterval(poll, 800);
     return () => {
       if (pollTimerRef.current) {
         window.clearInterval(pollTimerRef.current);
         pollTimerRef.current = null;
       }
     };
-  }, [isRaihan, migrationJob?.jobId, migrationJob?.status, authHeaders, fetchStatus, onSuccessNotice]);
+  }, []);
 
   // Strictly hidden for everyone except Raihan (EKL001)
   if (!isRaihan) {
@@ -292,13 +294,12 @@ export default function DualServerFailoverPanel({
       };
       if (keyVal) payload.supabaseKey = keyVal;
 
-      const res = await fetch('/api/supabase-failover/config', {
+      const { ok, data: json } = await safeFetchJson('/api/supabase-failover/config', {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify(payload)
       });
-      const json = await res.json();
-      if (!res.ok || !json?.success) {
+      if (!ok || !json?.success) {
         setServerFeedback((prev) => ({ ...prev, [serverId]: { ok: false, text: json?.message || 'Failed to save credentials.' } }));
         return;
       }
@@ -323,12 +324,11 @@ export default function DualServerFailoverPanel({
       if (draftUrls[serverId]?.trim()) payload.supabaseUrl = draftUrls[serverId].trim();
       if (draftKeys[serverId]?.trim()) payload.supabaseKey = draftKeys[serverId].trim();
 
-      const res = await fetch('/api/supabase-failover/test', {
+      const { data: json } = await safeFetchJson('/api/supabase-failover/test', {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify(payload)
       });
-      const json = await res.json();
       setServerFeedback((prev) => ({
         ...prev,
         [serverId]: {
@@ -366,13 +366,12 @@ export default function DualServerFailoverPanel({
         payload.currentGb = parsed;
       }
 
-      const res = await fetch('/api/supabase-failover/calibrate', {
+      const { ok, data: json } = await safeFetchJson('/api/supabase-failover/calibrate', {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify(payload)
       });
-      const json = await res.json();
-      if (!res.ok || !json?.success) {
+      if (!ok || !json?.success) {
         setServerFeedback((prev) => ({ ...prev, [serverId]: { ok: false, text: json?.message || 'Calibration failed.' } }));
         return;
       }
@@ -401,13 +400,12 @@ export default function DualServerFailoverPanel({
     setBusyAction(`toggle-${serverId}`);
     setServerFeedback((prev) => ({ ...prev, [serverId]: null }));
     try {
-      const res = await fetch('/api/supabase-failover/toggle-state', {
+      const { ok, data: json } = await safeFetchJson('/api/supabase-failover/toggle-state', {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({ serverId, action })
       });
-      const json = await res.json();
-      if (!res.ok || !json?.success) {
+      if (!ok || !json?.success) {
         setServerFeedback((prev) => ({ ...prev, [serverId]: { ok: false, text: json?.message || 'Server state change failed.' } }));
         return;
       }
@@ -447,25 +445,207 @@ export default function DualServerFailoverPanel({
     setPendingConfirm(null);
     setBusyAction(`migrate-${sourceServerId}`);
     setServerFeedback((prev) => ({ ...prev, [sourceServerId]: null }));
+
+    const targetLabel = targetServerId === 'server1' ? 'Server 1' : 'Server 2';
+    const initialTables: MigrationTableProgress[] = MIGRATION_TABLE_LIST.map((t) => ({
+      table: t.table,
+      label: t.label,
+      status: 'checking',
+      rowsCopied: 0,
+      totalRows: 0
+    }));
+
+    const jobState: MigrationJobState = {
+      jobId: `mig-${Date.now().toString(36)}`,
+      sourceServerId,
+      targetServerId,
+      status: 'preflight',
+      currentTable: null,
+      totalRowsCopied: 0,
+      message: `Verifying connection and 12-table schema on ${targetLabel}...`,
+      startedAt: new Date().toISOString(),
+      completedAt: null,
+      tables: initialTables
+    };
+    setMigrationJob({ ...jobState, tables: [...initialTables] });
+
     try {
-      const res = await fetch('/api/supabase-failover/migrate', {
+      // Phase 1: Pre-flight verify all 12 tables on target server
+      const pre = await safeFetchJson('/api/supabase-failover/migrate-table', {
         method: 'POST',
         headers: authHeaders(),
-        body: JSON.stringify({ sourceServerId, targetServerId })
+        body: JSON.stringify({ phase: 'preflight', sourceServerId, targetServerId })
       });
-      const json = await res.json();
-      if (!res.ok || !json?.success) {
-        setServerFeedback((prev) => ({
-          ...prev,
-          [sourceServerId]: { ok: false, text: json?.message || 'Could not start migration.' }
-        }));
+
+      if (!pre.ok || !pre.data?.success) {
+        const checks = Array.isArray(pre.data?.checks) ? pre.data.checks : [];
+        const updatedTables: MigrationTableProgress[] = initialTables.map((t) => {
+          const chk = checks.find((c: any) => c.table === t.table);
+          if (!chk) return { ...t, status: 'pending' };
+          if (chk.skipped) return { ...t, status: 'skipped' };
+          return chk.ok
+            ? { ...t, status: 'pending' }
+            : { ...t, status: 'error', error: chk.error || 'Missing or permission denied' };
+        });
+        setMigrationJob({
+          ...jobState,
+          status: 'failed',
+          completedAt: new Date().toISOString(),
+          error: pre.data?.message || 'Pre-flight schema check failed.',
+          message: 'Pre-flight check failed. Active/Paused server states were NOT changed.',
+          tables: updatedTables
+        });
         return;
       }
-      setMigrationJob(json.job as MigrationJobState);
+
+      const checks = Array.isArray(pre.data?.checks) ? pre.data.checks : [];
+      let tablesState: MigrationTableProgress[] = initialTables.map((t) => {
+        const chk = checks.find((c: any) => c.table === t.table);
+        return chk?.skipped ? { ...t, status: 'skipped' } : { ...t, status: 'pending' };
+      });
+      let grandTotalCopied = 0;
+
+      setMigrationJob({
+        ...jobState,
+        status: 'migrating',
+        message: `Pre-flight passed. Copying all 12 tables to ${targetLabel}...`,
+        tables: [...tablesState]
+      });
+
+      // Phase 2: Copy each table sequentially in serverless-safe 400-row slices
+      for (let idx = 0; idx < tablesState.length; idx++) {
+        const tbl = tablesState[idx];
+        if (tbl.status === 'skipped') continue;
+
+        tablesState = tablesState.map((item, i) =>
+          i === idx ? { ...item, status: 'copying' } : item
+        );
+        setMigrationJob({
+          ...jobState,
+          status: 'migrating',
+          currentTable: tbl.label,
+          totalRowsCopied: grandTotalCopied,
+          message: `Copying ${tbl.label} to ${targetLabel}...`,
+          tables: [...tablesState]
+        });
+
+        let offset = 0;
+        let tableTotal = 0;
+        let tableCopied = 0;
+        let skipped = false;
+
+        while (true) {
+          const sliceRes = await safeFetchJson('/api/supabase-failover/migrate-table', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({
+              phase: 'copy',
+              sourceServerId,
+              targetServerId,
+              table: tbl.table,
+              offset,
+              limit: 400
+            })
+          });
+
+          if (!sliceRes.ok || !sliceRes.data?.success) {
+            const errMsg = sliceRes.data?.message || `Failed copying ${tbl.table}`;
+            tablesState = tablesState.map((item, i) =>
+              i === idx ? { ...item, status: 'error', error: errMsg } : item
+            );
+            setMigrationJob({
+              ...jobState,
+              status: 'failed',
+              completedAt: new Date().toISOString(),
+              totalRowsCopied: grandTotalCopied,
+              error: errMsg,
+              message: 'Migration stopped safely. Active/Paused server states were NOT changed.',
+              tables: [...tablesState]
+            });
+            return;
+          }
+
+          if (sliceRes.data.skipped) {
+            skipped = true;
+            break;
+          }
+
+          const copiedNow = Number(sliceRes.data.copiedInSlice) || 0;
+          tableCopied += copiedNow;
+          grandTotalCopied += copiedNow;
+          if (typeof sliceRes.data.totalRows === 'number' && sliceRes.data.totalRows > tableTotal) {
+            tableTotal = sliceRes.data.totalRows;
+          }
+          if (tableCopied > tableTotal) tableTotal = tableCopied;
+
+          tablesState = tablesState.map((item, i) =>
+            i === idx ? { ...item, rowsCopied: tableCopied, totalRows: tableTotal } : item
+          );
+          setMigrationJob({
+            ...jobState,
+            status: 'migrating',
+            currentTable: tbl.label,
+            totalRowsCopied: grandTotalCopied,
+            message: `Copying ${tbl.label} (${tableCopied.toLocaleString()} / ${tableTotal.toLocaleString()} rows)...`,
+            tables: [...tablesState]
+          });
+
+          if (!sliceRes.data.hasMore) break;
+          offset = Number(sliceRes.data.nextOffset) || offset + 400;
+        }
+
+        tablesState = tablesState.map((item, i) =>
+          i === idx
+            ? { ...item, status: skipped ? 'skipped' : 'done', rowsCopied: tableCopied, totalRows: tableTotal }
+            : item
+        );
+        setMigrationJob({
+          ...jobState,
+          status: 'migrating',
+          totalRowsCopied: grandTotalCopied,
+          tables: [...tablesState]
+        });
+      }
+
+      // Phase 3: Finalize migration timestamp (NEVER auto-switches!)
+      const fin = await safeFetchJson('/api/supabase-failover/migrate-table', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phase: 'finalize', sourceServerId, targetServerId })
+      });
+
+      const doneMsg =
+        fin.data?.message ||
+        `Copied ${grandTotalCopied.toLocaleString()} rows across all tables to ${targetLabel}. Active/Paused server states were NOT changed automatically.`;
+
+      setMigrationJob({
+        ...jobState,
+        status: 'completed',
+        currentTable: null,
+        totalRowsCopied: grandTotalCopied,
+        completedAt: new Date().toISOString(),
+        message: doneMsg,
+        tables: [...tablesState]
+      });
+
+      await fetchStatus(true);
+      notifyParentRefresh();
+      if (onSuccessNotice) onSuccessNotice(doneMsg);
     } catch (err: any) {
+      setMigrationJob((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: 'failed',
+              completedAt: new Date().toISOString(),
+              error: err?.message || 'Network error during migration.',
+              message: 'Migration stopped safely. Active/Paused server states were NOT changed.'
+            }
+          : null
+      );
       setServerFeedback((prev) => ({
         ...prev,
-        [sourceServerId]: { ok: false, text: err?.message || 'Network error starting migration.' }
+        [sourceServerId]: { ok: false, text: err?.message || 'Network error during migration.' }
       }));
     } finally {
       setBusyAction(null);
@@ -584,6 +764,11 @@ export default function DualServerFailoverPanel({
                 <span className="text-sm font-bold text-slate-900 dark:text-white">
                   {slot.usedGb.toFixed(2)} / {slot.limitGb.toFixed(2)} GB
                 </span>
+                {slot.usedGb > 0 && slot.usedGb < 1 && (
+                  <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                    ({(slot.usedGb * 1000).toFixed(1)} MB)
+                  </span>
+                )}
                 <span className={`text-xs font-bold ${pctTextClass}`}>
                   {slot.pct.toFixed(1)}%
                 </span>
@@ -658,8 +843,16 @@ export default function DualServerFailoverPanel({
           {/* Expandable Calibration Panel */}
           {expandedCalibrate[slot.id] && (
             <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 p-3 space-y-2.5">
-              <div className="text-[11px] text-slate-600 dark:text-slate-400">
-                Match this meter to the exact GB displayed in your Supabase Dashboard (auto-tracks live server reads going forward).
+              <div className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                Live meter automatically tracks browser + server reads for all users in decimal GB (matching Supabase Free Plan). Because Supabase&apos;s dashboard also counts Studio SQL/Table Editor visits, enter the exact GB from your Supabase Dashboard anytime to snap this bar in sync.
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                <span>
+                  Auto-tracked: <strong className="text-slate-700 dark:text-slate-200">{((slot.trackedBytes || 0) / 1_000_000).toFixed(2)} MB</strong>
+                </span>
+                <span>
+                  Dashboard baseline: <strong className="text-slate-700 dark:text-slate-200">{((slot.calibrationOffsetBytes || 0) / 1_000_000).toFixed(2)} MB</strong>
+                </span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <label className="space-y-1">
